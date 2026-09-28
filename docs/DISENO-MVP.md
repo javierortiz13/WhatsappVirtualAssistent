@@ -835,9 +835,9 @@ Es suficiente para "no, eran 25" y para "¿cuál de estas categorías?". Es bara
 
 ### Preguntas abiertas (cerradas con valores por defecto al aprobar la fase)
 
-1. Moneda por defecto de gastos: se pregunta en el onboarding; no hay valor impuesto.
-2. `business_type` inicial: `car_wash`, `food`, `retail`, `services`, `other`.
-3. Retención de `message.body`: 90 días.
+1. Moneda por defecto de gastos: USD preseleccionado en el onboarding, configurable por tenant. Aprobado.
+2. `business_type` inicial: `car_wash`, `food`, `retail`, `services`, `other`. Todos comercio fijo. Aprobado.
+3. Retención de `message.body`: 90 días. Aprobado.
 
 ### Riesgos detectados
 
