@@ -7,8 +7,8 @@ Documento acumulativo. Cada fase agrega una sección al cerrarse.
 | Fase | Estado |
 |---|---|
 | 0. Descubrimiento (Product Brief) | Aprobado |
-| 1. Requerimientos | Entregado, pendiente de aprobación |
-| 2. Modelo de dominio y datos | Pendiente |
+| 1. Requerimientos | Aprobado |
+| 2. Modelo de dominio y datos | Entregado, pendiente de aprobación |
 | 3. Arquitectura | Pendiente |
 | 4. UX conversacional | Pendiente |
 | 5. UX/UI dashboard | Pendiente |
@@ -355,12 +355,12 @@ CRM, pedidos, clientes. Bot de atención a clientes finales. Verificación banca
 - IVA no se modela en el MVP; el gasto es el total pagado.
 - Sin plantillas pagadas en el MVP.
 
-### Preguntas abiertas
+### Preguntas abiertas (resueltas al aprobar la fase)
 
-1. Lista de categorías por defecto por tipo de negocio (autolavado, comida, bodega, servicios, otro). Propongo definirla en Fase 4 con los guiones.
-2. ¿El Empleado puede registrar ingresos, o solo gastos? Propuesta: ambos, pero solo el dueño ve totales.
-3. ¿Retención de fotos de facturas de 12 meses es suficiente para el contador?
-4. Indicador de "escribiendo" y botones interactivos: verificar en la documentación vigente de la Cloud API los límites (3 botones por mensaje, 10 filas por lista) antes de la Fase 4.
+1. Categorías por defecto por tipo de negocio: se definen en Fase 4 con los guiones.
+2. El Empleado registra gastos e ingresos; solo el dueño ve totales. Aprobado.
+3. Retención de fotos de facturas: 12 meses. Aprobado, y se comunica como valor agregado.
+4. Límites de botones (3) y listas (10 filas) interactivas: se asumen esos valores y se validan en pruebas con el número de prueba durante la semana 1.
 
 ### Riesgos detectados
 
@@ -368,3 +368,480 @@ CRM, pedidos, clientes. Bot de atención a clientes finales. Verificación banca
 - El presupuesto de 5 USD por tenant depende de precios de LLM, voz y Meta que cambian. Mitigación: medir costo por mensaje desde el walking skeleton.
 - Desglose de ingresos que no cuadra con el total es el error humano más probable. Mitigación: validación aritmética en backend con mensaje claro, nunca guardar sin cuadrar.
 - Fuera de alcance mal calibrado: si el rechazo es demasiado agresivo, el dueño se frustra ("gasté en algo raro" rechazado). Mitigación: evals de conversación en Fase 8 con casos límite.
+
+---
+
+## Fase 2. Modelo de dominio y datos
+
+### Principios
+
+1. **El dinero nunca es float.** `NUMERIC` en Postgres, `Decimal` o enteros escalados en código. Montos con 2 decimales; tasa con 8 decimales porque el BCV publica hasta 8.
+2. **Cada movimiento congela su contexto monetario.** Guarda monto y moneda originales, la tasa usada (valor copiado, no solo la referencia) y los equivalentes en USD y Bs calculados en el momento de escribir. Si mañana se corrige una tasa en la tabla, la historia no cambia sola.
+3. **Fecha de negocio explícita.** `business_date` es un `DATE` en hora de Caracas y es la fecha que el dueño entiende. `created_at` es `timestamptz` en UTC y sirve para auditoría. Nunca se deriva una de la otra en consultas.
+4. **Borrado lógico en todo lo que tenga valor económico.** `deleted_at` más auditoría. El borrado físico solo existe para medios (audio) y tokens.
+5. **Todo tiene `tenant_id`.** Incluso donde parece redundante. Es lo que permite que la política de aislamiento sea uniforme.
+6. **La moneda de referencia del MVP es USD.** Los totales y reportes se agregan en USD. Bs se muestra convertido a la tasa de la fecha del reporte, y por separado se muestra el "efectivo en Bs" real para cuadrar caja. Ver "Manejo bimonetario".
+
+### Estrategia multi-tenant: row-level con `tenant_id` y RLS
+
+**Opciones evaluadas**
+
+| Criterio | A) Row-level: `tenant_id` en cada tabla + Row Level Security de Postgres | B) Schema por tenant | C) Base de datos por tenant |
+|---|---|---|---|
+| Migraciones | Una vez | Una por schema (200 tenants = 200 migraciones por cambio) | Una por base |
+| Pool de conexiones | Compartido, simple | Compartido, pero con `search_path` por request; los ORM lo manejan mal | Un pool por base; inviable con 200 |
+| Aislamiento | Lógico, reforzado por RLS en la base | Lógico por schema | Físico |
+| Consultas cruzadas (métricas del negocio, costo por tenant) | Triviales | Dolorosas | Muy dolorosas |
+| Exportar o borrar un tenant | `WHERE tenant_id = ?` | `DROP SCHEMA` | `DROP DATABASE` |
+| Riesgo de fuga | Una consulta sin filtro. RLS lo bloquea aunque el código falle | Un `search_path` mal puesto | Bajo |
+| Complejidad para un solo dev | Baja | Media-alta | Alta |
+| Escala razonable | Miles de tenants | Cientos | Decenas |
+
+**Decisión: A.** Row-level con `tenant_id NOT NULL` en todas las tablas de negocio, índices compuestos que empiezan por `tenant_id`, y **RLS activado** con una política por tabla que compara contra `current_setting('app.tenant_id')`. La aplicación abre cada transacción con `SET LOCAL app.tenant_id = '<uuid>'`. El rol de base de datos de la aplicación no tiene `BYPASSRLS`; solo el rol de migraciones y el de cron lo tienen.
+
+Por qué no B: schema por tenant se justifica cuando los tenants tienen esquemas distintos o exigencias contractuales de aislamiento. Aquí tienen el mismo esquema, pagan 20 USD y hay un dev. Las 200 migraciones por cambio son el costo que lo mata. Por qué no C: obvio a esta escala.
+
+Consecuencia: RLS es una **red de seguridad**, no el filtro principal. El código sigue filtrando por `tenant_id` explícitamente. Si el código olvida el filtro, RLS devuelve cero filas en lugar de filas ajenas. Se prueba con un test de integración que intenta leer un tenant desde otro.
+
+### Manejo bimonetario y precisión
+
+**Al escribir un movimiento**
+
+1. Se recibe `amount` y `currency` (USD o VES) desde el flujo de confirmación.
+2. Se resuelve la tasa vigente para `business_date`: la fila de `bcv_rate` con mayor `effective_date <= business_date`. Si no existe ninguna, la escritura falla con un error claro (no se inventa una tasa).
+3. Se calculan `amount_usd` y `amount_ves` con redondeo half-up a 2 decimales. Si `currency = USD`, `amount_usd = amount`; si `currency = VES`, `amount_ves = amount`. El otro se calcula.
+4. Se guarda `rate_value` copiado y `rate_id` como referencia.
+
+**Al editar** monto, moneda o fecha desde el dashboard, se recalcula todo con la tasa de la nueva fecha, y el dashboard advierte antes de guardar.
+
+**Al reportar**
+
+- Los totales se suman en USD (`SUM(amount_usd)`), que es la unidad de cuenta.
+- El equivalente en Bs del total se calcula como `total_usd × tasa de la fecha del reporte`, no como `SUM(amount_ves)`. Sumar Bs de fechas distintas a tasas distintas produce un número que no significa nada.
+- Aparte, para cuadrar caja, se muestra el efectivo real por moneda: suma de `amount` original agrupada por `payment_method` y `currency`. "Efectivo Bs: 1.850.000, Efectivo USD: 120, Pago Móvil: 3.400.000 Bs".
+
+**Tipos**
+
+| Campo | Tipo | Razón |
+|---|---|---|
+| `amount` (original) | `NUMERIC(18,2)` | Bs puede tener muchas cifras; 18 aguanta cualquier reconversión |
+| `amount_usd` | `NUMERIC(14,2)` | |
+| `amount_ves` | `NUMERIC(18,2)` | |
+| `rate_value` | `NUMERIC(18,8)` | El BCV publica con hasta 8 decimales |
+| `currency` | `CHAR(3)` con CHECK en (`USD`, `VES`) | ISO 4217. Se usa VES, no "Bs", en la base |
+
+Redondeo: half-up comercial (`ROUND_HALF_UP`), nunca el redondeo bancario por defecto de algunos lenguajes. Se fija en una sola función de dominio (`convert(amount, currency, rate)`) y se prueba con casos de borde (0.005, montos grandes en Bs).
+
+### Diagrama ER
+
+```mermaid
+erDiagram
+    TENANT ||--o{ PHONE_NUMBER : tiene
+    TENANT ||--o{ TENANT_MEMBER : tiene
+    USER_ACCOUNT ||--o{ TENANT_MEMBER : pertenece
+    USER_ACCOUNT ||--o{ MAGIC_LINK_TOKEN : recibe
+    PHONE_NUMBER ||--o{ PHONE_VERIFICATION : verifica
+    TENANT ||--o{ CATEGORY : define
+    TENANT ||--o{ MOVEMENT : registra
+    CATEGORY o|--o{ MOVEMENT : clasifica
+    BCV_RATE ||--o{ MOVEMENT : "tasa usada (referencia)"
+    PHONE_NUMBER o|--o{ MOVEMENT : "creado por (chat)"
+    USER_ACCOUNT o|--o{ MOVEMENT : "creado por (dashboard)"
+    MOVEMENT o|--o| ATTACHMENT : respalda
+    TENANT ||--o{ ATTACHMENT : posee
+    PHONE_NUMBER ||--o{ MESSAGE : intercambia
+    TENANT ||--o{ MESSAGE : posee
+    MESSAGE o|--o| WEBHOOK_EVENT : "origen crudo"
+    PHONE_NUMBER ||--o| PENDING_ACTION : "tiene a lo sumo una"
+    PENDING_ACTION o|--o| MOVEMENT : "produce al confirmar"
+    TENANT ||--o{ AUDIT_LOG : audita
+    TENANT ||--o{ INTEGRATION : "conecta (post-MVP)"
+
+    TENANT {
+        uuid id PK
+        text name
+        text business_type
+        char3 default_expense_currency
+        text timezone
+        text status
+        timestamptz created_at
+    }
+    USER_ACCOUNT {
+        uuid id PK
+        citext email UK
+        text name
+        timestamptz created_at
+    }
+    TENANT_MEMBER {
+        uuid tenant_id FK
+        uuid user_id FK
+        text role
+    }
+    PHONE_NUMBER {
+        uuid id PK
+        uuid tenant_id FK
+        text e164 UK
+        text role
+        text status
+        text display_name
+        timestamptz verified_at
+    }
+    PHONE_VERIFICATION {
+        uuid id PK
+        uuid tenant_id FK
+        uuid phone_id FK
+        text code_hash
+        int attempts
+        timestamptz expires_at
+        timestamptz used_at
+    }
+    CATEGORY {
+        uuid id PK
+        uuid tenant_id FK
+        text name
+        text kind
+        bool is_active
+        int sort_order
+    }
+    BCV_RATE {
+        uuid id PK
+        date effective_date UK
+        numeric rate
+        timestamptz published_at
+        text source
+        timestamptz fetched_at
+    }
+    MOVEMENT {
+        uuid id PK
+        uuid tenant_id FK
+        text type
+        date business_date
+        numeric amount
+        char3 currency
+        uuid rate_id FK
+        numeric rate_value
+        numeric amount_usd
+        numeric amount_ves
+        uuid category_id FK
+        text payment_method
+        text description
+        text origin
+        text source_channel
+        uuid created_by_phone_id FK
+        uuid created_by_user_id FK
+        uuid source_message_id FK
+        uuid attachment_id FK
+        timestamptz created_at
+        timestamptz updated_at
+        timestamptz deleted_at
+    }
+    ATTACHMENT {
+        uuid id PK
+        uuid tenant_id FK
+        text kind
+        text storage_key
+        text mime_type
+        int size_bytes
+        text sha256
+        timestamptz created_at
+        timestamptz deleted_at
+    }
+    WEBHOOK_EVENT {
+        uuid id PK
+        text event_key UK
+        jsonb payload
+        timestamptz received_at
+        timestamptz processed_at
+        text status
+        text error
+    }
+    MESSAGE {
+        uuid id PK
+        uuid tenant_id FK
+        uuid phone_id FK
+        text direction
+        text wa_message_id UK
+        text kind
+        text body
+        text media_id
+        jsonb tool_calls
+        int tokens_in
+        int tokens_out
+        int latency_ms
+        numeric cost_usd
+        text status
+        timestamptz created_at
+    }
+    PENDING_ACTION {
+        uuid id PK
+        uuid tenant_id FK
+        uuid phone_id FK
+        text kind
+        jsonb payload
+        text status
+        uuid prompt_message_id FK
+        timestamptz expires_at
+        timestamptz resolved_at
+    }
+    AUDIT_LOG {
+        bigint id PK
+        uuid tenant_id FK
+        text actor_type
+        uuid actor_id
+        text action
+        text entity
+        uuid entity_id
+        jsonb before
+        jsonb after
+        text channel
+        timestamptz created_at
+    }
+    INTEGRATION {
+        uuid id PK
+        uuid tenant_id FK
+        text provider
+        bytea config_encrypted
+        text status
+        timestamptz last_sync_at
+    }
+    MAGIC_LINK_TOKEN {
+        uuid id PK
+        uuid user_id FK
+        text token_hash
+        timestamptz expires_at
+        timestamptz used_at
+    }
+```
+
+### Entidades, una línea cada una
+
+| Entidad | Qué es | Notas |
+|---|---|---|
+| `tenant` | El negocio | `business_type` alimenta categorías por defecto. `status`: `active`, `suspended`, `trial` |
+| `user_account` | Persona que entra al dashboard | Identidad por correo. Separada de `phone_number` a propósito |
+| `tenant_member` | Relación persona-negocio con rol de dashboard | MVP: solo `owner`. Deja lista la opción "varios negocios por dueño" |
+| `phone_number` | Identidad de WhatsApp dentro de un tenant | `e164` único global: un número pertenece a un solo tenant (decisión 1). `role`: `owner`, `employee`. `status`: `pending`, `active`, `disabled` |
+| `phone_verification` | Código de vinculación | Hash del código, 3 intentos, 15 minutos |
+| `category` | Categoría de gasto (y de ingreso, reservado) | `kind`: `expense`, `income`. Desactivar, no borrar |
+| `bcv_rate` | Una tasa por fecha de vigencia | Global, no por tenant. "Vigente hoy" = mayor `effective_date <= hoy`. "Última publicada" = mayor `effective_date` |
+| `movement` | El corazón: un gasto o un ingreso | Ver campos abajo |
+| `attachment` | Foto de factura (y audio transitorio) | `storage_key` apunta a almacenamiento privado. Audio se borra al terminar el flujo |
+| `webhook_event` | Payload crudo de Meta | `event_key` único = idempotencia en la puerta. Permite reprocesar. Retención 7 días |
+| `message` | Mensaje normalizado, entrante o saliente | Memoria de conversación (últimos N por teléfono) y observabilidad (tokens, latencia, costo) |
+| `pending_action` | El borrador esperando Guardar / Corregir / Cancelar | A lo sumo una activa por teléfono. `kind`: `create_expense`, `create_income`, `edit_last`, `delete_last`, `replace_day_total`. Expira a 10 min |
+| `audit_log` | Quién hizo qué | Escritura en la misma transacción que el cambio |
+| `integration` | Conexión externa (Odoo, post-MVP) | Config cifrada. Es la tabla que respalda el adapter cuando exista un segundo proveedor |
+| `magic_link_token` | Token de acceso al dashboard | Hash, un uso, 15 min |
+
+**Campos de `movement` que merecen explicación**
+
+- `type`: `expense` o `income`.
+- `origin`: `single` (un gasto o un ingreso suelto) o `day_total` (generado por "hoy vendí…"). Permite "Reemplazar el total del día" sin tocar los ingresos sueltos.
+- `payment_method`: `cash_usd`, `cash_ves`, `pago_movil`, `punto`, `zelle`, `transfer_usd`, `transfer_ves`, `other`, `unspecified`. Enum en el MVP; tabla por tenant cuando alguien lo pida. Obligatorio en ingresos, opcional en gastos.
+- `source_channel`: `text`, `voice`, `image`, `dashboard`. Alimenta la métrica de error por canal.
+- `created_by_phone_id` o `created_by_user_id`: exactamente uno no nulo (CHECK).
+- `source_message_id`: el mensaje de WhatsApp que lo originó. Trazabilidad completa desde el chat hasta la fila.
+- `attachment_id`: la foto de la factura, si la hubo.
+
+### Esquema inicial (DDL, Postgres 16+)
+
+Solo las tablas centrales; el resto sigue el mismo patrón. Los nombres están en inglés porque el código lo estará; el producto habla español.
+
+```sql
+CREATE EXTENSION IF NOT EXISTS citext;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE tenant (
+  id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name                      text NOT NULL,
+  business_type             text NOT NULL,                 -- car_wash, food, retail, services, other
+  default_expense_currency  char(3) CHECK (default_expense_currency IN ('USD','VES')),
+  timezone                  text NOT NULL DEFAULT 'America/Caracas',
+  status                    text NOT NULL DEFAULT 'trial' CHECK (status IN ('trial','active','suspended')),
+  created_at                timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE phone_number (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id     uuid NOT NULL REFERENCES tenant(id),
+  e164          text NOT NULL UNIQUE,                       -- un número, un tenant
+  role          text NOT NULL CHECK (role IN ('owner','employee')),
+  status        text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','disabled')),
+  display_name  text,
+  verified_at   timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ON phone_number (tenant_id);
+
+CREATE TABLE bcv_rate (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  effective_date  date NOT NULL UNIQUE,
+  rate            numeric(18,8) NOT NULL CHECK (rate > 0),  -- VES por 1 USD
+  published_at    timestamptz,
+  source          text NOT NULL,                            -- 'bcv', 'backup_x'
+  fetched_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE category (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id   uuid NOT NULL REFERENCES tenant(id),
+  name        text NOT NULL,
+  kind        text NOT NULL DEFAULT 'expense' CHECK (kind IN ('expense','income')),
+  is_active   boolean NOT NULL DEFAULT true,
+  sort_order  int NOT NULL DEFAULT 0,
+  UNIQUE (tenant_id, kind, name)
+);
+
+CREATE TABLE movement (
+  id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id            uuid NOT NULL REFERENCES tenant(id),
+  type                 text NOT NULL CHECK (type IN ('expense','income')),
+  business_date        date NOT NULL,
+  amount               numeric(18,2) NOT NULL CHECK (amount > 0),
+  currency             char(3) NOT NULL CHECK (currency IN ('USD','VES')),
+  rate_id              uuid NOT NULL REFERENCES bcv_rate(id),
+  rate_value           numeric(18,8) NOT NULL,              -- copia congelada
+  amount_usd           numeric(14,2) NOT NULL,
+  amount_ves           numeric(18,2) NOT NULL,
+  category_id          uuid REFERENCES category(id),
+  payment_method       text NOT NULL DEFAULT 'unspecified'
+                       CHECK (payment_method IN ('cash_usd','cash_ves','pago_movil','punto','zelle',
+                                                 'transfer_usd','transfer_ves','other','unspecified')),
+  description          text,
+  origin               text NOT NULL DEFAULT 'single' CHECK (origin IN ('single','day_total')),
+  source_channel       text NOT NULL CHECK (source_channel IN ('text','voice','image','dashboard')),
+  created_by_phone_id  uuid REFERENCES phone_number(id),
+  created_by_user_id   uuid REFERENCES user_account(id),
+  source_message_id    uuid REFERENCES message(id),
+  attachment_id        uuid REFERENCES attachment(id),
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now(),
+  deleted_at           timestamptz,
+  CHECK ((created_by_phone_id IS NULL) <> (created_by_user_id IS NULL)),
+  CHECK (type = 'expense' OR payment_method <> 'unspecified' OR origin = 'day_total')
+);
+-- La consulta más frecuente: movimientos vivos de un tenant en un rango de fechas
+CREATE INDEX movement_tenant_date_idx ON movement (tenant_id, business_date DESC) WHERE deleted_at IS NULL;
+CREATE INDEX movement_tenant_category_idx ON movement (tenant_id, category_id) WHERE deleted_at IS NULL;
+
+CREATE TABLE pending_action (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id          uuid NOT NULL REFERENCES tenant(id),
+  phone_id           uuid NOT NULL REFERENCES phone_number(id),
+  kind               text NOT NULL,
+  payload            jsonb NOT NULL,                          -- el borrador validado
+  status             text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','confirmed','cancelled','expired')),
+  prompt_message_id  uuid,
+  expires_at         timestamptz NOT NULL,
+  resolved_at        timestamptz,
+  created_at         timestamptz NOT NULL DEFAULT now()
+);
+-- Solo una acción pendiente por teléfono
+CREATE UNIQUE INDEX pending_action_one_active ON pending_action (phone_id) WHERE status = 'pending';
+
+CREATE TABLE webhook_event (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_key     text NOT NULL UNIQUE,                        -- wa message id, o hash del payload para statuses
+  payload       jsonb NOT NULL,
+  received_at   timestamptz NOT NULL DEFAULT now(),
+  processed_at  timestamptz,
+  status        text NOT NULL DEFAULT 'received' CHECK (status IN ('received','processing','done','failed','ignored')),
+  error         text
+);
+
+CREATE TABLE message (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id      uuid REFERENCES tenant(id),                  -- nulo si el número es desconocido
+  phone_id       uuid REFERENCES phone_number(id),
+  direction      text NOT NULL CHECK (direction IN ('in','out')),
+  wa_message_id  text UNIQUE,
+  kind           text NOT NULL,                              -- text, audio, image, interactive, system
+  body           text,
+  media_id       text,
+  tool_calls     jsonb,
+  tokens_in      int,
+  tokens_out     int,
+  latency_ms     int,
+  cost_usd       numeric(10,6),
+  status         text NOT NULL DEFAULT 'ok',                 -- ok, failed, rejected_out_of_scope, rate_limited
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX message_phone_recent_idx ON message (phone_id, created_at DESC);
+
+CREATE TABLE audit_log (
+  id          bigserial PRIMARY KEY,
+  tenant_id   uuid NOT NULL REFERENCES tenant(id),
+  actor_type  text NOT NULL CHECK (actor_type IN ('phone','user','system')),
+  actor_id    uuid,
+  action      text NOT NULL,                                  -- create, update, soft_delete, restore, role_change, link_phone
+  entity      text NOT NULL,
+  entity_id   uuid NOT NULL,
+  before      jsonb,
+  after       jsonb,
+  channel     text NOT NULL,                                  -- whatsapp, dashboard, cron
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX audit_tenant_entity_idx ON audit_log (tenant_id, entity, entity_id);
+
+-- RLS: red de seguridad por tenant
+ALTER TABLE movement ENABLE ROW LEVEL SECURITY;
+CREATE POLICY movement_tenant_isolation ON movement
+  USING (tenant_id = current_setting('app.tenant_id', true)::uuid);
+-- Misma política en category, phone_number, pending_action, message, attachment, audit_log, integration.
+-- bcv_rate y webhook_event son globales: sin RLS.
+```
+
+### Reglas de dominio que viven en el código, no en la base
+
+- **Resolver tasa vigente**: `rate_for(business_date)` devuelve la fila con mayor `effective_date <= business_date`. Si `business_date` es fin de semana o feriado, devuelve la del último día hábil y el mensaje lo dice.
+- **Convertir**: `convert(amount, currency, rate)` es la única función que multiplica o divide dinero. Devuelve ambos equivalentes ya redondeados.
+- **Total del día**: al confirmar "hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto", el backend primero verifica `200 + 100 + 50 = 350` en `Decimal`, y solo entonces crea tres movimientos `origin = day_total` en una sola transacción.
+- **Reemplazar total del día**: marca `deleted_at` en los movimientos `origin = day_total` de esa fecha y crea los nuevos, en una transacción, con una fila de auditoría por movimiento.
+- **Cierre del día**: `SUM(amount_usd)` por tipo, por categoría y por método, más `SUM(amount)` agrupado por `(payment_method, currency)` para el efectivo real. Todo en SQL, cero aritmética en el LLM.
+
+### Memoria de conversación
+
+No hay memoria vectorial ni resúmenes. El contexto del agente por turno es:
+
+1. Los últimos 10 mensajes de ese `phone_id` (tabla `message`), o los últimos 30 minutos, lo que sea menor.
+2. La `pending_action` activa, si existe.
+3. Datos del tenant: nombre, moneda por defecto, lista de categorías activas, rol del teléfono.
+
+Es suficiente para "no, eran 25" y para "¿cuál de estas categorías?". Es barato en tokens y no arrastra conversaciones viejas.
+
+### Retención
+
+| Dato | Retención | Razón |
+|---|---|---|
+| `movement`, `audit_log`, `category` | Indefinida mientras el tenant exista | Es el libro de caja |
+| Fotos de facturas | 12 meses | Aprobado en Fase 1; se comunica como valor agregado |
+| Audio | Se borra al cerrar el flujo | Costo y privacidad |
+| `message.body` | 90 días; después se conserva la fila sin cuerpo | Métricas sin acumular conversaciones |
+| `webhook_event.payload` | 7 días | Solo para reprocesar |
+| Tokens (magic link, verificación) | Se borran al usarse o expirar | |
+
+### Decisiones tomadas en la Fase 2
+
+- Multi-tenant row-level con `tenant_id` en todo y RLS como red de seguridad; el código filtra explícitamente.
+- Unidad de cuenta USD. Bs en reportes = total USD × tasa del día del reporte. Efectivo real por moneda aparte.
+- Cada movimiento congela `rate_value` y ambos equivalentes.
+- `NUMERIC` en base, `Decimal` en código, half-up, una sola función de conversión.
+- Tasa BCV global por fecha de vigencia; "vigente" y "última publicada" se derivan por consulta, no por bandera.
+- Identidad de WhatsApp (`phone_number`) separada de identidad de dashboard (`user_account`).
+- `pending_action` con índice único parcial: una sola acción pendiente por teléfono.
+- Idempotencia en dos capas: `webhook_event.event_key` único y `message.wa_message_id` único.
+- Métodos de pago como enum en el MVP.
+- `integration` reservada para Odoo; no se implementa nada más en el MVP.
+
+### Preguntas abiertas
+
+1. ¿Algún cliente objetivo querrá USD como moneda por defecto de gastos y otro Bs? Ya está soportado por tenant. Pregunta real: ¿tu autolavado y los cinnamon rolls usan por defecto USD o Bs al hablar de gastos? Define el valor inicial en el onboarding.
+2. `business_type` inicial: `car_wash`, `food`, `retail`, `services`, `other`. ¿Falta alguno para los pilotos que tienes a la vista?
+3. Retención de `message.body` de 90 días: ¿suficiente para depurar errores del agente? Alternativa: 180 días.
+
+### Riesgos detectados
+
+- Olvidar `SET LOCAL app.tenant_id` en algún camino (cron, jobs) hace que RLS devuelva cero filas y parezca "no hay datos". Mitigación: un helper único para abrir transacciones de tenant, y el cron usa un rol distinto con `BYPASSRLS` explícito.
+- Sumar `amount_ves` de fechas distintas por error en algún reporte. Mitigación: no exponer `SUM(amount_ves)` en la capa de reportes; solo `amount_usd` y efectivo real por moneda.
+- `e164` único global impide que un mismo dueño tenga dos negocios con un solo número. Es la decisión 1 y se acepta. Mitigación futura: selector de negocio por chat (Could-4).
+- Reconversión monetaria en Venezuela: `NUMERIC(18,2)` aguanta; el código que formatea montos para WhatsApp debe abreviar ("1,85 M Bs") para no mandar cifras ilegibles.
