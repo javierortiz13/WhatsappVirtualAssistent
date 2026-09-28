@@ -8,8 +8,8 @@ Documento acumulativo. Cada fase agrega una sección al cerrarse.
 |---|---|
 | 0. Descubrimiento (Product Brief) | Aprobado |
 | 1. Requerimientos | Aprobado |
-| 2. Modelo de dominio y datos | Entregado, pendiente de aprobación |
-| 3. Arquitectura | Pendiente |
+| 2. Modelo de dominio y datos | Aprobado |
+| 3. Arquitectura | Entregado, pendiente de aprobación |
 | 4. UX conversacional | Pendiente |
 | 5. UX/UI dashboard | Pendiente |
 | 6. Stack tecnológico | Pendiente |
@@ -833,11 +833,11 @@ Es suficiente para "no, eran 25" y para "¿cuál de estas categorías?". Es bara
 - Métodos de pago como enum en el MVP.
 - `integration` reservada para Odoo; no se implementa nada más en el MVP.
 
-### Preguntas abiertas
+### Preguntas abiertas (cerradas con valores por defecto al aprobar la fase)
 
-1. ¿Algún cliente objetivo querrá USD como moneda por defecto de gastos y otro Bs? Ya está soportado por tenant. Pregunta real: ¿tu autolavado y los cinnamon rolls usan por defecto USD o Bs al hablar de gastos? Define el valor inicial en el onboarding.
-2. `business_type` inicial: `car_wash`, `food`, `retail`, `services`, `other`. ¿Falta alguno para los pilotos que tienes a la vista?
-3. Retención de `message.body` de 90 días: ¿suficiente para depurar errores del agente? Alternativa: 180 días.
+1. Moneda por defecto de gastos: se pregunta en el onboarding; no hay valor impuesto.
+2. `business_type` inicial: `car_wash`, `food`, `retail`, `services`, `other`.
+3. Retención de `message.body`: 90 días.
 
 ### Riesgos detectados
 
@@ -845,3 +845,338 @@ Es suficiente para "no, eran 25" y para "¿cuál de estas categorías?". Es bara
 - Sumar `amount_ves` de fechas distintas por error en algún reporte. Mitigación: no exponer `SUM(amount_ves)` en la capa de reportes; solo `amount_usd` y efectivo real por moneda.
 - `e164` único global impide que un mismo dueño tenga dos negocios con un solo número. Es la decisión 1 y se acepta. Mitigación futura: selector de negocio por chat (Could-4).
 - Reconversión monetaria en Venezuela: `NUMERIC(18,2)` aguanta; el código que formatea montos para WhatsApp debe abreviar ("1,85 M Bs") para no mandar cifras ilegibles.
+
+---
+
+## Fase 3. Arquitectura
+
+La Fase 6 elige lenguajes y proveedores. Esta fase define piezas, responsabilidades y flujos de forma que cualquier stack razonable los pueda implementar. Donde una decisión de arquitectura implica un tipo de tecnología (por ejemplo, "cola sobre Postgres"), queda registrada como ADR y la Fase 6 la confirma o la reabre.
+
+### C4 nivel 1. Contexto
+
+```mermaid
+flowchart LR
+    owner["Dueño<br/>(WhatsApp y navegador)"]
+    employee["Empleado<br/>(WhatsApp)"]
+    sys["Asistente de caja por WhatsApp<br/>Registra gastos e ingresos, calcula cierres,<br/>expone dashboard"]
+    meta["Meta WhatsApp Cloud API<br/>Webhooks entrantes, envío de mensajes, descarga de medios"]
+    llm["Proveedor LLM<br/>Tool-calling y visión"]
+    stt["Proveedor de voz a texto"]
+    bcv["Fuente de tasa BCV<br/>principal y respaldo"]
+    mail["Proveedor de correo<br/>Magic links"]
+    store["Almacenamiento de objetos<br/>Fotos de facturas"]
+
+    owner -- "mensajes, notas de voz, fotos" --> meta
+    employee -- "mensajes, notas de voz, fotos" --> meta
+    meta -- "webhook firmado" --> sys
+    sys -- "respuestas, botones, listas" --> meta
+    owner -- "HTTPS" --> sys
+    sys -- "tools + contexto" --> llm
+    sys -- "audio" --> stt
+    sys -- "cron diario" --> bcv
+    sys -- "enlace de acceso" --> mail
+    sys -- "guarda y sirve con URL firmada" --> store
+```
+
+### C4 nivel 2. Contenedores
+
+```mermaid
+flowchart TB
+    subgraph ext["Externos"]
+        meta["Meta Cloud API"]
+        llm["LLM"]
+        stt["Voz a texto"]
+        bcv["Fuente BCV"]
+        mail["Correo"]
+    end
+
+    subgraph sys["Asistente de caja (monolito modular, un repositorio)"]
+        web["Proceso Web<br/>• Webhook de Meta (verificación de firma, idempotencia, encolar)<br/>• API del dashboard<br/>• Dashboard (mobile-first)<br/>• Auth por magic link"]
+        worker["Proceso Worker<br/>• Procesador de mensajes (por teléfono, en serie)<br/>• Agente y herramientas<br/>• Cron: tasa BCV, expiraciones, limpieza<br/>• Envío a Meta con reintentos"]
+        db[("Postgres<br/>Datos de negocio + cola de trabajos<br/>RLS por tenant")]
+        obj[("Almacenamiento de objetos<br/>Fotos de facturas, audio transitorio")]
+    end
+
+    meta -- "POST webhook" --> web
+    web -- "INSERT webhook_event + job" --> db
+    worker -- "toma jobs (SKIP LOCKED)" --> db
+    worker -- "descarga medios" --> meta
+    worker -- "envía mensajes" --> meta
+    worker --> llm
+    worker --> stt
+    worker -- "diario" --> bcv
+    worker --> obj
+    web -- "consultas dashboard" --> db
+    web -- "URLs firmadas" --> obj
+    web -- "magic link" --> mail
+```
+
+**Por qué un monolito modular y no servicios.** Un dev, un piloto, un costo objetivo de 5 USD por tenant. Dos procesos del mismo código (web y worker) es lo mínimo para que el webhook responda en menos de 1 s sin importar lo que tarde el LLM. Los módulos internos (`whatsapp`, `agent`, `ledger`, `rates`, `dashboard`) tienen fronteras claras para poder separarlos si algún día hace falta. Hoy no hace falta.
+
+**Por qué la cola vive en Postgres.** Una dependencia menos que operar. Con `SELECT … FOR UPDATE SKIP LOCKED` y una tabla `job`, Postgres maneja sin esfuerzo los cientos de mensajes por minuto que 200 tenants generan en su peor hora. Se migra a Redis o similar cuando la tabla `job` sea un cuello de botella medible, no antes. Detalle y alternativas en el ADR-003.
+
+### Módulos internos y sus fronteras
+
+| Módulo | Responsabilidad | Depende de |
+|---|---|---|
+| `whatsapp` | Verificar firma, normalizar payloads de Meta, descargar medios, enviar texto/botones/listas, marcar leído | Nada del dominio |
+| `inbox` | Idempotencia, encolar, serializar por teléfono, enrutar a handler determinista o al agente | `whatsapp`, `identity` |
+| `identity` | Resolver teléfono a tenant y rol, verificación de números, rate limit de desconocidos | `db` |
+| `agent` | Construir contexto, loop de tool-calling, guardrails, registrar tokens y costo | `tools`, `llm` |
+| `tools` | Implementación de cada herramienta; validaciones; crea `pending_action` | `ledger`, `rates` |
+| `ledger` | Provider de datos (`LocalProvider` en el MVP): crear/editar/borrar movimientos, cierres, consultas. Toda la aritmética | `db`, `rates` |
+| `rates` | Tasa BCV: cron, fuentes, "vigente" vs "última publicada", conversión | `db` |
+| `media` | Voz a texto, extracción de factura por visión, almacenamiento de objetos | Proveedores externos |
+| `render` | Plantillas de respuesta en español con las cifras que devuelven las herramientas | Nada |
+| `dashboard` | API y UI web, auth por magic link, exportación | `ledger`, `identity` |
+| `audit` | Escribir `audit_log` dentro de la transacción del cambio | `db` |
+
+Regla de dependencias: `agent` no toca `db`; solo llama herramientas. `tools` no llama al LLM. `render` no hace cuentas. Si alguien viola esto, el test de arquitectura lo detecta.
+
+### Flujo end-to-end de un mensaje
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant M as Meta Cloud API
+    participant W as Proceso Web
+    participant DB as Postgres
+    participant K as Worker
+    participant L as LLM
+    participant T as Herramientas / Ledger
+
+    M->>W: POST /webhook (X-Hub-Signature-256, body)
+    W->>W: Verificar HMAC sobre el body crudo
+    alt firma inválida
+        W-->>M: 401 (no se procesa)
+    end
+    W->>DB: INSERT webhook_event (event_key único) ON CONFLICT DO NOTHING
+    alt ya existía
+        W-->>M: 200 (duplicado ignorado)
+    else nuevo
+        W->>DB: INSERT job(process_message, phone_key)
+        W-->>M: 200 en < 1 s
+    end
+
+    K->>DB: Tomar job FOR UPDATE SKIP LOCKED, con advisory lock por teléfono
+    K->>DB: Resolver e164 -> phone_number, tenant, rol
+    alt número desconocido
+        K->>M: Texto fijo con enlace de registro (sin LLM)
+        K->>DB: message(status=rejected), job done
+    else número conocido
+        K->>M: Marcar leído (y "escribiendo", si está disponible)
+        K->>DB: INSERT message(in)
+        K->>K: Enrutar
+        alt respuesta a botón (Guardar/Corregir/Cancelar) o código de verificación
+            K->>T: Handler determinista (sin LLM)
+        else texto, voz o foto
+            opt voz o foto
+                K->>M: Descargar medio
+                K->>K: Transcribir / extraer factura (JSON estructurado)
+                K->>M: Acuse: "Recibí tu nota de voz, dame un momento"
+            end
+            K->>K: Construir contexto (tenant, rol, categorías, últimos 10 msgs, pending_action)
+            K->>L: Mensajes + definición de herramientas (timeout 20 s)
+            L-->>K: tool_call(nombre, args)
+            K->>T: Ejecutar herramienta (valida, calcula, crea pending_action si escribe)
+            T-->>K: Resultado estructurado
+            Note over K,L: Máximo 3 iteraciones. Las herramientas de escritura y de reporte terminan el loop.
+        end
+        K->>K: render: plantilla en español con cifras del resultado
+        K->>M: Enviar respuesta (texto / botones / lista), reintento 3x con backoff
+        K->>DB: INSERT message(out) con tokens, latencia, costo; job done
+    end
+```
+
+**Puntos que no se ven en el diagrama y son los que duelen en producción**
+
+1. **Serialización por teléfono.** Dos mensajes seguidos del mismo número ("gasté 20$" y luego "en champú") deben procesarse en orden. El worker toma un advisory lock por `phone_id` mientras procesa; otro worker con un job del mismo teléfono espera. Mensajes de teléfonos distintos van en paralelo.
+2. **Evitar responder dos veces.** Si el worker muere después de enviar a Meta pero antes de marcar el job como hecho, el reintento del job volvería a responder. Antes de enviar, el worker registra `message(out, status=sending)`; al reintentar, si existe un `out` para ese `webhook_event`, no vuelve a enviar y solo cierra el job.
+3. **Eventos que no son mensajes.** Meta manda `statuses` (entregado, leído) por el mismo webhook. Se registran con `status=ignored` y no generan job.
+4. **El webhook nunca depende del LLM ni del worker.** Si Postgres está caído, el webhook responde 500 y Meta reintenta con backoff. Es el único caso aceptable de no responder 200.
+5. **Timeout de Meta para mensajes viejos.** Si un job se procesa más de 24 h después (por caída larga), Meta puede rechazar la respuesta por ventana cerrada. El worker descarta jobs con más de 12 h y los marca `expired`; el dueño verá el mensaje sin respuesta y volverá a escribir.
+
+### Qué pasa cuando algo falla
+
+| Falla | Comportamiento | Quién se entera |
+|---|---|---|
+| Firma inválida | 401, no se procesa, se cuenta en métricas | Alerta si supera 10 por minuto (posible ataque o secreto rotado) |
+| Postgres caído | Webhook responde 500; Meta reintenta. Dashboard muestra error | Alerta inmediata |
+| LLM no responde en 20 s o error 5xx | Se intenta una vez con el proveedor de respaldo. Si también falla: "Ahora mismo no puedo procesar esto, inténtalo en unos minutos". No se reintenta la escritura. `message.status=failed` | Alerta si supera 5% en 10 minutos |
+| LLM responde sin tool_call en un flujo de escritura | Se trata como fuera de alcance: menú de 3 botones | Métrica |
+| Voz a texto falla | "No pude escuchar la nota de voz, ¿me lo escribes?" | Métrica |
+| Extracción de factura falla o devuelve baja confianza | "No pude leer bien la factura. ¿Cuánto fue y en qué moneda?" y sigue por texto | Métrica |
+| Envío a Meta falla (5xx, red) | 3 reintentos con backoff 2/4/8 s. Después, job `failed`, se registra | Alerta si supera 2% en 10 minutos |
+| Envío a Meta falla por 4xx (número bloqueó, ventana cerrada) | No se reintenta. Se registra | Métrica |
+| Fuente BCV principal falla | Fuente de respaldo. Si ambas fallan, reintento cada hora; conversiones usan la última vigente y el mensaje lo indica | Alerta a las 24 h sin tasa nueva en día hábil |
+| Worker muere a mitad de job | Job con `locked_until` vencido vuelve a la cola una vez. Segunda muerte: `failed` | Alerta |
+| `pending_action` de otra cosa cuando llega un botón | El botón lleva el id de la acción; si no coincide con la pendiente, "esa confirmación ya venció" | Nada |
+| Odoo (futuro) no responde | `OdooProvider` con circuit breaker: lecturas devuelven "no pude consultar Odoo"; escrituras se rechazan, nunca se encolan a ciegas | Alerta por tenant |
+
+### Diseño del agente
+
+**Principio: el LLM es un enrutador con manos atadas.** Recibe el mensaje, el contexto y una lista cerrada de herramientas. Su única salida válida es una llamada a herramienta. El texto que ve el dueño lo produce `render` a partir de resultados estructurados, salvo en las preguntas de aclaración, donde el LLM redacta pero con una validación: cualquier número en su texto debe existir en el mensaje del usuario o en un resultado de herramienta, o el texto se descarta y se usa una aclaración genérica.
+
+**Loop de tool-calling**
+
+```
+contexto = construir(tenant, rol, categorías, últimos 10 mensajes o 30 min, pending_action)
+mensajes = [system(tenant, rol, reglas), historial, usuario(texto o transcripción o JSON de factura)]
+for i in 1..3:
+    respuesta = llm.call(mensajes, herramientas_permitidas(rol), timeout=20s)
+    if respuesta no tiene tool_call:
+        return render.fuera_de_alcance()
+    resultado = tools.ejecutar(tool_call, contexto)     # valida, calcula, persiste borrador
+    if resultado.termina:                                # escrituras, reportes, rechazos, aclaraciones
+        return render(resultado)
+    mensajes.append(tool_result(resultado))              # solo para herramientas de consulta encadenables
+return render.fuera_de_alcance()
+```
+
+Casi todo termina en la primera iteración. Las iteraciones 2 y 3 existen para casos como "¿cuánto gasté en champú?" cuando la categoría no existe y la herramienta devuelve candidatas: el LLM puede elegir la más probable y volver a consultar, o pedir aclaración.
+
+**Enrutamiento previo al LLM (determinista, gratis)**
+
+| Entrada | Handler |
+|---|---|
+| Respuesta interactiva con id `confirm:<pending_id>` | Ejecuta la acción pendiente, escribe, audita, responde |
+| `cancel:<pending_id>` | Cancela, responde |
+| `fix:<pending_id>` | Marca la pendiente como "en corrección" y espera el siguiente texto, que sí va al LLM con el borrador en contexto |
+| Texto de exactamente 6 dígitos desde un número `pending` | Verificación de número |
+| "menu", "ayuda", "hola" desde número activo | Menú fijo de 3 botones |
+| Número desconocido | Texto fijo con enlace |
+| Número `disabled` | Igual que desconocido |
+
+**Herramientas del MVP**
+
+Todas reciben implícitamente `tenant_id`, `phone_id`, `rol` y `ahora` desde el contexto; el LLM no puede pasarlos. Las de escritura no escriben en `movement`: crean una `pending_action` y devuelven el borrador para confirmar.
+
+| Herramienta | Parámetros (del LLM) | Validaciones en backend | Devuelve | Rol |
+|---|---|---|---|---|
+| `draft_expense` | `amount` (string decimal), `currency` (`USD`, `VES` o `null`), `description`, `category_name` (de la lista o `null`), `business_date` (ISO o `null` = hoy) | `amount > 0`, máximo 2 decimales; `currency` nulo y sin default del tenant → resultado `needs_currency`; fecha futura o > 30 días → `needs_date_confirmation`; categoría fuera de la lista → sugiere la más parecida u "Otros"; resuelve tasa; calcula equivalentes; crea `pending_action(create_expense)` | Borrador: monto, moneda, equivalente, tasa y su fecha, categoría, fecha, `pending_id` | owner, employee |
+| `draft_income_day_total` | `business_date`, `total_amount`, `total_currency`, `breakdown[]` de `{method, amount, currency}` | Suma del desglose = total en `Decimal` (si no, `mismatch` con la diferencia); métodos válidos; si ya existe `day_total` para esa fecha → `day_already_closed`; crea `pending_action(create_income_day_total)` o `replace_day_total` | Borrador con líneas y totales | owner, employee |
+| `draft_income_single` | `amount`, `currency`, `method`, `description`, `business_date` | Como `draft_expense`, método obligatorio | Borrador | owner, employee |
+| `amend_last_movement` | `changes`: subconjunto de `{amount, currency, category_name, description, business_date}` | Último movimiento vivo del mismo teléfono, < 30 min; si no, `too_old` con enlace al dashboard; recalcula tasa si cambia fecha; crea `pending_action(edit_last)` | Antes / después | owner, employee |
+| `delete_last_movement` | ninguno | Igual que arriba; crea `pending_action(delete_last)` | El movimiento a borrar | owner, employee |
+| `get_daily_close` | `business_date` (`null` = hoy) | Solo owner; sin movimientos → `empty` | Ingresos por método, gastos por categoría, resultado, todo en USD y Bs a tasa del día, efectivo real por moneda, conteo | owner |
+| `get_period_summary` | `period` (`today`, `week`, `month`) o `from`/`to` | Solo owner; máximo 12 meses | Igual que el cierre, agregado, más top 5 gastos | owner |
+| `query_by_category` | `category_name`, `type`, `period` o `from`/`to` | Categoría inexistente → `candidates[]` (encadenable) | Total USD y Bs, conteo | owner |
+| `get_bcv_rate` | ninguno | | Vigente hoy con fecha; próxima si ya se publicó; advertencia si tiene > 3 días hábiles | owner, employee |
+| `ask_clarification` | `question`, `options[]` (0 a 3) | Texto validado (regla de números); opciones → botones | Termina el loop | todos |
+| `reject_out_of_scope` | `reason` (`general_chat`, `other_business_task`, `unclear`) | | Menú fijo. Termina el loop | todos |
+
+Las herramientas que un rol no puede usar **no se envían al LLM** para ese rol. Un empleado que pide el cierre recibe `reject_out_of_scope` porque el LLM no tiene `get_daily_close` disponible, y `render` muestra el mensaje "esa consulta es solo para el dueño" cuando el texto lo sugiere. Doble barrera: la herramienta además valida el rol.
+
+**Prompt de sistema (estructura, no texto final)**
+
+1. Identidad: "Eres el asistente de caja de {negocio}. Solo registras gastos e ingresos, consultas cierres y la tasa BCV."
+2. Reglas duras: nunca respondas con texto libre si una herramienta aplica; nunca calcules; si el mensaje no encaja, `reject_out_of_scope`; si falta un dato, `ask_clarification`, no lo inventes.
+3. Contexto: fecha y hora de Caracas, moneda por defecto del tenant, lista de categorías con sus nombres exactos, rol del usuario.
+4. Pistas de interpretación venezolana: "bs", "bolos", "bolívares" = VES; "$", "dólares", "verdes" = USD; "pago móvil", "punto", "zelle" son métodos; "500 mil" = 500000; coma decimal; "ayer", "antier", "el lunes".
+5. Borrador pendiente, si existe, con instrucción de que el próximo mensaje probablemente lo corrige.
+
+El texto final se escribe en la Fase 4 junto con los guiones, y se versiona en el repositorio con sus evals.
+
+**Guardrails, en orden de ejecución**
+
+1. Rol → subconjunto de herramientas.
+2. Salida del LLM sin tool_call → fuera de alcance.
+3. Herramienta con args inválidos (schema) → una reintento pidiendo corregir args; segundo fallo → fuera de alcance.
+4. Validaciones de negocio dentro de cada herramienta (montos, fechas, sumas).
+5. Toda escritura pasa por `pending_action` y confirmación con botón.
+6. Texto libre del LLM (solo `ask_clarification`) → validación de números.
+7. Límite de 3 iteraciones y 20 s por llamada.
+8. Presupuesto de tokens por tenant y día; al superarlo, el bot responde que llegó al límite y sugiere el dashboard. Evita que un tenant rompa el costo objetivo.
+
+**Fuera de alcance.** No se argumenta ni se conversa. Respuesta fija: "Solo puedo ayudarte con tu caja: registrar gastos, registrar ventas y ver el cierre. ¿Qué quieres hacer?" con tres botones. Se registra `reason` para saber qué piden los dueños y decidir qué construir después.
+
+**Audio.** Descargar medio → validar duración (máximo 2 min) y formato → voz a texto con hint de idioma `es` y vocabulario del dominio (categorías, "pago móvil", "bolívares") si el proveedor lo permite → el texto entra al loop como si fuera escrito, marcado `source_channel=voice` → `render` antepone la transcripción entre comillas en el borrador para que el dueño vea qué se entendió → el audio se borra al cerrar el flujo. Antes de transcribir se envía el acuse.
+
+**Imágenes.** Descargar → guardar en objetos como `attachment` provisional → modelo de visión con salida estructurada obligatoria: `{total, currency, date, vendor, line_items_count, confidence, is_receipt}` → si `is_receipt=false` o `confidence < 0.6` → "No pude leer bien la factura, ¿cuánto fue?" → si es válido, el JSON se pasa al loop como mensaje del usuario ("Foto de factura: total X, moneda Y, fecha Z, proveedor W") y el LLM llama `draft_expense` con esos datos; el `attachment` se vincula al movimiento al confirmar y se borra si se cancela o expira. Se usa el modelo de visión del LLM y no un OCR aparte (ADR-007).
+
+### ADRs
+
+**ADR-001. Un solo número de WhatsApp para todos los tenants**
+- Contexto: cada número requiere verificación y aprobación de nombre en Meta; los dueños venezolanos no quieren gestionar eso.
+- Opciones: (A) un número de la plataforma, tenant por remitente; (B) un número por tenant, con onboarding de Meta por cliente; (C) híbrido.
+- Decisión: A.
+- Consecuencias: onboarding en minutos; un solo punto de falla ante Meta (si bloquean el número, caen todos); el nombre visible es el de la plataforma, no el del negocio; un teléfono solo puede pertenecer a un negocio. Mitigación: cumplimiento estricto de políticas, plan de número de respaldo pre-verificado (Fase 7).
+
+**ADR-002. Monolito modular con dos procesos (web y worker)**
+- Contexto: un dev, costo mínimo, webhook que debe responder rápido.
+- Opciones: (A) monolito de un proceso; (B) monolito modular, web + worker; (C) servicios separados.
+- Decisión: B.
+- Consecuencias: un repositorio, un despliegue, dos procesos. Fronteras de módulos vigiladas por tests. Escalar el worker es agregar réplicas.
+
+**ADR-003. Cola de trabajos sobre Postgres**
+- Contexto: se necesita procesamiento asíncrono con orden por teléfono y reintentos.
+- Opciones: (A) tabla `job` con `SKIP LOCKED` y advisory locks; (B) Redis con una librería de colas; (C) cola gestionada del proveedor de nube.
+- Decisión: A para el MVP.
+- Consecuencias: cero dependencias nuevas; transacciones atómicas entre "recibí el evento" y "encolé el job"; throughput de sobra para 200 tenants. Límite: si la tabla `job` supera decenas de miles de filas activas o se necesitan colas con prioridades complejas, migrar a B. A verificar en Fase 6: que la librería elegida soporte este patrón sin reinventarlo.
+
+**ADR-004. Webhook responde 200 de inmediato; procesamiento asíncrono y serializado por teléfono**
+- Contexto: Meta desactiva webhooks que fallan o tardan; los mensajes de un mismo usuario dependen del orden.
+- Decisión: verificar firma, deduplicar por `event_key`, encolar, responder. El worker toma un advisory lock por teléfono.
+- Consecuencias: latencia percibida depende del worker, no del webhook; un teléfono nunca se procesa en paralelo consigo mismo; hay que manejar "responder dos veces" tras un crash (ver flujo).
+
+**ADR-005. El LLM solo selecciona herramientas; las cifras las produce el backend**
+- Contexto: decisión 4 del brief y política de Meta.
+- Opciones: (A) LLM redacta la respuesta final con los números de las herramientas; (B) plantillas en backend con los resultados estructurados; LLM redacta solo aclaraciones.
+- Decisión: B.
+- Consecuencias: respuestas consistentes y verificables; menos tokens de salida; menos "naturalidad" en el texto, que se compensa con buenas plantillas en la Fase 4. Validación de números en las aclaraciones.
+
+**ADR-006. Toda escritura pasa por `pending_action` y confirmación con botón, procesada sin LLM**
+- Contexto: decisión 9 del brief; los botones son inequívocos.
+- Decisión: las herramientas de escritura crean un borrador; la confirmación es un handler determinista.
+- Consecuencias: cero escrituras accidentales; una escritura cuesta un mensaje extra; un solo borrador activo por teléfono, lo que simplifica el estado.
+
+**ADR-007. Visión multimodal del LLM para facturas, no OCR dedicado**
+- Contexto: las facturas venezolanas son heterogéneas (térmicas, manuscritas, fotos torcidas). Un OCR clásico devuelve texto que igual habría que interpretar.
+- Opciones: (A) OCR gestionado más LLM; (B) modelo de visión del LLM con salida estructurada.
+- Decisión: B.
+- Consecuencias: un solo proveedor y un solo paso; costo por imagen a verificar en Fase 6; si la precisión en el piloto es insuficiente, se reabre con A.
+
+**ADR-008. Proveedores de LLM y voz detrás de interfaces, con respaldo, sin reintento de escrituras**
+- Decisión: interfaz `LlmClient` y `SpeechClient`; principal y respaldo configurables por variable de entorno; un intento en el respaldo ante timeout o 5xx; nunca se reintenta silenciosamente un flujo que podría escribir.
+- Consecuencias: cambio de proveedor sin tocar el agente; evals deben correr contra ambos.
+
+**ADR-009. Patrón adapter para proveedores de datos; solo `LocalProvider` en el MVP**
+- Contexto: Odoo como premium posterior.
+- Decisión: interfaz `LedgerProvider` (crear, editar, borrar, cierre, consultas); implementación única. `OdooProvider` no se escribe hasta que un cliente lo pague.
+- Consecuencias: la interfaz se diseña con lo que Odoo necesitaría (ids externos, fechas contables), sin implementarlo. Riesgo de "abstracción prematura" aceptado porque la interfaz es pequeña.
+
+**ADR-010. Multi-tenant row-level con RLS**
+- Ver Fase 2. Registrado aquí por completitud.
+
+**ADR-011. Tasa BCV por cron con fuente principal y respaldo; "vigente" vs "última publicada"**
+- Contexto: el BCV publica en la tarde la tasa del siguiente día hábil.
+- Decisión: cron a las 17:30 y 20:00 hora Caracas más reintento horario; cada fila tiene `effective_date`; "vigente hoy" es la mayor `effective_date <= hoy`. Las fuentes concretas y su fiabilidad se eligen en Fase 6 y se marcan como "verificar".
+- Consecuencias: nunca se aplica una tasa antes de su vigencia; fines de semana usan la del viernes; si nadie publica, el sistema lo dice en vez de callar.
+
+**ADR-012. Sin mensajes proactivos ni plantillas en el MVP**
+- Contexto: decisión 2 del brief; costo y aprobación de plantillas.
+- Decisión: todo lo inicia el usuario. El recordatorio de cierre y el resumen automático van a iteración 2 con plantillas de utilidad.
+- Consecuencias: costo de Meta cercano a cero en el MVP (verificar precio vigente de conversaciones de servicio); el riesgo de "el dueño no escribe el cierre" queda sin mitigar hasta la iteración 2.
+
+### Decisiones tomadas en la Fase 3
+
+- Monolito modular, procesos web y worker, cola en Postgres, serialización por teléfono.
+- LLM como enrutador de herramientas; plantillas de backend para toda cifra; validación de números en aclaraciones.
+- Botones y verificación se procesan sin LLM.
+- Herramientas filtradas por rol antes de llegar al LLM, y validadas de nuevo dentro.
+- Visión multimodal para facturas; audio con acuse previo y borrado posterior.
+- Presupuesto de tokens por tenant y día.
+- Sin mensajes proactivos.
+
+### Preguntas abiertas
+
+1. ¿Quieres que el mensaje de "fuera de alcance" incluya un enlace al dashboard, o solo los tres botones? Propuesta: solo botones; el enlace se da en "ayuda".
+2. Presupuesto de tokens por tenant y día: propongo un tope que equivalga a unos 0,30 USD diarios (se traduce a tokens en Fase 6). ¿De acuerdo con que el bot se "apague" ese día al superarlo?
+3. Indicador de "escribiendo" en la Cloud API: si no está disponible o cuesta, el acuse de texto lo reemplaza. A confirmar en la semana 1.
+
+### Riesgos detectados
+
+- Advisory lock por teléfono más un LLM lento puede acumular jobs de un mismo dueño que manda cinco mensajes seguidos. Mitigación: el worker procesa en orden y el dueño ve respuestas en orden; el timeout de 20 s acota el peor caso.
+- Plantillas de backend demasiado rígidas pueden sonar a máquina. Mitigación: la Fase 4 invierte en redacción y variantes.
+- Extracción de facturas con baja precisión en fotos malas. Mitigación: umbral de confianza y caída a texto; medir en el piloto antes de prometerlo.
+- El presupuesto por tenant y día puede cortar a un dueño legítimo en un día pesado. Mitigación: tope generoso, mensaje claro, y el dashboard siempre disponible.
