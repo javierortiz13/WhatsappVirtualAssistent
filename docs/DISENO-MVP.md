@@ -11,7 +11,7 @@ Documento acumulativo. Cada fase agrega una sección al cerrarse.
 | 2. Modelo de dominio y datos | Aprobado |
 | 3. Arquitectura | Aprobado |
 | 4. UX conversacional | Aprobado |
-| 5. UX/UI dashboard | Entregado, pendiente de aprobación |
+| 5. UX/UI dashboard | Aprobado |
 | 6. Stack tecnológico | Pendiente |
 | 7. Seguridad, cumplimiento y riesgos | Pendiente |
 | 8. Plan de ejecución | Pendiente |
@@ -1691,7 +1691,7 @@ Privado (barra inferior en móvil, barra lateral en escritorio)
 │   └── /movimientos/:id        Detalle, edición, foto, auditoría, eliminar
 ├── /cierres                    Día / semana / mes / rango, mismo formato que WhatsApp, exportar
 └── /ajustes
-    ├── /ajustes/negocio        Nombre, tipo, moneda por defecto, umbral Bs
+    ├── /ajustes/negocio        Nombre, tipo, moneda por defecto, umbral Bs, hora de cierre
     ├── /ajustes/categorias     Crear, renombrar, activar/desactivar, ordenar
     ├── /ajustes/numeros        Números y roles, estado de verificación
     ├── /ajustes/exportar       Rango → .xlsx
@@ -2108,13 +2108,15 @@ Mismo contenido, barra lateral izquierda con las 4 entradas, contenido a máximo
 - Máximo 10 categorías activas, forzado desde el dashboard.
 - El aviso "no registraste la venta" lleva a WhatsApp con texto prellenado, no a un formulario.
 - Escritorio = móvil ensanchado con barra lateral y tabla; sin diseño aparte.
+- PWA instalable (Must). Tokens de diseño con tema claro y oscuro según el sistema (Must); interruptor manual (Should).
+- Hora del aviso de venta configurable por tenant, 18:00 por defecto.
 - Odoo no tiene UI en el MVP; la ruta queda reservada.
 
-### Preguntas abiertas
+### Preguntas abiertas (resueltas al aprobar la fase)
 
-1. ¿Quieres que el dashboard sea instalable como app (PWA con icono en el teléfono)? Es barato si el stack de la Fase 6 lo permite de serie; lo propongo como Should.
-2. Tema oscuro: propongo no hacerlo en el MVP. ¿Alguna objeción?
-3. Hora del aviso "no registraste la venta" en Inicio: propongo 18:00 hora Caracas, configurable por tenant después. ¿Tu autolavado cierra antes o después?
+1. PWA instalable con icono en el teléfono: **Must**. Condiciona la elección de frontend en la Fase 6.
+2. Tema claro y oscuro desde el día uno, construidos sobre tokens de diseño (colores, espaciados, tipografía como variables). El tema sigue la preferencia del sistema; el interruptor manual es Should.
+3. Hora del aviso "no registraste la venta": configurable por tenant desde el MVP en Ajustes → Negocio, con 18:00 hora Caracas por defecto. La mayoría de los comercios cierra entre 17:00 y 18:00.
 
 ### Riesgos detectados
 
