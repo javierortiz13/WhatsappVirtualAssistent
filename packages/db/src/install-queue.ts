@@ -2,7 +2,7 @@ import { PgBoss } from "pg-boss";
 import postgres from "postgres";
 import { loadNearestEnvFile } from "./env-file.js";
 import { PGBOSS_SCHEMA } from "./queue.js";
-import { sslFromEnv } from "./ssl.js";
+import { pgConnection, sslFromEnv } from "./ssl.js";
 
 /**
  * Instala o actualiza el schema `pgboss` con el rol administrador y da permisos a `caja_app`.
@@ -13,8 +13,7 @@ import { sslFromEnv } from "./ssl.js";
 export async function installQueue(adminUrl: string, log: (m: string) => void = () => {}) {
   const ssl = sslFromEnv();
   const boss = new PgBoss({
-    ...(ssl ? { ssl } : {}),
-    connectionString: adminUrl,
+    ...pgConnection(adminUrl),
     schema: PGBOSS_SCHEMA,
     migrate: true,
     createSchema: true,

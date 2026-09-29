@@ -22,3 +22,21 @@ export function sslFromEnv(env: NodeJS.ProcessEnv = process.env): SslConfig {
   }
   return undefined;
 }
+
+/**
+ * `pg` (el driver de pg-boss) reconstruye el SSL a partir de `sslmode` en la URL y pisa las opciones.
+ * Para pg-boss se quita `sslmode` de la cadena y se pasa el SSL explícito: con CA configurada,
+ * verificación completa; sin CA pero con sslmode, cifrado sin verificar (mismo comportamiento que
+ * postgres.js con `require`); sin sslmode, sin TLS (Postgres local).
+ */
+export function pgConnection(
+  url: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { connectionString: string; ssl?: object } {
+  const u = new URL(url);
+  const mode = u.searchParams.get("sslmode");
+  u.searchParams.delete("sslmode");
+  const ca = sslFromEnv(env);
+  const ssl = ca ? ca : mode && mode !== "disable" ? { rejectUnauthorized: false } : undefined;
+  return { connectionString: u.toString(), ...(ssl ? { ssl } : {}) };
+}
