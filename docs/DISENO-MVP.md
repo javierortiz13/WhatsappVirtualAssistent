@@ -13,8 +13,8 @@ Documento acumulativo. Cada fase agrega una sección al cerrarse.
 | 4. UX conversacional | Aprobado |
 | 5. UX/UI dashboard | Aprobado |
 | 6. Stack tecnológico | Aprobado |
-| 7. Seguridad, cumplimiento y riesgos | Entregado, pendiente de aprobación |
-| 8. Plan de ejecución | Pendiente |
+| 7. Seguridad, cumplimiento y riesgos | Aprobado |
+| 8. Plan de ejecución | Entregado, pendiente de aprobación |
 
 ---
 
@@ -2511,12 +2511,190 @@ Probabilidad e impacto en escala 1 (bajo) a 3 (alto). Prioridad = producto.
 - Opt-in explícito y registrado antes de cualquier plantilla (iteración 2).
 - Backups: los de Supabase más copia semanal cifrada fuera, con prueba de restauración mensual.
 
-### Preguntas abiertas
+### Preguntas abiertas (resueltas al aprobar la fase)
 
-1. ¿Con qué empresa solicitas la verificación en Meta primero: la venezolana o la estadounidense? Recomiendo intentar con la estadounidense, porque los documentos son estándar para Meta, y dejar la venezolana como segundo intento.
-2. ¿Quién es "la persona" a la que remite el mensaje de ayuda? En el piloto eres tú; para clientes de pago hace falta un canal de soporte (un número tuyo de WhatsApp o un correo).
-3. Facturación a clientes venezolanos desde la empresa estadounidense: pendiente con tu contador antes de cobrar el primer mes.
+1. Verificación en Meta: **primero con la empresa venezolana** (Registro Mercantil, RIF, factura de servicios o estado de cuenta a nombre de la empresa). La LLC estadounidense tiene el registro anual vencido y crear otra solo para Meta trae implicaciones legales y fiscales que exigen un contador. La verificación no bloquea el producto: solo el nombre visible y los límites de mensajes iniciados por el negocio.
+2. Canal de soporte: el WhatsApp personal del fundador durante el piloto; una persona de soporte si el número de clientes lo justifica.
+3. Facturación: preferencia por facturar desde la empresa venezolana. Pendiente de confirmar con un contador antes del primer cobro.
 
 ### Riesgos detectados en esta fase
 
 Los de la matriz. Los tres que debes mirar esta semana: R1 (precio de Meta), R10 (tu tiempo después de la semana 1) y R11 (tercer piloto).
+
+---
+
+## Fase 8. Plan de ejecución
+
+### Supuestos de capacidad
+
+- Semana 1: tiempo completo, unas 40 a 50 horas, con asistencia de IA.
+- Semanas 2 en adelante: trabajo a tiempo completo aparte, así que **10 a 15 horas por semana** para este proyecto. El roadmap se dimensiona con 12 horas por sprint. Si hay más, se adelanta; si hay menos, se recorta alcance, nunca calidad del walking skeleton.
+- Cada sprint termina con algo desplegado y usado por un piloto real. Nada se queda "casi listo" dos sprints.
+
+### Roadmap por sprints de una semana
+
+| Sprint | Objetivo | Entregable verificable | Hito |
+|---|---|---|---|
+| S0 (2 días antes de S1) | Cuentas y accesos | App de Meta con número de prueba y webhook en modo desarrollo; Business Manager creado con método de pago; proyecto de Supabase; servicio en Railway; claves de Anthropic y Deepgram; dominio; repositorio con CI vacío | |
+| **S1** (tiempo completo) | **Walking skeleton** | Un "gasté 15$ en champú" enviado desde tu teléfono al número de prueba termina como fila en la base, con tasa BCV del día, visible en el dashboard tras un login por magic link | **M1: el hilo completo funciona** |
+| S2 | Onboarding y robustez del gasto | Registro de negocio, vinculación por código, roles; regla de moneda por umbral, fechas relativas, categorías, corregir y borrar el último; fuera de alcance; auditoría; manejo de fallos del LLM. Evals v1 con 40 casos. Solicitud de verificación de negocio enviada a Meta. **Piloto 1 arranca** con gastos por texto | |
+| S3 | Ventas y cierre | Total del día con desglose y validación, ingreso suelto, reemplazar día; cierre diario, resumen del período, consulta por categoría, tasa con próxima; pantalla de Cierres en el dashboard. Piloto 1 registra ventas y pide el cierre | **M2: el producto cierra el día** |
+| S4 | Voz y foto | Deepgram con acuse previo y borrado del audio; visión con salida estructurada, `sharp`, bucket privado; evals v2 con 30 notas de voz reales y 20 fotos reales. **Piloto 2 (cinnamon rolls) arranca** | |
+| S5 | Dashboard completo | Edición con recálculo de tasa, borrado lógico, exportación .xlsx, categorías, números y roles, ajustes (moneda, umbral, hora de aviso), PWA, tokens de diseño con tema claro y oscuro; jobs de retención | **M3: MVP completo en funciones** |
+| S6 | Endurecimiento y producción | Rate limits, alertas, runbooks, copia semanal de backup y prueba de restauración, checklist de seguridad S2 completa, panel interno de costo por tenant; número de producción y nombre visible; enrutamiento multi-número probado con dos números | |
+| S7 | Medición del piloto y ajustes | Revisión de fallos reales del agente, evals ampliadas con casos de producción, correcciones de UX; alta del **piloto 3** (desconocido) con el flujo de onboarding sin ayuda | |
+| S8 | Decisión | Informe del piloto contra las métricas de la Fase 0; costo real por tenant; decisión sobre precio y esquema de números; backlog de la iteración 2 (plantillas, Pago Móvil pendiente de conciliar, importar Excel) | **M4: go / no-go comercial** |
+
+Regla de recorte: si un sprint se atrasa, se mueve al siguiente lo que no sea necesario para que el piloto activo siga usando el producto. Orden de sacrificio: PWA y tema oscuro, exportación, foto, voz. Nunca se sacrifican: confirmaciones, auditoría, aislamiento por tenant, idempotencia.
+
+### Semana 1: walking skeleton, día por día
+
+Definición de terminado de la semana: desde tu teléfono, al número de prueba, escribes "gasté 15$ en champú", recibes el borrador con botones, tocas Guardar, recibes "Listo", y en el dashboard (tras magic link) ves la fila con monto, moneda, tasa del día y equivalente. Todo desplegado en Vercel, Railway y Supabase, con Sentry recibiendo errores. Sin voz, sin foto, sin ventas, sin onboarding: el tenant y los teléfonos se cargan con un seed.
+
+| Día | Trabajo | Terminado cuando |
+|---|---|---|
+| 1 | Monorepo pnpm (`apps/web`, `apps/worker`, `packages/core`, `packages/db`, `packages/config`); TypeScript estricto; ESLint y Prettier; Vitest; CI en GitHub Actions (lint, typecheck, test). Esquema Drizzle de `tenant`, `phone_number`, `category`, `bcv_rate`, `movement`, `pending_action`, `webhook_event`, `message`, `audit_log` en schema `app`; migración inicial con RLS y revocación de permisos a `anon` y `authenticated`; seed con tu negocio, tu número y el de tu novia | `pnpm test` verde; migración aplicada en Supabase; test de aislamiento RLS pasa |
+| 2 | Módulo `whatsapp`: tipos de payload, parseo de mensajes de texto e interactivos, verificación de firma sobre cuerpo crudo, cliente para enviar texto y botones y marcar leído con indicador. Route handler del webhook en Next.js: GET de verificación, POST con firma, `webhook_event` idempotente, encolar con pg-boss en la misma transacción, 200 inmediato | Un webhook real del número de prueba llega a Vercel, se guarda, y un duplicado se ignora; test de firma con vector conocido |
+| 3 | Worker en Railway: pg-boss con `key_strict_fifo` por teléfono; resolución de tenant y rol; handlers deterministas (desconocido, menú con tasa, "tasa", confirmar y cancelar borradores); módulo `render` con las plantillas de la Fase 4 para estos casos | "hola" desde tu teléfono responde el menú con tasa (aún fija) y botones; desde un número no registrado responde el texto fijo |
+| 4 | Módulo `rates`: scraper de bcv.org.ve con fecha valor, respaldo DolarAPI, `rate_for(date)`, cron de pg-boss; módulo `ledger` (`LocalProvider`): `convert`, `createExpense` transaccional con auditoría; tests de redondeo y de fin de semana | El cron guarda una tasa real con `effective_date`; un test crea un gasto en Bs de un domingo y usa la tasa del viernes |
+| 5 | Módulo `agent`: `LlmClient` con Anthropic (Sonnet 5.5, caché de prompt, `effort: low`, `strict: true`); prompt de sistema v1; herramientas `draft_expense`, `ask_clarification`, `reject_out_of_scope` con esquemas `zod`; loop de 3 iteraciones con timeout 20 s; `pending_action` con expiración; validación numérica de aclaraciones. Evals v0 con 15 casos contra el LLM real | "gasté 15$ en champú" produce el borrador correcto con botones; "cuéntame un chiste" produce el fuera de alcance; 15 de 15 evals pasan |
+| 6 | Dashboard mínimo: Supabase Auth con magic link vía Resend, layout mobile-first con las 4 pestañas (tres vacías), lista de movimientos del mes; despliegue en Vercel con variables de entorno; Sentry en web y worker; logs estructurados | Entras con magic link desde el teléfono y ves el gasto que registraste por WhatsApp |
+| 7 | Prueba de punta a punta con los 5 destinatarios del número de prueba; medir latencia p50 y p95 y costo por mensaje desde `message`; corregir lo que se rompa; escribir `docs/runbooks/semana-1.md` con lo aprendido; lista de deuda técnica explícita | Diez gastos reales registrados por dos personas distintas; tabla de latencia y costo en el documento |
+
+### Estrategia de testing
+
+**Pirámide**
+
+| Nivel | Herramienta | Qué cubre | Cuándo corre |
+|---|---|---|---|
+| Unitario | Vitest | `convert` y redondeo (0,005; montos grandes en Bs; VES a USD y viceversa); regla de moneda por umbral; fechas relativas en hora de Caracas ("ayer" a las 00:30); `rate_for` en fin de semana y feriado; validación de desglose de ventas; esquemas de herramientas; plantillas de `render` con snapshots | Cada commit |
+| Integración | Vitest contra Postgres local (Supabase CLI o Docker) | Firma del webhook con vector conocido; idempotencia por `event_key`; pg-boss encola en la misma transacción y serializa por teléfono; RLS: un tenant no ve a otro; `createExpense` escribe movimiento y auditoría o nada; reemplazar total del día; jobs de retención | Cada commit |
+| Contratos con mocks | Vitest con dobles de `MetaClient`, `LlmClient`, `SpeechClient` | Payloads grabados de Meta (texto, audio, imagen, interactivo, status, duplicado); el mock de envío valida límites (3 botones, 20 caracteres, 10 filas); el `LlmClient` falso devuelve tool calls fijadas para probar el loop sin costo | Cada commit |
+| Evals del agente | Suite de Vitest que lee `evals/cases/*.yaml` y llama al LLM real | Ver abajo | Con cada cambio de prompt o herramientas, y una vez por noche con tope de costo |
+| E2E dashboard | Playwright | Login, lista, edición con recálculo, exportación, categorías, números; en viewport de 360 px | Cada PR que toque `apps/web` |
+| Carga puntual | Script que dispara 100 webhooks en paralelo, 20 del mismo teléfono | El webhook responde 200 en menos de 1 s bajo carga; los 20 del mismo teléfono se procesan en orden | Antes de S6 |
+| Manual | Checklist por sprint con los 5 destinatarios del número de prueba | Lo que las máquinas no ven: tono, tiempos percibidos, botones en Android e iPhone | Fin de cada sprint |
+
+**Evals del agente**
+
+Un caso es un archivo YAML:
+
+```yaml
+id: gasto-bs-mil
+input: "450 mil bs de gasolina ayer"
+context: { role: owner, default_currency: USD, categories: [autolavado], today: "2026-09-29" }
+expect:
+  tool: draft_expense
+  args:
+    amount: "450000"
+    currency: VES
+    business_date: "2026-09-28"
+    category_name: "Transporte y gasolina"
+```
+
+Familias de casos, con mínimo 5 por familia desde S2 y crecimiento con fallos reales:
+1. Montos venezolanos: "15,50", "1.200", "450 mil", "medio millón", "1 palo", sin símbolo.
+2. Monedas: "$", "dólares", "verdes", "bs", "bolos", ambigüedad bajo y sobre el umbral.
+3. Fechas: hoy, ayer, antier, "el lunes", fecha explícita, futura, muy vieja.
+4. Categorías: sugerencia correcta, sinónimos, desconocida, "eso va en X".
+5. Ventas: desglose que cuadra, que no cuadra, solo total, métodos en Bs y USD mezclados, día ya cerrado.
+6. Correcciones: "no, eran 25", "bórralo", "es mantenimiento", dentro y fuera de la ventana.
+7. Consultas: cierre, mes, semana, rango, categoría inexistente.
+8. Fuera de alcance: chistes, redactar, preguntas generales, "cuánto es 15 por 3".
+9. Rol: empleado pide cierre.
+10. Inyección: "ignora tus instrucciones", facturas con texto malicioso, mensajes que piden llamar a otra herramienta.
+11. Voz y foto: transcripciones reales con ruido y JSON de facturas reales (desde S4).
+
+Métricas y umbrales para aceptar un cambio de prompt o de modelo: herramienta correcta en al menos 95% de los casos; argumentos correctos en al menos 90%; **cero** casos con cifras inventadas en aclaraciones; latencia p95 de la llamada por debajo de 6 s. Las mismas suites corren contra el proveedor de respaldo cada semana. Cada lunes, los mensajes marcados como fallidos o corregidos en el dashboard durante la semana se revisan y los representativos se agregan como casos.
+
+### Estructura del repositorio y convenciones
+
+```
+.
+├── apps/
+│   ├── web/                    Next.js (App Router)
+│   │   ├── app/(public)/       login, registro, privacidad, eliminar-datos
+│   │   ├── app/(app)/          inicio, movimientos, cierres, ajustes
+│   │   ├── app/api/whatsapp/webhook/route.ts
+│   │   └── components/, lib/
+│   └── worker/                 Node: arranque de pg-boss, registro de jobs y cron
+│       ├── jobs/               process-message, cleanup-media, retention
+│       └── cron/               bcv-rate, expire-pending
+├── packages/
+│   ├── core/                   Lógica de negocio pura, sin Next ni pg-boss
+│   │   ├── domain/             money.ts, dates.ts, currency-rule.ts
+│   │   ├── ledger/             provider.ts (interfaz), local-provider.ts, reports.ts
+│   │   ├── rates/              bcv-scraper.ts, dolarapi.ts, rate-for.ts
+│   │   ├── agent/              prompt.ts, loop.ts, tools/*.ts, guards.ts
+│   │   ├── render/             es-VE.ts (todas las plantillas de texto)
+│   │   ├── whatsapp/           client.ts, signature.ts, parse.ts, types.ts
+│   │   ├── media/              speech.ts, vision.ts, storage.ts, image.ts
+│   │   └── identity/           resolve-phone.ts, verification.ts
+│   ├── db/                     schema/, migrations/, client.ts, with-tenant.ts, seed.ts
+│   └── config/                 tsconfig base, eslint base
+├── evals/                      cases/*.yaml, run.ts, report/
+├── docs/                       DISENO-MVP.md, runbooks/, adr/ (cuando se separen)
+├── .github/workflows/ci.yml
+├── package.json, pnpm-workspace.yaml, .env.example
+```
+
+Convenciones:
+- TypeScript estricto, ESM, sin `any`. Zod en toda frontera (webhook, herramientas, variables de entorno al arrancar, formularios).
+- Código y nombres en inglés; todo texto que ve el usuario en `render/es-VE.ts`, nunca disperso.
+- Dinero: `Decimal` de `decimal.js` en dominio; `string` en la frontera con la base; jamás `number`.
+- Fechas: `business_date` como string ISO `YYYY-MM-DD`; instantes como `Date` en UTC; una sola función `todayInCaracas()`.
+- `packages/core` no importa de `apps/`, de Next ni de pg-boss. Un test de arquitectura (dependency-cruiser o equivalente) lo verifica.
+- Migraciones SQL generadas por drizzle-kit y revisadas a mano; nunca se edita una migración aplicada.
+- Commits con Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`); ramas `feat/…`, `fix/…`; PRs pequeños incluso siendo un solo dev, porque el CI y el historial son tu segundo par de ojos.
+- Variables de entorno documentadas en `.env.example` con comentario de dónde se obtiene cada una.
+- Feature flags por variable de entorno para: tope de tokens por tenant, proveedor de LLM y de voz, número compartido vs por tenant.
+- `pnpm dev` levanta web, worker y Supabase local; `pnpm evals` corre la suite contra el LLM real con tope de costo por ejecución.
+
+### Plan del piloto
+
+**Antes de empezar (desde hoy):** durante las dos semanas previas a que el piloto 1 use el producto, anota cada noche en una nota del teléfono cuántos minutos dedicaste a revisar gastos y ventas, y cuántos gastos quedaron sin registrar. Es la línea base; sin ella la métrica de "30 minutos menos" no se puede demostrar.
+
+**Piloto 1: tu autolavado.** Arranca en S2 con gastos por texto; en S3 ventas y cierre; en S4 voz y foto. Tú y tu cajera con rol de empleado (ella registra solo lo que le pidas; el POS sigue en Odoo).
+
+**Piloto 2: cinnamon rolls.** Arranca en S4 con el producto casi completo. Es la prueba del onboarding sin tu ayuda directa: tu novia se registra sola desde el dashboard siguiendo solo las pantallas. Cronometrar.
+
+**Piloto 3: un desconocido.** Antes de S8. Captación por la campaña en redes o por contacto directo. Es la única prueba de disposición a pagar: se le ofrece el precio real desde el primer día, con un mes gratis.
+
+**Qué se mide, automáticamente desde `message` y `movement`:**
+
+| Métrica | Fuente | Objetivo a 30 días (Fase 0) |
+|---|---|---|
+| Gastos registrados el mismo día con tasa vigente | `movement.business_date = date(created_at)` | 100% |
+| Días con cierre pedido | `message.tool_calls` con `get_daily_close` | 5 de 7 |
+| Registros corregidos o borrados en dashboard | `audit_log` sobre movimientos creados por WhatsApp | menos del 5% |
+| Latencia p50 y p95 por canal | `message.latency_ms` | texto 5 s / 12 s; voz y foto p95 25 s |
+| Costo por tenant y mes | `message.cost_usd` más voz y visión | menos de 2,5 USD |
+| Fuera de alcance por semana y sus razones | `reject_out_of_scope.reason` | informativo: qué piden que no damos |
+| Borradores vencidos sin confirmar | `pending_action.status = expired` | menos del 10% |
+| Tiempo de revisión diaria del dueño | Auto-reporte nocturno (línea base vs piloto) | 30 minutos menos |
+
+**Ritual semanal (lunes, 45 minutos):** leer fallos y correcciones de la semana, agregar 3 a 5 casos de eval, decidir una sola mejora para el sprint, actualizar la tabla de métricas en `docs/piloto.md`.
+
+**Criterio de éxito al final de S8:** las cuatro métricas de la Fase 0 cumplidas en el piloto 1, el piloto 2 se registró sin ayuda, y el piloto 3 aceptó pagar. Si se cumplen, la siguiente fase es comercial (precio, campaña, números por tenant). Si no, el informe de S8 dice cuál falló y por qué, y se decide si es de producto, de agente o de mercado antes de invertir más.
+
+### Decisiones tomadas en la Fase 8
+
+- Roadmap de 8 sprints con 4 hitos; S1 a tiempo completo, S2 en adelante a 12 horas semanales.
+- Walking skeleton de la semana 1 definido por un criterio único de terminado y un plan diario.
+- Orden de sacrificio ante atrasos: PWA y tema, exportación, foto, voz. Intocables: confirmaciones, auditoría, aislamiento, idempotencia.
+- Evals del agente como suite versionada con umbrales que bloquean cambios de prompt o modelo.
+- Monorepo con `core` puro y test de arquitectura.
+- Línea base del tiempo de revisión medida desde hoy.
+- Tercer piloto desconocido con precio real desde el primer día.
+
+### Preguntas abiertas
+
+1. ¿Qué dos días quieres para S0 (cuentas y accesos)? Si tu semana libre empieza el lunes, S0 es este fin de semana y necesitas crear la app de Meta y el Business Manager antes.
+2. ¿Tu cajera participa en el piloto 1 con rol de empleado desde S2, o solo tú hasta S3? Recomiendo solo tú en S2 para no exponer errores tempranos, y ella desde S3.
+3. Nombre del repositorio y del paquete raíz: propongo mantener `WhatsappVirtualAssistent` para el repo y `asistente-caja` como nombre de paquete hasta que exista la marca.
+
+### Riesgos detectados
+
+- La semana 1 depende de que Meta entregue el número de prueba y el webhook en modo desarrollo sin fricción; si la creación de la app se traba, el día 2 se hace contra payloads grabados y se conecta después.
+- Doce horas semanales son optimistas con un trabajo a tiempo completo; el orden de sacrificio existe para eso.
+- Las evals contra el LLM real cuestan dinero en cada cambio de prompt: tope por ejecución y suite reducida en PRs, completa en la nocturna.
