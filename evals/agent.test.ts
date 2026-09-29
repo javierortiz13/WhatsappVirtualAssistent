@@ -10,7 +10,7 @@ import {
   resolveWhen,
   todayInCaracas,
 } from "@caja/core";
-import { schema, withTenant } from "@caja/db";
+import { loadNearestEnvFile, schema, withTenant } from "@caja/db";
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -21,7 +21,10 @@ import { type EvalCase, loadCases } from "./cases";
  * `RUN_EVALS=1` y `ANTHROPIC_API_KEY`. Tope de costo por ejecución: `EVALS_MAX_USD` (0.50).
  * Escribe `report/last.json` con herramienta, argumentos, tokens, costo y latencia por caso.
  */
+loadNearestEnvFile(import.meta.dirname);
 const enabled = process.env.RUN_EVALS === "1" && Boolean(process.env.ANTHROPIC_API_KEY);
+if (process.env.RUN_EVALS === "1" && !enabled)
+  console.warn("evals: falta ANTHROPIC_API_KEY en el entorno o en el .env de la raíz; se saltan.");
 const maxUsd = new Decimal(process.env.EVALS_MAX_USD ?? "0.50");
 const cases = loadCases();
 
