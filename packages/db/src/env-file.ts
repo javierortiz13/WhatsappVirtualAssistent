@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+let loadedDir: string | null = null;
+
 /**
  * Carga el `.env` más cercano subiendo desde el directorio actual (la raíz del monorepo en la
  * práctica) con `process.loadEnvFile` de Node 22. No pisa variables ya definidas en el entorno,
@@ -13,8 +15,8 @@ export function loadNearestEnvFile(startDir: string = process.cwd()): string | n
     if (existsSync(candidate)) {
       const before = { ...process.env };
       process.loadEnvFile(candidate);
-      // loadEnvFile no sobrescribe, pero por si acaso restauramos lo que ya existía.
       for (const [k, v] of Object.entries(before)) if (v !== undefined) process.env[k] = v;
+      loadedDir = dir;
       return candidate;
     }
     const parent = dirname(dir);
@@ -22,4 +24,9 @@ export function loadNearestEnvFile(startDir: string = process.cwd()): string | n
     dir = parent;
   }
   return null;
+}
+
+/** Carpeta del `.env` cargado (la raíz del repo). Las rutas relativas del `.env` se resuelven contra ella. */
+export function envFileDir(): string | null {
+  return loadedDir;
 }
