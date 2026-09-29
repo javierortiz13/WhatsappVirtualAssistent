@@ -12,7 +12,7 @@ Documento acumulativo. Cada fase agrega una sección al cerrarse.
 | 3. Arquitectura | Aprobado |
 | 4. UX conversacional | Aprobado |
 | 5. UX/UI dashboard | Aprobado |
-| 6. Stack tecnológico | Pendiente |
+| 6. Stack tecnológico | Entregado, pendiente de aprobación |
 | 7. Seguridad, cumplimiento y riesgos | Pendiente |
 | 8. Plan de ejecución | Pendiente |
 
@@ -322,7 +322,7 @@ CRM, pedidos, clientes. Bot de atención a clientes finales. Verificación banca
 | Webhook | Responder 200 en menos de 1 s, siempre, incluso si la base de datos está caída | Encolar antes de procesar. Meta reintenta si no recibe 200 y termina desactivando el webhook |
 | Disponibilidad | 99% mensual en el MVP (unas 7 h de caída al mes) | Un solo servidor es aceptable. El dashboard puede caer sin afectar al bot y viceversa |
 | Costo por tenant | Menor a 5 USD al mes con 300 mensajes al mes (60% texto, 25% voz, 15% foto) | Reparto objetivo: LLM 2, voz y visión 1, Meta 0.5, infra prorrateada 1.5. Todos los precios a verificar en Fase 6 |
-| Conversaciones Meta | Todas iniciadas por el usuario (ventana de servicio). Cero plantillas en el MVP | Verificar precio vigente de conversaciones de servicio; ha cambiado varias veces |
+| Conversaciones Meta | Todas iniciadas por el usuario (ventana de servicio). Cero plantillas en el MVP | **Actualizado en Fase 6:** desde el 01/10/2026 los mensajes de servicio se cobran por mensaje entregado, con 1.000 gratis por número y mes. Ver Fase 6 y ADR-001 revisado |
 | Precisión monetaria | Decimales exactos (NUMERIC), nunca float. Montos con 2 decimales, tasa con 4 | Redondeo half-up comercial en conversiones |
 | Zona horaria | Todo en America/Caracas para fechas de negocio; almacenamiento en UTC con fecha de negocio explícita | "Hoy" se decide en hora de Caracas, no del servidor |
 | Seguridad | Firma X-Hub-Signature-256 en cada webhook; secretos cifrados en reposo; aislamiento por tenant en cada consulta; rate limit por número; sesiones con expiración | Detalle en Fase 7 |
@@ -660,6 +660,8 @@ CREATE TABLE tenant (
   business_type             text NOT NULL,                 -- car_wash, food, retail, services, other
   default_expense_currency  char(3) CHECK (default_expense_currency IN ('USD','VES')),
   timezone                  text NOT NULL DEFAULT 'America/Caracas',
+  wa_phone_number_id        text,                          -- número de WhatsApp que atiende a este tenant; ver ADR-001 revisado
+  close_reminder_time       time NOT NULL DEFAULT '18:00',
   status                    text NOT NULL DEFAULT 'trial' CHECK (status IN ('trial','active','suspended')),
   created_at                timestamptz NOT NULL DEFAULT now()
 );
@@ -668,6 +670,7 @@ CREATE TABLE phone_number (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id     uuid NOT NULL REFERENCES tenant(id),
   e164          text NOT NULL UNIQUE,                       -- un número, un tenant
+  wa_user_id    text UNIQUE,                                -- id de usuario con ámbito de negocio (BSUID); ver Fase 6
   role          text NOT NULL CHECK (role IN ('owner','employee')),
   status        text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','disabled')),
   display_name  text,
@@ -1106,6 +1109,7 @@ El texto final se escribe en la Fase 4 junto con los guiones, y se versiona en e
 - Opciones: (A) un número de la plataforma, tenant por remitente; (B) un número por tenant, con onboarding de Meta por cliente; (C) híbrido.
 - Decisión: A.
 - Consecuencias: onboarding en minutos; un solo punto de falla ante Meta (si bloquean el número, caen todos); el nombre visible es el de la plataforma, no el del negocio; un teléfono solo puede pertenecer a un negocio. Mitigación: cumplimiento estricto de políticas, plan de número de respaldo pre-verificado (Fase 7).
+- **Revisión 29/09/2026 (Fase 6):** Meta cobra por mensaje de servicio entregado desde el 01/10/2026, con una franja gratuita de 1.000 mensajes **por número y mes**. Un número compartido reparte esa franja entre todos los tenants y cuesta unos 4 USD por tenant al mes a escala; un número por tenant cuesta cero dentro de la franja. **Decisión revisada:** la plataforma soporta N números desde el día uno (`tenant.wa_phone_number_id`); el piloto corre con un número compartido; cada cliente de pago recibe su propio número registrado en el WABA de la plataforma. Detalle y cifras en la Fase 6.
 
 **ADR-002. Monolito modular con dos procesos (web y worker)**
 - Contexto: un dev, costo mínimo, webhook que debe responder rápido.
@@ -2123,3 +2127,253 @@ Mismo contenido, barra lateral izquierda con las 4 entradas, contenido a máximo
 - El dueño puede intentar usar el dashboard como sistema principal y pedir funciones de POS. Mitigación: el alta manual es deliberadamente básica y la copy empuja a WhatsApp.
 - Edición de fecha con recálculo de tasa puede sorprender ("cambié la fecha y me cambió el monto en Bs"). Mitigación: advertencia visible antes de guardar y auditoría del cambio.
 - Nombres de categoría largos rompen la lista móvil. Mitigación: límite de 24 caracteres en el formulario, alineado con el límite de filas de WhatsApp.
+
+---
+
+## Fase 6. Stack tecnológico
+
+### Cómo leer los precios
+
+Todos los precios de esta sección fueron consultados el **29/09/2026**. Cada uno lleva una etiqueta:
+
+- **[verificado]**: leído directamente en la página oficial.
+- **[secundario]**: obtenido de resúmenes de búsqueda o agregadores que citan la página oficial, porque el entorno de investigación no pudo abrir la página. Hay que confirmarlo en la URL indicada antes de contratar.
+
+Regla general: ningún precio de esta sección es un compromiso. Meta puede cambiar tarifas el primer día de cada trimestre; los proveedores de LLM cambian precios y retiran modelos cada pocos meses. La tabla de costos se recalcula con el consumo real medido desde la semana 1.
+
+### Restricciones que gobiernan la elección
+
+1. Un solo dev, con TypeScript y Next.js en los dedos. Nada de Python.
+2. Cuentas existentes: Vercel y Supabase. Sin créditos de API en ningún LLM.
+3. Tarjeta internacional propia y una empresa en Estados Unidos para facturación.
+4. Costo total por tenant por debajo de 5 USD al mes con 20 USD de precio.
+5. Hallazgos de la investigación que cambian el tablero: Meta cobra los mensajes de servicio desde el 01/10/2026; Vercel no ejecuta procesos persistentes; Haiku 4.5 tiene retiro tentativo en octubre de 2026.
+
+### Opciones por capa
+
+**Backend y frontend**
+
+| Opción | Pros | Contras | Costo | Curva |
+|---|---|---|---|---|
+| **A) Next.js (App Router) para dashboard y webhook + worker Node aparte, mismo monorepo** | Un lenguaje, un repo, tipos compartidos entre web, worker y dominio. El webhook es una route handler que solo valida, inserta y responde 200 | Dos procesos que desplegar en dos sitios (Vercel no corre workers) | El de hosting | Cero: es lo que ya usas |
+| B) Next.js + procesamiento en funciones serverless con `waitUntil` | Un solo despliegue en Vercel | Sin serialización por teléfono garantizada; límites de duración; el agente con LLM y voz dentro de una función es frágil; no hay cron fino en Hobby | Vercel Pro | Baja |
+| C) NestJS o Fastify para API + Next.js solo como frontend | Backend "clásico" | Duplicas capa HTTP y despliegues sin ganar nada a esta escala | Igual que A | Media |
+
+**Decisión: A.** Monorepo con pnpm workspaces: `apps/web` (Next.js: dashboard, API interna, webhook), `apps/worker` (Node: pg-boss, agente, cron), `packages/core` (dominio, herramientas, ledger, render), `packages/db` (esquema, migraciones, cliente). El worker importa `core`; la web importa `core` y `db`. Nada de lógica de negocio en `apps/`.
+
+**Base de datos, auth y archivos**
+
+| Opción | Pros | Contras | Costo mensual | Curva |
+|---|---|---|---|---|
+| **A) Supabase Pro: Postgres + RLS + Storage + Auth (magic link)** | Ya lo usas. RLS nativo. Storage privado con URLs firmadas. Auth con magic link resuelto. pg_cron disponible. Backups diarios incluidos | Pro es obligatorio: el plan Free pausa proyectos tras una semana de inactividad. El pooler exige cuidado con `SET LOCAL` (usar modo sesión o transacción con la variable dentro de la misma transacción) | 25 USD [secundario], incluye 10 USD de crédito de cómputo (instancia Micro), 8 GB de disco, 100 GB de storage | Cero |
+| B) Postgres gestionado en Railway, Neon o Render + R2 + Auth.js | Más barato en algún caso | Tres proveedores en vez de uno; auth y storage a mano | 13 a 20 USD + R2 (gratis hasta 10 GB) | Media |
+| C) Postgres en VPS propio | Más barato | Backups, parches y madrugadas tuyas | 0 sobre el VPS | Alta en operación |
+
+**Decisión: A.** Supabase Pro. Storage de Supabase para las fotos (100 GB incluidos: a 0,45 GB por mes por cada 1.500 fotos, alcanza años). Auth de Supabase con magic link y Resend como SMTP personalizado (el SMTP incluido de Supabase es para desarrollo).
+
+**ORM y migraciones**
+
+| Opción | Pros | Contras |
+|---|---|---|
+| **A) Drizzle ORM + drizzle-kit** | SQL explícito, migraciones como SQL (las políticas RLS y los índices parciales se escriben tal cual), adaptador oficial de pg-boss para encolar dentro de la transacción, `numeric` se lee como string (obliga a usar `Decimal`, que es lo que queremos) | Menos "mágico" que Prisma | 
+| B) Prisma | Muy conocido | RLS y `SET LOCAL` requieren extensiones o `$executeRaw`; `Decimal` propio pero migraciones menos transparentes para políticas |
+| C) Kysely + SQL a mano | Máximo control | Más código de plomería |
+
+**Decisión: A.** Drizzle, con `decimal.js` para toda aritmética monetaria. `numeric` nunca se convierte a `number`.
+
+**Cola de trabajos**
+
+| Opción | Pros | Contras | Estado (29/09/2026) |
+|---|---|---|---|
+| **A) pg-boss 12.x sobre el Postgres de Supabase** | `SKIP LOCKED`, reintentos con backoff, cron con zona horaria, y **`key_strict_fifo` con `singletonKey` = teléfono**: un job a la vez por teléfono, en orden, sin bloquear otros teléfonos. Encolar dentro de la misma transacción que `webhook_event` con el adaptador de Drizzle | Requiere Node 22.12+ y su propio schema `pgboss` en la base | Activo: 12.35.0 publicado el 26/09/2026 [verificado en GitHub] |
+| B) graphile-worker | Sólido, cron ACID | La serialización por clave es por "named queue" y su documentación desaconseja claves de alta cardinalidad (un teléfono por cola). Sigue en 0.x | 0.18.0 [verificado], fecha de la versión sin confirmar |
+| C) Supabase Queues (pgmq) + Edge Functions | Sin proceso persistente | Edge Functions no son un worker de larga duración; sin serialización por clave nativa; el agente con LLM y voz no cabe cómodo | Disponible [secundario] |
+| D) Redis + BullMQ | Estándar de la industria | Una dependencia más que pagar y operar; no aporta nada a este volumen | — |
+
+**Decisión: A.** pg-boss con `key_strict_fifo`. Confirmar que la versión fijada incluye esa política (aparece en la documentación de master; verificar en las notas de la versión).
+
+**Hosting del worker** (Vercel no puede: solo funciones con límite de duración, y el plan Hobby prohíbe uso comercial)
+
+| Opción | Pros | Contras | Costo mensual |
+|---|---|---|---|
+| **A) Railway** | Despliegue desde el repo, logs, escala a réplicas con un clic, Node sin configurar nada | Facturación por uso; los precios por vCPU y GB tienen dos valores contradictorios en las fuentes [secundario] | Hobby 5 USD (incluye 5 USD de uso); un worker de 0,5 vCPU y 512 MB estimado en 5 a 10 USD netos |
+| B) Render (background worker Starter) | Precio fijo, simple | Precio exacto sin confirmar (probablemente 7 USD) [secundario] | ~7 USD |
+| C) Fly.io (shared-cpu-1x, 512 MB) | El más barato | Configuración algo más manual; su Postgres gestionado es caro (38 USD), así que igual necesitas Supabase | ~3,20 a 3,60 USD [secundario] |
+| D) Hetzner CX23 (2 vCPU, 4 GB) con todo self-hosted | El más barato por potencia | Tú operas Postgres, backups, TLS, parches. Precio subió dos veces en 2026 | ~5,49 EUR + IPv4 + IVA [secundario] |
+
+**Decisión: A.** Railway para el worker en el MVP; Fly como alternativa si el costo de Railway se dispara. Hetzner queda como plan de reducción de costos a 200 tenants si alguna vez hace falta, no antes.
+
+**Hosting del dashboard y el webhook**
+
+| Opción | Pros | Contras | Costo |
+|---|---|---|---|
+| **A) Vercel Pro** | Ya lo usas; despliegues por rama; Next.js de primera clase. El webhook responde 200 en una función | Hobby no permite uso comercial: Pro es obligatorio. Funciones limitadas a 300 s por defecto (sobra: el webhook tarda milisegundos) | 20 USD [secundario] |
+| B) La web también en Railway | Un solo proveedor de cómputo, 20 USD menos | Sin la comodidad de Vercel para Next.js; tú configuras dominio y CDN | ~5 a 10 USD adicionales |
+
+**Decisión: A** para el MVP. Si a los 3 meses el costo fijo pesa, mover la web a Railway es un día de trabajo.
+
+**LLM del agente** (tool-calling con 11 herramientas, prompt en español, una llamada corta por mensaje)
+
+| Modelo | Entrada / salida por millón de tokens | Caché de lectura | Notas | Estado |
+|---|---|---|---|---|
+| Claude Opus 5.5 | 4 / 20 USD | 0,20 | El más capaz; sobra para un enrutador de herramientas | [verificado, referencia de la API de Claude] |
+| **Claude Sonnet 5.5** | **2 / 10 USD** | **0,20** | Tool-calling, salidas estructuradas, visión, caché de prompt, 1M de contexto. Español documentado por Anthropic con rendimiento cercano al inglés | [verificado] |
+| Claude Haiku 4.5 | 1 / 5 USD | 0,10 | La mitad de precio, pero la página de modelos indica retiro tentativo "no antes del 15/10/2026" | [verificado el precio; verificar la fecha de retiro antes de decidir] |
+| Gemini Flash-Lite (3.1) | 0,25 / 1,50 USD | 0,025 | El más barato con diferencia. Tarifa de Google Cloud (Vertex); la del Gemini Developer API no se pudo abrir. Soporte de tool-calling y JSON por confirmar en su documentación | [secundario] |
+| Gemini Flash (3.x) | 0,75 / 3,75 USD promocional hasta 31/12/2026; después 1,50 / 7,50 | 0,075 | Precio promocional; presupuestar con el precio posterior | [secundario] |
+| OpenAI GPT-5.4 nano / mini | 0,20 / 1,25 y 0,75 / 4,50 USD | — | Solo fuentes de terceros; nombres de modelo sin confirmar | [secundario, no confiable] |
+
+**Decisión: Claude Sonnet 5.5 como principal, Gemini Flash-Lite como respaldo y candidato a principal si las evals lo aprueban.** Razones: precio verificado, calidad en español, caché de prompt que reduce el costo de entrada un 90% en la parte estable (sistema y herramientas), salidas estructuradas para la lectura de facturas, y un solo proveedor para texto y visión. Haiku 4.5 se descarta por el riesgo de retiro; si Anthropic publica un Haiku nuevo, se reevalúa. Parámetros: `effort: "low"` (el agente no necesita razonar largo), `strict: true` en las herramientas, sin `tool_choice` forzado (no lo soporta), `fallbacks: "default"` activado, caché de prompt sobre sistema y herramientas.
+
+**Visión (lectura de facturas)**
+
+Mismo modelo que el agente, con salida estructurada. Costo por foto dominado por la imagen: redimensionar a un máximo de 1.000 px por lado antes de enviar, lo que la deja en unos 1.300 tokens. No hay OCR aparte (ADR-007).
+
+**Voz a texto** (notas de voz OGG/Opus, 5 a 120 s, español venezolano)
+
+| Proveedor | Precio | Formato OGG | Español latino | Vocabulario | Costo para 25 min/mes | Estado |
+|---|---|---|---|---|---|---|
+| **Deepgram Nova-3** | 0,0043 USD/min, facturado por segundo. 200 USD de crédito inicial | Sí, con detección automática | Sí: `language=es-419` | `keyterm` (términos clave) | 0,11 USD | [secundario] |
+| OpenAI gpt-transcribe | 0,0045 USD/min | No aparece en la lista del resumen; convertir con ffmpeg si hace falta | Sí (`es`) | `prompt` | 0,11 USD | [secundario] |
+| Gemini (audio como tokens) | ~1 USD por millón de tokens de audio, 32 tokens por segundo | Sí | Sí, sin variante regional | Glosario en el prompt | ~0,07 USD | [secundario] |
+| Groq Whisper large-v3-turbo | 0,04 USD/hora, mínimo 10 s por petición | Sí | Sí (`es`) | `prompt` | 0,02 USD | [secundario] |
+| AssemblyAI Universal-3.5 | 0,21 USD/hora | Por confirmar | Sí | `keyterms_prompt` | 0,09 USD | [secundario] |
+
+**Decisión: Deepgram Nova-3 como principal (variante regional y términos clave para "pago móvil", "bolívares", categorías), Gemini como respaldo.** A este volumen el precio es irrelevante; la decisión final la toma una prueba con 30 notas de voz reales tuyas y de tu novia en la semana 2. Si Gemini transcribe igual de bien, se elimina un proveedor.
+
+**Correo (magic links)**
+
+Resend: plan gratuito de 3.000 correos al mes con tope de 100 al día [secundario]. Con 200 tenants y logins ocasionales sobra; si el tope diario molesta, Pro cuesta 20 USD. Se configura como SMTP personalizado en Supabase Auth.
+
+**Observabilidad**
+
+| Necesidad | Herramienta | Costo |
+|---|---|---|
+| Errores con stack trace en web y worker | Sentry (plan gratuito) | 0 |
+| Logs estructurados con búsqueda | Axiom o Better Stack (planes gratuitos) más los logs de Railway y Vercel | 0 |
+| Métricas de negocio y costo por tenant | La tabla `message` (tokens, latencia, costo) y una vista en el dashboard interno de administración | 0 |
+| Uptime del webhook | Better Stack o UptimeRobot, gratuito | 0 |
+| Alertas | Correo o un WhatsApp al fundador desde el propio worker | 0 |
+
+**Tasa BCV**
+
+| Fuente | Rol | Notas |
+|---|---|---|
+| **bcv.org.ve** (scraper propio de la página de tipo de cambio oficial) | Principal | No hay API oficial. Publica en la tarde (16:00 a 18:00 hora Caracas) la tasa del siguiente día hábil, con su fecha valor visible en la página: se parsea esa fecha como `effective_date`. Reportes recurrentes de problemas de certificado TLS: probar `curl -v` desde Railway; si falta un intermedio, agregarlo con `NODE_EXTRA_CA_CERTS`. Nunca desactivar la verificación TLS globalmente |
+| **ve.dolarapi.com/v1/dolares/oficial** (DolarAPI, código abierto, MIT) | Respaldo | Gratis. Devuelve `fechaActualizacion`, que es hora de actualización, no fecha valor: se infiere la vigencia por la hora de publicación (después de las 15:00 es la del próximo día hábil) y se marca la fila como `source=dolarapi` para auditarla |
+| pydolarve.org | Tercera opción | Gratis; documentación no accesible en la investigación |
+
+Cron: cada 30 minutos entre 15:00 y 20:00 hora Caracas los días hábiles, y una pasada a las 08:00 por si algo falló. Feriados bancarios venezolanos en una tabla editable.
+
+**WhatsApp Cloud API**
+
+Llamadas directas a la Graph API con `fetch`; el SDK oficial de Node está archivado desde 2023. Un cliente propio de 200 líneas: enviar texto, botones, listas, marcar leído con indicador de escritura, descargar medios (la URL de descarga vence en 5 minutos; los medios viven 30 días en Meta).
+
+### Decisión 1 reabierta: uno o N números
+
+Hallazgo [secundario, verificar en la página de precios de Meta y en su CSV de tarifas]: desde el **01/10/2026** Meta cobra por mensaje entregado también los mensajes de servicio (las respuestas dentro de la ventana de 24 h), con una franja gratuita de **1.000 mensajes de servicio entregados por número de teléfono al mes**, sin acumulación. Tarifa para "Resto de Latinoamérica" (incluye Venezuela): entre 0,008 y 0,012 USD por mensaje según la fuente. Además, un WABA sin método de pago registrado deja de entregar mensajes de servicio.
+
+Consumo estimado por tenant: 14 mensajes salientes al día (borradores, confirmaciones, cierres, menús, acuses de voz y foto), unos **420 al mes**.
+
+| Escenario | Meta por tenant al mes | Consecuencia |
+|---|---|---|
+| Un número compartido, 10 tenants | (4.200 − 1.000) × 0,01 / 10 ≈ **0,32 USD** | Tolerable en el piloto |
+| Un número compartido, 200 tenants | (84.000 − 1.000) × 0,01 / 200 ≈ **4,15 USD** | Inviable: consume el presupuesto entero |
+| Un número por tenant | 420 < 1.000 → **0 USD** | Viable. Costo del número aparte |
+
+**Decisión revisada (ADR-001):** la plataforma soporta N números desde el día uno. `tenant.wa_phone_number_id` indica qué número atiende a cada negocio; el webhook enruta por el `phone_number_id` del payload más el remitente. El piloto corre con **un número compartido** (la franja gratuita cubre los dos pilotos). Cada cliente de pago recibe **su propio número**, registrado en el WABA de la plataforma, sin que el cliente toque Meta.
+
+De dónde salen los números:
+- **Números virtuales de Estados Unidos** desde tu empresa allá (proveedores de numeración con recepción de SMS para la verificación): entre 1 y 2 USD al mes cada uno [verificar proveedor y que Meta acepte ese rango de números; los números VoIP a veces fallan la verificación por SMS].
+- **SIMs venezolanas** prepago: costo único bajo, pero hay que mantenerlas activas y guardarlas físicamente. Escala mal.
+- **El número del propio cliente**: descartado. Sus clientes le escriben ahí y el asistente recibiría mensajes de terceros.
+
+Límites a verificar antes de escalar: número máximo de teléfonos por WABA, si un negocio no verificado puede enviar con nombre visible pendiente, y cuántos números se pueden registrar por día.
+
+**Identificación del usuario:** desde mediados de 2026 Meta introduce nombres de usuario y un identificador de usuario con ámbito de negocio (BSUID). Si el usuario adopta un nombre de usuario y no hubo mensajes en 30 días, el webhook puede llegar sin número de teléfono. `phone_number` guarda `e164` y `wa_user_id`; la resolución de tenant acepta cualquiera de los dos y completa el que falte. [secundario; verificar en la documentación de BSUID]
+
+### Costo mensual estimado
+
+**Supuestos por tenant y mes:** 390 mensajes entrantes, 420 salientes; 150 turnos de agente con LLM (el resto son botones, menú y tasa, sin LLM); 45 fotos de factura; 75 notas de voz de 20 s (25 minutos). Tokens por turno de agente con Sonnet 5.5: 1.900 de prefijo cacheado (sistema y herramientas), 700 sin caché (historial y mensaje), 250 de salida (llamada a herramienta con razonamiento mínimo).
+
+**Variable por tenant**
+
+| Concepto | Cálculo | USD/mes |
+|---|---|---|
+| LLM, turnos de agente (Sonnet 5.5) | 150 × (1.900 × 0,20/M + 700 × 2/M + 250 × 10/M) = 150 × 0,0043 | 0,65 |
+| Visión, facturas (Sonnet 5.5) | 45 × (1.800 × 2/M + 150 × 10/M) = 45 × 0,0051 | 0,23 |
+| Voz a texto (Deepgram) | 25 min × 0,0043 | 0,11 |
+| Meta, con número propio | 420 < 1.000 gratis | 0,00 |
+| Número virtual propio | estimado | 1,50 |
+| **Total variable** | | **2,49** (0,99 sin costo de número) |
+| Variante con Gemini Flash-Lite como agente y visión | LLM 0,15 + visión 0,05 | total 1,81 |
+
+**Fijo de plataforma**
+
+| Concepto | 10 tenants | 50 tenants | 200 tenants |
+|---|---|---|---|
+| Supabase Pro | 25 | 25 | 30 (cómputo Small) |
+| Vercel Pro | 20 | 20 | 25 (uso) |
+| Railway worker | 8 | 8 | 16 (2 réplicas) |
+| Resend, Sentry, logs, uptime | 0 | 0 | 0 a 20 |
+| Dominio | 1 | 1 | 1 |
+| **Total fijo** | **54** | **54** | **72 a 92** |
+
+**Totales**
+
+| Tenants | Fijo | Variable (2,49 c/u) | Total | Por tenant | Ingreso a 20 USD | Margen bruto |
+|---|---|---|---|---|---|---|
+| 10 | 54 | 25 | **79** | 7,90 | 200 | 121 (61%) |
+| 50 | 54 | 125 | **179** | 3,57 | 1.000 | 821 (82%) |
+| 200 | 82 | 498 | **580** | 2,90 | 4.000 | 3.420 (86%) |
+
+Con número compartido a 200 tenants, sumar 830 USD al mes de Meta: el total sube a 1.410 y el margen cae al 65%. Por eso la decisión 1 cambia.
+
+Lectura: el costo por tenant baja de 5 USD a partir de unos 25 tenants; antes de eso lo domina el fijo de 54 USD, que es el precio de no operar servidores. El presupuesto del piloto (30 a 50 USD) queda ligeramente corto: el piloto real cuesta unos **60 USD al mes** (fijo 54 más dos tenants), o unos **35 USD** si la web también corre en Railway y se pospone Vercel Pro.
+
+**Costos de arranque (una vez):** dominio (~12 USD/año), método de pago en el Business Manager de Meta antes del 30/09/2026 si ya existe un WABA, verificación del negocio en Meta (gratis, pero requiere documentos), primer número de producción.
+
+### Stack final
+
+| Capa | Elección |
+|---|---|
+| Lenguaje | TypeScript en todo, Node 22 |
+| Monorepo | pnpm workspaces: `apps/web`, `apps/worker`, `packages/core`, `packages/db` |
+| Web | Next.js (App Router) en Vercel Pro. PWA con manifest y service worker mínimo. Tokens de diseño con tema claro y oscuro |
+| Worker | Node en Railway, una réplica; pg-boss 12.x con `key_strict_fifo` por teléfono; cron de BCV y limpieza |
+| Base de datos | Supabase Pro (Postgres 16+, RLS), Drizzle ORM, `decimal.js` |
+| Auth | Supabase Auth, magic link por correo vía Resend |
+| Archivos | Supabase Storage, bucket privado, URLs firmadas |
+| LLM | Claude Sonnet 5.5 (agente y visión) tras la interfaz `LlmClient`; Gemini Flash-Lite como respaldo y candidato |
+| Voz a texto | Deepgram Nova-3 (`es-419`, keyterms) tras `SpeechClient`; Gemini como respaldo |
+| WhatsApp | Graph API directa con `fetch`, cliente propio |
+| Tasa BCV | Scraper de bcv.org.ve + DolarAPI de respaldo |
+| Observabilidad | Sentry, Axiom o Better Stack, tabla `message` |
+| Tests | Vitest (unit e integración), Playwright (dashboard), evals del agente como suites de Vitest con casos grabados |
+| Calidad | ESLint + Prettier (o Biome), TypeScript estricto, CI en GitHub Actions |
+
+### Decisiones tomadas en la Fase 6
+
+- TypeScript y Next.js en monorepo; worker Node separado en Railway porque Vercel no corre procesos persistentes y su plan gratuito prohíbe uso comercial.
+- Supabase Pro como base de datos, auth y storage. Drizzle como ORM. `decimal.js` obligatorio para dinero.
+- pg-boss con serialización por teléfono; sin Redis.
+- Claude Sonnet 5.5 como LLM principal para agente y visión, con caché de prompt y esfuerzo bajo; Gemini Flash-Lite como respaldo y candidato a principal según evals. Haiku 4.5 descartado por riesgo de retiro.
+- Deepgram para voz, Gemini de respaldo, decisión final con 30 notas reales.
+- ADR-001 revisado: soporte multi-número desde el día uno; piloto con número compartido; un número por cliente de pago.
+- `phone_number.wa_user_id` para el identificador de usuario con ámbito de negocio.
+- Sin tope duro de tokens en el MVP; medición desde el día uno (decisión de Fase 3 confirmada con precios).
+
+### Preguntas abiertas
+
+1. ¿Tienes ya un Business Manager con un WABA o número de producción? Si sí, registra el método de pago **antes del 30/09/2026** o deja de entregar mensajes desde el 01/10. Si no, no hay urgencia.
+2. Números para clientes de pago: ¿prefieres números virtuales de Estados Unidos desde tu empresa allá (1 a 2 USD al mes cada uno) o SIMs venezolanas? Afecta el precio y el onboarding. Recomiendo probar un número virtual con el primer cliente de pago.
+3. ¿Vercel Pro desde el día uno (20 USD) o web en Railway hasta tener clientes de pago? Recomiendo Railway para todo durante el piloto y mover a Vercel cuando cobres, salvo que valores mucho los despliegues de vista previa.
+4. Estas cuatro cifras deben confirmarse en su página oficial antes de comprometer dinero: precio por mensaje de Meta para Resto de Latinoamérica y la franja gratuita de 1.000; tarifas de Railway por vCPU y GB; precio y fecha de retiro de Haiku 4.5; tarifa del Gemini Developer API para Flash-Lite.
+
+### Riesgos detectados
+
+- El cambio de precios de Meta del 01/10/2026 es reciente y las fuentes son secundarias. Si la franja gratuita no fuera por número sino por WABA, el escenario multi-número no ayuda y hay que renegociar el precio del producto. Verificar antes de la semana 2.
+- Un número por tenant multiplica el trabajo operativo (registro, verificación por SMS, nombre visible). Mitigación: script de alta de números y checklist; probar el flujo completo con el tercer piloto.
+- Haiku 4.5 podría retirarse; Sonnet 5.5 también tendrá sucesor. Mitigación: interfaz `LlmClient` y evals que corren contra dos proveedores.
+- El scraper de BCV se rompe si cambian la página. Mitigación: alerta si el cron falla dos días hábiles seguidos y respaldo con DolarAPI.
+- El costo fijo de 54 USD pesa hasta los 25 tenants. Mitigación: Railway para todo durante el piloto (ahorra 20 USD).
