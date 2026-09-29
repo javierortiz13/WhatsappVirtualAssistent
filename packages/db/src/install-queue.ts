@@ -1,5 +1,6 @@
 import { PgBoss } from "pg-boss";
 import postgres from "postgres";
+import { loadNearestEnvFile } from "./env-file.js";
 import { PGBOSS_SCHEMA } from "./queue.js";
 
 /**
@@ -43,6 +44,7 @@ export async function installQueue(adminUrl: string, log: (m: string) => void = 
 const isMain =
   process.argv[1]?.endsWith("install-queue.ts") || process.argv[1]?.endsWith("install-queue.js");
 if (isMain) {
+  loadNearestEnvFile();
   const url = process.env.DATABASE_ADMIN_URL;
   if (!url) {
     console.error("DATABASE_ADMIN_URL no definida");

@@ -1,3 +1,4 @@
+import { loadNearestEnvFile } from "@caja/db";
 import { z } from "zod";
 
 /** Variables de entorno del worker, validadas al arrancar. Falla rápido si falta algo. */
@@ -17,6 +18,7 @@ const Env = z.object({
 export type Env = z.infer<typeof Env>;
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
+  if (source === process.env) loadNearestEnvFile();
   const parsed = Env.safeParse(source);
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");

@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
+import { loadNearestEnvFile } from "./env-file.js";
 
 /**
  * Migrador mínimo: aplica `migrations/*.sql` en orden alfabético, una transacción por archivo,
@@ -46,6 +47,7 @@ export async function readAllMigrations(): Promise<string[]> {
 
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
+  loadNearestEnvFile();
   const url = process.env.DATABASE_ADMIN_URL;
   if (!url) {
     console.error("DATABASE_ADMIN_URL no definida");

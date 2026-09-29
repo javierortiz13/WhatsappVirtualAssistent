@@ -14,7 +14,10 @@ pnpm install
 cp .env.example .env
 pnpm lint && pnpm typecheck && pnpm test     # debe estar todo en verde antes de tocar nada
 openssl rand -hex 32                         # guarda este valor: será META_VERIFY_TOKEN
+ln -s ../../.env apps/web/.env.local          # Next.js solo lee el .env de su propia carpeta
 ```
+
+El worker y los scripts de base (`db:migrate`, `db:seed`, `queue:install`) leen el `.env` de la raíz automáticamente.
 
 ## 1. Meta: Business Manager, app y número de prueba (45 min + esperas)
 

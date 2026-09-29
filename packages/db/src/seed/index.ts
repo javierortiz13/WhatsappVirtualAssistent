@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { createDb, rows, withTenant } from "../client.js";
+import { loadNearestEnvFile } from "../env-file.js";
 import { category, phoneNumber, tenant } from "../schema/index.js";
 import { DEFAULT_EXPENSE_CATEGORIES } from "./default-categories.js";
 
@@ -52,6 +53,7 @@ export async function seedTenant(
 }
 
 async function main() {
+  loadNearestEnvFile();
   const env = Env.parse(process.env);
   const { db, close } = createDb(env.DATABASE_URL, { max: 1 });
   try {
