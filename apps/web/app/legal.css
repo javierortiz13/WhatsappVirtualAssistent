@@ -1,0 +1,25 @@
+.legal {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4) 80px;
+}
+.legal h1 {
+  font-size: 24px;
+  margin: 0 0 var(--space-2);
+}
+.legal h2 {
+  font-size: 17px;
+  margin: var(--space-6) 0 var(--space-2);
+}
+.legal p,
+.legal li {
+  color: var(--fg);
+}
+.legal .updated {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 0 var(--space-4);
+}
+.legal ul {
+  padding-left: 20px;
+}
