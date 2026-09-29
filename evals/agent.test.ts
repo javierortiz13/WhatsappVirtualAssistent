@@ -94,10 +94,9 @@ describe.skipIf(!enabled)("evals v0 del agente", () => {
       costUsd: spent.toFixed(6),
       rows,
     };
-    writeFileSync(
-      join(import.meta.dirname, "report", "last.json"),
-      JSON.stringify(report, null, 2),
-    );
+    const dir = join(import.meta.dirname, "report");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "last.json"), JSON.stringify(report, null, 2));
     console.log(
       `\nevals: ${passed}/${rows.length} · costo ${spent.toFixed(4)} USD · ${llm.model}\n` +
         rows
