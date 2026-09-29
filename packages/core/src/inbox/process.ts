@@ -1,8 +1,10 @@
 import { and, type Db, eq, schema, sql, type Tx, withTenant } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
 import type { AgentRunner } from "../agent/types.js";
-import { businessDateOf } from "../domain/dates.js";
+import { asIsoDate, businessDateOf } from "../domain/dates.js";
+import { Decimal } from "../domain/money.js";
 import { allowUnknownReply, canUse, resolveSender } from "../identity/resolve.js";
+import { createExpense, ExpenseDraft, expenseTotalForDay } from "../ledger/index.js";
 import { type Logger, maskPhone, silentLogger } from "../log.js";
 import { getRateInfo } from "../rates/current.js";
 import { es, type Outbound, parseReplyId } from "../render/index.js";
@@ -318,8 +320,7 @@ async function routeInteractive(
           .where(eq(schema.pendingAction.id, pending.id));
         return none([es.promptFix()]);
       }
-      // confirm: los ejecutores por tipo de acción llegan con el ledger (día 4).
-      return none([es.confirmationExpired()]);
+      return executePending(tx, pending, ctx, nowTs);
     }
     case "currency":
     case "category":
@@ -344,6 +345,46 @@ async function runAgent(
     tokensOut: result.tokensOut,
     costUsd: result.costUsd,
   };
+}
+
+/** Ejecuta un borrador confirmado. Cada tipo de acción escribe en el ledger dentro de la transacción. */
+async function executePending(
+  tx: Tx,
+  pending: typeof schema.pendingAction.$inferSelect,
+  ctx: RouteCtx,
+  nowTs: Date,
+): Promise<RouteResult> {
+  switch (pending.kind) {
+    case "create_expense": {
+      const draft = ExpenseDraft.parse(pending.payload);
+      await createExpense(tx, {
+        tenantId: ctx.tenantId,
+        businessDate: asIsoDate(draft.businessDate),
+        amount: new Decimal(draft.amount),
+        currency: draft.currency,
+        categoryId: draft.categoryId,
+        description: draft.description,
+        sourceChannel: draft.sourceChannel,
+        actor: { phoneId: ctx.phoneId },
+        sourceMessageId: draft.sourceMessageId,
+        attachmentId: draft.attachmentId,
+        rate: {
+          id: draft.rateId,
+          value: draft.rateValue,
+          effectiveDate: asIsoDate(draft.rateEffectiveDate),
+        },
+      });
+      await tx
+        .update(schema.pendingAction)
+        .set({ status: "confirmed", resolvedAt: nowTs })
+        .where(eq(schema.pendingAction.id, pending.id));
+      const total = await expenseTotalForDay(tx, ctx.tenantId, asIsoDate(draft.businessDate));
+      return none([es.expenseSaved(total.usd, total.count)]);
+    }
+    default:
+      // Otros tipos llegan con ventas y correcciones (S3).
+      return none([es.confirmationExpired()]);
+  }
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

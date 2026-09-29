@@ -68,3 +68,22 @@ Registro corto por día de trabajo: qué quedó terminado, qué se aprendió, qu
 - `rates`: scraper de bcv.org.ve con fecha valor y respaldo DolarAPI; cron en pg-boss (15:00 a 20:00 Caracas cada 30 min, más 08:00).
 - `ledger` (`LocalProvider`): `createExpense` transaccional con auditoría; ejecutor de `confirm` para `create_expense`; plantilla de borrador y de guardado con total del día.
 - Cuentas externas de S0 para conectar el webhook real.
+
+### Día 4 · 29/09/2026 · Tasa BCV y ledger de gastos
+
+**Terminado**
+- `packages/core/src/rates`: fuente BCV (parseo de la página con tasa en formato venezolano y fecha valor), fuente DolarAPI de respaldo (fecha valor inferida por hora de actualización: después de las 15:00 Caracas en día hábil rige el siguiente día hábil), `storeRate` con reglas (el BCV manda; DolarAPI solo llena huecos), `refreshRates` que recorre fuentes en orden y reporta errores, y `rateFor(fecha)` que usa la última publicada en fin de semana o feriado.
+- `packages/core/src/ledger`: `createExpense` transaccional (convierte con la tasa congelada del borrador o la vigente, inserta el movimiento y su fila de auditoría en la misma transacción), `expenseTotalForDay` en SQL, `findCategory` sin acentos ni mayúsculas, `createExpenseDraft` (un solo borrador activo por teléfono; el nuevo cancela al anterior; expira a 10 min) y `expirePendingActions`.
+- Plantillas del borrador según el guion de la Fase 4 (moneda inferida, tasa de otro día, transcripción, borrador reemplazado) y de "guardado" con el total del día.
+- `processInbound`: el botón Guardar ejecuta el borrador `create_expense`, lo marca confirmado y responde con el total; un segundo toque no duplica.
+- Worker: `jobs.ts` registra los handlers de `process-message`, `fetch-bcv-rate` y `housekeeping`, y los cron en hora de Caracas (tasa cada 30 min entre 15:00 y 20:00 de lunes a viernes, más 08:00 diario; limpieza cada 5 min). Comando manual `pnpm --filter @caja/worker rates:refresh`.
+- 17 tests nuevos. Total: 117.
+
+**Aprendido**
+- En un `RETURNING` de `INSERT ... ON CONFLICT DO UPDATE`, la tabla ya refleja la fila nueva: no sirve para saber si cambió. `storeRate` se hizo con select y luego escritura.
+- El worker no puede compartir un `wa_message_id` entre dos envíos: la restricción única de `message` lo protege; los tests deben generar ids distintos.
+
+**Pendiente para el día 5**
+- Agente con Claude Sonnet 5.5: prompt de sistema v1, herramientas `draft_expense`, `ask_clarification`, `reject_out_of_scope`, loop con tope de iteraciones y timeout, caché de prompt, validación numérica de aclaraciones, registro de tokens y costo.
+- Evals v0 (15 casos) contra el LLM real con tope de costo.
+- Verificar el parseo del BCV contra la página real desde Railway (estructura y TLS).

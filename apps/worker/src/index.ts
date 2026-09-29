@@ -1,7 +1,8 @@
-import { type ProcessDeps, processInbound, stubAgent, whatsapp } from "@caja/core";
+import { type ProcessDeps, stubAgent, whatsapp } from "@caja/core";
 import { createDb, rows, sql } from "@caja/db";
-import { createBoss, ensureQueues, type ProcessMessageJob, QUEUES } from "@caja/db/queue";
+import { createBoss, ensureQueues } from "@caja/db/queue";
 import { loadEnv } from "./env.js";
+import { registerJobs } from "./jobs.js";
 import { createLogger } from "./logger.js";
 
 /**
@@ -48,20 +49,7 @@ async function main() {
   await boss.start();
   await ensureQueues(boss);
 
-  await boss.work<ProcessMessageJob>(
-    QUEUES.processMessage,
-    { batchSize: 1, pollingIntervalSeconds: 1, localConcurrency: env.WORKER_CONCURRENCY },
-    async (jobs) => {
-      for (const job of jobs) {
-        const started = Date.now();
-        const outcome = await processInbound(deps, job.data);
-        log.info(
-          { jobId: job.id, outcome, ms: Date.now() - started, retry: job.retryCount },
-          "job procesado",
-        );
-      }
-    },
-  );
+  await registerJobs({ boss, db, deps, log, concurrency: env.WORKER_CONCURRENCY });
 
   log.info(
     {

@@ -274,3 +274,112 @@ describe("classifyKeyword", () => {
     expect(classifyKeyword(input)).toBe(expected);
   });
 });
+
+describe("processInbound: confirmar un borrador", () => {
+  it("Guardar ejecuta el gasto, cierra el borrador y responde con el total del día", async () => {
+    const t = await createTestDb();
+    try {
+      const tenantId = await seedTenant(t.db, {
+        name: "Autolavado",
+        businessType: "car_wash",
+        ownerPhone: "584121234567",
+      });
+      await t.db
+        .insert(schema.bcvRate)
+        .values({ effectiveDate: "2026-09-29", rate: "858.00000000", source: "test" });
+      const [phone] = await withTenant(t.db, tenantId, (tx) =>
+        tx.select().from(schema.phoneNumber),
+      );
+      const now = () => new Date("2026-09-29T15:00:00Z");
+      const { createExpenseDraft } = await import("../src/ledger/drafts.js");
+      const { Decimal } = await import("../src/domain/money.js");
+      const { asIsoDate } = await import("../src/domain/dates.js");
+      const draft = await withTenant(t.db, tenantId, (tx) =>
+        createExpenseDraft(
+          tx,
+          {
+            tenantId,
+            phoneId: phone?.id ?? "",
+            amount: new Decimal("15"),
+            currency: "USD",
+            currencyInferred: false,
+            categoryId: null,
+            categoryName: "Otros",
+            description: "Champú",
+            businessDate: asIsoDate("2026-09-29"),
+            sourceChannel: "text",
+            sourceMessageId: null,
+            attachmentId: null,
+            transcript: null,
+          },
+          now(),
+        ),
+      );
+      const sentAll: Sent[] = [];
+      const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+        if (body.status !== "read") sentAll.push({ url: "", body });
+        return new Response(
+          JSON.stringify({ messages: [{ id: `wamid.OUT.${sentAll.length}.${Date.now()}` }] }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }) as typeof fetch;
+      const client = new MetaClient({
+        accessToken: "T",
+        phoneNumberId: fx.PHONE_NUMBER_ID,
+        fetchImpl,
+      });
+      const payload = JSON.parse(JSON.stringify(fx.buttonReply));
+      payload.entry[0].changes[0].value.messages[0].id = "wamid.CONF1";
+      payload.entry[0].changes[0].value.messages[0].interactive.button_reply = {
+        id: `confirm:${draft.pendingId}`,
+        title: "Guardar",
+      };
+      const jobs: ProcessMessageJob[] = [];
+      await ingestWebhook(
+        { db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) },
+        payload,
+      );
+      const deps: ProcessDeps = {
+        db: t.db,
+        metaFor: () => client,
+        agent: stubAgent,
+        now,
+        config: {
+          assistantName: "x",
+          dashboardUrl: "https://caja.test",
+          supportHint: null,
+          unknownReplyMax: 5,
+          unknownReplyWindowMs: 3_600_000,
+          maxEventAgeMs: 12 * 3_600_000,
+          maxTextLength: 500,
+        },
+      };
+      expect(await processInbound(deps, jobs[0] as ProcessMessageJob)).toBe("done");
+      expect(textOf(sentAll[0])).toBe("✅ Guardado. Gastos de hoy: *$15,00* (1 registro).");
+      const movements = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));
+      expect(movements).toHaveLength(1);
+      expect(movements[0]).toMatchObject({ amountVes: "12870.00", description: "Champú" });
+      const [pa] = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.pendingAction));
+      expect(pa?.status).toBe("confirmed");
+      // Un segundo toque de Guardar ya no encuentra borrador vigente.
+      const again = JSON.parse(JSON.stringify(payload));
+      again.entry[0].changes[0].value.messages[0].id = "wamid.CONF2";
+      jobs.length = 0;
+      await ingestWebhook(
+        { db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) },
+        again,
+      );
+      await processInbound(deps, jobs[0] as ProcessMessageJob);
+      expect(textOf(sentAll[1])).toContain("ya venció");
+      expect(
+        await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement)),
+      ).toHaveLength(1);
+    } finally {
+      await t.close();
+    }
+  });
+});

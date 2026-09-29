@@ -1,4 +1,4 @@
-import { formatShortDate, type IsoDate } from "../domain/dates.js";
+import { asIsoDate, formatShortDate, type IsoDate } from "../domain/dates.js";
 import { type Decimal, formatMoney } from "../domain/money.js";
 import { IDS, type Outbound } from "./outbound.js";
 
@@ -159,4 +159,77 @@ export function unsupported(): Outbound {
 
 export function tooLong(): Outbound {
   return { type: "text", body: "Ese mensaje es muy largo. Mándame un gasto o una venta a la vez." };
+}
+
+/** Datos ya calculados de un borrador de gasto (payload de `pending_action`). */
+export type ExpenseDraftView = {
+  pendingId: string;
+  amount: Decimal.Value;
+  currency: "USD" | "VES";
+  currencyInferred: boolean;
+  amountUsd: Decimal.Value;
+  amountVes: Decimal.Value;
+  rateValue: Decimal.Value;
+  rateEffectiveDate: string;
+  businessDate: string;
+  today: IsoDate;
+  categoryName: string | null;
+  description: string | null;
+  transcript: string | null;
+  replacedPrevious: boolean;
+};
+
+function relativeDay(businessDate: string, today: IsoDate): string {
+  const d = asIsoDate(businessDate);
+  const label = formatShortDate(d);
+  if (d === today) return `Hoy, ${label}`;
+  const [y, m, day] = today.split("-").map(Number);
+  const yesterday = new Date(Date.UTC(y ?? 2000, (m ?? 1) - 1, (day ?? 1) - 1))
+    .toISOString()
+    .slice(0, 10);
+  return d === yesterday ? `Ayer, ${label}` : label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+export function expenseDraft(d: ExpenseDraftView): Outbound {
+  const main = formatMoney(d.amount, d.currency);
+  const other =
+    d.currency === "USD" ? formatMoney(d.amountVes, "VES") : formatMoney(d.amountUsd, "USD");
+  const inferred = d.currencyInferred
+    ? ` · entendí ${d.currency === "USD" ? "dólares" : "bolívares"}`
+    : "";
+  const rateNote =
+    d.rateEffectiveDate === d.businessDate
+      ? `a tasa ${formatMoney(d.rateValue, "VES").replace("Bs ", "")}`
+      : `a tasa ${formatMoney(d.rateValue, "VES").replace("Bs ", "")} del ${formatShortDate(asIsoDate(d.rateEffectiveDate))}`;
+  const lines: string[] = [];
+  if (d.replacedPrevious) lines.push("Descarté el borrador anterior sin guardar.");
+  if (d.transcript) lines.push(`Entendí: _"${d.transcript}"_`);
+  lines.push("Gasto por confirmar:");
+  lines.push(`*${main}* (${other} ${rateNote})${inferred}`);
+  lines.push(`${d.description ?? "Sin descripción"} · ${d.categoryName ?? "Otros"}`);
+  lines.push(relativeDay(d.businessDate, d.today));
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: [
+      { id: IDS.confirm(d.pendingId), title: "Guardar" },
+      { id: IDS.fix(d.pendingId), title: "Corregir" },
+      { id: IDS.cancel(d.pendingId), title: "Cancelar" },
+    ],
+  };
+}
+
+export function expenseSaved(dayTotalUsd: Decimal.Value, count: number): Outbound {
+  const n = count === 1 ? "1 registro" : `${count} registros`;
+  return {
+    type: "text",
+    body: `✅ Guardado. Gastos de hoy: *${formatMoney(dayTotalUsd, "USD")}* (${n}).`,
+  };
+}
+
+export function noRate(): Outbound {
+  return {
+    type: "text",
+    body: "No tengo la tasa BCV para esa fecha, así que no puedo convertir. Inténtalo más tarde.",
+  };
 }

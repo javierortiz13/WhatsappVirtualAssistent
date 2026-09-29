@@ -7,7 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "rates:refresh": "tsx src/cli/refresh-rates.ts"
   },
   "dependencies": {
     "@caja/core": "workspace:*",
