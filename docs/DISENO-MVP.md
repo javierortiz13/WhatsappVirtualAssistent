@@ -2517,6 +2517,17 @@ Probabilidad e impacto en escala 1 (bajo) a 3 (alto). Prioridad = producto.
 2. Canal de soporte: el WhatsApp personal del fundador durante el piloto; una persona de soporte si el número de clientes lo justifica.
 3. Facturación: preferencia por facturar desde la empresa venezolana. Pendiente de confirmar con un contador antes del primer cobro.
 
+### Anexo: verificación de negocio en Meta desde Venezuela (investigado el 29/09/2026)
+
+Resultado: **no se encontró ningún reporte de primera mano** de un negocio venezolano verificado o rechazado por Meta, ni sobre registro de números +58 en la Cloud API, ni sobre problemas de pago desde Venezuela. Todo lo disponible es contenido de proveedores. Lo que sí es consistente entre fuentes:
+
+- Los cinco tipos de documento que Meta acepta: acta constitutiva o certificado de incorporación, registro o licencia del negocio, documento fiscal emitido por el gobierno, estado de cuenta bancario del negocio, factura de servicios. Estado de cuenta y factura con menos de 12 meses. La factura de servicios solo sirve para dirección y teléfono, no para el nombre legal.
+- Rechazos típicos: nombre, dirección o teléfono que no coinciden entre documentos, sitio web y cuenta; documentos vencidos, ilegibles o sin sello; idioma no soportado sin traducción certificada (el español está soportado).
+- Para una compañía anónima venezolana, el equivalente razonable es: acta constitutiva del Registro Mercantil (nombre legal), RIF (documento fiscal) y una factura de CANTV o CORPOELEC o un estado de cuenta bancario a nombre de la empresa (dirección). Una firma personal también tiene Registro Mercantil y RIF; no hay evidencia de si Meta la acepta.
+- Fuente autoritativa: la lista de documentos por país que muestra el propio Business Manager al iniciar la verificación. Es lo primero que hay que abrir en S0.
+
+Pasos prácticos: (1) abrir la verificación en el Business Manager y leer la lista exacta para Venezuela; (2) asegurar que el nombre legal, la dirección y el teléfono coincidan en los tres documentos y en la página de privacidad del dashboard; (3) si Meta rechaza dos veces, evaluar un proveedor de soluciones (BSP) con presencia en Venezuela como LiveConnect, sabiendo que cobran entre 75 y 230 USD al mes según sus páginas y que eso rompe el presupuesto: sería solo para destrabar el número, no como plataforma.
+
 ### Riesgos detectados en esta fase
 
 Los de la matriz. Los tres que debes mirar esta semana: R1 (precio de Meta), R10 (tu tiempo después de la semana 1) y R11 (tercer piloto).
