@@ -20,7 +20,15 @@ export async function sendMagicLink(formData: FormData): Promise<void> {
     options: { emailRedirectTo: `${origin}/auth/confirm`, shouldCreateUser: true },
   });
   if (error) {
-    console.error(JSON.stringify({ level: "error", msg: "magic link", code: error.code }));
+    console.error(
+      JSON.stringify({
+        level: "error",
+        msg: "magic link",
+        status: error.status ?? null,
+        code: error.code ?? null,
+        detail: error.message,
+      }),
+    );
     redirect(error.status === 429 ? "/login?error=espera" : "/login?error=envio");
   }
   redirect("/login?enviado=1");
