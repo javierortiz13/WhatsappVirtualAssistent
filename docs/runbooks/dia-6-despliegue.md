@@ -113,6 +113,8 @@ El worker cambió (Sentry y guardas de errores): **Redeploy** para tomar el comm
 3. Recarga el dashboard: la fila aparece en "Últimos movimientos" con monto, equivalente y tasa.
 4. **Ajustes → Cerrar sesión** y vuelve a entrar: el segundo enlace también funciona.
 
-Si el correo no llega: Supabase → **Authentication → Logs** muestra el intento; Resend →
-**Emails** muestra si salió. Si el enlace dice "ya no sirve": venció (15 min) o la plantilla
-sigue usando `{{ .ConfirmationURL }}` y abriste el enlace en otro dispositivo.
+Si el correo no llega: Supabase → **Logs → Auth** muestra el intento; Resend → **Emails**
+muestra si salió. Si el enlace dice "ya no sirve": venció (15 min), ya se usó (los clientes de
+correo a veces lo abren para previsualizarlo; por eso el enlace lleva a una página con botón y
+solo se valida al tocarlo), o la plantilla sigue usando `{{ .ConfirmationURL }}` y abriste el
+enlace en otro dispositivo. El motivo exacto queda en Vercel → Logs como `"msg":"confirm"`.
