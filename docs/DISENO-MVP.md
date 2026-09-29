@@ -9,8 +9,8 @@ Documento acumulativo. Cada fase agrega una sección al cerrarse.
 | 0. Descubrimiento (Product Brief) | Aprobado |
 | 1. Requerimientos | Aprobado |
 | 2. Modelo de dominio y datos | Aprobado |
-| 3. Arquitectura | Entregado, pendiente de aprobación |
-| 4. UX conversacional | Pendiente |
+| 3. Arquitectura | Aprobado |
+| 4. UX conversacional | Entregado, pendiente de aprobación |
 | 5. UX/UI dashboard | Pendiente |
 | 6. Stack tecnológico | Pendiente |
 | 7. Seguridad, cumplimiento y riesgos | Pendiente |
@@ -1043,7 +1043,9 @@ Casi todo termina en la primera iteración. Las iteraciones 2 y 3 existen para c
 | `cancel:<pending_id>` | Cancela, responde |
 | `fix:<pending_id>` | Marca la pendiente como "en corrección" y espera el siguiente texto, que sí va al LLM con el borrador en contexto |
 | Texto de exactamente 6 dígitos desde un número `pending` | Verificación de número |
-| "menu", "ayuda", "hola" desde número activo | Menú fijo de 3 botones |
+| "menu", "hola", "buenas" desde número activo | Menú fijo: tasa del día en el texto más 3 botones |
+| "tasa", "dolar", "bcv" como mensaje completo | Tasa del día sin LLM |
+| "ayuda" | Texto de ayuda con ejemplos y enlace al dashboard |
 | Número desconocido | Texto fijo con enlace |
 | Número `disabled` | Igual que desconocido |
 
@@ -1086,7 +1088,7 @@ El texto final se escribe en la Fase 4 junto con los guiones, y se versiona en e
 5. Toda escritura pasa por `pending_action` y confirmación con botón.
 6. Texto libre del LLM (solo `ask_clarification`) → validación de números.
 7. Límite de 3 iteraciones y 20 s por llamada.
-8. Presupuesto de tokens por tenant y día; al superarlo, el bot responde que llegó al límite y sugiere el dashboard. Evita que un tenant rompa el costo objetivo.
+8. Presupuesto de tokens por tenant y día, **desactivado en el MVP** hasta tener costos reales (ver preguntas resueltas). Cuando se active, al superarlo el bot responde que llegó al límite y sugiere el dashboard.
 
 **Fuera de alcance.** No se argumenta ni se conversa. Respuesta fija: "Solo puedo ayudarte con tu caja: registrar gastos, registrar ventas y ver el cierre. ¿Qué quieres hacer?" con tres botones. Se registra `reason` para saber qué piden los dueños y decidir qué construir después.
 
@@ -1168,11 +1170,12 @@ El texto final se escribe en la Fase 4 junto con los guiones, y se versiona en e
 - Presupuesto de tokens por tenant y día.
 - Sin mensajes proactivos.
 
-### Preguntas abiertas
+### Preguntas abiertas (resueltas al aprobar la fase)
 
-1. ¿Quieres que el mensaje de "fuera de alcance" incluya un enlace al dashboard, o solo los tres botones? Propuesta: solo botones; el enlace se da en "ayuda".
-2. Presupuesto de tokens por tenant y día: propongo un tope que equivalga a unos 0,30 USD diarios (se traduce a tokens en Fase 6). ¿De acuerdo con que el bot se "apague" ese día al superarlo?
-3. Indicador de "escribiendo" en la Cloud API: si no está disponible o cuesta, el acuse de texto lo reemplaza. A confirmar en la semana 1.
+1. Fuera de alcance: tres botones (Registrar gasto, Registrar venta, Ver cierre). El enlace al dashboard va en "ayuda". Aprobado.
+2. El dueño pidió un cuarto botón de tasa. WhatsApp permite 3 botones por mensaje, así que la tasa del día se muestra en el texto del menú y "tasa" como palabra se resuelve sin LLM. Aprobado.
+3. Tope diario por tenant: **sin tope duro en el MVP**. Se mide el costo real por mensaje desde el walking skeleton; el tope se define en Fase 6 como múltiplo del consumo promedio con precios verificados. Alerta interna si un tenant supera 3 veces el promedio. El mecanismo queda implementado y apagado por configuración.
+4. Indicador de "escribiendo": se verifica en la semana 1 con el número de prueba; si no está disponible, el acuse por texto lo reemplaza. Aprobado.
 
 ### Riesgos detectados
 
@@ -1180,3 +1183,468 @@ El texto final se escribe en la Fase 4 junto con los guiones, y se versiona en e
 - Plantillas de backend demasiado rígidas pueden sonar a máquina. Mitigación: la Fase 4 invierte en redacción y variantes.
 - Extracción de facturas con baja precisión en fotos malas. Mitigación: umbral de confianza y caída a texto; medir en el piloto antes de prometerlo.
 - El presupuesto por tenant y día puede cortar a un dueño legítimo en un día pesado. Mitigación: tope generoso, mensaje claro, y el dashboard siempre disponible.
+
+---
+
+## Fase 4. UX conversacional (WhatsApp)
+
+### Principios de tono
+
+1. **Español venezolano, tuteo, profesional sin ser acartonado.** Como le hablaría un contador joven de confianza al dueño: claro, corto, sin "estimado usuario" y sin "épale mi pana".
+2. **Una cosa por mensaje.** Nunca dos preguntas. Nunca un párrafo donde cabe una línea.
+3. **Siempre mostrar lo que se entendió antes de guardar.** El dueño confirma un resumen, no una interpretación oculta.
+4. **Cifras siempre con moneda y formato local.** `$15,00` y `Bs 1.850,00`. Coma decimal, punto de miles. Bs por encima de 999.999.999 se abrevia (`Bs 1,85 MM`).
+5. **Emojis con función, no decoración.** Como máximo uno por mensaje y solo como marcador visual: ✅ guardado, ⚠️ atención, 📊 cierre, 💵 tasa. Nunca en preguntas ni errores.
+6. **Nunca culpar al usuario.** "No encontré el monto" en vez de "no escribiste el monto".
+7. **El bot no conversa.** No saluda de vuelta con párrafos, no pregunta cómo estás, no opina. Cumple y se calla.
+
+### Cuándo usar texto, botones o listas
+
+| Situación | Formato | Razón |
+|---|---|---|
+| Entrada de datos (gasto, venta, consulta) | Texto libre, voz o foto | Es la propuesta de valor: escribir como a la cajera |
+| Confirmar una escritura | 3 botones: Guardar / Corregir / Cancelar | Inequívoco, un toque, se procesa sin LLM |
+| Decisión binaria (USD o Bs, Reemplazar o Agregar) | 2 o 3 botones | Un toque |
+| Menú principal | Texto con tasa del día + 3 botones | Los 3 casos de uso más frecuentes |
+| Elegir entre 4 o más opciones (categoría ambigua, método de pago, período) | Lista (hasta 10 filas) | Los botones no alcanzan; la lista no ensucia el chat |
+| Cierre, resúmenes, consultas | Texto formateado con negritas | Se lee de un vistazo, se puede reenviar al socio |
+| Errores | Texto, una línea, con el siguiente paso | Sin botones: el siguiente paso es escribir |
+
+Límites que el código debe respetar (a verificar en la documentación vigente de Meta durante la semana 1): 3 botones por mensaje, 20 caracteres por título de botón; 10 filas por lista, 24 caracteres por título de fila, 72 por descripción; cuerpo de mensaje interactivo hasta 1.024 caracteres.
+
+Regla de identificadores: todo botón y fila lleva un id con prefijo y objetivo (`confirm:<pending_id>`, `cancel:<pending_id>`, `fix:<pending_id>`, `currency:USD`, `cat:<category_id>`, `menu:expense`), para que el handler determinista sepa qué hacer sin leer el texto.
+
+### Mapa de flujos
+
+```mermaid
+flowchart TD
+    in([Mensaje entrante]) --> id{Número conocido?}
+    id -- no --> unk[Texto fijo: enlace de registro]
+    id -- pendiente de verificar --> code{6 dígitos?}
+    code -- sí, correcto --> welcome[Bienvenida + menú]
+    code -- no --> askcode[Pide el código del dashboard]
+    id -- activo --> route{Tipo}
+
+    route -- botón confirm/cancel/fix --> pend[Handler de borrador]
+    route -- hola / menú --> menu[Tasa del día + 3 botones]
+    route -- tasa --> rate[Tasa vigente y próxima]
+    route -- ayuda --> help[Ejemplos + enlace dashboard]
+    route -- texto / voz / foto --> agent[Agente]
+
+    agent --> tool{Herramienta}
+    tool -- draft_expense --> dexp[Borrador de gasto]
+    tool -- draft_income_* --> dinc[Borrador de venta]
+    tool -- amend / delete --> dfix[Borrador de corrección]
+    tool -- get_daily_close / period / category --> report[Reporte formateado]
+    tool -- get_bcv_rate --> rate
+    tool -- ask_clarification --> clar[Pregunta con botones o lista]
+    tool -- reject_out_of_scope --> oos[Fuera de alcance + menú]
+
+    dexp --> confirm{Guardar / Corregir / Cancelar}
+    dinc --> confirm
+    dfix --> confirm
+    confirm -- Guardar --> saved[✅ Guardado + total del día]
+    confirm -- Corregir --> agent
+    confirm -- Cancelar --> canc[Descartado]
+    confirm -- 10 min sin respuesta --> exp[Borrador vencido]
+    clar --> agent
+```
+
+### Onboarding
+
+**Paso 1, dashboard.** El dueño entra a la web, pone su correo, recibe el magic link, y completa: nombre del negocio, tipo (lista de 5), moneda por defecto de gastos (USD preseleccionado), su número de WhatsApp. El dashboard muestra:
+
+> Tu código de vinculación es **482913**. Envíalo por WhatsApp al asistente para activar tu número.
+> [Abrir WhatsApp] (enlace `wa.me` con el código ya escrito)
+
+**Paso 2, WhatsApp.**
+
+> **Dueño:** 482913
+>
+> **Bot:** ✅ Listo, tu número quedó vinculado a *Autolavado El Rápido*.
+>
+> Soy tu asistente de caja. Me escribes como le escribirías a tu cajera:
+> • _gasté 15$ en champú_
+> • _hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto_
+> • _cómo va el mes_
+>
+> También me puedes mandar una nota de voz o la foto de una factura.
+>
+> Tasa BCV hoy: *Bs 36,45*
+> [Registrar gasto] [Registrar venta] [Ver cierre]
+
+**Empleado.** El dueño agrega el número desde el dashboard con rol Empleado. No hay código: el empleado escribe cualquier cosa y recibe:
+
+> **Bot:** Hola, Carlos. Quedaste registrado como empleado de *Autolavado El Rápido*. Puedes registrar gastos y ventas; los cierres los ve el dueño.
+> Ejemplo: _gasté 5$ en hielo_
+
+Por qué sin código para el empleado: el dueño ya lo autorizó desde su cuenta, y el número es el identificador. Si el dueño se equivoca de número, lo desactiva y listo. Menos fricción, riesgo bajo.
+
+### Menú, tasa y ayuda (sin LLM)
+
+> **Dueño:** hola
+>
+> **Bot:** Tasa BCV hoy: *Bs 36,45* (vigente 29/09)
+> ¿Qué quieres hacer?
+> [Registrar gasto] [Registrar venta] [Ver cierre]
+
+Al tocar un botón del menú, el bot pide el dato con un ejemplo, y el siguiente mensaje va al agente:
+
+> **Dueño:** [Registrar gasto]
+>
+> **Bot:** Dime el gasto. Ejemplo: _gasté 15$ en champú_ o mándame la foto de la factura.
+
+> **Dueño:** tasa
+>
+> **Bot:** 💵 Tasa BCV
+> Vigente hoy (lun 29/09): *Bs 36,45*
+> Próxima (mar 30/09): *Bs 36,52*
+
+Si no hay próxima publicada, la segunda línea no aparece. Si la vigente tiene más de 3 días hábiles:
+
+> ⚠️ Esta tasa es del jueves 25/09; no he podido actualizarla. Verifica en bcv.org.ve antes de usarla.
+
+> **Dueño:** ayuda
+>
+> **Bot:** Esto es lo que puedo hacer:
+> • Registrar gastos: _gasté 15$ en champú_, o nota de voz, o foto de la factura
+> • Registrar ventas: _hoy vendí 350$: 200 efectivo, 150 pago móvil_
+> • Cierre: _cierre de hoy_, _cómo va el mes_, _cuánto gasté en insumos esta semana_
+> • Tasa: _tasa_
+> Para ver, corregir o exportar todo: {enlace al dashboard}
+
+### Skill: registrar gasto
+
+**Caso simple.**
+
+> **Dueño:** gasté 15$ en champú
+>
+> **Bot:** Gasto por confirmar:
+> *$15,00* (Bs 546,75 a tasa 36,45)
+> Champú · Insumos de lavado
+> Hoy, lun 29/09
+> [Guardar] [Corregir] [Cancelar]
+>
+> **Dueño:** [Guardar]
+>
+> **Bot:** ✅ Guardado. Gastos de hoy: *$47,00* (3 registros).
+
+Diseño: la línea de total del día es el refuerzo que hace que el dueño sienta que "algo se acumula". No se agrega nada más.
+
+**Moneda ambigua** (sin moneda por defecto configurada, o texto explícitamente ambiguo):
+
+> **Dueño:** pagué 500 de hielo
+>
+> **Bot:** ¿500 en qué moneda?
+> [Dólares] [Bolívares]
+>
+> **Dueño:** [Bolívares]
+>
+> **Bot:** Gasto por confirmar:
+> *Bs 500,00* ($13,72 a tasa 36,45)
+> Hielo · Insumos de lavado
+> Hoy, lun 29/09
+> [Guardar] [Corregir] [Cancelar]
+
+Con USD por defecto configurado, "pagué 500 de hielo" se interpreta como $500 y el resumen lo muestra en grande; el dueño lo ve y corrige si no era. Es una decisión de diseño consciente: mejor un resumen visible que una pregunta cada vez.
+
+**Gasto en bolívares con "mil".**
+
+> **Dueño:** 450 mil bs de gasolina ayer
+>
+> **Bot:** Gasto por confirmar:
+> *Bs 450.000,00* ($12.345,68 a tasa 36,45)
+> Gasolina · Transporte y gasolina
+> Ayer, dom 28/09 (tasa del viernes 26/09)
+> [Guardar] [Corregir] [Cancelar]
+
+Nota: el ejemplo usa una tasa ficticia. La conversión la hace el backend. Se muestra "tasa del viernes" porque el domingo no hay tasa propia.
+
+**Corregir el borrador.**
+
+> **Dueño:** [Corregir]
+>
+> **Bot:** Dime qué cambio. Ejemplo: _eran 25_, _es mantenimiento_, _fue el sábado_.
+>
+> **Dueño:** eran 25 y es mantenimiento
+>
+> **Bot:** Gasto por confirmar:
+> *$25,00* (Bs 911,25 a tasa 36,45)
+> Champú · Mantenimiento de equipos
+> Hoy, lun 29/09
+> [Guardar] [Corregir] [Cancelar]
+
+**Corregir después de guardar** (menos de 30 minutos):
+
+> **Dueño:** no, eran 20
+>
+> **Bot:** Cambio el último gasto:
+> Champú · $15,00 → *$20,00*
+> [Guardar] [Cancelar]
+
+Después de 30 minutos:
+
+> **Bot:** Ese gasto ya tiene más de 30 minutos. Lo puedes corregir aquí: {enlace directo al movimiento}
+
+**Borrar.**
+
+> **Dueño:** bórralo
+>
+> **Bot:** Elimino el último gasto: Champú · $15,00 · hoy.
+> [Eliminar] [Cancelar]
+>
+> **Dueño:** [Eliminar]
+>
+> **Bot:** ✅ Eliminado. Gastos de hoy: *$32,00* (2 registros).
+
+**Categoría ambigua o desconocida** (lista, porque suele haber más de 3 candidatas):
+
+> **Dueño:** gasté 40$ en el técnico
+>
+> **Bot:** ¿En qué categoría va "el técnico"?
+> [Ver categorías]
+> → Mantenimiento de equipos / Nómina y pagos a personal / Otros / … (lista de hasta 10)
+>
+> **Dueño:** (elige Mantenimiento de equipos)
+>
+> **Bot:** Gasto por confirmar: … [Guardar] [Corregir] [Cancelar]
+
+Regla: el agente solo pregunta la categoría cuando no tiene una sugerencia con confianza razonable. En la mayoría de los casos sugiere y el dueño corrige si quiere. Preguntar siempre sería insoportable.
+
+**Nota de voz.**
+
+> **Dueño:** 🎤 (nota de voz: "anota ahí veinte dólares de la comida de los muchachos")
+>
+> **Bot:** Recibí tu nota de voz, dame un momento.
+>
+> **Bot:** Entendí: _"anota ahí veinte dólares de la comida de los muchachos"_
+> Gasto por confirmar:
+> *$20,00* (Bs 729,00 a tasa 36,45)
+> Comida de los muchachos · Comida del personal
+> Hoy, lun 29/09
+> [Guardar] [Corregir] [Cancelar]
+
+Si no hay monto:
+
+> **Bot:** Entendí: _"compré los productos del lavado"_
+> No encontré el monto. ¿Cuánto fue?
+
+Si la transcripción falla:
+
+> **Bot:** No pude escuchar bien la nota de voz. ¿Me lo escribes?
+
+**Foto de factura.**
+
+> **Dueño:** 📷 (foto de factura de Ferretería El Tornillo)
+>
+> **Bot:** Recibí la foto, dame un momento.
+>
+> **Bot:** Leí la factura:
+> Ferretería El Tornillo · 27/09
+> Total *Bs 1.240,00* ($34,02 a tasa 36,45)
+> Categoría: Mantenimiento de equipos
+> [Guardar] [Corregir] [Cancelar]
+
+Si la fecha de la factura no es hoy, se usa la de la factura y se muestra; el dueño corrige si la pagó otro día. Si no se pudo leer:
+
+> **Bot:** No pude leer bien la factura. ¿Cuánto fue y en qué moneda?
+
+Y el siguiente texto crea el borrador con la foto adjunta igual.
+
+### Skill: registrar venta
+
+**Total del día con desglose.**
+
+> **Dueño:** hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto
+>
+> **Bot:** Venta del día por confirmar (lun 29/09):
+> Efectivo USD · *$200,00*
+> Pago Móvil · *$100,00* (Bs 3.645,00)
+> Punto · *$50,00* (Bs 1.822,50)
+> Total *$350,00*
+> [Guardar] [Corregir] [Cancelar]
+>
+> **Dueño:** [Guardar]
+>
+> **Bot:** ✅ Venta guardada. Hoy: vendiste *$350,00*, gastaste *$47,00*.
+
+Nota de diseño: "pago móvil 100" en un mensaje en dólares se interpreta como el equivalente en dólares de un pago recibido en Bs. El resumen muestra ambos para que el dueño vea si era eso. Si el dueño escribe "3.645 bs de pago móvil", se guarda en Bs como original.
+
+**Desglose que no cuadra.**
+
+> **Dueño:** hoy vendí 350$: 200 efectivo, 100 pago móvil
+>
+> **Bot:** El desglose suma *$300,00* y el total es *$350,00*. Faltan *$50,00*.
+> ¿Cómo lo dejo?
+> [Total $350] [Total $300] [Corregir]
+
+"Total $350" guarda los $50 restantes como "Sin especificar". "Total $300" ajusta el total al desglose. Ambas son decisiones del dueño, no del bot.
+
+**Solo total.**
+
+> **Dueño:** hoy vendimos 280$
+>
+> **Bot:** Venta del día por confirmar (lun 29/09):
+> Sin especificar · *$280,00*
+> Si quieres, dime el desglose: _200 efectivo, 80 pago móvil_
+> [Guardar] [Corregir] [Cancelar]
+
+**Día ya cerrado.**
+
+> **Dueño:** hoy vendí 400$
+>
+> **Bot:** Ya tienes una venta del día registrada hoy por *$350,00*.
+> [Reemplazar] [Agregar] [Cancelar]
+
+**Ingreso suelto.**
+
+> **Dueño:** me pagaron 30$ por zelle del carro del abogado
+>
+> **Bot:** Ingreso por confirmar:
+> *$30,00* · Zelle
+> "del carro del abogado"
+> Hoy, lun 29/09
+> [Guardar] [Corregir] [Cancelar]
+
+### Skill: cierre y consultas
+
+**Cierre del día.**
+
+> **Dueño:** cierre
+>
+> **Bot:** 📊 Cierre del lun 29/09
+>
+> *Ventas: $350,00*
+> Efectivo USD $200,00
+> Pago Móvil $100,00 (Bs 3.645,00)
+> Punto $50,00 (Bs 1.822,50)
+>
+> *Gastos: $47,00*
+> Insumos de lavado $27,00
+> Comida del personal $20,00
+>
+> *Resultado: $303,00* (Bs 11.044,35 a tasa 36,45)
+>
+> Efectivo en caja: $200,00 · Bs 0,00
+> 5 movimientos · Dashboard: {enlace}
+
+Reglas de formato: primero ventas, luego gastos, luego resultado en negrita, luego el efectivo real para cuadrar la gaveta, luego conteo y enlace. Categorías y métodos ordenados de mayor a menor. Máximo 6 líneas por bloque; si hay más categorías, se agrupan en "Otros N".
+
+**Sin movimientos.**
+
+> **Bot:** No tengo movimientos registrados hoy. Si vendiste o gastaste algo, dímelo y lo anoto.
+
+**Resumen del mes.**
+
+> **Dueño:** cómo va el mes
+>
+> **Bot:** 📊 Septiembre (1 al 29)
+>
+> *Ventas: $6.420,00*
+> *Gastos: $2.115,00*
+> *Resultado: $4.305,00*
+>
+> Gastos más grandes:
+> Nómina y pagos a personal $900,00
+> Insumos de lavado $610,00
+> Agua y electricidad $240,00
+>
+> 18 días con movimientos · Dashboard: {enlace}
+
+**Consulta por categoría.**
+
+> **Dueño:** cuánto gasté en insumos este mes
+>
+> **Bot:** Insumos de lavado, septiembre: *$610,00* en 14 gastos.
+
+Si la categoría no existe:
+
+> **Bot:** No tengo una categoría "productos". ¿Te refieres a alguna de estas?
+> [Insumos de lavado] [Mantenimiento] [Otros]
+
+**Empleado pide el cierre.**
+
+> **Empleado:** cierre
+>
+> **Bot:** El cierre lo ve el dueño. Tú puedes registrar gastos y ventas.
+
+### Fuera de alcance
+
+> **Dueño:** redáctame un mensaje para un cliente que no ha pagado
+>
+> **Bot:** Solo te ayudo con tu caja: registrar gastos, registrar ventas y ver el cierre.
+> [Registrar gasto] [Registrar venta] [Ver cierre]
+
+Sin disculpas largas, sin explicar la política de Meta, sin ofrecer alternativas. El botón es la alternativa.
+
+### Errores y bordes
+
+| Situación | Mensaje |
+|---|---|
+| LLM caído | "Ahora mismo no puedo procesar esto. Inténtalo en unos minutos." |
+| Borrador vencido y el dueño toca Guardar | "Esa confirmación ya venció. Mándame el gasto de nuevo." |
+| Dos borradores (manda otro gasto sin confirmar el anterior) | El nuevo reemplaza al anterior: "Descarté el gasto anterior sin guardar. Nuevo gasto por confirmar: …" |
+| Número desconocido | "Este número no está registrado. Crea tu cuenta aquí: {enlace}" (sin más) |
+| Número desactivado | Igual que desconocido |
+| Audio de más de 2 minutos | "Solo proceso notas de voz cortas (hasta 2 minutos). ¿Me lo resumes?" |
+| Foto que no es factura | "Solo puedo leer facturas o recibos. Si es un gasto, escríbemelo." |
+| Fecha rara (futura, o hace más de 30 días) | "¿El gasto fue el 15/08? Es de hace más de un mes." [Sí, esa fecha] [Es de hoy] [Cancelar] |
+| Monto cero o negativo | "Necesito un monto mayor a cero." |
+| Sin tasa BCV para la fecha (nunca cargada) | "No tengo la tasa BCV para esa fecha, así que no puedo convertir. Inténtalo más tarde." |
+| Mensaje con varias cosas ("gasté 20 en hielo y 30 en gasolina") | Se registra uno por uno: "Vamos por partes. Primero: Gasto por confirmar: *$20,00* Hielo …" y al guardar: "Ahora el segundo: …". Máximo 3 por mensaje |
+| Texto muy largo (más de 500 caracteres) | "Ese mensaje es muy largo. Mándame un gasto o una venta a la vez." |
+
+### Categorías por defecto por tipo de negocio
+
+Máximo 10 por tipo para que quepan en una lista de WhatsApp. "Otros" siempre existe y no se puede desactivar. El dueño puede renombrar, desactivar y crear desde el dashboard.
+
+| Autolavado (`car_wash`) | Comida (`food`) | Comercio (`retail`) | Servicios (`services`) | Otro (`other`) |
+|---|---|---|---|---|
+| Insumos de lavado | Ingredientes | Mercancía | Materiales y herramientas | Insumos |
+| Agua y electricidad | Empaques | Alquiler | Transporte | Alquiler |
+| Mantenimiento de equipos | Gas y electricidad | Servicios (luz, agua, internet) | Nómina y contratistas | Servicios (luz, agua, internet) |
+| Nómina y pagos a personal | Equipos y utensilios | Nómina | Alquiler | Nómina |
+| Alquiler | Delivery y transporte | Transporte y fletes | Servicios (luz, agua, internet) | Transporte |
+| Transporte y gasolina | Publicidad y redes | Mantenimiento | Publicidad | Mantenimiento |
+| Comida del personal | Nómina y ayudantes | Publicidad | Equipos | Publicidad |
+| Publicidad | Alquiler | Impuestos y trámites | Impuestos y trámites | Impuestos y trámites |
+| Impuestos y trámites | Impuestos y trámites | Otros | Otros | Otros |
+| Otros | Otros | | | |
+
+Métodos de pago (fijos, para ventas): Efectivo USD, Efectivo Bs, Pago Móvil, Punto, Zelle, Transferencia USD, Transferencia Bs, Otro.
+
+### Vocabulario que el agente debe entender (para el prompt y las evals)
+
+- Monedas: `$`, `dólares`, `dolares`, `verdes`, `usd` → USD. `bs`, `bolos`, `bolívares`, `bolivares`, `bsf` → VES.
+- Cantidades: `500 mil` = 500.000; `1 palo` = 1.000.000 (Bs); `medio millón`; coma decimal `15,50`; punto de miles `1.200`.
+- Fechas: `hoy`, `ayer`, `antier`, `el lunes` (el más reciente), `el 15`, `la semana pasada` (rango).
+- Métodos: `pago móvil`, `pagomóvil`, `pm`, `punto`, `punto de venta`, `pdv`, `zelle`, `efectivo`, `cash`, `transferencia`, `transfe`.
+- Verbos de gasto: `gasté`, `pagué`, `compré`, `se fue`, `salieron`, `anota`.
+- Verbos de venta: `vendí`, `vendimos`, `entró`, `cobré`, `me pagaron`, `facturamos`.
+- Cierre: `cierre`, `cómo fue hoy`, `cómo va el mes`, `resumen`, `cuánto llevo`.
+
+### Decisiones tomadas en la Fase 4
+
+- Tono: venezolano, tuteo, corto, un emoji funcional como máximo.
+- Menú = tasa del día en texto + 3 botones. "tasa" y "ayuda" se resuelven sin LLM.
+- Empleado no necesita código: el dueño lo autoriza desde el dashboard.
+- Con moneda por defecto configurada, no se pregunta la moneda; se muestra en grande en el resumen.
+- El agente sugiere categoría; solo pregunta (con lista) cuando no tiene confianza.
+- Desglose que no cuadra: el dueño decide entre dos totales o corregir. El bot no rellena solo.
+- Un mensaje con varios gastos se procesa uno por uno, máximo 3.
+- Un nuevo borrador reemplaza al anterior sin guardar, con aviso.
+- El cierre siempre termina con "Efectivo en caja" por moneda y el enlace al dashboard.
+- Categorías por defecto definidas para los 5 tipos, máximo 10 por tipo.
+
+### Preguntas abiertas
+
+1. **Nombre del asistente.** Meta exige un nombre visible para el número, y los guiones lo necesitan ("Soy tu asistente de caja"). ¿Tienes marca? Si no, propongo algo corto, en español, que diga lo que hace. Se decide antes de solicitar el número.
+2. El botón "Registrar gasto": confirmo que va "gasto" y no "pagos". Si querías "pagos" a propósito, dime por qué.
+3. En el cierre, ¿"Resultado" te sirve como etiqueta, o prefieres "Ganancia del día" aunque no incluya todo? Mi recomendación sigue siendo "Resultado" para no prometer lo que no es.
+
+### Riesgos detectados
+
+- Los guiones asumen que el agente extrae bien montos en formato venezolano ("450 mil bs", "15,50"). Es el caso de prueba número uno de las evals de la Fase 8.
+- La interpretación de "pago móvil 100" dentro de un mensaje en dólares puede confundir a algún dueño que piensa en Bs. Mitigación: el resumen muestra ambos montos; medir correcciones en el piloto.
+- Un menú con la tasa del día cuesta una consulta a la base por cada "hola"; trivial, pero la tasa debe estar cacheada en memoria del worker para no depender de la base en cada saludo.
+- Los límites de caracteres de botones y listas pueden cortar nombres de categorías largos ("Servicios (luz, agua, internet)" tiene 31). Mitigación: título corto en la fila y descripción con el detalle; validar en la semana 1.
