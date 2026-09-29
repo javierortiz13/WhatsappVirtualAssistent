@@ -1,4 +1,4 @@
-import type { Button, ListSection } from "../whatsapp/client.js";
+import type { Button, ListSection } from "../whatsapp/client";
 
 /** Mensaje saliente ya decidido, independiente del transporte. Lo envía el worker con MetaClient. */
 export type Outbound =

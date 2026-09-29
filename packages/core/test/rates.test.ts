@@ -1,18 +1,18 @@
 import { schema } from "@caja/db";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { asIsoDate } from "../src/domain/dates.js";
-import { Decimal } from "../src/domain/money.js";
-import { NoRateError, rateFor } from "../src/ledger/rate-for.js";
-import { refreshRates } from "../src/rates/refresh.js";
+import { asIsoDate } from "../src/domain/dates";
+import { Decimal } from "../src/domain/money";
+import { NoRateError, rateFor } from "../src/ledger/rate-for";
+import { refreshRates } from "../src/rates/refresh";
 import {
   bcvSource,
   dolarApiSource,
   inferEffectiveDateFromUpdate,
   nextBusinessDay,
   parseBcvHtml,
-} from "../src/rates/sources.js";
-import { storeRate } from "../src/rates/store.js";
+} from "../src/rates/sources";
+import { storeRate } from "../src/rates/store";
 
 const BCV_HTML = `
 <html><body>

@@ -1,3 +1,3 @@
-export * from "./drafts.js";
-export * from "./expenses.js";
-export * from "./rate-for.js";
+export * from "./drafts";
+export * from "./expenses";
+export * from "./rate-for";

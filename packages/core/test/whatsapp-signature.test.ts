@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { signBody, verifySignature } from "../src/whatsapp/signature.js";
+import { signBody, verifySignature } from "../src/whatsapp/signature";
 
 const secret = "app-secret-de-prueba";
 const body = '{"object":"whatsapp_business_account","entry":[]}';

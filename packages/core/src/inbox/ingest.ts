@@ -1,8 +1,8 @@
 import { type Db, schema, type Tx } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
-import { type Logger, maskPhone, silentLogger } from "../log.js";
-import { parseWebhook } from "../whatsapp/parse.js";
-import type { InboundMessage } from "../whatsapp/types.js";
+import { type Logger, maskPhone, silentLogger } from "../log";
+import { parseWebhook } from "../whatsapp/parse";
+import type { InboundMessage } from "../whatsapp/types";
 
 /**
  * Ingesta de un webhook (Fase 3, ADR-004): por cada mensaje, en una transacción, se guarda el

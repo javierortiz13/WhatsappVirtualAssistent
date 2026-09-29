@@ -1,5 +1,5 @@
 import { and, eq, isNull, rows, schema, sql, type Tx } from "@caja/db";
-import { asIsoDate, type IsoDate } from "../domain/dates.js";
+import { asIsoDate, type IsoDate } from "../domain/dates";
 import {
   type Currency,
   convert,
@@ -8,8 +8,8 @@ import {
   money,
   toDbAmount,
   toDbRate,
-} from "../domain/money.js";
-import { rateFor } from "./rate-for.js";
+} from "../domain/money";
+import { rateFor } from "./rate-for";
 
 /**
  * `LocalProvider` de gastos (ADR-009). Toda la aritmética ocurre aquí, dentro de una transacción

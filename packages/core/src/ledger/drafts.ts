@@ -1,8 +1,8 @@
 import { and, eq, lt, type Queryable, schema, type Tx } from "@caja/db";
 import { z } from "zod";
-import type { IsoDate } from "../domain/dates.js";
-import { type Currency, convert, Decimal, money, toDbAmount, toDbRate } from "../domain/money.js";
-import { rateFor } from "./rate-for.js";
+import type { IsoDate } from "../domain/dates";
+import { type Currency, convert, Decimal, money, toDbAmount, toDbRate } from "../domain/money";
+import { rateFor } from "./rate-for";
 
 /**
  * Borradores de escritura (ADR-006). Una herramienta de escritura nunca toca `movement`: crea

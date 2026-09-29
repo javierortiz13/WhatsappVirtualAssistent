@@ -1,7 +1,7 @@
 import { bcvSource, dolarApiSource, refreshRates } from "@caja/core";
 import { createDb } from "@caja/db";
-import { loadEnv } from "../env.js";
-import { createLogger } from "../logger.js";
+import { loadEnv } from "../env";
+import { createLogger } from "../logger";
 
 /** Corre una actualización de tasa a mano: `pnpm --filter @caja/worker rates:refresh`. */
 const env = loadEnv({

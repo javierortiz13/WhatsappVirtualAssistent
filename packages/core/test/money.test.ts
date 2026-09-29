@@ -8,7 +8,7 @@ import {
   rate,
   sum,
   toDbAmount,
-} from "../src/domain/money.js";
+} from "../src/domain/money";
 
 const r = rate("858", "2026-09-29", "rate-1");
 

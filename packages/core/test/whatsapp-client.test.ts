@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LIMITS, LimitError, MetaApiError, MetaClient } from "../src/whatsapp/client.js";
+import { LIMITS, LimitError, MetaApiError, MetaClient } from "../src/whatsapp/client";
 
 type Call = { url: string; init: RequestInit };
 

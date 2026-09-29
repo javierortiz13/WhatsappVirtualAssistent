@@ -1,6 +1,6 @@
 import { Decimal } from "decimal.js";
 import { describe, expect, it } from "vitest";
-import { inferCurrency } from "../src/domain/currency-rule.js";
+import { inferCurrency } from "../src/domain/currency-rule";
 
 const threshold = new Decimal(1000);
 

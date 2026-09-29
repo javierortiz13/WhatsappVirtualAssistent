@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseWebhook } from "../src/whatsapp/parse.js";
-import * as fx from "./fixtures.js";
+import { parseWebhook } from "../src/whatsapp/parse";
+import * as fx from "./fixtures";
 
 describe("parseWebhook", () => {
   it("texto", () => {

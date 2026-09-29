@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pgConnection } from "../src/ssl.js";
+import { pgConnection } from "../src/ssl";
 
 describe("pgConnection", () => {
   const url =

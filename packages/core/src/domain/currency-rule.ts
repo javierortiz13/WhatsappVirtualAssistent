@@ -1,5 +1,5 @@
 import type { Decimal } from "decimal.js";
-import type { Currency } from "./money.js";
+import type { Currency } from "./money";
 
 /**
  * Regla determinista de moneda cuando el usuario no la indica (US-B2, aprobada en Fase 4):

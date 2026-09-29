@@ -1,7 +1,7 @@
 import type { Queryable } from "@caja/db";
-import { type Logger, silentLogger } from "../log.js";
-import type { FetchedRate, RateSource } from "./sources.js";
-import { type StoreOutcome, storeRate } from "./store.js";
+import { type Logger, silentLogger } from "../log";
+import type { FetchedRate, RateSource } from "./sources";
+import { type StoreOutcome, storeRate } from "./store";
 
 export type RefreshResult = {
   source: FetchedRate["source"] | null;

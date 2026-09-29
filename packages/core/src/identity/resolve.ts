@@ -1,5 +1,5 @@
 import { type Queryable, rows, schema, sql } from "@caja/db";
-import type { Sender } from "../whatsapp/types.js";
+import type { Sender } from "../whatsapp/types";
 
 export type ResolvedSender = {
   phoneId: string;

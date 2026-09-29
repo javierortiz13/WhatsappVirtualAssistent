@@ -1,6 +1,6 @@
 import { silentLogger, whatsapp } from "@caja/core";
 import { describe, expect, it, vi } from "vitest";
-import { handleInbound, handleVerify } from "../lib/webhook.js";
+import { handleInbound, handleVerify } from "../lib/webhook";
 
 const secret = "s3cret";
 const verifyToken = "verify-token-0123456789abcdef";

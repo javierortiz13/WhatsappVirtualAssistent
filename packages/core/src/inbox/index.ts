@@ -1,2 +1,2 @@
-export * from "./ingest.js";
-export * from "./process.js";
+export * from "./ingest";
+export * from "./process";

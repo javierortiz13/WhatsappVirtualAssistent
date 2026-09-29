@@ -1,6 +1,6 @@
 import { type Queryable, rows, schema, sql } from "@caja/db";
-import { asIsoDate, type IsoDate } from "../domain/dates.js";
-import { type Rate, rate } from "../domain/money.js";
+import { asIsoDate, type IsoDate } from "../domain/dates";
+import { type Rate, rate } from "../domain/money";
 
 export class NoRateError extends Error {
   constructor(readonly businessDate: IsoDate) {

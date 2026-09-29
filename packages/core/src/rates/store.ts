@@ -1,6 +1,6 @@
 import { eq, type Queryable, schema } from "@caja/db";
-import { toDbRate } from "../domain/money.js";
-import type { FetchedRate } from "./sources.js";
+import { toDbRate } from "../domain/money";
+import type { FetchedRate } from "./sources";
 
 export type StoreOutcome = "inserted" | "updated" | "unchanged" | "kept_bcv";
 

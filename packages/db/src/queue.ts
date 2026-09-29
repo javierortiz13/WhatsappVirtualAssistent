@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { fromDrizzle, PgBoss } from "pg-boss";
-import type { Tx } from "./client.js";
-import { pgConnection } from "./ssl.js";
+import type { Tx } from "./client";
+import { pgConnection } from "./ssl";
 
 /**
  * Cola de trabajos sobre Postgres (ADR-003). Un solo lugar define nombres de cola, políticas y

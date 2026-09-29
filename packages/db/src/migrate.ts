@@ -2,8 +2,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
-import { loadNearestEnvFile } from "./env-file.js";
-import { sslFromEnv } from "./ssl.js";
+import { loadNearestEnvFile } from "./env-file";
+import { sslFromEnv } from "./ssl";
 
 /**
  * Migrador mínimo: aplica `migrations/*.sql` en orden alfabético, una transacción por archivo,

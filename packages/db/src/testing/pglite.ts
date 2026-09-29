@@ -1,8 +1,8 @@
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import type { Db } from "../client.js";
-import { readAllMigrations } from "../migrate.js";
-import * as schema from "../schema/index.js";
+import type { Db } from "../client";
+import { readAllMigrations } from "../migrate";
+import * as schema from "../schema/index";
 
 /**
  * Base de pruebas: Postgres real en WASM con todas las migraciones aplicadas. Corre como

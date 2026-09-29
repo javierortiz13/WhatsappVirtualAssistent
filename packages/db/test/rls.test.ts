@@ -1,6 +1,6 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createTestDb } from "../src/testing/pglite.js";
+import { createTestDb } from "../src/testing/pglite";
 
 /**
  * Prueba de aislamiento por tenant (Fase 7, checklist S1): con el rol de aplicación, un tenant

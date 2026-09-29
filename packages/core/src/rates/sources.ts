@@ -1,5 +1,5 @@
-import { addDays, asIsoDate, businessDateOf, type IsoDate, isWeekend } from "../domain/dates.js";
-import { Decimal, parseVenezuelanAmount } from "../domain/money.js";
+import { addDays, asIsoDate, businessDateOf, type IsoDate, isWeekend } from "../domain/dates";
+import { Decimal, parseVenezuelanAmount } from "../domain/money";
 
 /**
  * Fuentes de la tasa oficial USD/VES (Fase 6). El BCV publica en la tarde la tasa que rige el

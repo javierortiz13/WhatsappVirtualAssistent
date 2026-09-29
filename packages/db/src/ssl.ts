@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import { envFileDir } from "./env-file.js";
+import { envFileDir } from "./env-file";
 
 /**
  * Supabase firma sus certificados con una CA propia. Para mantener la verificación TLS completa

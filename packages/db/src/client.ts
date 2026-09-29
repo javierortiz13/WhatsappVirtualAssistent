@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import * as schema from "./schema/index.js";
-import { sslFromEnv } from "./ssl.js";
+import * as schema from "./schema/index";
+import { sslFromEnv } from "./ssl";
 
 export type Db = ReturnType<typeof createDb>["db"];
 export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];

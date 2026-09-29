@@ -1,5 +1,5 @@
-import type { IsoDate } from "../domain/dates.js";
-import type { Outbound } from "../render/outbound.js";
+import type { IsoDate } from "../domain/dates";
+import type { Outbound } from "../render/outbound";
 
 export type AgentContext = {
   tenantId: string;

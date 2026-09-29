@@ -6,7 +6,7 @@ import {
   RawValue as RawValueSchema,
   type Sender,
   WebhookPayload,
-} from "./types.js";
+} from "./types";
 
 /**
  * Normaliza un payload de webhook a mensajes y estados. Nunca lanza por contenido raro: lo que no

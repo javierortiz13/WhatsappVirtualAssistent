@@ -1,15 +1,15 @@
 import { and, type Db, eq, schema, sql, type Tx, withTenant } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
-import type { AgentRunner } from "../agent/types.js";
-import { asIsoDate, businessDateOf } from "../domain/dates.js";
-import { Decimal } from "../domain/money.js";
-import { allowUnknownReply, canUse, resolveSender } from "../identity/resolve.js";
-import { createExpense, ExpenseDraft, expenseTotalForDay } from "../ledger/index.js";
-import { type Logger, maskPhone, silentLogger } from "../log.js";
-import { getRateInfo } from "../rates/current.js";
-import { es, type Outbound, parseReplyId } from "../render/index.js";
-import { MetaApiError, type MetaClient } from "../whatsapp/client.js";
-import type { InboundMessage } from "../whatsapp/types.js";
+import type { AgentRunner } from "../agent/types";
+import { asIsoDate, businessDateOf } from "../domain/dates";
+import { Decimal } from "../domain/money";
+import { allowUnknownReply, canUse, resolveSender } from "../identity/resolve";
+import { createExpense, ExpenseDraft, expenseTotalForDay } from "../ledger/index";
+import { type Logger, maskPhone, silentLogger } from "../log";
+import { getRateInfo } from "../rates/current";
+import { es, type Outbound, parseReplyId } from "../render/index";
+import { MetaApiError, type MetaClient } from "../whatsapp/client";
+import type { InboundMessage } from "../whatsapp/types";
 
 /**
  * Procesa un job `process-message` (Fase 3, flujo end-to-end). Corre en el worker, ya

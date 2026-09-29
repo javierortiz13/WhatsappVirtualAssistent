@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { asIsoDate } from "../src/domain/dates.js";
-import { Decimal } from "../src/domain/money.js";
-import { es, parseReplyId } from "../src/render/index.js";
-import { LIMITS } from "../src/whatsapp/client.js";
+import { asIsoDate } from "../src/domain/dates";
+import { Decimal } from "../src/domain/money";
+import { es, parseReplyId } from "../src/render/index";
+import { LIMITS } from "../src/whatsapp/client";
 
 const rate = {
   current: { value: new Decimal("858"), effectiveDate: asIsoDate("2026-09-29") },

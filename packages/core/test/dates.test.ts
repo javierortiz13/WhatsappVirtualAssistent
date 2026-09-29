@@ -7,7 +7,7 @@ import {
   isWeekend,
   monthNameEs,
   resolveRelativeDate,
-} from "../src/domain/dates.js";
+} from "../src/domain/dates";
 
 describe("businessDateOf", () => {
   it("usa la hora de Caracas (UTC-4): 03:30Z del 30 es aún el 29 en Caracas", () => {

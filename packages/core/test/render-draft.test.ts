@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { asIsoDate } from "../src/domain/dates.js";
-import { es } from "../src/render/index.js";
-import { LIMITS } from "../src/whatsapp/client.js";
+import { asIsoDate } from "../src/domain/dates";
+import { es } from "../src/render/index";
+import { LIMITS } from "../src/whatsapp/client";
 
 const base = {
   pendingId: "11111111-1111-4111-8111-111111111111",

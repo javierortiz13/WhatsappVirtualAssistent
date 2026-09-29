@@ -1,5 +1,5 @@
-import { es } from "../render/index.js";
-import type { AgentRunner } from "./types.js";
+import { es } from "../render/index";
+import type { AgentRunner } from "./types";
 
 /** Hasta el día 5: todo lo que no es un handler determinista recibe el menú de fuera de alcance. */
 export const stubAgent: AgentRunner = {

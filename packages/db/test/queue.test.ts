@@ -1,16 +1,16 @@
 import type { PgBoss } from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createDb, withTenant } from "../src/client.js";
-import { installQueue } from "../src/install-queue.js";
-import { runMigrations } from "../src/migrate.js";
+import { createDb, withTenant } from "../src/client";
+import { installQueue } from "../src/install-queue";
+import { runMigrations } from "../src/migrate";
 import {
   createBoss,
   enqueueProcessMessage,
   ensureQueues,
   type ProcessMessageJob,
   QUEUES,
-} from "../src/queue.js";
-import * as schema from "../src/schema/index.js";
+} from "../src/queue";
+import * as schema from "../src/schema/index";
 
 /**
  * Prueba pg-boss contra un Postgres real (PGlite no sirve para LISTEN ni para varias conexiones).

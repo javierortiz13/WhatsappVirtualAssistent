@@ -3,11 +3,11 @@ import type { ProcessMessageJob } from "@caja/db/queue";
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { stubAgent } from "../src/agent/stub.js";
-import { ingestWebhook } from "../src/inbox/ingest.js";
-import { classifyKeyword, type ProcessDeps, processInbound } from "../src/inbox/process.js";
-import { MetaClient } from "../src/whatsapp/client.js";
-import * as fx from "./fixtures.js";
+import { stubAgent } from "../src/agent/stub";
+import { ingestWebhook } from "../src/inbox/ingest";
+import { classifyKeyword, type ProcessDeps, processInbound } from "../src/inbox/process";
+import { MetaClient } from "../src/whatsapp/client";
+import * as fx from "./fixtures";
 
 type Sent = { url: string; body: Record<string, unknown> };
 
@@ -291,9 +291,9 @@ describe("processInbound: confirmar un borrador", () => {
         tx.select().from(schema.phoneNumber),
       );
       const now = () => new Date("2026-09-29T15:00:00Z");
-      const { createExpenseDraft } = await import("../src/ledger/drafts.js");
-      const { Decimal } = await import("../src/domain/money.js");
-      const { asIsoDate } = await import("../src/domain/dates.js");
+      const { createExpenseDraft } = await import("../src/ledger/drafts");
+      const { Decimal } = await import("../src/domain/money");
+      const { asIsoDate } = await import("../src/domain/dates");
       const draft = await withTenant(t.db, tenantId, (tx) =>
         createExpenseDraft(
           tx,

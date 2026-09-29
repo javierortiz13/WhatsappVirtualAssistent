@@ -1,9 +1,9 @@
 import { type ProcessDeps, stubAgent, whatsapp } from "@caja/core";
 import { createDb, rows, sql } from "@caja/db";
 import { createBoss, ensureQueues } from "@caja/db/queue";
-import { loadEnv } from "./env.js";
-import { registerJobs } from "./jobs.js";
-import { createLogger } from "./logger.js";
+import { loadEnv } from "./env";
+import { registerJobs } from "./jobs";
+import { createLogger } from "./logger";
 
 /**
  * Proceso worker: pg-boss toma los jobs de `process-message` (uno a la vez por teléfono, en

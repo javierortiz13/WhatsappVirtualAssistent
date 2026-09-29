@@ -1,7 +1,7 @@
 import { type Queryable, rows, schema, sql } from "@caja/db";
-import { addDays, asIsoDate, type IsoDate, weekday } from "../domain/dates.js";
-import { Decimal } from "../domain/money.js";
-import type { RateInfo } from "../render/es-VE.js";
+import { addDays, asIsoDate, type IsoDate, weekday } from "../domain/dates";
+import { Decimal } from "../domain/money";
+import type { RateInfo } from "../render/es-VE";
 
 type RateRow = { effective_date: string; rate: string; which: string };
 

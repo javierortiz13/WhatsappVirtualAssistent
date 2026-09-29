@@ -1,8 +1,8 @@
 import { PgBoss } from "pg-boss";
 import postgres from "postgres";
-import { loadNearestEnvFile } from "./env-file.js";
-import { PGBOSS_SCHEMA } from "./queue.js";
-import { pgConnection, sslFromEnv } from "./ssl.js";
+import { loadNearestEnvFile } from "./env-file";
+import { PGBOSS_SCHEMA } from "./queue";
+import { pgConnection, sslFromEnv } from "./ssl";
 
 /**
  * Instala o actualiza el schema `pgboss` con el rol administrador y da permisos a `caja_app`.

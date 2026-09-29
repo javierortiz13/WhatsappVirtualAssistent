@@ -1,6 +1,6 @@
 import "server-only";
 import { createBoss, type PgBoss } from "@caja/db/queue";
-import { env } from "./env.js";
+import { env } from "./env";
 
 /** Productor de jobs: no supervisa ni migra. Se inicia una vez por proceso. */
 const g = globalThis as unknown as { __cajaBoss?: Promise<PgBoss> };

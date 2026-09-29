@@ -1,7 +1,7 @@
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { allowUnknownReply, canUse, resolveSender } from "../src/identity/resolve.js";
+import { allowUnknownReply, canUse, resolveSender } from "../src/identity/resolve";
 
 describe("identidad", () => {
   let t: Awaited<ReturnType<typeof createTestDb>>;

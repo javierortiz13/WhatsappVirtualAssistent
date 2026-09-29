@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
-import { createDb, rows, withTenant } from "../client.js";
-import { loadNearestEnvFile } from "../env-file.js";
-import { category, phoneNumber, tenant } from "../schema/index.js";
-import { DEFAULT_EXPENSE_CATEGORIES } from "./default-categories.js";
+import { createDb, rows, withTenant } from "../client";
+import { loadNearestEnvFile } from "../env-file";
+import { category, phoneNumber, tenant } from "../schema/index";
+import { DEFAULT_EXPENSE_CATEGORIES } from "./default-categories";
 
 /**
  * Seed del piloto: dos negocios, cada uno con su dueño. Idempotente por número de teléfono.

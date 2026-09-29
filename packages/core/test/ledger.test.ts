@@ -2,10 +2,10 @@ import { schema, withTenant } from "@caja/db";
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { asIsoDate } from "../src/domain/dates.js";
-import { Decimal } from "../src/domain/money.js";
-import { createExpenseDraft, expirePendingActions } from "../src/ledger/drafts.js";
-import { createExpense, expenseTotalForDay, findCategory } from "../src/ledger/expenses.js";
+import { asIsoDate } from "../src/domain/dates";
+import { Decimal } from "../src/domain/money";
+import { createExpenseDraft, expirePendingActions } from "../src/ledger/drafts";
+import { createExpense, expenseTotalForDay, findCategory } from "../src/ledger/expenses";
 
 describe("ledger de gastos", () => {
   let t: Awaited<ReturnType<typeof createTestDb>>;

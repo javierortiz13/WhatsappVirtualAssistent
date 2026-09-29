@@ -2,8 +2,8 @@ import { schema } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ingestWebhook } from "../src/inbox/ingest.js";
-import * as fx from "./fixtures.js";
+import { ingestWebhook } from "../src/inbox/ingest";
+import * as fx from "./fixtures";
 
 describe("ingestWebhook", () => {
   let t: Awaited<ReturnType<typeof createTestDb>>;

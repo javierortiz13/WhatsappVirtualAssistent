@@ -1,6 +1,6 @@
-import { asIsoDate, formatShortDate, type IsoDate } from "../domain/dates.js";
-import { type Decimal, formatMoney } from "../domain/money.js";
-import { IDS, type Outbound } from "./outbound.js";
+import { asIsoDate, formatShortDate, type IsoDate } from "../domain/dates";
+import { type Decimal, formatMoney } from "../domain/money";
+import { IDS, type Outbound } from "./outbound";
 
 /**
  * Todo texto que ve el usuario vive aquí (Fase 4). Español venezolano, tuteo, corto, un emoji

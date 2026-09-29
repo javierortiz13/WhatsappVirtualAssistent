@@ -1,2 +1,2 @@
-export * as es from "./es-VE.js";
-export * from "./outbound.js";
+export * as es from "./es-VE";
+export * from "./outbound";
