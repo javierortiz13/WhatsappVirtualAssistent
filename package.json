@@ -1,0 +1,37 @@
+{
+  "name": "asistente-caja",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Libro de caja por WhatsApp para pymes venezolanas",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "typecheck": "pnpm -r --parallel run typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "pnpm -r run build",
+    "db:migrate": "pnpm --filter @caja/db run migrate",
+    "db:seed": "pnpm --filter @caja/db run seed",
+    "dev:worker": "pnpm --filter @caja/worker run dev",
+    "dev:web": "pnpm --filter @caja/web run dev"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@types/node": "^22.20.4",
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "@biomejs/biome",
+      "sharp",
+      "@electric-sql/pglite"
+    ]
+  }
+}

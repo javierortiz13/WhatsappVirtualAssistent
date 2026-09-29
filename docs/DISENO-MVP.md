@@ -14,7 +14,7 @@ Documento acumulativo. Cada fase agrega una sección al cerrarse.
 | 5. UX/UI dashboard | Aprobado |
 | 6. Stack tecnológico | Aprobado |
 | 7. Seguridad, cumplimiento y riesgos | Aprobado |
-| 8. Plan de ejecución | Entregado, pendiente de aprobación |
+| 8. Plan de ejecución | Aprobado. Diseño cerrado el 29/09/2026; comienza la construcción |
 
 ---
 
@@ -2698,11 +2698,11 @@ Convenciones:
 - Línea base del tiempo de revisión medida desde hoy.
 - Tercer piloto desconocido con precio real desde el primer día.
 
-### Preguntas abiertas
+### Preguntas abiertas (resueltas al aprobar la fase)
 
-1. ¿Qué dos días quieres para S0 (cuentas y accesos)? Si tu semana libre empieza el lunes, S0 es este fin de semana y necesitas crear la app de Meta y el Business Manager antes.
-2. ¿Tu cajera participa en el piloto 1 con rol de empleado desde S2, o solo tú hasta S3? Recomiendo solo tú en S2 para no exponer errores tempranos, y ella desde S3.
-3. Nombre del repositorio y del paquete raíz: propongo mantener `WhatsappVirtualAssistent` para el repo y `asistente-caja` como nombre de paquete hasta que exista la marca.
+1. S0 (cuentas y accesos): el fin de semana del 3 al 5 de octubre de 2026. El día 1 del walking skeleton arranca el 29/09/2026 con lo que no depende de cuentas externas (monorepo, esquema, migraciones, tests).
+2. La cajera entra al piloto con rol de empleado desde S3.
+3. Paquete raíz `asistente-caja`; el repositorio conserva su nombre.
 
 ### Riesgos detectados
 
