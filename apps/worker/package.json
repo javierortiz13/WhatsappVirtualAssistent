@@ -8,7 +8,9 @@
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "rates:refresh": "tsx src/cli/refresh-rates.ts"
+    "rates:refresh": "tsx src/cli/refresh-rates.ts",
+    "rates:import": "tsx src/cli/import-rates.ts",
+    "metrics": "tsx src/cli/metrics.ts"
   },
   "dependencies": {
     "@caja/core": "workspace:*",

@@ -10,14 +10,16 @@
     "./queue": "./src/queue.ts",
     "./testing": "./src/testing/pglite.ts",
     "./install-queue": "./src/install-queue.ts",
-    "./seed": "./src/seed/index.ts"
+    "./seed": "./src/seed/index.ts",
+    "./add-phone": "./src/seed/add-phone.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "migrate": "tsx src/migrate.ts",
     "seed": "tsx src/seed/index.ts",
-    "queue:install": "tsx src/install-queue.ts"
+    "queue:install": "tsx src/install-queue.ts",
+    "phone:add": "tsx src/seed/add-phone.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.3",

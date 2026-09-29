@@ -10,7 +10,7 @@ export type FetchedRate = {
   rate: Decimal;
   effectiveDate: IsoDate;
   publishedAt: Date | null;
-  source: "bcv" | "dolarapi";
+  source: "bcv" | "dolarapi" | "import";
 };
 
 export interface RateSource {

@@ -19,7 +19,9 @@
     "db:migrate": "pnpm --filter @caja/db run migrate",
     "db:seed": "pnpm --filter @caja/db run seed",
     "dev:worker": "pnpm --filter @caja/worker run dev",
-    "dev:web": "pnpm --filter @caja/web run dev"
+    "dev:web": "pnpm --filter @caja/web run dev",
+    "db:phone:add": "pnpm --filter @caja/db run phone:add",
+    "metrics": "pnpm --filter @caja/worker run metrics"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

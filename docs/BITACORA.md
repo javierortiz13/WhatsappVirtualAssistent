@@ -132,3 +132,17 @@ Registro corto por día de trabajo: qué quedó terminado, qué se aprendió, qu
 - Reinyectar respuestas de `currency:` y `cat:` al agente; verificar el parseo del BCV desde Railway.
 
 **Ajuste tras la prueba real (día 6, tarde).** El hilo completo funcionó desde el teléfono: `hola` → menú con la tasa real del BCV tomada por el cron desde Railway (Bs 857,89 del 29/09), `gasté 15$ en champú` → borrador → Guardar → fila en el dashboard, y `cuéntame un chiste` → rechazo. Falló "ayer pagué 450 mil bs de hielo" con "no tengo la tasa para esa fecha": la base solo tenía la tasa de hoy. `rateFor` ahora usa la primera tasa conocida cuando no hay ninguna hasta esa fecha (el borrador muestra la fecha de la tasa y el dueño confirma). Tropiezos de despliegue que quedaron en el runbook: `NEXT_PUBLIC_*` no pueden ser Secret en Vercel; el magic link de un correo nuevo sale por la plantilla "Confirm signup", no por "Magic Link"; Meta no entrega webhooks reales hasta publicar la app (requiere URL de privacidad); la WABA debe suscribirse a la app con `POST /{waba}/subscribed_apps`; el token de "Inicio rápido" caduca en 24 h, hay que usar el del usuario del sistema.
+
+### Día 7 · 29/09/2026 · Herramientas de operación y prueba con cinco personas
+
+**Terminado**
+- `pnpm db:phone:add`: alta de teléfonos en el negocio de un dueño sin dashboard (rol, nombre, activo), idempotente, con validación de que el dueño existe y el número no está en otro negocio. Corre como `caja_app` bajo RLS usando `resolve_phone` para ubicar el tenant.
+- `rates:import <csv>`: carga de historia de tasas desde el Excel del BCV exportado a CSV (`;` o `,`, fechas `DD/MM/YYYY` o ISO, decimales con coma). Nunca pisa una tasa tomada en vivo del BCV. `FetchedRate.source` admite `import`.
+- `pnpm metrics [días]`: mensajes por día, latencia p50 y p95 (agente vs determinista), costo del LLM, herramientas elegidas, eventos del webhook y movimientos, leyendo con la URL de administrador.
+- `docs/runbooks/semana-1.md`: mapa de dónde vive cada pieza y qué variables deben coincidir, rutina diaria, protocolo de la prueba con cinco personas (lista de Meta + alta en base + guion de 7 pasos), carga de historia, tabla de métricas para el domingo, rotación de credenciales y la lista de deuda técnica ordenada.
+- 4 tests nuevos. Total: 153 más 16 evals.
+
+**Pendiente (lo hace Javier esta semana)**
+- Agregar los destinatarios de prueba en Meta y en la base, correr el guion con cada uno.
+- Importar la historia de tasas del BCV.
+- El domingo: `pnpm metrics 7` y llenar la tabla del runbook; anotar cada fallo del agente como caso de eval.
