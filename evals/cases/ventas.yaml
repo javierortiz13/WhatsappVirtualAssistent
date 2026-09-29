@@ -1,0 +1,33 @@
+# Ventas del día e ingresos sueltos (US-C1, US-C2). Adelantadas a S2.
+- name: total con desglose de tres métodos
+  input: "hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto"
+  expect:
+    tool: draft_income_day_total
+    args: { total_amount: "350", total_currency: USD }
+    reply_contains: ["Venta del día por confirmar", "Total *$350,00*"]
+
+- name: solo total, sin desglose
+  input: "hoy vendimos 280$"
+  expect:
+    tool: draft_income_day_total
+    args: { total_amount: "280" }
+    reply_contains: ["Sin especificar · *$280,00*"]
+
+- name: desglose en bolívares por pago móvil sin total
+  input: "hoy entraron 2 millones de bs por pago móvil y 40$ en efectivo"
+  expect:
+    tool: draft_income_day_total
+    reply_contains: ["Pago Móvil · *Bs 2.000.000,00*", "Efectivo USD · *$40,00*"]
+
+- name: ingreso suelto por zelle
+  input: "me pagaron 30$ por zelle del carro del abogado"
+  expect:
+    tool: draft_income_single
+    args: { amount: "30", currency: USD, method: zelle }
+    reply_contains: ["Ingreso por confirmar", "Zelle"]
+
+- name: venta de ayer
+  input: "ayer vendí 500$"
+  expect:
+    tool: draft_income_day_total
+    args: { total_amount: "500", when: ayer }

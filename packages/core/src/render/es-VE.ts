@@ -1,5 +1,5 @@
 import { asIsoDate, formatShortDate, type IsoDate } from "../domain/dates";
-import { type Decimal, formatMoney } from "../domain/money";
+import { Decimal, formatMoney } from "../domain/money";
 import { IDS, type Outbound } from "./outbound";
 
 /**
@@ -110,7 +110,7 @@ export function outOfScope(): Outbound {
 export function comingSoon(): Outbound {
   return {
     type: "text",
-    body: "Las ventas, los cierres y las consultas todavía no están listos: llegan en los próximos días. Por ahora registro gastos. Ejemplo: _gasté 15$ en champú_",
+    body: "Los cierres y las consultas todavía no están listos: llegan en los próximos días. Por ahora registro gastos y ventas. Ejemplos: _gasté 15$ en champú_ · _hoy vendí 350$: 200 efectivo, 150 pago móvil_",
   };
 }
 
@@ -238,6 +238,168 @@ export function expenseSaved(dayTotalUsd: Decimal.Value, count: number): Outboun
 export function clarification(question: string, options: string[]): Outbound {
   if (options.length === 0) return { type: "text", body: question };
   return { type: "text", body: `${question}\n${options.map((o) => `• ${o}`).join("\n")}` };
+}
+
+// ---------------------------------------------------------------- ingresos (Fase 4, "registrar venta")
+
+export type IncomeLineView = {
+  method: string;
+  amount: Decimal.Value;
+  currency: "USD" | "VES";
+  amountUsd: Decimal.Value;
+  amountVes: Decimal.Value;
+};
+
+export type IncomeDayTotalView = {
+  pendingId: string;
+  businessDate: string;
+  today: string;
+  lines: IncomeLineView[];
+  totalUsd: Decimal.Value;
+  totalVes: Decimal.Value;
+  rateValue: Decimal.Value;
+  rateEffectiveDate: string;
+  mismatch: { statedUsd: Decimal.Value; breakdownUsd: Decimal.Value } | null;
+  existingUsd: Decimal.Value | null;
+  transcript: string | null;
+  replacedPrevious: boolean;
+  methodLabel: (method: string) => string;
+};
+
+function lineText(l: IncomeLineView, label: string): string {
+  const main = formatMoney(l.amount, l.currency);
+  const other =
+    l.currency === "USD" ? formatMoney(l.amountVes, "VES") : formatMoney(l.amountUsd, "USD");
+  return `${label} · *${main}* (${other})`;
+}
+
+export function incomeDayTotalDraft(v: IncomeDayTotalView): Outbound {
+  const lines: string[] = [];
+  if (v.replacedPrevious) lines.push("Descarté el borrador anterior sin guardar.");
+  if (v.transcript) lines.push(`Entendí: _"${v.transcript}"_`);
+  if (v.mismatch) {
+    lines.push(
+      `El desglose suma *${formatMoney(v.mismatch.breakdownUsd, "USD")}* y el total es *${formatMoney(v.mismatch.statedUsd, "USD")}*.`,
+    );
+    const diff = new Decimal(v.mismatch.statedUsd).minus(v.mismatch.breakdownUsd);
+    lines.push(
+      diff.gt(0)
+        ? `Faltan *${formatMoney(diff, "USD")}*. ¿Cómo lo dejo?`
+        : `Sobran *${formatMoney(diff.abs(), "USD")}*. ¿Cómo lo dejo?`,
+    );
+    const buttons = [];
+    if (diff.gt(0))
+      buttons.push({
+        id: IDS.choice(v.pendingId, "stated"),
+        title: shortTotal(v.mismatch.statedUsd),
+      });
+    buttons.push({
+      id: IDS.choice(v.pendingId, "breakdown"),
+      title: shortTotal(v.mismatch.breakdownUsd),
+    });
+    buttons.push({ id: IDS.fix(v.pendingId), title: "Corregir" });
+    return { type: "buttons", body: lines.join("\n"), buttons };
+  }
+  lines.push(
+    `Venta del día por confirmar (${relativeDay(v.businessDate, asIsoDate(v.today)).toLowerCase()}):`,
+  );
+  for (const l of v.lines) lines.push(lineText(l, v.methodLabel(l.method)));
+  lines.push(
+    `Total *${formatMoney(v.totalUsd, "USD")}* (${formatMoney(v.totalVes, "VES")} a tasa ${formatMoney(v.rateValue, "VES").replace("Bs ", "")})`,
+  );
+  if (v.lines.length === 1 && v.lines[0]?.method === "unspecified")
+    lines.push("Si quieres, dime el desglose: _200 efectivo, 80 pago móvil_");
+  if (v.existingUsd !== null) {
+    lines.push(
+      `Ya tienes una venta del día registrada ese día por *${formatMoney(v.existingUsd, "USD")}*.`,
+    );
+    return {
+      type: "buttons",
+      body: lines.join("\n"),
+      buttons: [
+        { id: IDS.choice(v.pendingId, "replace"), title: "Reemplazar" },
+        { id: IDS.choice(v.pendingId, "append"), title: "Agregar" },
+        { id: IDS.cancel(v.pendingId), title: "Cancelar" },
+      ],
+    };
+  }
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: [
+      { id: IDS.confirm(v.pendingId), title: "Guardar" },
+      { id: IDS.fix(v.pendingId), title: "Corregir" },
+      { id: IDS.cancel(v.pendingId), title: "Cancelar" },
+    ],
+  };
+}
+
+/** Título de botón (máximo 20 caracteres): "Total $350" o "Total $1,2 MM". */
+function shortTotal(usd: Decimal.Value): string {
+  const d = new Decimal(usd);
+  const body = d.gte(1_000_000)
+    ? `${d.div(1_000_000).toDecimalPlaces(1).toString().replace(".", ",")} MM`
+    : d.eq(d.toDecimalPlaces(0))
+      ? d.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ".")
+      : formatMoney(d, "USD").slice(1);
+  return `Total $${body}`.slice(0, 20);
+}
+
+export type IncomeSingleView = {
+  pendingId: string;
+  amount: Decimal.Value;
+  currency: "USD" | "VES";
+  currencyInferred: boolean;
+  amountUsd: Decimal.Value;
+  amountVes: Decimal.Value;
+  rateValue: Decimal.Value;
+  rateEffectiveDate: string;
+  businessDate: string;
+  today: string;
+  methodLabel: string;
+  description: string | null;
+  transcript: string | null;
+  replacedPrevious: boolean;
+};
+
+export function incomeSingleDraft(v: IncomeSingleView): Outbound {
+  const main = formatMoney(v.amount, v.currency);
+  const other =
+    v.currency === "USD" ? formatMoney(v.amountVes, "VES") : formatMoney(v.amountUsd, "USD");
+  const inferred = v.currencyInferred
+    ? ` · entendí ${v.currency === "USD" ? "dólares" : "bolívares"}`
+    : "";
+  const lines: string[] = [];
+  if (v.replacedPrevious) lines.push("Descarté el borrador anterior sin guardar.");
+  if (v.transcript) lines.push(`Entendí: _"${v.transcript}"_`);
+  lines.push("Ingreso por confirmar:");
+  lines.push(
+    `*${main}* (${other} a tasa ${formatMoney(v.rateValue, "VES").replace("Bs ", "")}) · ${v.methodLabel}${inferred}`,
+  );
+  if (v.description) lines.push(`"${v.description}"`);
+  lines.push(relativeDay(v.businessDate, asIsoDate(v.today)));
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: [
+      { id: IDS.confirm(v.pendingId), title: "Guardar" },
+      { id: IDS.fix(v.pendingId), title: "Corregir" },
+      { id: IDS.cancel(v.pendingId), title: "Cancelar" },
+    ],
+  };
+}
+
+export function incomeSaved(
+  salesUsd: Decimal.Value,
+  expensesUsd: Decimal.Value,
+  opts: { replaced: number; isToday: boolean; dateLabel: string },
+): Outbound {
+  const when = opts.isToday ? "Hoy" : opts.dateLabel;
+  const note = opts.replaced > 0 ? " Reemplacé la venta anterior de ese día." : "";
+  return {
+    type: "text",
+    body: `✅ Venta guardada.${note} ${when}: vendiste *${formatMoney(salesUsd, "USD")}*, gastaste *${formatMoney(expensesUsd, "USD")}*.`,
+  };
 }
 
 export function noRate(): Outbound {

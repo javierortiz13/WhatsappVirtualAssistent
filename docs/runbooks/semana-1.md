@@ -54,6 +54,8 @@ Un número desconocido recibe el texto fijo con el enlace de registro y no gasta
 1. Escribe `hola`. Debe llegar el menú con la tasa.
 2. Escribe un gasto real de hoy como lo dirías: `gasté 15$ en champú`, `pagué 450 mil de hielo`,
    `compré 20 dólares de gasolina`. Toca **Guardar**.
+2b. Escribe la venta del día: `hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto`. Guardar.
+   Luego `hoy vendí 400$` y toca **Agregar** o **Reemplazar** para ver la diferencia.
 3. Escribe un gasto de ayer: `ayer pagué 30$ de almuerzo`. Guardar.
 4. Escribe algo ambiguo: `compré cera` (sin monto). Debe preguntar el monto.
 5. Escribe algo que no es caja: `qué hora es`. Debe decir que solo ayuda con la caja.
@@ -107,7 +109,7 @@ elegidas, eventos del webhook por estado y movimientos guardados. Llena esta tab
 Ordenada por lo que más duele en el piloto:
 
 1. **Onboarding**: no hay registro de negocio ni vinculación por código; todo entra por seed y CLI. S2.
-2. **Ventas y cierres**: el menú los ofrece y el agente los rechaza con "llega pronto". S3.
+2. **Cierres y consultas**: el menú los ofrece y el agente responde "llegan pronto". Las ventas ya están (S2, día 1). S2.
 3. **Listas `currency:` y `cat:`**: las respuestas de lista no se reinyectan al agente; la moneda
    ambigua se resuelve pidiendo el monto con `$` o `bs`. S2.
 4. **Tasa manual como corrección** ("tasa 850" en Corregir) y `rate_source` en el movimiento. S2 (ADR-013).

@@ -14,13 +14,19 @@ export const IDS = {
   confirm: (pendingId: string) => `confirm:${pendingId}`,
   fix: (pendingId: string) => `fix:${pendingId}`,
   cancel: (pendingId: string) => `cancel:${pendingId}`,
+  /** Decisiones sobre un borrador que no son Guardar/Corregir/Cancelar (desglose, día ya cerrado). */
+  choice: (pendingId: string, key: ChoiceKey) => `choice:${key}:${pendingId}`,
   currency: (c: "USD" | "VES") => `currency:${c}`,
   category: (categoryId: string) => `cat:${categoryId}`,
 } as const;
 
+export const CHOICE_KEYS = ["stated", "breakdown", "replace", "append"] as const;
+export type ChoiceKey = (typeof CHOICE_KEYS)[number];
+
 export type ParsedReplyId =
   | { kind: "menu"; action: "expense" | "income" | "close" }
   | { kind: "confirm" | "fix" | "cancel"; pendingId: string }
+  | { kind: "choice"; key: ChoiceKey; pendingId: string }
   | { kind: "currency"; currency: "USD" | "VES" }
   | { kind: "category"; categoryId: string }
   | { kind: "unknown"; raw: string };
@@ -38,6 +44,13 @@ export function parseReplyId(raw: string): ParsedReplyId {
     case "cancel":
       if (value) return { kind: prefix, pendingId: value };
       break;
+    case "choice": {
+      const [key, ...idParts] = rest;
+      const pendingId = idParts.join(":");
+      if ((CHOICE_KEYS as readonly string[]).includes(key ?? "") && pendingId)
+        return { kind: "choice", key: key as ChoiceKey, pendingId };
+      break;
+    }
     case "currency":
       if (value === "USD" || value === "VES") return { kind: "currency", currency: value };
       break;

@@ -10,12 +10,6 @@
   expect:
     tool: reject_out_of_scope
 
-- name: venta (todavía no existe)
-  input: "vendí 200$ hoy"
-  expect:
-    tool: reject_out_of_scope
-    args: { reason: other_business_task }
-
 - name: consulta de totales (todavía no existe)
   input: "cuánto gasté esta semana"
   expect:

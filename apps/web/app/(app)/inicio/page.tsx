@@ -32,12 +32,26 @@ export default async function Inicio() {
       {rate.stale ? <p className="warn">La tasa puede estar desactualizada.</p> : null}
       <div className="grid-2">
         <div className="card">
+          <p className="kpi-label">Ventas de hoy</p>
+          <p className="kpi">{formatMoney(todayTotals.incomeUsd, "USD")}</p>
+          <p className="kpi-sub">
+            neto {formatMoney(todayTotals.incomeUsd.minus(todayTotals.expensesUsd), "USD")}
+          </p>
+        </div>
+        <div className="card">
           <p className="kpi-label">Gastos de hoy</p>
           <p className="kpi">{formatMoney(todayTotals.expensesUsd, "USD")}</p>
           <p className="kpi-sub">
             {todayTotals.expenseCount === 1
               ? "1 registro"
               : `${todayTotals.expenseCount} registros`}
+          </p>
+        </div>
+        <div className="card">
+          <p className="kpi-label">Ventas del mes</p>
+          <p className="kpi">{formatMoney(monthTotals.incomeUsd, "USD")}</p>
+          <p className="kpi-sub">
+            neto {formatMoney(monthTotals.incomeUsd.minus(monthTotals.expensesUsd), "USD")}
           </p>
         </div>
         <div className="card">

@@ -9,7 +9,12 @@ import {
   resolveRelativeDate,
 } from "../domain/dates";
 import { Decimal, isPositiveAmount, parseVenezuelanAmount } from "../domain/money";
-import { createExpenseDraft } from "../ledger/drafts";
+import {
+  createExpenseDraft,
+  createIncomeDayTotalDraft,
+  createIncomeSingleDraft,
+} from "../ledger/drafts";
+import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "../ledger/income";
 import { NoRateError } from "../ledger/rate-for";
 import { getRateInfo } from "../rates/current";
 import { es, type Outbound } from "../render/index";
@@ -92,6 +97,58 @@ export const RejectOutOfScopeInput = z.object({
 });
 
 export const GetBcvRateInput = z.object({});
+
+const Method = z.enum([
+  "cash_usd",
+  "cash_ves",
+  "pago_movil",
+  "punto",
+  "zelle",
+  "transfer_usd",
+  "transfer_ves",
+  "other",
+]);
+
+export const DraftIncomeDayTotalInput = z.object({
+  total_amount: z
+    .string()
+    .nullable()
+    .describe(
+      'Total de la venta del día tal como lo dijo, normalizado a dígitos con punto decimal ("350", "1.200,50" → "1200.50"). null si solo dio el desglose sin total.',
+    ),
+  total_currency: Currency.nullable().describe("Moneda del total si la dijo; null si no."),
+  lines: z
+    .array(
+      z.object({
+        method: Method.describe(
+          "efectivo/cash en dólares = cash_usd; efectivo en bs = cash_ves; pago móvil/pm = pago_movil; punto/pdv = punto; zelle = zelle; transferencia en dólares = transfer_usd; transferencia en bs = transfer_ves; otro = other. Si dice solo 'efectivo' sin moneda y el total es en dólares, cash_usd.",
+        ),
+        amount: z.string().describe("Monto de ese método, normalizado igual que total_amount."),
+        currency: Currency.nullable().describe("Moneda si la dijo para ese método; null si no."),
+      }),
+    )
+    .describe("Desglose por método de pago. Lista vacía si solo dijo el total."),
+  when: z
+    .string()
+    .nullable()
+    .describe('"hoy", "ayer", "antier", un día de la semana o fecha ISO. null si no lo dijo.'),
+});
+
+export const DraftIncomeSingleInput = z.object({
+  amount: z.string().describe("Monto normalizado a dígitos con punto decimal."),
+  currency: Currency.nullable().describe("USD, VES o null si no la dijo."),
+  method: Method.nullable().describe(
+    "Método de pago si lo dijo (zelle, pago móvil, efectivo...); null si no.",
+  ),
+  description: z
+    .string()
+    .max(120)
+    .describe("Por qué le pagaron, en 1 a 6 palabras, sin el monto. Ej: 'Carro del abogado'."),
+  when: z
+    .string()
+    .nullable()
+    .describe('"hoy", "ayer", día de la semana o fecha ISO. null si no lo dijo.'),
+});
 
 export function defaultCategoryId(categories: AgentContext["categories"]): string | null {
   return categories.find((c) => c.name.toLowerCase() === "otros")?.id ?? categories[0]?.id ?? null;
@@ -232,6 +289,197 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
   },
 };
 
+const METHOD_CURRENCY: Partial<Record<PaymentMethod, "USD" | "VES">> = {
+  cash_usd: "USD",
+  transfer_usd: "USD",
+  zelle: "USD",
+  cash_ves: "VES",
+  transfer_ves: "VES",
+};
+
+function parseAmount(s: string): Decimal | null {
+  const d = parseVenezuelanAmount(s) ?? (/^\d+(\.\d+)?$/.test(s) ? new Decimal(s) : null);
+  return d && isPositiveAmount(d) ? d : null;
+}
+
+const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
+  name: "draft_income_day_total",
+  description:
+    "Registra la VENTA DEL DÍA (dinero que entró) como borrador para confirmar: un total y/o un desglose por método de pago. Úsala cuando el usuario diga que vendió, vendimos, entró, cobró o facturó una cantidad del día, con o sin desglose. No sumes ni conviertas: el sistema cuadra el desglose.",
+  schema: DraftIncomeDayTotalInput,
+  roles: ["owner", "employee"],
+  async run(input, run) {
+    const when = resolveWhen(input.when, run.ctx.today);
+    if ("error" in when)
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [es.clarification(whenQuestion(when.error, input.when), [])],
+      };
+    const statedAmount = input.total_amount ? parseAmount(input.total_amount) : null;
+    if (input.total_amount && !statedAmount)
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [es.clarification("No entendí el total. ¿Cuánto vendiste?", [])],
+      };
+    if (!statedAmount && input.lines.length === 0)
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [
+          es.clarification(
+            "¿Cuánto vendiste? Ejemplo: _hoy vendí 350$: 200 efectivo, 150 pago móvil_",
+            [],
+          ),
+        ],
+      };
+    // Moneda del total: explícita, por magnitud, o por defecto del negocio; sin nada, USD para ventas.
+    const statedCurrency = statedAmount
+      ? currencyFor(input.total_currency, statedAmount, run.ctx)
+      : null;
+    const lines: { method: PaymentMethod; amount: Decimal; currency: "USD" | "VES" }[] = [];
+    for (const l of input.lines) {
+      const amount = parseAmount(l.amount);
+      if (!amount)
+        return {
+          kind: "terminal",
+          status: "ok",
+          outbound: [
+            es.clarification(
+              `No entendí el monto de ${PAYMENT_METHOD_LABELS[l.method].toLowerCase()}. ¿Cuánto fue?`,
+              [],
+            ),
+          ],
+        };
+      const currency =
+        l.currency ??
+        statedCurrency ??
+        currencyFor(null, amount, run.ctx, METHOD_CURRENCY[l.method]);
+      lines.push({ method: l.method, amount, currency });
+    }
+    try {
+      const r = await createIncomeDayTotalDraft(
+        run.tx,
+        {
+          tenantId: run.ctx.tenantId,
+          phoneId: run.ctx.phoneId,
+          businessDate: when.date,
+          stated:
+            statedAmount && statedCurrency
+              ? { amount: statedAmount, currency: statedCurrency }
+              : null,
+          lines,
+          sourceChannel: run.ctx.sourceChannel,
+          sourceMessageId: run.ctx.sourceMessageDbId,
+          transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
+        },
+        run.now,
+      );
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [
+          es.incomeDayTotalDraft({
+            pendingId: r.pendingId,
+            ...r.draft,
+            today: run.ctx.today,
+            replacedPrevious: r.replacedPrevious,
+            methodLabel: (m) => PAYMENT_METHOD_LABELS[m as PaymentMethod] ?? m,
+          }),
+        ],
+      };
+    } catch (err) {
+      if (err instanceof NoRateError)
+        return { kind: "terminal", outbound: [es.noRate()], status: "ok" };
+      throw err;
+    }
+  },
+};
+
+const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
+  name: "draft_income_single",
+  description:
+    "Registra un INGRESO SUELTO (un pago puntual que recibió, no el total del día) como borrador: 'me pagaron 30$ por zelle del carro del abogado', 'cobré 50$ de la moto'. Si habla del total del día o de varias formas de pago, usa draft_income_day_total.",
+  schema: DraftIncomeSingleInput,
+  roles: ["owner", "employee"],
+  async run(input, run) {
+    const amount = parseAmount(input.amount);
+    if (!amount)
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [es.clarification("No entendí el monto. ¿Cuánto te pagaron?", [])],
+      };
+    const when = resolveWhen(input.when, run.ctx.today);
+    if ("error" in when)
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [es.clarification(whenQuestion(when.error, input.when), [])],
+      };
+    const method: PaymentMethod = input.method ?? "unspecified";
+    const explicit = input.currency ?? METHOD_CURRENCY[method] ?? null;
+    const currency = currencyFor(explicit, amount, run.ctx);
+    try {
+      const r = await createIncomeSingleDraft(
+        run.tx,
+        {
+          tenantId: run.ctx.tenantId,
+          phoneId: run.ctx.phoneId,
+          amount,
+          currency,
+          currencyInferred: !explicit,
+          method,
+          description: input.description.trim() || null,
+          businessDate: when.date,
+          sourceChannel: run.ctx.sourceChannel,
+          sourceMessageId: run.ctx.sourceMessageDbId,
+          transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
+        },
+        run.now,
+      );
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [
+          es.incomeSingleDraft({
+            pendingId: r.pendingId,
+            ...r.draft,
+            today: run.ctx.today,
+            methodLabel: PAYMENT_METHOD_LABELS[method],
+            replacedPrevious: r.replacedPrevious,
+          }),
+        ],
+      };
+    } catch (err) {
+      if (err instanceof NoRateError)
+        return { kind: "terminal", outbound: [es.noRate()], status: "ok" };
+      throw err;
+    }
+  },
+};
+
+/** Moneda de una venta: explícita > umbral de magnitud > moneda del método > defecto del negocio > USD. */
+function currencyFor(
+  explicit: "USD" | "VES" | null,
+  amount: Decimal,
+  ctx: AgentContext,
+  methodHint: "USD" | "VES" | undefined = undefined,
+): "USD" | "VES" {
+  if (explicit) return explicit;
+  if (amount.gte(new Decimal(ctx.vesThreshold))) return "VES";
+  return methodHint ?? ctx.defaultCurrency ?? "USD";
+}
+
+function whenQuestion(error: "unknown" | "future" | "too_old", when: string | null): string {
+  return error === "future"
+    ? "Esa fecha es futura. ¿De qué día es la venta?"
+    : error === "too_old"
+      ? `¿La venta fue el ${when}? Es de hace más de un mes. Si es así, escríbela con la fecha completa (por ejemplo 2026-08-15).`
+      : "No entendí la fecha. ¿Fue hoy, ayer o qué día?";
+}
+
 const askClarification: ToolSpec<typeof AskClarificationInput> = {
   name: "ask_clarification",
   description:
@@ -253,7 +501,7 @@ const askClarification: ToolSpec<typeof AskClarificationInput> = {
 const rejectOutOfScope: ToolSpec<typeof RejectOutOfScopeInput> = {
   name: "reject_out_of_scope",
   description:
-    "El mensaje no es un gasto, una venta, una consulta de caja ni la tasa: saludos largos, preguntas generales, pedir que redactes algo, chistes, cualquier otra tarea. También si pide algo de caja que aún no existe (ventas, cierres): usa esta herramienta.",
+    "El mensaje no es un gasto, una venta, un ingreso ni la tasa: saludos largos, preguntas generales, pedir que redactes algo, chistes, cualquier otra tarea (general_chat). También si pide algo de caja que aún no existe: cierres, resúmenes, consultas de totales, corregir o borrar (other_business_task).",
   schema: RejectOutOfScopeInput,
   roles: ["owner", "employee"],
   async run(input) {
@@ -293,6 +541,8 @@ export function numbersAreGrounded(text: string, userText: string): boolean {
 
 export const ALL_TOOLS: ToolSpec<z.ZodType>[] = [
   draftExpense,
+  draftIncomeDayTotal,
+  draftIncomeSingle,
   askClarification,
   rejectOutOfScope,
   getBcvRate,

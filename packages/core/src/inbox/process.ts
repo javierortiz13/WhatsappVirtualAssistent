@@ -2,10 +2,22 @@ import { and, type Db, eq, schema, sql, type Tx, withTenant } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
 import { LlmUnavailableError } from "../agent/llm";
 import type { AgentInput, AgentRunner } from "../agent/types";
-import { asIsoDate, businessDateOf } from "../domain/dates";
+import { asIsoDate, businessDateOf, formatShortDate } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import { allowUnknownReply, canUse, resolveSender } from "../identity/resolve";
-import { createExpense, ExpenseDraft, expenseTotalForDay } from "../ledger/index";
+import {
+  createExpense,
+  createIncomeDayTotal,
+  createIncomeSingle,
+  dayTotals,
+  ExpenseDraft,
+  expenseTotalForDay,
+  IncomeDayTotalDraft,
+  IncomeSingleDraft,
+  PAYMENT_METHOD_LABELS,
+  type PaymentMethod,
+  resolveMismatch,
+} from "../ledger/index";
 import { type Logger, maskPhone, silentLogger } from "../log";
 import { getRateInfo } from "../rates/current";
 import { es, type Outbound, parseReplyId } from "../render/index";
@@ -284,12 +296,13 @@ async function routeInteractive(
   switch (parsed.kind) {
     case "menu":
       if (parsed.action === "expense") return none([es.promptExpense()]);
-      if (parsed.action === "income") return none([es.comingSoon()]);
+      if (parsed.action === "income") return none([es.promptIncome()]);
       if (ctx.role !== "owner") return none([es.ownerOnly()]);
       return runAgent(tx, deps, ctx, null, { kind: "text", text: "cierre de hoy" });
     case "confirm":
     case "fix":
-    case "cancel": {
+    case "cancel":
+    case "choice": {
       // Un id de botón viene del cliente: si no es un UUID, no toca la base.
       if (!UUID_RE.test(parsed.pendingId)) return none([es.confirmationExpired()]);
       const [pending] = await tx
@@ -318,6 +331,33 @@ async function routeInteractive(
           .set({ payload: sql`${schema.pendingAction.payload} || '{"fixing": true}'::jsonb` })
           .where(eq(schema.pendingAction.id, pending.id));
         return none([es.promptFix()]);
+      }
+      if (parsed.kind === "choice") {
+        if (pending.kind !== "create_income_day_total") return none([es.confirmationExpired()]);
+        const draft = IncomeDayTotalDraft.parse(pending.payload);
+        if (parsed.key === "stated" || parsed.key === "breakdown") {
+          const resolved = resolveMismatch(draft, parsed.key);
+          await tx
+            .update(schema.pendingAction)
+            .set({ payload: resolved })
+            .where(eq(schema.pendingAction.id, pending.id));
+          return none([
+            es.incomeDayTotalDraft({
+              pendingId: pending.id,
+              ...resolved,
+              today: ctx.today,
+              replacedPrevious: false,
+              methodLabel: (m) => PAYMENT_METHOD_LABELS[m as PaymentMethod] ?? m,
+            }),
+          ]);
+        }
+        // replace / append: ejecutar con el modo elegido.
+        return executePending(
+          tx,
+          { ...pending, payload: { ...draft, mode: parsed.key } },
+          ctx,
+          nowTs,
+        );
       }
       return executePending(tx, pending, ctx, nowTs);
     }
@@ -422,8 +462,82 @@ async function executePending(
       const total = await expenseTotalForDay(tx, ctx.tenantId, asIsoDate(draft.businessDate));
       return none([es.expenseSaved(total.usd, total.count)]);
     }
+    case "create_income_day_total": {
+      const draft = IncomeDayTotalDraft.parse(pending.payload);
+      // Un desglose sin cuadrar o un día ya cerrado no se guardan con "Guardar": piden decisión.
+      if (draft.mismatch || (draft.existingUsd !== null && !draft.mode)) {
+        return none([
+          es.incomeDayTotalDraft({
+            pendingId: pending.id,
+            ...draft,
+            today: ctx.today,
+            replacedPrevious: false,
+            methodLabel: (m) => PAYMENT_METHOD_LABELS[m as PaymentMethod] ?? m,
+          }),
+        ]);
+      }
+      const created = await createIncomeDayTotal(tx, {
+        tenantId: ctx.tenantId,
+        businessDate: asIsoDate(draft.businessDate),
+        lines: draft.lines.map((l) => ({
+          method: l.method,
+          amount: new Decimal(l.amount),
+          currency: l.currency,
+        })),
+        replace: draft.mode === "replace",
+        actor: { phoneId: ctx.phoneId },
+        sourceChannel: draft.sourceChannel,
+        sourceMessageId: draft.sourceMessageId,
+        rate: {
+          id: draft.rateId,
+          value: draft.rateValue,
+          effectiveDate: asIsoDate(draft.rateEffectiveDate),
+        },
+      });
+      await tx
+        .update(schema.pendingAction)
+        .set({ status: "confirmed", resolvedAt: nowTs })
+        .where(eq(schema.pendingAction.id, pending.id));
+      const totals = await dayTotals(tx, ctx.tenantId, asIsoDate(draft.businessDate));
+      return none([
+        es.incomeSaved(totals.salesUsd, totals.expensesUsd, {
+          replaced: created.replaced,
+          isToday: draft.businessDate === ctx.today,
+          dateLabel: formatShortDate(asIsoDate(draft.businessDate)),
+        }),
+      ]);
+    }
+    case "create_income_single": {
+      const draft = IncomeSingleDraft.parse(pending.payload);
+      await createIncomeSingle(tx, {
+        tenantId: ctx.tenantId,
+        businessDate: asIsoDate(draft.businessDate),
+        line: { method: draft.method, amount: new Decimal(draft.amount), currency: draft.currency },
+        description: draft.description,
+        actor: { phoneId: ctx.phoneId },
+        sourceChannel: draft.sourceChannel,
+        sourceMessageId: draft.sourceMessageId,
+        rate: {
+          id: draft.rateId,
+          value: draft.rateValue,
+          effectiveDate: asIsoDate(draft.rateEffectiveDate),
+        },
+      });
+      await tx
+        .update(schema.pendingAction)
+        .set({ status: "confirmed", resolvedAt: nowTs })
+        .where(eq(schema.pendingAction.id, pending.id));
+      const totals = await dayTotals(tx, ctx.tenantId, asIsoDate(draft.businessDate));
+      return none([
+        es.incomeSaved(totals.salesUsd, totals.expensesUsd, {
+          replaced: 0,
+          isToday: draft.businessDate === ctx.today,
+          dateLabel: formatShortDate(asIsoDate(draft.businessDate)),
+        }),
+      ]);
+    }
     default:
-      // Otros tipos llegan con ventas y correcciones (S3).
+      // Correcciones y borrado llegan más adelante en S2.
       return none([es.confirmationExpired()]);
   }
 }

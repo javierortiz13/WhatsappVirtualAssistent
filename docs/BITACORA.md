@@ -146,3 +146,19 @@ Registro corto por día de trabajo: qué quedó terminado, qué se aprendió, qu
 - Agregar los destinatarios de prueba en Meta y en la base, correr el guion con cada uno.
 - Importar la historia de tasas del BCV.
 - El domingo: `pnpm metrics 7` y llenar la tabla del runbook; anotar cada fallo del agente como caso de eval.
+
+### S2 · día 1 · 29/09/2026 · Ventas adelantadas desde S3
+
+Decisión: al probar el walking skeleton, el menú ofrecía "Registrar venta" y el bot la rechazaba. Se adelantan las ventas (US-C1, US-C2, US-C3) a S2; el onboarding por código se corre unos días.
+
+**Terminado**
+- `ledger/income.ts`: `createIncomeDayTotal` (una fila `day_total` por método, cada una con su moneda original y su equivalente; `replace` da de baja lógica los totales previos del día con auditoría), `createIncomeSingle`, `existingDayTotal`, `dayTotals` (ventas y gastos vivos del día).
+- Borradores: `createIncomeDayTotalDraft` valida en backend que el desglose cuadre con el total (en USD, tolerancia 0,01); si no, guarda `mismatch` y el mensaje ofrece "Total $350" (agrega la diferencia como Sin especificar) o "Total $300" (deja la suma del desglose). Si ya hay un total ese día, los botones pasan a Reemplazar / Agregar / Cancelar. Solo total → una línea "Sin especificar" con invitación al desglose. `insertDraft` común a todos los borradores.
+- Agente: herramientas `draft_income_day_total` (total y/o desglose por método, `when`) y `draft_income_single`; el modelo solo extrae, el backend parsea montos, decide moneda (explícita > umbral > moneda propia del método > defecto del negocio > USD) y fecha. Prompt v1.1 con verbos de venta, métodos y desglose. `reject_out_of_scope` queda para cierres, consultas y correcciones.
+- Botones de decisión `choice:<clave>:<id>` (`stated`, `breakdown`, `replace`, `append`) enrutados sin LLM; Guardar sobre un borrador con desglose sin cuadrar o día ya cerrado vuelve a mostrar la decisión en vez de escribir.
+- Plantillas de la Fase 4: "Venta del día por confirmar", desglose que no cuadra, solo total, día ya cerrado, ingreso suelto, "✅ Venta guardada. Hoy: vendiste X, gastaste Y". Dashboard con ventas y neto de hoy y del mes.
+- 10 tests nuevos (ledger, borradores, punta a punta con Reemplazar, Agregar y desglose) y 5 evals de ventas. Total: 163 más 21 evals.
+
+**Pendiente en S2**
+- Correr `pnpm evals` con la clave (ventas nuevas) y ajustar si el modelo confunde gasto con venta.
+- Cierre diario y consultas ("cierre", "cómo va el mes"), corrección y borrado del último movimiento, tasa manual como corrección (ADR-013), onboarding por código, reinyección de listas `currency:`/`cat:`, evals v1 con 40 casos.

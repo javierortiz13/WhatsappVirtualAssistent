@@ -19,12 +19,13 @@ export default async function Movimientos() {
     <div className="stack">
       <div className="card rate">
         <div>
-          <p className="kpi-label">Gastos de {monthNameEs(today)}</p>
+          <p className="kpi-label">{monthNameEs(today)}</p>
           <p className="kpi-sub">
-            {totals.expenseCount === 1 ? "1 registro" : `${totals.expenseCount} registros`}
+            ventas {formatMoney(totals.incomeUsd, "USD")} · gastos{" "}
+            {formatMoney(totals.expensesUsd, "USD")}
           </p>
         </div>
-        <strong>{formatMoney(totals.expensesUsd, "USD")}</strong>
+        <strong>{formatMoney(totals.incomeUsd.minus(totals.expensesUsd), "USD")}</strong>
       </div>
       <MovementsList rows={rows} today={today} />
     </div>
