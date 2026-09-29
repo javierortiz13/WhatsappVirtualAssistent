@@ -1,15 +1,20 @@
 import { and, type Db, eq, schema, sql, type Tx, withTenant } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
 import { LlmUnavailableError } from "../agent/llm";
+import { deleteLastFlow } from "../agent/tools";
 import type { AgentInput, AgentRunner } from "../agent/types";
 import { asIsoDate, businessDateOf, formatShortDate } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import { allowUnknownReply, canUse, resolveSender } from "../identity/resolve";
 import {
+  amendMovement,
   createExpense,
   createIncomeDayTotal,
   createIncomeSingle,
+  DeleteLastDraft,
   dayTotals,
+  deleteMovement,
+  EditLastDraft,
   ExpenseDraft,
   expenseTotalForDay,
   IncomeDayTotalDraft,
@@ -276,6 +281,7 @@ async function routeMessage(
       if (keyword === "help")
         return none([es.help(deps.config.dashboardUrl, deps.config.supportHint)]);
       if (keyword === "close") return closeToday(tx, deps, ctx);
+      if (keyword === "delete") return deleteLast(tx, deps, ctx, msg);
       if (msg.text.length > deps.config.maxTextLength) return none([es.tooLong()]);
       return runAgent(tx, deps, ctx, msg, { kind: "text", text: msg.text });
     }
@@ -369,6 +375,34 @@ async function routeInteractive(
     default:
       return none([es.outOfScope()]);
   }
+}
+
+/** "bórralo" sin LLM: borrador de borrado del último movimiento del teléfono. */
+async function deleteLast(
+  tx: Tx,
+  deps: ProcessDeps,
+  ctx: RouteCtx,
+  msg: InboundMessage,
+): Promise<RouteResult> {
+  const outcome = await deleteLastFlow({
+    tx,
+    ctx: {
+      tenantId: ctx.tenantId,
+      tenantName: ctx.tenantName,
+      phoneId: ctx.phoneId,
+      role: ctx.role,
+      defaultCurrency: ctx.defaultCurrency,
+      vesThreshold: ctx.vesThreshold,
+      categories: [],
+      today: ctx.today,
+      sourceMessageDbId: null,
+      sourceChannel: "text",
+      dashboardUrl: deps.config.dashboardUrl,
+    },
+    userText: msg.kind === "text" ? msg.text : "",
+    now: (deps.now ?? (() => new Date()))(),
+  });
+  return outcome.kind === "terminal" ? none(outcome.outbound) : none([es.outOfScope()]);
 }
 
 /** "cierre" y el botón Ver cierre: cierre de hoy sin LLM. Solo el dueño. */
@@ -471,6 +505,7 @@ async function executePending(
           id: draft.rateId,
           value: draft.rateValue,
           effectiveDate: asIsoDate(draft.rateEffectiveDate),
+          source: draft.rateSource,
         },
       });
       await tx
@@ -510,6 +545,7 @@ async function executePending(
           id: draft.rateId,
           value: draft.rateValue,
           effectiveDate: asIsoDate(draft.rateEffectiveDate),
+          source: draft.rateSource,
         },
       });
       await tx
@@ -539,6 +575,7 @@ async function executePending(
           id: draft.rateId,
           value: draft.rateValue,
           effectiveDate: asIsoDate(draft.rateEffectiveDate),
+          source: draft.rateSource,
         },
       });
       await tx
@@ -554,15 +591,59 @@ async function executePending(
         }),
       ]);
     }
+    case "edit_last": {
+      const draft = EditLastDraft.parse(pending.payload);
+      const after = await amendMovement(tx, {
+        tenantId: ctx.tenantId,
+        draft,
+        actor: { phoneId: ctx.phoneId },
+        now: nowTs,
+      });
+      await tx
+        .update(schema.pendingAction)
+        .set({ status: "confirmed", resolvedAt: nowTs })
+        .where(eq(schema.pendingAction.id, pending.id));
+      if (!after) return none([es.alreadyGone()]);
+      return none([
+        es.amended(draft.type, await totalsFor(tx, ctx, draft.type, asIsoDate(after.businessDate))),
+      ]);
+    }
+    case "delete_last": {
+      const draft = DeleteLastDraft.parse(pending.payload);
+      const gone = await deleteMovement(tx, {
+        tenantId: ctx.tenantId,
+        movementId: draft.movementId,
+        actor: { phoneId: ctx.phoneId },
+        now: nowTs,
+      });
+      await tx
+        .update(schema.pendingAction)
+        .set({ status: "confirmed", resolvedAt: nowTs })
+        .where(eq(schema.pendingAction.id, pending.id));
+      if (!gone) return none([es.alreadyGone()]);
+      return none([
+        es.deleted(draft.type, await totalsFor(tx, ctx, draft.type, asIsoDate(gone.businessDate))),
+      ]);
+    }
     default:
-      // Correcciones y borrado llegan más adelante en S2.
       return none([es.confirmationExpired()]);
   }
 }
 
+async function totalsFor(
+  tx: Tx,
+  ctx: RouteCtx,
+  type: "expense" | "income",
+  date: ReturnType<typeof asIsoDate>,
+): Promise<{ usd: Decimal; count: number }> {
+  if (type === "expense") return expenseTotalForDay(tx, ctx.tenantId, date);
+  const t = await dayTotals(tx, ctx.tenantId, date);
+  return { usd: t.salesUsd, count: t.count };
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export type Keyword = "menu" | "rate" | "help" | "close" | null;
+export type Keyword = "menu" | "rate" | "help" | "close" | "delete" | null;
 
 export function classifyKeyword(text: string): Keyword {
   const t = text
@@ -602,6 +683,21 @@ export function classifyKeyword(text: string): Keyword {
   if (["ayuda", "help", "que puedes hacer", "que haces"].includes(t)) return "help";
   if (["cierre", "cierre de hoy", "cierre del dia", "como fue hoy", "como vamos hoy"].includes(t))
     return "close";
+  if (
+    [
+      "borralo",
+      "borrala",
+      "eliminalo",
+      "eliminala",
+      "borra eso",
+      "elimina eso",
+      "borra el ultimo",
+      "elimina el ultimo",
+      "quita el ultimo",
+      "quitalo",
+    ].includes(t)
+  )
+    return "delete";
   return null;
 }
 

@@ -77,6 +77,7 @@ const dayTotal = (
       total_currency: total ? "USD" : null,
       lines: lines.map((l) => ({ ...l, currency: null })),
       when: null,
+      rate: null,
     },
   },
 ];
@@ -122,6 +123,7 @@ describe("ventas por WhatsApp", () => {
           method: "zelle",
           description: "Carro del abogado",
           when: null,
+          rate: null,
         },
       },
     ],

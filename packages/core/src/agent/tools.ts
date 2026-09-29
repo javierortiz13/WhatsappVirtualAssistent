@@ -8,13 +8,27 @@ import {
   isIsoDate,
   resolveRelativeDate,
 } from "../domain/dates";
-import { Decimal, isPositiveAmount, parseVenezuelanAmount } from "../domain/money";
+import {
+  Decimal,
+  isPositiveAmount,
+  manualRate,
+  parseVenezuelanAmount,
+  type Rate,
+} from "../domain/money";
 import {
   createExpenseDraft,
   createIncomeDayTotalDraft,
   createIncomeSingleDraft,
 } from "../ledger/drafts";
+import { findCategory } from "../ledger/expenses";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "../ledger/income";
+import {
+  type AmendChanges,
+  createDeleteLastDraft,
+  createEditLastDraft,
+  isTooOld,
+  lastMovementByPhone,
+} from "../ledger/last-movement";
 import { NoRateError } from "../ledger/rate-for";
 import { renderSummary } from "../ledger/summary";
 import { getRateInfo } from "../rates/current";
@@ -76,6 +90,12 @@ export const DraftExpenseInput = z.object({
     .describe(
       'Cuándo fue: "hoy", "ayer", "antier", un día de la semana ("lunes"), o una fecha ISO YYYY-MM-DD. null si no lo dijo (se asume hoy).',
     ),
+  rate: z
+    .string()
+    .nullable()
+    .describe(
+      'Tasa en bolívares por dólar SOLO si el usuario la dice explícitamente ("a tasa 850", "tasa 857,89"), normalizada a dígitos con punto. null si no la dijo.',
+    ),
 });
 
 export const AskClarificationInput = z.object({
@@ -98,6 +118,39 @@ export const RejectOutOfScopeInput = z.object({
 });
 
 export const GetBcvRateInput = z.object({});
+
+export const AmendLastInput = z.object({
+  amount: z.string().nullable().describe("Nuevo monto normalizado, o null si no cambia."),
+  currency: Currency.nullable().describe("Nueva moneda si la dijo; null si no cambia."),
+  category_name: z
+    .string()
+    .nullable()
+    .describe("Nueva categoría de la lista, o null si no cambia."),
+  description: z.string().max(120).nullable().describe("Nueva descripción, o null si no cambia."),
+  when: z
+    .string()
+    .nullable()
+    .describe("Nueva fecha (hoy, ayer, día de la semana, ISO), o null si no cambia."),
+  method: z
+    .enum([
+      "cash_usd",
+      "cash_ves",
+      "pago_movil",
+      "punto",
+      "zelle",
+      "transfer_usd",
+      "transfer_ves",
+      "other",
+    ])
+    .nullable()
+    .describe("Nuevo método de pago (solo ventas), o null si no cambia."),
+  rate: z
+    .string()
+    .nullable()
+    .describe("Nueva tasa Bs por dólar si la dice explícitamente, o null."),
+});
+
+export const DeleteLastInput = z.object({});
 
 const Method = z.enum([
   "cash_usd",
@@ -133,6 +186,12 @@ export const DraftIncomeDayTotalInput = z.object({
     .string()
     .nullable()
     .describe('"hoy", "ayer", "antier", un día de la semana o fecha ISO. null si no lo dijo.'),
+  rate: z
+    .string()
+    .nullable()
+    .describe(
+      'Tasa en bolívares por dólar SOLO si el usuario la dice explícitamente ("a tasa 850", "tasa 857,89"), normalizada a dígitos con punto. null si no la dijo.',
+    ),
 });
 
 export const GetSummaryInput = z.object({
@@ -165,6 +224,12 @@ export const DraftIncomeSingleInput = z.object({
     .string()
     .nullable()
     .describe('"hoy", "ayer", día de la semana o fecha ISO. null si no lo dijo.'),
+  rate: z
+    .string()
+    .nullable()
+    .describe(
+      'Tasa en bolívares por dólar SOLO si el usuario la dice explícitamente ("a tasa 850", "tasa 857,89"), normalizada a dígitos con punto. null si no la dijo.',
+    ),
 });
 
 export function defaultCategoryId(categories: AgentContext["categories"]): string | null {
@@ -252,6 +317,9 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
         status: "ok",
       };
     }
+    const mr = manualRateFrom(input.rate, when.date);
+    if (mr === "invalid")
+      return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
     const category = matchCategory(run.ctx.categories, input.category_name);
     const categoryId = category?.id ?? defaultCategoryId(run.ctx.categories);
     const categoryName =
@@ -273,6 +341,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
           sourceMessageId: run.ctx.sourceMessageDbId,
           attachmentId: null,
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
+          manualRate: mr,
         },
         run.now,
       );
@@ -289,6 +358,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
             amountVes: draft.draft.amountVes,
             rateValue: draft.draft.rateValue,
             rateEffectiveDate: draft.draft.rateEffectiveDate,
+            rateSource: draft.draft.rateSource,
             businessDate: draft.draft.businessDate,
             today: run.ctx.today,
             categoryName: draft.draft.categoryName,
@@ -305,6 +375,16 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
     }
   },
 };
+
+/** "a tasa 850" → tasa manual; texto ilegible → "invalid" para pedir aclaración. */
+function manualRateFrom(raw: string | null, businessDate: IsoDate): Rate | null | "invalid" {
+  if (!raw) return null;
+  const v = parseVenezuelanAmount(raw) ?? (/^\d+(\.\d+)?$/.test(raw) ? new Decimal(raw) : null);
+  const r = v ? manualRate(v, businessDate) : null;
+  return r ?? "invalid";
+}
+
+const BAD_RATE = "No entendí la tasa. Escríbela como _tasa 857,89_.";
 
 const METHOD_CURRENCY: Partial<Record<PaymentMethod, "USD" | "VES">> = {
   cash_usd: "USD",
@@ -355,6 +435,9 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
     const statedCurrency = statedAmount
       ? currencyFor(input.total_currency, statedAmount, run.ctx)
       : null;
+    const mr = manualRateFrom(input.rate, when.date);
+    if (mr === "invalid")
+      return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
     const lines: { method: PaymentMethod; amount: Decimal; currency: "USD" | "VES" }[] = [];
     for (const l of input.lines) {
       const amount = parseAmount(l.amount);
@@ -390,6 +473,7 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
           sourceChannel: run.ctx.sourceChannel,
           sourceMessageId: run.ctx.sourceMessageDbId,
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
+          manualRate: mr,
         },
         run.now,
       );
@@ -435,6 +519,9 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
         status: "ok",
         outbound: [es.clarification(whenQuestion(when.error, input.when), [])],
       };
+    const mr = manualRateFrom(input.rate, when.date);
+    if (mr === "invalid")
+      return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
     const method: PaymentMethod = input.method ?? "unspecified";
     const explicit = input.currency ?? METHOD_CURRENCY[method] ?? null;
     const currency = currencyFor(explicit, amount, run.ctx);
@@ -453,6 +540,7 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
           sourceChannel: run.ctx.sourceChannel,
           sourceMessageId: run.ctx.sourceMessageDbId,
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
+          manualRate: mr,
         },
         run.now,
       );
@@ -499,6 +587,155 @@ const getSummary: ToolSpec<typeof GetSummaryInput> = {
   },
 };
 
+async function categoryNameOf(run: ToolRunCtx, categoryId: string | null): Promise<string | null> {
+  if (!categoryId) return null;
+  return run.ctx.categories.find((c) => c.id === categoryId)?.name ?? null;
+}
+
+const amendLast: ToolSpec<typeof AmendLastInput> = {
+  name: "amend_last_movement",
+  description:
+    "Corrige el ÚLTIMO movimiento ya guardado (gasto o venta) cuando el usuario dice 'no, eran 25', 'era en bolívares', 'es mantenimiento', 'fue ayer', 'a tasa 850'. Solo los campos que cambian; los demás null. Si hay un borrador sin guardar en corrección, NO uses esta: usa la herramienta del borrador.",
+  schema: AmendLastInput,
+  roles: ["owner", "employee"],
+  async run(input, run) {
+    const m = await lastMovementByPhone(run.tx, run.ctx.tenantId, run.ctx.phoneId);
+    if (!m) return { kind: "terminal", status: "ok", outbound: [es.nothingToAmend()] };
+    if (isTooOld(m, run.now))
+      return { kind: "terminal", status: "ok", outbound: [es.tooOld(run.ctx.dashboardUrl)] };
+    const changes: AmendChanges = {};
+    if (input.amount) {
+      const a = parseAmount(input.amount);
+      if (!a)
+        return {
+          kind: "terminal",
+          status: "ok",
+          outbound: [es.clarification("No entendí el monto. ¿Cuánto era?", [])],
+        };
+      changes.amount = a;
+    }
+    if (input.currency) changes.currency = input.currency;
+    if (input.description !== null) changes.description = input.description.trim() || null;
+    if (input.when) {
+      const w = resolveWhen(input.when, run.ctx.today);
+      if ("error" in w)
+        return {
+          kind: "terminal",
+          status: "ok",
+          outbound: [es.clarification(whenQuestion(w.error, input.when), [])],
+        };
+      changes.businessDate = w.date;
+    }
+    if (input.category_name) {
+      const c =
+        matchCategory(run.ctx.categories, input.category_name) ??
+        (await findCategory(run.tx, run.ctx.tenantId, input.category_name));
+      if (!c) {
+        return {
+          kind: "terminal",
+          status: "ok",
+          outbound: [
+            es.categoryNotFound(
+              input.category_name,
+              run.ctx.categories.slice(0, 3).map((x) => x.name),
+            ),
+          ],
+        };
+      }
+      changes.categoryId = c.id;
+      changes.categoryName = c.name;
+    }
+    if (input.method && m.type === "income") changes.paymentMethod = input.method;
+    if (input.rate) {
+      const r = manualRateFrom(input.rate, changes.businessDate ?? (m.businessDate as IsoDate));
+      if (r === "invalid" || !r)
+        return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
+      changes.manualRate = r;
+    }
+    if (Object.keys(changes).length === 0)
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [
+          es.clarification("¿Qué cambio? Ejemplo: _eran 25_, _es mantenimiento_, _fue ayer_.", []),
+        ],
+      };
+    try {
+      const r = await createEditLastDraft(
+        run.tx,
+        {
+          tenantId: run.ctx.tenantId,
+          phoneId: run.ctx.phoneId,
+          movement: m,
+          categoryName: await categoryNameOf(run, m.categoryId),
+          changes,
+        },
+        run.now,
+      );
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [
+          es.amendDraft({
+            pendingId: r.pendingId,
+            type: r.draft.type,
+            before: r.draft.before,
+            after: r.draft.after,
+            changed: r.draft.changed,
+            methodLabel: (x) => PAYMENT_METHOD_LABELS[x as PaymentMethod] ?? x,
+          }),
+        ],
+      };
+    } catch (err) {
+      if (err instanceof NoRateError)
+        return { kind: "terminal", outbound: [es.noRate()], status: "ok" };
+      throw err;
+    }
+  },
+};
+
+const deleteLast: ToolSpec<typeof DeleteLastInput> = {
+  name: "delete_last_movement",
+  description:
+    "Borra el ÚLTIMO movimiento ya guardado cuando el usuario dice 'bórralo', 'elimina eso', 'quita el último', 'ese no va'. Pide confirmación con botones.",
+  schema: DeleteLastInput,
+  roles: ["owner", "employee"],
+  async run(_input, run) {
+    return deleteLastFlow(run);
+  },
+};
+
+/** Compartido con la palabra clave "bórralo" (sin LLM). */
+export async function deleteLastFlow(run: ToolRunCtx): Promise<ToolOutcome> {
+  const m = await lastMovementByPhone(run.tx, run.ctx.tenantId, run.ctx.phoneId);
+  if (!m) return { kind: "terminal", status: "ok", outbound: [es.nothingToAmend()] };
+  if (isTooOld(m, run.now))
+    return { kind: "terminal", status: "ok", outbound: [es.tooOld(run.ctx.dashboardUrl)] };
+  const r = await createDeleteLastDraft(
+    run.tx,
+    {
+      tenantId: run.ctx.tenantId,
+      phoneId: run.ctx.phoneId,
+      movement: m,
+      categoryName: await categoryNameOf(run, m.categoryId),
+    },
+    run.now,
+  );
+  return {
+    kind: "terminal",
+    status: "ok",
+    outbound: [
+      es.deleteDraft({
+        pendingId: r.pendingId,
+        type: r.draft.type,
+        snapshot: r.draft.snapshot,
+        today: run.ctx.today,
+        methodLabel: (x) => PAYMENT_METHOD_LABELS[x as PaymentMethod] ?? x,
+      }),
+    ],
+  };
+}
+
 /** Moneda de una venta: explícita > umbral de magnitud > moneda del método > defecto del negocio > USD. */
 function currencyFor(
   explicit: "USD" | "VES" | null,
@@ -540,7 +777,7 @@ const askClarification: ToolSpec<typeof AskClarificationInput> = {
 const rejectOutOfScope: ToolSpec<typeof RejectOutOfScopeInput> = {
   name: "reject_out_of_scope",
   description:
-    "El mensaje no es un gasto, una venta, un ingreso, un cierre o consulta, ni la tasa: saludos largos, preguntas generales, pedir que redactes algo, chistes, cualquier otra tarea (general_chat). También si pide algo de caja que aún no existe: corregir o borrar un movimiento, inventario, deudas (other_business_task).",
+    "El mensaje no es un gasto, una venta, un ingreso, una corrección, un cierre o consulta, ni la tasa: saludos largos, preguntas generales, pedir que redactes algo, chistes, cualquier otra tarea (general_chat). También si pide algo de caja que no existe: inventario, deudas, clientes, presupuestos, corregir algo que no sea el último movimiento (other_business_task).",
   schema: RejectOutOfScopeInput,
   roles: ["owner", "employee"],
   async run(input) {
@@ -583,6 +820,8 @@ export const ALL_TOOLS: ToolSpec<z.ZodType>[] = [
   draftIncomeDayTotal,
   draftIncomeSingle,
   getSummary,
+  amendLast,
+  deleteLast,
   askClarification,
   rejectOutOfScope,
   getBcvRate,

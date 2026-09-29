@@ -72,12 +72,14 @@ describe("definiciones de herramientas", () => {
       "draft_income_day_total",
       "draft_income_single",
       "get_summary",
+      "amend_last_movement",
+      "delete_last_movement",
       "ask_clarification",
       "reject_out_of_scope",
       "get_bcv_rate",
     ]);
-    expect(toolsForRole("employee")).toHaveLength(7);
-    expect(toolsForRole("owner")).toHaveLength(7);
+    expect(toolsForRole("employee")).toHaveLength(9);
+    expect(toolsForRole("owner")).toHaveLength(9);
   });
   it("el JSON Schema es estricto: sin $schema, sin propiedades extra, con properties", () => {
     for (const t of ALL_TOOLS) {
@@ -89,7 +91,14 @@ describe("definiciones de herramientas", () => {
     const draft = toLlmToolDef(ALL_TOOLS[0] as (typeof ALL_TOOLS)[number]).inputSchema as {
       required: string[];
     };
-    expect(draft.required).toEqual(["amount", "currency", "description", "category_name", "when"]);
+    expect(draft.required).toEqual([
+      "amount",
+      "currency",
+      "description",
+      "category_name",
+      "when",
+      "rate",
+    ]);
   });
   it("quita las palabras clave que strict no admite (maxItems, maxLength) y deja la validación a Zod", () => {
     const json = JSON.stringify(ALL_TOOLS.map(toLlmToolDef));
@@ -110,6 +119,7 @@ describe("definiciones de herramientas", () => {
         description: "Champú",
         category_name: null,
         when: null,
+        rate: null,
       }).success,
     ).toBe(true);
   });

@@ -196,6 +196,7 @@ describe("processInbound", () => {
                 description: "Champú",
                 category_name: "Insumos de lavado",
                 when: null,
+                rate: null,
               },
             },
           ],

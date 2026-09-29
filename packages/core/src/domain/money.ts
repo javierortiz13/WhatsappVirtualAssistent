@@ -24,13 +24,26 @@ export function isPositiveAmount(amount: Decimal.Value): boolean {
   return d.isFinite() && d.gt(0);
 }
 
-/** Tasa BCV: bolívares por 1 USD. */
-export type Rate = { value: Decimal; effectiveDate: string; id: string };
+/** Tasa: bolívares por 1 USD. `id` apunta a `bcv_rate`; una tasa manual (ADR-013) no tiene fila. */
+export type RateOrigin = "bcv" | "manual";
+export type Rate = { value: Decimal; effectiveDate: string; id: string | null; source: RateOrigin };
 
-export function rate(value: Decimal.Value, effectiveDate: string, id: string): Rate {
+export function rate(
+  value: Decimal.Value,
+  effectiveDate: string,
+  id: string | null,
+  source: RateOrigin = "bcv",
+): Rate {
   const v = new MoneyDecimal(value);
   if (!v.isFinite() || v.lte(0)) throw new Error("tasa inválida");
-  return { value: v.toDecimalPlaces(8), effectiveDate, id };
+  return { value: v.toDecimalPlaces(8), effectiveDate, id, source };
+}
+
+/** Tasa dicha por el dueño ("a tasa 850"): válida entre 1 y 1.000.000 Bs por dólar. */
+export function manualRate(value: Decimal.Value, businessDate: string): Rate | null {
+  const v = new MoneyDecimal(value);
+  if (!v.isFinite() || v.lt(1) || v.gt(1_000_000)) return null;
+  return rate(v, businessDate, null, "manual");
 }
 
 export type Converted = {

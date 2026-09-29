@@ -22,9 +22,3 @@
   expect:
     tool: get_summary
     args: { period: this_month, category_name: Insumos de lavado }
-
-- name: corregir sigue fuera de alcance por chat
-  input: "borra el último gasto"
-  expect:
-    tool: reject_out_of_scope
-    args: { reason: other_business_task }

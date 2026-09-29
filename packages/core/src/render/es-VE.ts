@@ -110,7 +110,7 @@ export function outOfScope(): Outbound {
 export function comingSoon(): Outbound {
   return {
     type: "text",
-    body: "Corregir o borrar por chat todavía no está listo: llega en los próximos días. Mientras tanto, corrige desde el dashboard. Ejemplos de lo que sí hago: _gasté 15$ en champú_ · _hoy vendí 350$: 200 efectivo, 150 pago móvil_ · _cierre_ · _cómo va el mes_",
+    body: "Eso todavía no lo hago por chat. Lo que sí: _gasté 15$ en champú_ · _hoy vendí 350$: 200 efectivo, 150 pago móvil_ · _cierre_ · _cómo va el mes_ · _no, eran 25_ · _bórralo_",
   };
 }
 
@@ -179,6 +179,7 @@ export type ExpenseDraftView = {
   amountVes: Decimal.Value;
   rateValue: Decimal.Value;
   rateEffectiveDate: string;
+  rateSource?: "bcv" | "manual";
   businessDate: string;
   today: IsoDate;
   categoryName: string | null;
@@ -206,9 +207,11 @@ export function expenseDraft(d: ExpenseDraftView): Outbound {
     ? ` · entendí ${d.currency === "USD" ? "dólares" : "bolívares"}`
     : "";
   const rateNote =
-    d.rateEffectiveDate === d.businessDate
-      ? `a tasa ${formatMoney(d.rateValue, "VES").replace("Bs ", "")}`
-      : `a tasa ${formatMoney(d.rateValue, "VES").replace("Bs ", "")} del ${formatShortDate(asIsoDate(d.rateEffectiveDate))}`;
+    d.rateSource === "manual"
+      ? `a tasa ${formatMoney(d.rateValue, "VES").replace("Bs ", "")} (manual)`
+      : d.rateEffectiveDate === d.businessDate
+        ? `a tasa ${formatMoney(d.rateValue, "VES").replace("Bs ", "")}`
+        : `a tasa ${formatMoney(d.rateValue, "VES").replace("Bs ", "")} del ${formatShortDate(asIsoDate(d.rateEffectiveDate))}`;
   const lines: string[] = [];
   if (d.replacedPrevious) lines.push("Descarté el borrador anterior sin guardar.");
   if (d.transcript) lines.push(`Entendí: _"${d.transcript}"_`);
@@ -568,6 +571,133 @@ export function periodLabel(key: string, from: IsoDate, to: IsoDate, today: IsoD
         ? formatShortDate(from)
         : `del ${from.slice(8, 10)}/${from.slice(5, 7)} al ${to.slice(8, 10)}/${to.slice(5, 7)}${to === today ? "" : ""}`;
   }
+}
+
+// ---------------------------------------------------------------- corregir y borrar el último (US-B8)
+
+export type Snapshot = {
+  amount: Decimal.Value;
+  currency: "USD" | "VES";
+  amountUsd: Decimal.Value;
+  amountVes: Decimal.Value;
+  rateValue: Decimal.Value;
+  rateSource: "bcv" | "manual";
+  businessDate: string;
+  categoryName: string | null;
+  description: string | null;
+  paymentMethod: string;
+};
+
+function shortMovement(
+  s: Snapshot,
+  type: "expense" | "income",
+  methodLabel: (m: string) => string,
+) {
+  const what =
+    type === "expense"
+      ? (s.description ?? s.categoryName ?? "Gasto")
+      : (s.description ?? methodLabel(s.paymentMethod));
+  return `${what} · ${formatMoney(s.amount, s.currency)}`;
+}
+
+export function amendDraft(v: {
+  pendingId: string;
+  type: "expense" | "income";
+  before: Snapshot;
+  after: Snapshot;
+  changed: string[];
+  methodLabel: (m: string) => string;
+}): Outbound {
+  const kind = v.type === "expense" ? "gasto" : "ingreso";
+  const lines = [`Cambio el último ${kind}:`];
+  const b = v.before;
+  const a = v.after;
+  const has = (k: string) => v.changed.includes(k);
+  const what =
+    v.type === "expense"
+      ? (b.description ?? b.categoryName ?? "Gasto")
+      : (b.description ?? v.methodLabel(b.paymentMethod));
+  if (has("amount") || has("currency") || has("rateValue"))
+    lines.push(
+      `${what} · ${formatMoney(b.amount, b.currency)} → *${formatMoney(a.amount, a.currency)}*${a.rateSource === "manual" ? ` (a tasa ${formatMoney(a.rateValue, "VES").replace("Bs ", "")} manual)` : ""}`,
+    );
+  else lines.push(`${what} · ${formatMoney(b.amount, b.currency)}`);
+  if (has("description"))
+    lines.push(`Descripción: ${b.description ?? "—"} → *${a.description ?? "—"}*`);
+  if (has("categoryName"))
+    lines.push(`Categoría: ${b.categoryName ?? "Otros"} → *${a.categoryName ?? "Otros"}*`);
+  if (has("paymentMethod"))
+    lines.push(`Método: ${v.methodLabel(b.paymentMethod)} → *${v.methodLabel(a.paymentMethod)}*`);
+  if (has("businessDate"))
+    lines.push(
+      `Fecha: ${formatShortDate(asIsoDate(b.businessDate))} → *${formatShortDate(asIsoDate(a.businessDate))}*`,
+    );
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: [
+      { id: IDS.confirm(v.pendingId), title: "Guardar" },
+      { id: IDS.cancel(v.pendingId), title: "Cancelar" },
+    ],
+  };
+}
+
+export function deleteDraft(v: {
+  pendingId: string;
+  type: "expense" | "income";
+  snapshot: Snapshot;
+  today: string;
+  methodLabel: (m: string) => string;
+}): Outbound {
+  const kind = v.type === "expense" ? "gasto" : "ingreso";
+  return {
+    type: "buttons",
+    body: `Elimino el último ${kind}: ${shortMovement(v.snapshot, v.type, v.methodLabel)} · ${relativeDay(v.snapshot.businessDate, asIsoDate(v.today)).toLowerCase()}.`,
+    buttons: [
+      { id: IDS.confirm(v.pendingId), title: "Eliminar" },
+      { id: IDS.cancel(v.pendingId), title: "Cancelar" },
+    ],
+  };
+}
+
+export function tooOld(dashboardUrl: string): Outbound {
+  return {
+    type: "text",
+    body: `Ese movimiento ya tiene más de 30 minutos. Lo puedes corregir aquí: ${dashboardUrl}/movimientos`,
+  };
+}
+
+export function nothingToAmend(): Outbound {
+  return { type: "text", body: "No tengo ningún movimiento tuyo reciente para corregir." };
+}
+
+export function amended(
+  type: "expense" | "income",
+  totals: { usd: Decimal.Value; count: number },
+): Outbound {
+  const label = type === "expense" ? "Gastos" : "Ventas";
+  return {
+    type: "text",
+    body: `✅ Corregido. ${label} de ese día: *${formatMoney(totals.usd, "USD")}* (${totals.count === 1 ? "1 registro" : `${totals.count} registros`}).`,
+  };
+}
+
+export function deleted(
+  type: "expense" | "income",
+  totals: { usd: Decimal.Value; count: number },
+): Outbound {
+  const label = type === "expense" ? "Gastos" : "Ventas";
+  return {
+    type: "text",
+    body: `✅ Eliminado. ${label} de ese día: *${formatMoney(totals.usd, "USD")}* (${totals.count === 1 ? "1 registro" : `${totals.count} registros`}).`,
+  };
+}
+
+export function alreadyGone(): Outbound {
+  return {
+    type: "text",
+    body: "Ese movimiento ya no existe o ya fue corregido. Revisa el dashboard si tienes dudas.",
+  };
 }
 
 export function noRate(): Outbound {

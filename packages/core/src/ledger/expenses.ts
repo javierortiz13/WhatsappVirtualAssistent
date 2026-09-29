@@ -31,7 +31,7 @@ export type CreateExpenseInput = {
   sourceMessageId?: string | null;
   attachmentId?: string | null;
   /** Tasa congelada en el borrador; si no viene, se resuelve la vigente para la fecha. */
-  rate?: { id: string; value: string; effectiveDate: IsoDate };
+  rate?: { id: string | null; value: string; effectiveDate: IsoDate; source?: "bcv" | "manual" };
 };
 
 export type CreatedExpense = {
@@ -45,7 +45,12 @@ export type CreatedExpense = {
 export async function createExpense(tx: Tx, input: CreateExpenseInput): Promise<CreatedExpense> {
   if (!input.amount.isFinite() || input.amount.lte(0)) throw new Error("monto inválido");
   const rate = input.rate
-    ? makeRate(input.rate.value, input.rate.effectiveDate, input.rate.id)
+    ? makeRate(
+        input.rate.value,
+        input.rate.effectiveDate,
+        input.rate.id,
+        input.rate.source ?? "bcv",
+      )
     : (await rateFor(tx, input.businessDate)).rate;
   const c = convert(money(input.amount, input.currency), rate);
   const [row] = await tx
@@ -57,6 +62,7 @@ export async function createExpense(tx: Tx, input: CreateExpenseInput): Promise<
       amount: toDbAmount(c.amount),
       currency: c.currency,
       rateId: rate.id,
+      rateSource: rate.source,
       rateValue: toDbRate(c.rateValue),
       amountUsd: toDbAmount(c.amountUsd),
       amountVes: toDbAmount(c.amountVes),

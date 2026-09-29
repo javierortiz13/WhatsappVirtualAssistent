@@ -61,6 +61,7 @@ const expense = (over: Record<string, unknown> = {}) => ({
   description: "Champú",
   category_name: "Insumos de lavado",
   when: null,
+  rate: null,
   ...over,
 });
 
@@ -143,7 +144,7 @@ describe("agent loop", () => {
     const req = requests[0];
     expect(req?.system.map((s) => s.cache)).toEqual([true, true]);
     expect(req?.system[1]?.text).toContain("Negocio: Autolavado El Rápido");
-    expect(req?.tools).toHaveLength(7);
+    expect(req?.tools).toHaveLength(9);
     expect(req?.turns).toHaveLength(1);
     expect(req?.turns[0]).toMatchObject({ role: "user" });
     expect(textOf(req, 0)).toContain("Fecha de hoy en Caracas: 2026-09-29");
@@ -211,7 +212,7 @@ describe("agent loop", () => {
       fakeLlm([call("reject_out_of_scope", { reason: "other_business_task" })]).client,
       "vendí 200$",
     );
-    expect((soon.outbound[0] as { body: string }).body).toContain("todavía no está listo");
+    expect((soon.outbound[0] as { body: string }).body).toContain("todavía no lo hago por chat");
     const rate = await run(fakeLlm([call("get_bcv_rate", {})]).client, "a cuánto está el dólar");
     expect(rate.status).toBe("ok");
     expect((rate.outbound[0] as { body: string }).body).toContain("Bs 858,00");
@@ -307,7 +308,7 @@ describe("agent loop", () => {
     );
     const second = fakeLlm([call("draft_expense", expense({ amount: "18" }))]);
     const res = await run(second.client, "eran 18");
-    expect(textOf(second.requests[0], 0)).toContain("borrador de gasto en corrección");
+    expect(textOf(second.requests[0], 0)).toContain("borrador SIN GUARDAR en corrección");
     expect((res.outbound[0] as { body: string }).body).toContain("Descarté el borrador anterior");
     const pending = await withTenant(t.db, tenantId, (tx) =>
       tx.select().from(schema.pendingAction).where(eq(schema.pendingAction.status, "pending")),

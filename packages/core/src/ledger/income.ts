@@ -40,12 +40,17 @@ type Common = {
   actor: Actor;
   sourceChannel: "text" | "voice" | "image" | "dashboard";
   sourceMessageId?: string | null;
-  rate?: { id: string; value: string; effectiveDate: IsoDate };
+  rate?: { id: string | null; value: string; effectiveDate: IsoDate; source?: "bcv" | "manual" };
 };
 
 async function resolveRate(tx: Tx, input: Common): Promise<Rate> {
   return input.rate
-    ? makeRate(input.rate.value, input.rate.effectiveDate, input.rate.id)
+    ? makeRate(
+        input.rate.value,
+        input.rate.effectiveDate,
+        input.rate.id,
+        input.rate.source ?? "bcv",
+      )
     : (await rateFor(tx, input.businessDate)).rate;
 }
 
@@ -68,6 +73,7 @@ async function insertIncome(
       amount: toDbAmount(c.amount),
       currency: c.currency,
       rateId: rate.id,
+      rateSource: rate.source,
       rateValue: toDbRate(c.rateValue),
       amountUsd: toDbAmount(c.amountUsd),
       amountVes: toDbAmount(c.amountVes),

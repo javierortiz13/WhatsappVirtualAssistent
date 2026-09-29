@@ -109,10 +109,10 @@ elegidas, eventos del webhook por estado y movimientos guardados. Llena esta tab
 Ordenada por lo que más duele en el piloto:
 
 1. **Onboarding**: no hay registro de negocio ni vinculación por código; todo entra por seed y CLI. S2.
-2. **Cierres y consultas**: el menú los ofrece y el agente responde "llegan pronto". Las ventas ya están (S2, día 1). S2.
+2. ~~Cierres, consultas, corregir y borrar por chat~~ Hechos en S2 (días 1 y 2).
 3. **Listas `currency:` y `cat:`**: las respuestas de lista no se reinyectan al agente; la moneda
    ambigua se resuelve pidiendo el monto con `$` o `bs`. S2.
-4. **Tasa manual como corrección** ("tasa 850" en Corregir) y `rate_source` en el movimiento. S2 (ADR-013).
+4. ~~Tasa manual como corrección~~ Hecho en S2 día 2 (migración 0003).
 5. **Historia de tasas automática**: hoy es CSV manual; evaluar el Excel del BCV por script. S2.
 6. **Voz y foto**: responden "todavía no". S4.
 7. **Dashboard**: solo lectura; sin edición, borrado, exportación, categorías ni números. S5.

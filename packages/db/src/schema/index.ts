@@ -35,6 +35,7 @@ export const PHONE_STATUSES = ["pending", "active", "disabled"] as const;
 export const TENANT_STATUSES = ["trial", "active", "suspended"] as const;
 export const MOVEMENT_TYPES = ["expense", "income"] as const;
 export const MOVEMENT_ORIGINS = ["single", "day_total"] as const;
+export const RATE_SOURCES = ["bcv", "manual"] as const;
 export const SOURCE_CHANNELS = ["text", "voice", "image", "dashboard"] as const;
 export const PAYMENT_METHODS = [
   "cash_usd",
@@ -241,10 +242,9 @@ export const movement = app.table(
     businessDate: date("business_date").notNull(),
     amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
     currency: text("currency").notNull(),
-    rateId: uuid("rate_id")
-      .notNull()
-      .references(() => bcvRate.id),
+    rateId: uuid("rate_id").references(() => bcvRate.id),
     rateValue: numeric("rate_value", { precision: 18, scale: 8 }).notNull(),
+    rateSource: text("rate_source").notNull().default("bcv"),
     amountUsd: numeric("amount_usd", { precision: 14, scale: 2 }).notNull(),
     amountVes: numeric("amount_ves", { precision: 18, scale: 2 }).notNull(),
     categoryId: uuid("category_id").references(() => category.id),
@@ -266,6 +266,8 @@ export const movement = app.table(
       .on(t.tenantId, t.categoryId)
       .where(sql`deleted_at IS NULL`),
     check("movement_type_check", inList("type", MOVEMENT_TYPES)),
+    check("movement_rate_source_check", inList("rate_source", RATE_SOURCES)),
+    check("movement_rate_source_id", sql.raw(`rate_source = 'manual' OR rate_id IS NOT NULL`)),
     check("movement_currency_check", inList("currency", CURRENCIES)),
     check("movement_amount_positive", sql.raw(`amount > 0`)),
     check("movement_payment_method_check", inList("payment_method", PAYMENT_METHODS)),

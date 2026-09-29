@@ -40,9 +40,17 @@ export function createAgent(opts: AgentOptions): AgentRunner {
       const userText = input.kind === "text" ? input.text : JSON.stringify(input.extracted);
 
       const pending = await pendingDraftFor(tx, ctx.phoneId);
+      const FIXABLE: Record<string, string> = {
+        create_expense: "draft_expense",
+        create_income_day_total: "draft_income_day_total",
+        create_income_single: "draft_income_single",
+      };
       const pendingDraft =
-        pending?.kind === "create_expense" && (pending.payload as { fixing?: boolean }).fixing
-          ? (pending.payload as Record<string, unknown>)
+        pending && FIXABLE[pending.kind] && (pending.payload as { fixing?: boolean }).fixing
+          ? {
+              tool: FIXABLE[pending.kind] as string,
+              payload: pending.payload as Record<string, unknown>,
+            }
           : null;
       const history = await recentHistory(
         tx,

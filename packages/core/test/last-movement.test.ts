@@ -1,0 +1,256 @@
+import { eq, schema, withTenant } from "@caja/db";
+import type { ProcessMessageJob } from "@caja/db/queue";
+import { seedTenant } from "@caja/db/seed";
+import { createTestDb } from "@caja/db/testing";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { LlmClient, LlmResponse } from "../src/agent/llm";
+import { createAgent } from "../src/agent/loop";
+import { Decimal } from "../src/domain/money";
+import { ingestWebhook } from "../src/inbox/ingest";
+import { type ProcessDeps, processInbound } from "../src/inbox/process";
+import { MetaClient } from "../src/whatsapp/client";
+import * as fx from "./fixtures";
+
+/** Corregir y borrar el último movimiento (US-B8) y tasa manual (ADR-013), de punta a punta. */
+type Sent = { body: Record<string, unknown> };
+type Interactive = {
+  body: { text: string };
+  action: { buttons: { reply: { id: string; title: string } }[] };
+};
+const interactive = (s: Sent | undefined) => s?.body.interactive as Interactive | undefined;
+const textOf = (s: Sent | undefined) =>
+  String((s?.body.text as { body?: string } | undefined)?.body ?? interactive(s)?.body.text ?? "");
+const buttonsOf = (s: Sent | undefined) => interactive(s)?.action.buttons.map((b) => b.reply) ?? [];
+
+function fakeMeta() {
+  const sent: Sent[] = [];
+  const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+    if (body.status !== "read") sent.push({ body });
+    return new Response(JSON.stringify({ messages: [{ id: `wamid.OUT.${Math.random()}` }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  return {
+    sent,
+    client: new MetaClient({ accessToken: "T", phoneNumberId: fx.PHONE_NUMBER_ID, fetchImpl }),
+  };
+}
+
+const expense = (id: string, over: Record<string, unknown> = {}) => [
+  {
+    id,
+    name: "draft_expense",
+    input: {
+      amount: "15",
+      currency: "USD",
+      description: "Champú",
+      category_name: "Insumos de lavado",
+      when: null,
+      rate: null,
+      ...over,
+    },
+  },
+];
+const amend = (id: string, over: Record<string, unknown>) => [
+  {
+    id,
+    name: "amend_last_movement",
+    input: {
+      amount: null,
+      currency: null,
+      category_name: null,
+      description: null,
+      when: null,
+      method: null,
+      rate: null,
+      ...over,
+    },
+  },
+];
+
+function scriptedLlm(script: Record<string, LlmResponse["toolCalls"]>): LlmClient {
+  return {
+    model: "claude-sonnet-5-5",
+    async complete(req) {
+      const last = req.turns[req.turns.length - 1];
+      const text = last && "text" in last ? (last.text ?? "") : "";
+      // El mensaje del usuario va al final del turno; el borrador en corrección antes.
+      const msg = text.split("Mensaje del usuario: ")[1] ?? "";
+      const key = Object.keys(script).find((k) => msg.includes(k));
+      if (!key) throw new Error(`sin guion para: ${msg}`);
+      return {
+        toolCalls: script[key] ?? [],
+        text: null,
+        stopReason: "tool_use",
+        usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        model: "claude-sonnet-5-5",
+      };
+    },
+    costUsd: () => new Decimal(0),
+  };
+}
+
+describe("corregir y borrar el último movimiento", () => {
+  let t: Awaited<ReturnType<typeof createTestDb>>;
+  let tenantId: string;
+  let clock = new Date("2026-09-29T15:00:00Z");
+  const now = () => clock;
+  const jobs: ProcessMessageJob[] = [];
+  let seq = 0;
+
+  beforeAll(async () => {
+    t = await createTestDb();
+    tenantId = await seedTenant(t.db, {
+      name: "Autolavado",
+      businessType: "car_wash",
+      ownerPhone: "584121234567",
+    });
+    await t.db.insert(schema.bcvRate).values([
+      { effectiveDate: "2026-09-28", rate: "857.00000000", source: "test" },
+      { effectiveDate: "2026-09-29", rate: "858.00000000", source: "test" },
+    ]);
+  });
+  afterAll(() => t.close());
+
+  const llm = scriptedLlm({
+    "gasté 15$ en champú": expense("e1"),
+    "no, eran 20": amend("a1", { amount: "20" }),
+    "es mantenimiento y fue ayer": amend("a2", {
+      category_name: "Mantenimiento de equipos",
+      when: "ayer",
+    }),
+    "a tasa 850": amend("a3", { rate: "850" }),
+    "gasté 30$ en cera a tasa 900": expense("e2", {
+      amount: "30",
+      description: "Cera",
+      rate: "900",
+    }),
+    "eran 35": expense("e3", { amount: "35", description: "Cera", rate: "900" }),
+    "quita eso": [{ id: "d1", name: "delete_last_movement", input: {} }],
+  });
+
+  function deps(client: MetaClient): ProcessDeps {
+    return {
+      db: t.db,
+      metaFor: () => client,
+      agent: createAgent({ llm, now }),
+      now,
+      config: {
+        assistantName: "x",
+        dashboardUrl: "https://caja.test",
+        supportHint: null,
+        unknownReplyMax: 5,
+        unknownReplyWindowMs: 3_600_000,
+        maxEventAgeMs: 12 * 3_600_000,
+        maxTextLength: 500,
+      },
+    };
+  }
+  async function send(client: MetaClient, body: string) {
+    jobs.length = 0;
+    await ingestWebhook(
+      { db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) },
+      fx.textMessage(`wamid.L${++seq}`, body),
+    );
+    return processInbound(deps(client), jobs[0] as ProcessMessageJob);
+  }
+  async function tap(client: MetaClient, id: string, title: string) {
+    jobs.length = 0;
+    const p = JSON.parse(JSON.stringify(fx.buttonReply));
+    p.entry[0].changes[0].value.messages[0].id = `wamid.LB${++seq}`;
+    p.entry[0].changes[0].value.messages[0].interactive.button_reply = { id, title };
+    await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
+    return processInbound(deps(client), jobs[0] as ProcessMessageJob);
+  }
+  const live = () =>
+    withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.movement).orderBy(schema.movement.createdAt),
+    );
+  const audits = (action: string) =>
+    withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.auditLog).where(eq(schema.auditLog.action, action)),
+    );
+
+  it("'no, eran 20' corrige el monto del último gasto guardado, con auditoría de antes y después", async () => {
+    const { sent, client } = fakeMeta();
+    await send(client, "gasté 15$ en champú");
+    await tap(client, buttonsOf(sent[0])[0]?.id as string, "Guardar");
+    expect(textOf(sent[1])).toContain("✅ Guardado");
+    await send(client, "no, eran 20");
+    expect(textOf(sent[2])).toBe("Cambio el último gasto:\nChampú · $15,00 → *$20,00*");
+    expect(buttonsOf(sent[2]).map((b) => b.title)).toEqual(["Guardar", "Cancelar"]);
+    await tap(client, buttonsOf(sent[2])[0]?.id as string, "Guardar");
+    expect(textOf(sent[3])).toBe("✅ Corregido. Gastos de ese día: *$20,00* (1 registro).");
+    const [m] = await live();
+    expect(m).toMatchObject({ amount: "20.00", amountVes: "17160.00", rateSource: "bcv" });
+    const upd = await audits("update");
+    expect(upd).toHaveLength(1);
+    expect(upd[0]?.before).toMatchObject({ amount: "15.00" });
+    expect(upd[0]?.after).toMatchObject({ amount: "20.00" });
+  });
+
+  it("categoría y fecha: recalcula la tasa del nuevo día; tasa manual: guarda rate_source manual sin fila BCV", async () => {
+    const { sent, client } = fakeMeta();
+    await send(client, "es mantenimiento y fue ayer");
+    expect(textOf(sent[0])).toContain("Categoría: Insumos de lavado → *Mantenimiento de equipos*");
+    expect(textOf(sent[0])).toContain("Fecha: mar 29/09 → *lun 28/09*");
+    await tap(client, buttonsOf(sent[0])[0]?.id as string, "Guardar");
+    let [m] = await live();
+    expect(m).toMatchObject({
+      businessDate: "2026-09-28",
+      amountVes: "17140.00",
+      rateValue: "857.00000000",
+    });
+
+    await send(client, "a tasa 850");
+    expect(textOf(sent[2])).toContain("$20,00 → *$20,00* (a tasa 850,00 manual)");
+    await tap(client, buttonsOf(sent[2])[0]?.id as string, "Guardar");
+    [m] = await live();
+    expect(m).toMatchObject({
+      rateSource: "manual",
+      rateId: null,
+      rateValue: "850.00000000",
+      amountVes: "17000.00",
+    });
+  });
+
+  it("tasa manual en un borrador nuevo y en su corrección; 'bórralo' sin LLM borra con confirmación", async () => {
+    const { sent, client } = fakeMeta();
+    await send(client, "gasté 30$ en cera a tasa 900");
+    expect(textOf(sent[0])).toContain("*$30,00* (Bs 27.000,00 a tasa 900,00 (manual))");
+    // Corregir el borrador: el modelo vuelve a llamar draft_expense con la tasa.
+    await tap(client, buttonsOf(sent[0])[1]?.id as string, "Corregir");
+    expect(textOf(sent[1])).toContain("Dime qué cambio");
+    await send(client, "eran 35");
+    expect(textOf(sent[2])).toContain("*$35,00* (Bs 31.500,00 a tasa 900,00 (manual))");
+    await tap(client, buttonsOf(sent[2])[0]?.id as string, "Guardar");
+    const rows = await live();
+    expect(rows[1]).toMatchObject({ amount: "35.00", rateSource: "manual", rateId: null });
+
+    await send(client, "bórralo");
+    expect(textOf(sent[4])).toBe("Elimino el último gasto: Cera · $35,00 · hoy, mar 29/09.");
+    expect(buttonsOf(sent[4]).map((b) => b.title)).toEqual(["Eliminar", "Cancelar"]);
+    await tap(client, buttonsOf(sent[4])[0]?.id as string, "Eliminar");
+    expect(textOf(sent[5])).toBe("✅ Eliminado. Gastos de ese día: *$0,00* (0 registros).");
+    const after = await live();
+    expect(after[1]?.deletedAt).not.toBeNull();
+    expect(await audits("delete")).toHaveLength(1);
+  });
+
+  it("después de 30 minutos remite al dashboard; sin movimientos, lo dice", async () => {
+    const { sent, client } = fakeMeta();
+    // created_at lo pone la base con la hora real; la ventana se mide contra ella.
+    clock = new Date(Date.now() + 40 * 60_000);
+    await send(client, "no, eran 20");
+    expect(textOf(sent[0])).toBe(
+      "Ese movimiento ya tiene más de 30 minutos. Lo puedes corregir aquí: https://caja.test/movimientos",
+    );
+    await send(client, "quita eso");
+    expect(textOf(sent[1])).toContain("más de 30 minutos");
+    await withTenant(t.db, tenantId, (tx) => tx.update(schema.movement).set({ deletedAt: clock }));
+    await send(client, "quita eso");
+    expect(textOf(sent[2])).toBe("No tengo ningún movimiento tuyo reciente para corregir.");
+  });
+});

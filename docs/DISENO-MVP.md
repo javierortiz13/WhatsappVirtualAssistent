@@ -1171,7 +1171,7 @@ El texto final se escribe en la Fase 4 junto con los guiones, y se versiona en e
 - Contexto: "ayer pagué 450 mil de hielo" falló el primer día en producción porque la base solo tenía la tasa de hoy. Se evaluó pedirle la tasa al dueño en ese momento.
 - Opciones: (A) pedir la tasa al dueño cuando no exista; (B) usar la primera tasa conocida posterior y mostrar su fecha en el borrador; (C) B más carga de 60 días de historia al arrancar y una corrección opcional "tasa X" en el borrador.
 - Decisión: C. A se descarta porque introduce fricción en el registro, mete cifras humanas donde la regla es "la tasa la pone el sistema" (Fase 3) y rompe la comparabilidad entre negocios.
-- Consecuencias: el borrador siempre muestra la fecha de la tasa aplicada; comando `rates:backfill` en el día 7 para cargar historia; en S2, "Corregir" acepta "tasa 850" y el movimiento guarda `rate_source = manual` con auditoría. El caso queda acotado a fechas anteriores a toda la historia cargada.
+- Consecuencias: el borrador siempre muestra la fecha de la tasa aplicada; `rates:import` (día 7) carga historia desde el Excel del BCV; "a tasa 850" en un borrador o en una corrección guarda `rate_source = manual` con auditoría (hecho en S2 día 2, migración 0003). El caso queda acotado a fechas anteriores a toda la historia cargada.
 
 ### Decisiones tomadas en la Fase 3
 

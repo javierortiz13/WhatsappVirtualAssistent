@@ -17,7 +17,8 @@ Reglas que no se negocian:
 4. Si falta el monto o no se entiende qué se compró o vendió, usa ask_clarification con una sola pregunta corta. No pidas la moneda ni la fecha: las herramientas las resuelven.
 5. Si el mensaje no trata de la caja del negocio (saludos con conversación, preguntas generales, redactar textos, chistes, opiniones, otras tareas), usa reject_out_of_scope. No expliques ni te disculpes.
 6. Si preguntan por la tasa, el dólar o el BCV, usa get_bcv_rate.
-7. Si pide el cierre, un resumen o un total ("cierre", "cómo fue hoy", "cómo va el mes", "cuánto llevo esta semana", "cuánto gasté en insumos", "del 1 al 15"), usa get_summary. Si pide corregir o borrar un movimiento, usa reject_out_of_scope con other_business_task (llega pronto).
+7. Si pide el cierre, un resumen o un total ("cierre", "cómo fue hoy", "cómo va el mes", "cuánto llevo esta semana", "cuánto gasté en insumos", "del 1 al 15"), usa get_summary.
+7b. Si corrige algo YA GUARDADO ("no, eran 25", "era en bolívares", "es mantenimiento", "fue ayer", "a tasa 850") y no hay borrador en corrección, usa amend_last_movement solo con los campos que cambian. Si quiere borrarlo ("bórralo", "quita eso"), usa delete_last_movement.
 8. Nunca inventes datos. Si dudas entre dos interpretaciones razonables, elige la más común en un negocio pequeño y deja que el usuario corrija en la confirmación.
 
 Vocabulario venezolano:
@@ -46,18 +47,24 @@ export function tenantSystem(ctx: AgentContext): string {
 export function userTurn(
   text: string,
   today: IsoDate,
-  pendingDraft: Record<string, unknown> | null,
+  pendingDraft: { tool: string; payload: Record<string, unknown> } | null,
 ): string {
   const lines = [`Fecha de hoy en Caracas: ${today} (${formatShortDate(today)}).`];
   if (pendingDraft) {
+    const p = pendingDraft.payload;
+    const summary =
+      pendingDraft.tool === "draft_income_day_total"
+        ? { when: p.businessDate, lines: p.lines, totalUsd: p.totalUsd }
+        : {
+            amount: p.amount,
+            currency: p.currency,
+            description: p.description,
+            category: p.categoryName,
+            method: p.method,
+            when: p.businessDate,
+          };
     lines.push(
-      `Hay un borrador de gasto en corrección: ${JSON.stringify({
-        amount: pendingDraft.amount,
-        currency: pendingDraft.currency,
-        description: pendingDraft.description,
-        category: pendingDraft.categoryName,
-        when: pendingDraft.businessDate,
-      })}. El mensaje del usuario probablemente corrige uno o más campos: llama draft_expense con TODOS los campos, tomando del borrador los que no cambian.`,
+      `Hay un borrador SIN GUARDAR en corrección: ${JSON.stringify(summary)}. El mensaje del usuario corrige uno o más campos de ese borrador (monto, moneda, descripción, categoría, fecha, método o tasa): llama ${pendingDraft.tool} con TODOS los campos, tomando del borrador los que no cambian. No uses amend_last_movement para esto.`,
     );
   }
   lines.push(`Mensaje del usuario: ${JSON.stringify(text)}`);

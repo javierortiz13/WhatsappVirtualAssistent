@@ -26,7 +26,8 @@ export const ExpenseDraft = z.object({
   categoryName: z.string().nullable(),
   description: z.string().nullable(),
   businessDate: z.string(),
-  rateId: z.string().uuid(),
+  rateId: z.string().uuid().nullable(),
+  rateSource: z.enum(["bcv", "manual"]).default("bcv"),
   rateValue: z.string(),
   rateEffectiveDate: z.string(),
   amountUsd: z.string(),
@@ -55,6 +56,8 @@ export type DraftInput = {
   sourceMessageId: string | null;
   attachmentId: string | null;
   transcript: string | null;
+  /** Tasa dicha por el dueño al corregir (ADR-013); si viene, no se consulta bcv_rate. */
+  manualRate?: Rate | null;
 };
 
 export async function createExpenseDraft(
@@ -67,7 +70,9 @@ export async function createExpenseDraft(
   replacedPrevious: boolean;
   usedPriorDayRate: boolean;
 }> {
-  const { rate, usedPriorDay } = await rateFor(tx, input.businessDate);
+  const { rate, usedPriorDay } = input.manualRate
+    ? { rate: input.manualRate, usedPriorDay: false }
+    : await rateFor(tx, input.businessDate);
   const c = convert(money(input.amount, input.currency), rate);
   const draft: ExpenseDraft = {
     amount: toDbAmount(c.amount),
@@ -78,6 +83,7 @@ export async function createExpenseDraft(
     description: input.description,
     businessDate: input.businessDate,
     rateId: rate.id,
+    rateSource: rate.source,
     rateValue: toDbRate(c.rateValue),
     rateEffectiveDate: rate.effectiveDate,
     amountUsd: toDbAmount(c.amountUsd),
@@ -158,7 +164,8 @@ export const IncomeDayTotalDraft = z.object({
     .nullable(),
   existingUsd: z.string().nullable(),
   mode: z.enum(["replace", "append"]).nullable(),
-  rateId: z.string().uuid(),
+  rateId: z.string().uuid().nullable(),
+  rateSource: z.enum(["bcv", "manual"]).default("bcv"),
   rateValue: z.string(),
   rateEffectiveDate: z.string(),
   sourceChannel: z.enum(["text", "voice", "image"]),
@@ -175,7 +182,8 @@ export const IncomeSingleDraft = z.object({
   method: Method,
   description: z.string().nullable(),
   businessDate: z.string(),
-  rateId: z.string().uuid(),
+  rateId: z.string().uuid().nullable(),
+  rateSource: z.enum(["bcv", "manual"]).default("bcv"),
   rateValue: z.string(),
   rateEffectiveDate: z.string(),
   amountUsd: z.string(),
@@ -197,6 +205,7 @@ export type IncomeDayTotalInput = {
   sourceChannel: "text" | "voice" | "image";
   sourceMessageId: string | null;
   transcript: string | null;
+  manualRate?: Rate | null;
 };
 
 function toLine(l: IncomeDayTotalInput["lines"][number], rate: Rate): IncomeLineDraft {
@@ -222,7 +231,9 @@ export async function createIncomeDayTotalDraft(
   input: IncomeDayTotalInput,
   now: Date,
 ): Promise<{ pendingId: string; draft: IncomeDayTotalDraft; replacedPrevious: boolean }> {
-  const { rate } = await rateFor(tx, input.businessDate);
+  const { rate } = input.manualRate
+    ? { rate: input.manualRate }
+    : await rateFor(tx, input.businessDate);
   let lines = input.lines.map((l) => toLine(l, rate));
   let mismatch: IncomeDayTotalDraft["mismatch"] = null;
   if (input.stated) {
@@ -257,6 +268,7 @@ export async function createIncomeDayTotalDraft(
     existingUsd: existing.count > 0 ? toDbAmount(existing.usd) : null,
     mode: null,
     rateId: rate.id,
+    rateSource: rate.source,
     rateValue: toDbRate(rate.value),
     rateEffectiveDate: rate.effectiveDate,
     sourceChannel: input.sourceChannel,
@@ -287,10 +299,11 @@ export function resolveMismatch(
   if (!draft.mismatch) return draft;
   let lines = draft.lines;
   if (choice === "stated") {
-    const rate = {
+    const rate: Rate = {
       value: new Decimal(draft.rateValue),
       effectiveDate: draft.rateEffectiveDate,
       id: draft.rateId,
+      source: draft.rateSource,
     };
     const diffUsd = new Decimal(draft.mismatch.statedUsd).minus(draft.mismatch.breakdownUsd);
     if (diffUsd.gt(0)) {
@@ -326,6 +339,7 @@ export type IncomeSingleInput = {
   sourceChannel: "text" | "voice" | "image";
   sourceMessageId: string | null;
   transcript: string | null;
+  manualRate?: Rate | null;
 };
 
 export async function createIncomeSingleDraft(
@@ -333,7 +347,9 @@ export async function createIncomeSingleDraft(
   input: IncomeSingleInput,
   now: Date,
 ): Promise<{ pendingId: string; draft: IncomeSingleDraft; replacedPrevious: boolean }> {
-  const { rate } = await rateFor(tx, input.businessDate);
+  const { rate } = input.manualRate
+    ? { rate: input.manualRate }
+    : await rateFor(tx, input.businessDate);
   const c = convert(money(input.amount, input.currency), rate);
   const draft: IncomeSingleDraft = {
     amount: toDbAmount(c.amount),
@@ -343,6 +359,7 @@ export async function createIncomeSingleDraft(
     description: input.description,
     businessDate: input.businessDate,
     rateId: rate.id,
+    rateSource: rate.source,
     rateValue: toDbRate(rate.value),
     rateEffectiveDate: rate.effectiveDate,
     amountUsd: toDbAmount(c.amountUsd),

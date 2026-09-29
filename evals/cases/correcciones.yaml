@@ -1,0 +1,30 @@
+# Corregir y borrar el último movimiento guardado (US-B8) y tasa manual (ADR-013).
+# "bórralo" se resuelve sin LLM; aquí van las variantes en lenguaje libre.
+- name: corregir el monto
+  input: "no, eran 25"
+  expect:
+    tool: amend_last_movement
+    args: { amount: "25", currency: null, category_name: null, when: null }
+
+- name: corregir la categoría
+  input: "eso es mantenimiento"
+  expect:
+    tool: amend_last_movement
+    args: { category_name: Mantenimiento de equipos, amount: null }
+
+- name: corregir la fecha
+  input: "ese gasto fue ayer"
+  expect:
+    tool: amend_last_movement
+    args: { when: ayer, amount: null }
+
+- name: tasa manual
+  input: "ponlo a tasa 850"
+  expect:
+    tool: amend_last_movement
+    args: { rate: "850", amount: null }
+
+- name: borrar con otras palabras
+  input: "quita ese último, me equivoqué"
+  expect:
+    tool: delete_last_movement

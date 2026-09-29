@@ -174,3 +174,15 @@ Decisión: al probar el walking skeleton, el menú ofrecía "Registrar venta" y 
 - Dashboard: pestaña Cierres con el cierre de hoy y el resumen del mes desde las mismas funciones.
 - 5 tests nuevos y 5 evals de cierres. Total: 168 más 26 evals.
 - Operación: Railway saltaba deploys que no tocaban `apps/worker` por los "watch patterns"; ampliados desde el conector a `packages/**` y los manifiestos. El arranque del worker registra el commit y el agente activo.
+
+### S2 · día 2 · 29/09/2026 · Corregir y borrar el último movimiento; tasa manual
+
+**Terminado**
+- Migración `0003_manual_rate.sql`: `movement.rate_id` pasa a nulo y aparece `rate_source` (`bcv` | `manual`) con la restricción de que una tasa `bcv` siempre tenga fila. `Rate` en dominio lleva `source`; `manualRate()` valida entre 1 y 1.000.000 Bs por dólar.
+- **Tasa manual (ADR-013)**: las tres herramientas de borrador aceptan `rate` ("a tasa 850") y el borrador lo muestra como "(manual)"; el movimiento guarda `rate_source = manual` sin fila en `bcv_rate`. Al corregir un borrador sin guardar, el modelo recibe el borrador (gasto, venta o ingreso) y vuelve a llamar la misma herramienta con todos los campos.
+- **Corregir el último guardado (US-B8)**: `amend_last_movement` solo con los campos que cambian (monto, moneda, categoría, descripción, fecha, método, tasa). El backend busca el último movimiento vivo del mismo teléfono con menos de 30 minutos; si cambia la fecha recalcula la tasa; muestra "Cambio el último gasto: Champú · $15,00 → *$20,00*" con Guardar / Cancelar y al confirmar actualiza y audita antes y después. Después de 30 minutos remite al dashboard.
+- **Borrar el último**: "bórralo", "quita eso", "elimina el último" sin LLM, y `delete_last_movement` para variantes; "Elimino el último gasto: Champú · $15,00 · hoy" con Eliminar / Cancelar; borrado lógico con auditoría; respuesta con el total del día.
+- El rechazo por "llega pronto" queda solo para lo que no existe (inventario, deudas, clientes).
+- 4 tests de punta a punta y 5 evals. Total: 149 en core, 172 en total, más 31 evals.
+
+**Operación**: hay que correr `pnpm db:migrate` en Supabase antes de que el worker nuevo reciba un gasto; si llega antes, el job falla por la columna nueva y pg-boss lo reintenta, así que no se pierde, solo se retrasa.
