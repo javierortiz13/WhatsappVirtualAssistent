@@ -2528,6 +2528,8 @@ Resultado: **no se encontró ningún reporte de primera mano** de un negocio ven
 
 Pasos prácticos: (1) abrir la verificación en el Business Manager y leer la lista exacta para Venezuela; (2) asegurar que el nombre legal, la dirección y el teléfono coincidan en los tres documentos y en la página de privacidad del dashboard; (3) si Meta rechaza dos veces, evaluar un proveedor de soluciones (BSP) con presencia en Venezuela como LiveConnect, sabiendo que cobran entre 75 y 230 USD al mes según sus páginas y que eso rompe el presupuesto: sería solo para destrabar el número, no como plataforma.
 
+Referencias de mercado (búsqueda del 29/09/2026, sin abrir las páginas): Botinfy se anuncia como "el único Meta Business Partner en Venezuela" y es el primer contacto si la verificación se traba. Los bots de atención a clientes en Venezuela (Nodos desde 72 USD al mes, LiveConnect 75 a 230, LabsChats desde 99) son otra categoría de producto: de cara al cliente final, y justo el perfil que la cláusula de proveedores de IA examina. El análogo real de este producto es soyolivia.ai en México ("contadora con IA por WhatsApp"): dueño que escribe por WhatsApp y un sistema que hace el trabajo administrativo.
+
 ### Riesgos detectados en esta fase
 
 Los de la matriz. Los tres que debes mirar esta semana: R1 (precio de Meta), R10 (tu tiempo después de la semana 1) y R11 (tercer piloto).
