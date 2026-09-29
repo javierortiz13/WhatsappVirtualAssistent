@@ -1,4 +1,4 @@
-import { type ProcessDeps, stubAgent, whatsapp } from "@caja/core";
+import { AnthropicLlmClient, createAgent, type ProcessDeps, stubAgent, whatsapp } from "@caja/core";
 import { createDb, rows, sql } from "@caja/db";
 import { createBoss, ensureQueues } from "@caja/db/queue";
 import { loadEnv } from "./env";
@@ -28,10 +28,25 @@ async function main() {
     ],
   ]);
 
+  // Agente: Claude Sonnet 5.5 si hay clave; si no, el stub (todo fuera de alcance) para no romper.
+  const [provider, model] = env.LLM_PRIMARY.split(":");
+  const agent =
+    env.ANTHROPIC_API_KEY && provider === "anthropic"
+      ? createAgent({
+          llm: new AnthropicLlmClient({
+            apiKey: env.ANTHROPIC_API_KEY,
+            ...(model ? { model } : {}),
+          }),
+          log,
+        })
+      : stubAgent;
+  if (agent === stubAgent)
+    log.warn({ provider }, "sin LLM configurado: el agente responde fuera de alcance");
+
   const deps: ProcessDeps = {
     db,
     metaFor: (id) => clients.get(id) ?? null,
-    agent: stubAgent,
+    agent,
     log,
     config: {
       assistantName: env.ASSISTANT_NAME,

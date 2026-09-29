@@ -1,0 +1,10 @@
+# Falta un dato imprescindible: el agente pregunta, no inventa.
+- name: sin monto
+  input: "compré 3 cajas de cera"
+  expect:
+    tool: ask_clarification
+
+- name: solo un monto, sin qué
+  input: "20$"
+  expect:
+    tool: ask_clarification

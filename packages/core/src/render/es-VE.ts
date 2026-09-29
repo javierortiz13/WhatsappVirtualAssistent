@@ -227,6 +227,11 @@ export function expenseSaved(dayTotalUsd: Decimal.Value, count: number): Outboun
   };
 }
 
+export function clarification(question: string, options: string[]): Outbound {
+  if (options.length === 0) return { type: "text", body: question };
+  return { type: "text", body: `${question}\n${options.map((o) => `• ${o}`).join("\n")}` };
+}
+
 export function noRate(): Outbound {
   return {
     type: "text",

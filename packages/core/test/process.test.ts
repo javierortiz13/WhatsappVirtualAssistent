@@ -1,9 +1,13 @@
-import { schema, withTenant } from "@caja/db";
+import { eq, schema, withTenant } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { type LlmClient, LlmUnavailableError } from "../src/agent/llm";
+import { createAgent } from "../src/agent/loop";
 import { stubAgent } from "../src/agent/stub";
+import type { AgentRunner } from "../src/agent/types";
+import { Decimal } from "../src/domain/money";
 import { ingestWebhook } from "../src/inbox/ingest";
 import { classifyKeyword, type ProcessDeps, processInbound } from "../src/inbox/process";
 import { MetaClient } from "../src/whatsapp/client";
@@ -162,6 +166,69 @@ describe("processInbound", () => {
     );
     const body = sent[0]?.body as { interactive: { body: { text: string } } };
     expect(body.interactive.body.text).toContain("Solo te ayudo con tu caja");
+  });
+
+  it("LLM caído: responde el texto fijo y el job termina sin reintentar", async () => {
+    const { sent, client } = fakeMeta();
+    const down: AgentRunner = {
+      async run() {
+        throw new LlmUnavailableError("Anthropic 529: overloaded");
+      },
+    };
+    const job = await ingest(message("wamid.LD1", "584121234567", "gasté 15$ en champú"));
+    expect(await processInbound({ ...deps(client), agent: down }, job)).toBe("done");
+    expect(textOf(sent[0])).toContain("no puedo procesar esto");
+  });
+
+  it("agente real con LLM falso: el borrador queda ligado al mensaje y la salida guarda tool_calls y costo", async () => {
+    const { sent, client } = fakeMeta();
+    const llm: LlmClient = {
+      model: "claude-sonnet-5-5",
+      async complete() {
+        return {
+          toolCalls: [
+            {
+              id: "toolu_1",
+              name: "draft_expense",
+              input: {
+                amount: "15",
+                currency: "USD",
+                description: "Champú",
+                category_name: "Insumos de lavado",
+                when: null,
+              },
+            },
+          ],
+          text: null,
+          stopReason: "tool_use",
+          usage: { inputTokens: 1200, outputTokens: 60, cacheReadTokens: 800, cacheWriteTokens: 0 },
+          model: "claude-sonnet-5-5",
+        };
+      },
+      costUsd: () => new Decimal("0.003160"),
+    };
+    const job = await ingest(message("wamid.AG1", "584121234567", "gasté 15$ en champú"));
+    const agent = createAgent({ llm, now });
+    expect(await processInbound({ ...deps(client), agent }, job)).toBe("done");
+    const body = sent[0]?.body as { interactive: { body: { text: string } } };
+    expect(body.interactive.body.text).toContain("Gasto por confirmar");
+    const rows = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.message));
+    const inbound = rows.find((r) => r.waMessageId === "wamid.AG1");
+    const outbound = rows.find(
+      (r) => r.direction === "out" && r.webhookEventId === job.webhookEventId,
+    );
+    expect(outbound).toMatchObject({
+      tokensIn: 2000,
+      tokensOut: 60,
+      costUsd: "0.003160",
+      toolCalls: [{ name: "draft_expense", args: { amount: "15" } }],
+    });
+    const [pa] = await withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.pendingAction).where(eq(schema.pendingAction.status, "pending")),
+    );
+    expect(pa?.kind).toBe("create_expense");
+    expect(pa?.payload).toMatchObject({ sourceMessageId: inbound?.id });
+    await withTenant(t.db, tenantId, (tx) => tx.delete(schema.pendingAction));
   });
 
   it("nota de voz y sticker reciben respuestas fijas por ahora", async () => {

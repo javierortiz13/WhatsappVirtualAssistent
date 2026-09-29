@@ -1,6 +1,7 @@
 import { and, type Db, eq, schema, sql, type Tx, withTenant } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
-import type { AgentRunner } from "../agent/types";
+import { LlmUnavailableError } from "../agent/llm";
+import type { AgentInput, AgentRunner } from "../agent/types";
 import { asIsoDate, businessDateOf } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import { allowUnknownReply, canUse, resolveSender } from "../identity/resolve";
@@ -161,6 +162,7 @@ export async function processInbound(
       phoneId: resolved.phoneId,
       role: resolved.role,
       defaultCurrency: (tenant.defaultExpenseCurrency as "USD" | "VES" | null) ?? null,
+      vesThreshold: tenant.vesThreshold,
       today,
     });
 
@@ -225,6 +227,7 @@ type RouteCtx = {
   phoneId: string;
   role: "owner" | "employee";
   defaultCurrency: "USD" | "VES" | null;
+  vesThreshold: string;
   today: ReturnType<typeof businessDateOf>;
 };
 
@@ -260,7 +263,7 @@ async function routeMessage(
       if (keyword === "help")
         return none([es.help(deps.config.dashboardUrl, deps.config.supportHint)]);
       if (msg.text.length > deps.config.maxTextLength) return none([es.tooLong()]);
-      return runAgent(deps, ctx, msg, { kind: "text", text: msg.text, sourceChannel: "text" });
+      return runAgent(tx, deps, ctx, msg, { kind: "text", text: msg.text });
     }
     case "audio":
       return none([es.mediaNotYet("audio")]);
@@ -283,11 +286,7 @@ async function routeInteractive(
       if (parsed.action === "expense") return none([es.promptExpense()]);
       if (parsed.action === "income") return none([es.promptIncome()]);
       if (ctx.role !== "owner") return none([es.ownerOnly()]);
-      return runAgent(deps, ctx, null, {
-        kind: "text",
-        text: "cierre de hoy",
-        sourceChannel: "text",
-      });
+      return runAgent(tx, deps, ctx, null, { kind: "text", text: "cierre de hoy" });
     case "confirm":
     case "fix":
     case "cancel": {
@@ -332,19 +331,61 @@ async function routeInteractive(
 }
 
 async function runAgent(
+  tx: Tx,
   deps: ProcessDeps,
   ctx: RouteCtx,
   msg: InboundMessage | null,
-  input: Parameters<AgentRunner["run"]>[1],
+  input: AgentInput,
 ): Promise<RouteResult> {
-  const result = await deps.agent.run({ ...ctx, waMessageId: msg?.waMessageId ?? "" }, input);
-  return {
-    outbound: result.outbound,
-    toolCalls: result.toolCalls,
-    tokensIn: result.tokensIn,
-    tokensOut: result.tokensOut,
-    costUsd: result.costUsd,
-  };
+  const log = deps.log ?? silentLogger;
+  const categories = await tx
+    .select({ id: schema.category.id, name: schema.category.name })
+    .from(schema.category)
+    .where(
+      and(
+        eq(schema.category.tenantId, ctx.tenantId),
+        eq(schema.category.kind, "expense"),
+        eq(schema.category.isActive, true),
+      ),
+    )
+    .orderBy(schema.category.sortOrder);
+  const [current] = msg
+    ? await tx
+        .select({ id: schema.message.id })
+        .from(schema.message)
+        .where(eq(schema.message.waMessageId, msg.waMessageId))
+    : [];
+  try {
+    const result = await deps.agent.run(
+      tx,
+      {
+        tenantId: ctx.tenantId,
+        tenantName: ctx.tenantName,
+        phoneId: ctx.phoneId,
+        role: ctx.role,
+        defaultCurrency: ctx.defaultCurrency,
+        vesThreshold: ctx.vesThreshold,
+        categories,
+        today: ctx.today,
+        sourceMessageDbId: current?.id ?? null,
+        sourceChannel: input.kind === "text" ? "text" : "image",
+      },
+      input,
+    );
+    return {
+      outbound: result.outbound,
+      toolCalls: result.toolCalls,
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      costUsd: result.costUsd,
+    };
+  } catch (err) {
+    if (err instanceof LlmUnavailableError) {
+      log.error({ err: err.message }, "LLM no disponible");
+      return none([es.llmDown()]);
+    }
+    throw err;
+  }
 }
 
 /** Ejecuta un borrador confirmado. Cada tipo de acción escribe en el ledger dentro de la transacción. */

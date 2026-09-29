@@ -1,7 +1,7 @@
 import { es } from "../render/index";
 import type { AgentRunner } from "./types";
 
-/** Hasta el día 5: todo lo que no es un handler determinista recibe el menú de fuera de alcance. */
+/** Sin proveedor de LLM configurado: todo lo que no es un handler determinista recibe el menú. */
 export const stubAgent: AgentRunner = {
   async run() {
     return {

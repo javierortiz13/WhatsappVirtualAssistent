@@ -1,0 +1,49 @@
+# Registro de gastos por texto. Es el caso número uno del producto (Fase 4).
+- name: dólares con símbolo y categoría clara
+  input: "gasté 15$ en champú"
+  expect:
+    tool: draft_expense
+    args: { amount: "15", currency: USD, category_name: Insumos de lavado, when: null }
+
+- name: bolívares en miles con "mil" y fecha relativa
+  input: "pagué 450 mil bs de hielo ayer"
+  expect:
+    tool: draft_expense
+    args: { amount: "450000", currency: VES, when: ayer }
+
+- name: coma decimal sin moneda
+  input: "15,50 de gasolina"
+  expect:
+    tool: draft_expense
+    args: { amount: "15.50", currency: null, category_name: Transporte y gasolina }
+
+- name: punto de miles sin moneda ("se fueron")
+  input: "se fueron 1.200 en la luz"
+  expect:
+    tool: draft_expense
+    args: { amount: "1200", currency: null, category_name: Agua y electricidad }
+
+- name: medio millón de bolos
+  input: "medio millón de bolos en el alquiler"
+  expect:
+    tool: draft_expense
+    args: { amount: "500000", currency: VES, category_name: Alquiler }
+
+- name: antier, dólares en palabra, comida del personal
+  input: "antier pagué 30 dólares de almuerzo para los muchachos"
+  expect:
+    tool: draft_expense
+    args: { amount: "30", currency: USD, category_name: Comida del personal, when: antier }
+
+- name: pago móvil no define moneda
+  input: "pagué 500 por pago móvil del agua"
+  expect:
+    tool: draft_expense
+    args: { amount: "500", currency: null, category_name: Agua y electricidad }
+
+- name: empleado registra un gasto igual
+  input: "compré 8$ de cera"
+  role: employee
+  expect:
+    tool: draft_expense
+    args: { amount: "8", currency: USD }

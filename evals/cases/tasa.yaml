@@ -1,0 +1,5 @@
+- name: pregunta por el dólar
+  input: "a cuánto está el dólar hoy"
+  expect:
+    tool: get_bcv_rate
+    reply_contains: ["Bs 858,00"]

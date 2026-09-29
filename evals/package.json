@@ -1,22 +1,15 @@
 {
-  "name": "@caja/core",
+  "name": "@caja/evals",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": {
-    ".": "./src/index.ts",
-    "./domain": "./src/domain/index.ts",
-    "./whatsapp": "./src/whatsapp/index.ts",
-    "./inbox": "./src/inbox/index.ts"
-  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.129.0",
+    "@caja/core": "workspace:*",
     "@caja/db": "workspace:*",
-    "decimal.js": "^10.6.0",
     "yaml": "^2.9.1",
     "zod": "^4.6.5"
   },

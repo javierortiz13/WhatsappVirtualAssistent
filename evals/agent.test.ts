@@ -1,0 +1,188 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  type AgentContext,
+  type AgentResult,
+  AnthropicLlmClient,
+  addDays,
+  createAgent,
+  Decimal,
+  resolveWhen,
+  todayInCaracas,
+} from "@caja/core";
+import { schema, withTenant } from "@caja/db";
+import { seedTenant } from "@caja/db/seed";
+import { createTestDb } from "@caja/db/testing";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { type EvalCase, loadCases } from "./cases";
+
+/**
+ * Evals v0 (Fase 8, día 5): los casos de `cases/*.yaml` contra el LLM real. Se corren solo con
+ * `RUN_EVALS=1` y `ANTHROPIC_API_KEY`. Tope de costo por ejecución: `EVALS_MAX_USD` (0.50).
+ * Escribe `report/last.json` con herramienta, argumentos, tokens, costo y latencia por caso.
+ */
+const enabled = process.env.RUN_EVALS === "1" && Boolean(process.env.ANTHROPIC_API_KEY);
+const maxUsd = new Decimal(process.env.EVALS_MAX_USD ?? "0.50");
+const cases = loadCases();
+
+type Row = {
+  name: string;
+  ok: boolean;
+  tool: string | null;
+  args: unknown;
+  reply: string;
+  tokensIn: number;
+  tokensOut: number;
+  costUsd: string;
+  ms: number;
+  error?: string;
+};
+
+describe.skipIf(!enabled)("evals v0 del agente", () => {
+  let t: Awaited<ReturnType<typeof createTestDb>>;
+  let tenantId: string;
+  let base: AgentContext;
+  const rows: Row[] = [];
+  let spent = new Decimal(0);
+  const today = todayInCaracas();
+  const llm = new AnthropicLlmClient({ model: process.env.EVALS_MODEL ?? "claude-sonnet-5-5" });
+  const agent = createAgent({ llm });
+
+  beforeAll(async () => {
+    t = await createTestDb();
+    tenantId = await seedTenant(t.db, {
+      name: "Autolavado El Rápido",
+      businessType: "car_wash",
+      ownerPhone: "584121234567",
+    });
+    const { phone, cats } = await withTenant(t.db, tenantId, async (tx) => ({
+      phone: await tx.select().from(schema.phoneNumber),
+      cats: await tx
+        .select({ id: schema.category.id, name: schema.category.name })
+        .from(schema.category)
+        .orderBy(schema.category.sortOrder),
+    }));
+    await t.db.insert(schema.bcvRate).values(
+      Array.from({ length: 10 }, (_, i) => ({
+        effectiveDate: addDays(today, -i),
+        rate: "858.00000000",
+        source: "test",
+      })),
+    );
+    base = {
+      tenantId,
+      tenantName: "Autolavado El Rápido",
+      phoneId: phone[0]?.id as string,
+      role: "owner",
+      defaultCurrency: "USD",
+      vesThreshold: "1000",
+      categories: cats,
+      today,
+      sourceMessageDbId: null,
+      sourceChannel: "text",
+    };
+  });
+
+  afterAll(async () => {
+    await t?.close();
+    const passed = rows.filter((r) => r.ok).length;
+    const report = {
+      model: llm.model,
+      today,
+      passed,
+      total: rows.length,
+      costUsd: spent.toFixed(6),
+      rows,
+    };
+    writeFileSync(
+      join(import.meta.dirname, "report", "last.json"),
+      JSON.stringify(report, null, 2),
+    );
+    console.log(
+      `\nevals: ${passed}/${rows.length} · costo ${spent.toFixed(4)} USD · ${llm.model}\n` +
+        rows
+          .map((r) => `${r.ok ? "✓" : "✗"} ${r.name} → ${r.tool ?? "(sin tool)"} ${r.ms}ms`)
+          .join("\n"),
+    );
+  });
+
+  for (const c of cases) {
+    it(c.name, async () => {
+      if (spent.gte(maxUsd)) throw new Error(`tope de costo alcanzado: ${spent.toFixed(4)} USD`);
+      const ctx: AgentContext = { ...base, role: c.role, defaultCurrency: c.default_currency };
+      const started = Date.now();
+      let result: AgentResult;
+      try {
+        result = await withTenant(t.db, tenantId, async (tx) => {
+          await tx.delete(schema.pendingAction);
+          await tx.delete(schema.message);
+          return agent.run(tx, ctx, { kind: "text", text: c.input });
+        });
+      } catch (err) {
+        rows.push({
+          name: c.name,
+          ok: false,
+          tool: null,
+          args: null,
+          reply: "",
+          tokensIn: 0,
+          tokensOut: 0,
+          costUsd: "0",
+          ms: Date.now() - started,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        throw err;
+      }
+      spent = spent.plus(result.costUsd ?? 0);
+      const last = result.toolCalls[result.toolCalls.length - 1] ?? null;
+      const reply = result.outbound.map((o) => ("body" in o ? o.body : "")).join("\n");
+      const row: Row = {
+        name: c.name,
+        ok: false,
+        tool: last?.name ?? null,
+        args: last?.args ?? null,
+        reply,
+        tokensIn: result.tokensIn,
+        tokensOut: result.tokensOut,
+        costUsd: result.costUsd ?? "0",
+        ms: Date.now() - started,
+      };
+      rows.push(row);
+      try {
+        check(c, last, reply, ctx);
+        row.ok = true;
+      } catch (err) {
+        row.error = err instanceof Error ? err.message : String(err);
+        throw err;
+      }
+    });
+  }
+});
+
+function check(
+  c: EvalCase,
+  last: { name: string; args: unknown } | null,
+  reply: string,
+  ctx: AgentContext,
+) {
+  if (c.expect.tool) expect(last?.name, `herramienta para "${c.input}"`).toBe(c.expect.tool);
+  if (c.expect.tool_not) expect(last?.name).not.toBe(c.expect.tool_not);
+  if (c.expect.args) {
+    const args = (last?.args ?? {}) as Record<string, unknown>;
+    for (const [k, v] of Object.entries(c.expect.args)) {
+      if (k === "amount") {
+        expect(
+          new Decimal(String(args.amount)).eq(new Decimal(String(v))),
+          `amount ${args.amount}`,
+        ).toBe(true);
+      } else if (k === "when") {
+        const got = resolveWhen((args.when as string | null) ?? null, ctx.today);
+        const want = resolveWhen((v as string | null) ?? null, ctx.today);
+        expect(got, `when ${args.when}`).toEqual(want);
+      } else {
+        expect(args[k], `arg ${k}`).toEqual(v);
+      }
+    }
+  }
+  for (const s of c.expect.reply_contains ?? []) expect(reply).toContain(s);
+}

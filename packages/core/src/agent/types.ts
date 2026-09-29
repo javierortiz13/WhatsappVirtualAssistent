@@ -1,3 +1,4 @@
+import type { Tx } from "@caja/db";
 import type { IsoDate } from "../domain/dates";
 import type { Outbound } from "../render/outbound";
 
@@ -7,17 +8,20 @@ export type AgentContext = {
   phoneId: string;
   role: "owner" | "employee";
   defaultCurrency: "USD" | "VES" | null;
+  vesThreshold: string;
+  categories: { id: string; name: string }[];
   today: IsoDate;
-  waMessageId: string;
+  /** Id de fila en `message` del mensaje entrante (para `movement.source_message_id`). */
+  sourceMessageDbId: string | null;
+  sourceChannel: "text" | "voice" | "image";
 };
 
 export type AgentInput =
-  | { kind: "text"; text: string; sourceChannel: "text" | "voice" }
-  | { kind: "receipt"; extracted: Record<string, unknown>; sourceChannel: "image" };
+  | { kind: "text"; text: string }
+  | { kind: "receipt"; extracted: Record<string, unknown> };
 
 export type AgentResult = {
   outbound: Outbound[];
-  /** Para `message.tool_calls` y métricas. */
   toolCalls: { name: string; args: unknown }[];
   tokensIn: number;
   tokensOut: number;
@@ -25,7 +29,7 @@ export type AgentResult = {
   status: "ok" | "failed" | "rejected_out_of_scope";
 };
 
-/** El agente (día 5). Recibe contexto y entrada, devuelve mensajes ya renderizados. */
+/** El agente. Corre dentro de la transacción del tenant: sus herramientas crean borradores. */
 export interface AgentRunner {
-  run(ctx: AgentContext, input: AgentInput): Promise<AgentResult>;
+  run(tx: Tx, ctx: AgentContext, input: AgentInput): Promise<AgentResult>;
 }

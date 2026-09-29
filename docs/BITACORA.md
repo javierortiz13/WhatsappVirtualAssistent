@@ -87,3 +87,25 @@ Registro corto por día de trabajo: qué quedó terminado, qué se aprendió, qu
 - Agente con Claude Sonnet 5.5: prompt de sistema v1, herramientas `draft_expense`, `ask_clarification`, `reject_out_of_scope`, loop con tope de iteraciones y timeout, caché de prompt, validación numérica de aclaraciones, registro de tokens y costo.
 - Evals v0 (15 casos) contra el LLM real con tope de costo.
 - Verificar el parseo del BCV contra la página real desde Railway (estructura y TLS).
+
+### Día 5 · 29/09/2026 · Agente con Claude Sonnet 5.5 y evals v0
+
+**Terminado**
+- `packages/core/src/agent/llm.ts`: interfaz `LlmClient` (ADR-008) con turnos, herramientas con JSON Schema, respuesta con llamadas, uso de tokens y `LlmUnavailableError`. Un segundo proveedor implementa esto sin tocar el loop.
+- `packages/core/src/agent/anthropic.ts`: proveedor Claude Sonnet 5.5 con `@anthropic-ai/sdk` (beta messages): `output_config.effort: "low"`, `strict: true` en cada herramienta, `fallbacks: "default"`, caché de prompt por bloque de sistema (global y por tenant), timeout por llamada, un reintento del SDK; 400 y errores de API se traducen a `LlmUnavailableError`. `pricing.ts` calcula el costo por mensaje con la tabla de la Fase 6 y queda en `message.cost_usd`.
+- `packages/core/src/agent/prompt.ts`: prompt de sistema v1 en dos bloques (reglas duras y vocabulario venezolano; negocio, moneda, rol y categorías). La fecha y el mensaje van en el turno del usuario. Si hay un borrador en corrección, se incluye para que el modelo lo reenvíe completo.
+- `packages/core/src/agent/tools.ts`: `draft_expense`, `ask_clarification`, `reject_out_of_scope`, `get_bcv_rate` con esquemas Zod y JSON Schema estricto. El modelo solo extrae; el backend parsea el monto en formato venezolano, decide la moneda por umbral, resuelve fechas relativas (futuras y de más de 30 días piden aclaración), empareja la categoría contra la lista del tenant y crea el borrador. Guardrail: toda cifra en una aclaración debe existir en el texto del usuario, si no se usa una pregunta genérica.
+- `packages/core/src/agent/loop.ts`: 3 iteraciones máximo, timeout 20 s, historial de 10 mensajes de los últimos 30 min como turnos alternos, sin tool_call o rechazo del modelo → fuera de alcance, argumentos inválidos → un reintento con `tool_result` de error y luego fuera de alcance. Registra herramientas, tokens (incluida caché) y costo.
+- `processInbound` pasa la transacción del tenant al agente, carga las categorías y liga el borrador al mensaje entrante; `LlmUnavailableError` responde el texto fijo sin reintentar el job. El worker activa el agente real cuando existe `ANTHROPIC_API_KEY` y usa el stub si no.
+- `evals/`: paquete con 16 casos en YAML (gastos en dólares, "450 mil bs", coma decimal, punto de miles, "medio millón", antier, pago móvil, empleado; aclaraciones; chiste, redacción, venta, totales, inyección; tasa). Se corren con `pnpm evals` (`RUN_EVALS=1` y `ANTHROPIC_API_KEY`), tope `EVALS_MAX_USD` (0,50 por defecto), y escriben `evals/report/last.json`. Sin clave se saltan.
+- 24 tests nuevos sin red (herramientas, loop con LLM falso sobre PGlite, procesador con LLM caído y con agente real). Total: 144 más 16 evals.
+
+**Aprendido**
+- `strict: true` exige que todo campo sea requerido y `additionalProperties: false`: los opcionales se modelan como `nullable`. Zod 4 genera el JSON Schema directamente (`z.toJSONSchema`).
+- La API exige que el primer turno sea del usuario: el historial descarta respuestas huérfanas al inicio y excluye el mensaje actual (ya insertado en `message`).
+- Un reintento por argumentos inválidos es suficiente; el segundo casi siempre repite el error y cuesta tokens.
+
+**Pendiente para el día 6**
+- Correr `pnpm evals` con la clave real y ajustar prompt o descripciones hasta 16 de 16. Redesplegar el worker en Railway con `ANTHROPIC_API_KEY` para probar desde WhatsApp.
+- Vercel: proyecto sobre `apps/web`, CNAME `caja`, URL del webhook en Meta con `META_VERIFY_TOKEN`; Supabase Auth con Resend; dashboard mínimo; Sentry.
+- Reinyectar respuestas de `currency:` y `cat:` al agente (lista de categorías) y verificar el parseo del BCV desde Railway.

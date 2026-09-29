@@ -14,6 +14,7 @@
     "typecheck": "pnpm -r --parallel run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
+    "evals": "RUN_EVALS=1 vitest run --project evals",
     "build": "pnpm -r run build",
     "db:migrate": "pnpm --filter @caja/db run migrate",
     "db:seed": "pnpm --filter @caja/db run seed",

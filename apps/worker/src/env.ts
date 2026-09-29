@@ -13,6 +13,8 @@ const Env = z.object({
   META_PHONE_NUMBER_ID: z.string().min(1),
   META_GRAPH_VERSION: z.string().default("v24.0"),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(4),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  LLM_PRIMARY: z.string().default("anthropic:claude-sonnet-5-5"),
 });
 
 export type Env = z.infer<typeof Env>;
