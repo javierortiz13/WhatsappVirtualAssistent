@@ -6,6 +6,9 @@ const Env = z.object({
   DATABASE_URL: z.string().min(1),
   META_APP_SECRET: z.string().min(1),
   META_VERIFY_TOKEN: z.string().min(16),
+  NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
+  DASHBOARD_URL: z.string().url().default("http://localhost:3000"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

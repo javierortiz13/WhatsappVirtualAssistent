@@ -109,3 +109,24 @@ Registro corto por día de trabajo: qué quedó terminado, qué se aprendió, qu
 - Correr `pnpm evals` con la clave real y ajustar prompt o descripciones hasta 16 de 16. Redesplegar el worker en Railway con `ANTHROPIC_API_KEY` para probar desde WhatsApp.
 - Vercel: proyecto sobre `apps/web`, CNAME `caja`, URL del webhook en Meta con `META_VERIFY_TOKEN`; Supabase Auth con Resend; dashboard mínimo; Sentry.
 - Reinyectar respuestas de `currency:` y `cat:` al agente (lista de categorías) y verificar el parseo del BCV desde Railway.
+
+### Día 6 · 29/09/2026 · Dashboard mínimo, magic link y observabilidad
+
+**Terminado**
+- Evals del día 5 con la clave real: **16 de 16** a la primera, 0,036 USD por corrida (unos 0,002 USD por mensaje con caché de prompt), latencia de 1,2 a 2,5 s por caso (la primera llamada 12 s por arranque de PGlite y TLS). Antes hubo dos correcciones: Vitest no leía el `.env` de la raíz, y el modo `strict` de herramientas rechaza `maxItems` y `maxLength` en el JSON Schema (se omiten; la validación queda en Zod).
+- `packages/db/migrations/0002_dashboard_auth.sql`: `app.claim_account(id, email)` vincula la identidad de Supabase Auth con `user_account` (reemplaza el id provisional del seed y mueve las membresías) y `app.memberships_for_user(id)` lista los negocios sin fijar tenant. Ambas `SECURITY DEFINER`, como `resolve_phone`. El seed ahora es idempotente por sección y da acceso al dueño por `SEED_OWNER_EMAIL`.
+- `apps/web`: Supabase Auth con `@supabase/ssr` (cookies), `proxy.ts` que refresca la sesión y protege las rutas privadas, `/login` con magic link (acción de servidor, misma respuesta exista o no el correo), `/auth/confirm` que acepta `token_hash` (otro dispositivo) y `code` (PKCE), `/auth/logout`. Sesión cacheada por petición con `claim_account` + membresías; sin negocio va a `/sin-negocio`.
+- Dashboard mobile-first con tokens de diseño (tema claro y oscuro por sistema), barra inferior con las 4 pestañas (lateral en escritorio), manifest PWA e icono. **Inicio**: tasa BCV vigente, gastos de hoy y del mes, últimos movimientos. **Movimientos**: lista del mes agrupada por día con monto, equivalente y tasa, mismas cifras que el bot. Cierres y Ajustes con contenido mínimo y cierre de sesión.
+- Sentry en web (`instrumentation.ts`, cliente y `global-error`) y en el worker (`@sentry/node`, guardas en los tres handlers y en pg-boss). Sin DSN no envían nada; nunca cuerpos de mensajes.
+- `docs/runbooks/dia-6-despliegue.md`: pasos de Supabase Auth (plantilla con `token_hash`, SMTP de Resend), Vercel (root `apps/web`, variables, rama de producción, dominio), CNAME en Squarespace, webhook de Meta y prueba de punta a punta.
+- `next build` en verde con las 12 rutas; 4 tests nuevos (funciones de acceso bajo `caja_app`). Total: 148 más 16 evals.
+
+**Aprendido**
+- Next 16 renombró `middleware.ts` a `proxy.ts` (función `proxy`); corre en Node.
+- Sentry 11 ya no acepta `sendDefaultPii` en `init` (el valor por defecto ya es no enviar PII).
+- El índice único por correo obliga a liberar el correo del id provisional antes de insertar el id real en `claim_account`.
+
+**Pendiente para el día 7**
+- Ejecutar el runbook del día 6 (Supabase Auth, Vercel, DNS, webhook) y la prueba de punta a punta desde el teléfono.
+- Medir latencia p50 y p95 y costo por mensaje desde `message`; diez gastos reales de dos personas; `docs/runbooks/semana-1.md` con lo aprendido y la deuda técnica.
+- Reinyectar respuestas de `currency:` y `cat:` al agente; verificar el parseo del BCV desde Railway.

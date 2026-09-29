@@ -27,13 +27,26 @@ export async function registerJobs(opts: {
   deps: ProcessDeps;
   log: Logger;
   concurrency: number;
+  /** Se llama con cada error de un handler antes de relanzarlo (Sentry en producción). */
+  onError?: (err: unknown, queue: string) => void;
 }) {
   const { boss, db, deps, log } = opts;
+  const guarded =
+    <T>(queue: string, fn: (jobs: T[]) => Promise<void>) =>
+    async (jobs: T[]) => {
+      try {
+        await fn(jobs);
+      } catch (err) {
+        log.error({ queue, err: err instanceof Error ? err.message : String(err) }, "job falló");
+        opts.onError?.(err, queue);
+        throw err;
+      }
+    };
 
   await boss.work<ProcessMessageJob>(
     QUEUES.processMessage,
     { batchSize: 1, pollingIntervalSeconds: 1, localConcurrency: opts.concurrency },
-    async (jobs) => {
+    guarded(QUEUES.processMessage, async (jobs) => {
       for (const job of jobs) {
         const started = Date.now();
         const outcome = await processInbound(deps, job.data);
@@ -42,18 +55,26 @@ export async function registerJobs(opts: {
           "job procesado",
         );
       }
-    },
+    }),
   );
 
-  await boss.work(QUEUES.fetchBcvRate, { batchSize: 1, pollingIntervalSeconds: 5 }, async () => {
-    const result = await refreshRates({ db, sources: [bcvSource(), dolarApiSource()], log });
-    if (!result.source) throw new Error(`tasa BCV: ${result.errors.join(" | ")}`);
-  });
+  await boss.work(
+    QUEUES.fetchBcvRate,
+    { batchSize: 1, pollingIntervalSeconds: 5 },
+    guarded(QUEUES.fetchBcvRate, async () => {
+      const result = await refreshRates({ db, sources: [bcvSource(), dolarApiSource()], log });
+      if (!result.source) throw new Error(`tasa BCV: ${result.errors.join(" | ")}`);
+    }),
+  );
 
-  await boss.work(QUEUES.housekeeping, { batchSize: 1, pollingIntervalSeconds: 5 }, async () => {
-    const expired = await expirePendingActions(db, new Date());
-    if (expired > 0) log.info({ expired }, "borradores vencidos");
-  });
+  await boss.work(
+    QUEUES.housekeeping,
+    { batchSize: 1, pollingIntervalSeconds: 5 },
+    guarded(QUEUES.housekeeping, async () => {
+      const expired = await expirePendingActions(db, new Date());
+      if (expired > 0) log.info({ expired }, "borradores vencidos");
+    }),
+  );
 
   await boss.schedule(QUEUES.fetchBcvRate, CRON.ratesAfternoon, null, {
     tz: "America/Caracas",

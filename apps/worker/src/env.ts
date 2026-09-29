@@ -15,6 +15,7 @@ const Env = z.object({
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(4),
   ANTHROPIC_API_KEY: z.string().optional(),
   LLM_PRIMARY: z.string().default("anthropic:claude-sonnet-5-5"),
+  SENTRY_DSN: z.string().optional(),
 });
 
 export type Env = z.infer<typeof Env>;

@@ -4,6 +4,7 @@ import { createBoss, ensureQueues } from "@caja/db/queue";
 import { loadEnv } from "./env";
 import { registerJobs } from "./jobs";
 import { createLogger } from "./logger";
+import { captureError, initSentry } from "./sentry";
 
 /**
  * Proceso worker: pg-boss toma los jobs de `process-message` (uno a la vez por teléfono, en
@@ -12,6 +13,7 @@ import { createLogger } from "./logger";
 async function main() {
   const env = loadEnv();
   const log = createLogger(env.LOG_LEVEL, env.NODE_ENV === "development");
+  if (initSentry(env.SENTRY_DSN, env.NODE_ENV)) log.info({}, "sentry activo");
   const { db, close } = createDb(env.DATABASE_URL, { max: 5 });
   const [row] = rows<{ ok: number }>(await db.execute(sql`select 1 as ok`));
   if (row?.ok !== 1) throw new Error("la base no respondió");
@@ -60,11 +62,21 @@ async function main() {
   };
 
   const boss = createBoss(env.DATABASE_URL, "worker");
-  boss.on("error", (err) => log.error({ err: err.message }, "pg-boss"));
+  boss.on("error", (err) => {
+    log.error({ err: err.message }, "pg-boss");
+    captureError(err, { source: "pg-boss" });
+  });
   await boss.start();
   await ensureQueues(boss);
 
-  await registerJobs({ boss, db, deps, log, concurrency: env.WORKER_CONCURRENCY });
+  await registerJobs({
+    boss,
+    db,
+    deps,
+    log,
+    concurrency: env.WORKER_CONCURRENCY,
+    onError: (err, queue) => captureError(err, { queue }),
+  });
 
   log.info(
     {
@@ -87,5 +99,6 @@ async function main() {
 
 main().catch((err) => {
   console.error(err);
+  captureError(err, { source: "main" });
   process.exit(1);
 });

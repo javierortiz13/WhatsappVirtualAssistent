@@ -13,10 +13,11 @@
   "dependencies": {
     "@caja/core": "workspace:*",
     "@caja/db": "workspace:*",
+    "@sentry/node": "^11.1.0",
+    "pg-boss": "^12.35.0",
     "pino": "^10.3.1",
     "tsx": "^4.23.15",
-    "zod": "^4.6.5",
-    "pg-boss": "^12.35.0"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "pino-pretty": "^13.1.3",
