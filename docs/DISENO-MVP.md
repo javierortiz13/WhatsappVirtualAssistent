@@ -1167,6 +1167,12 @@ El texto final se escribe en la Fase 4 junto con los guiones, y se versiona en e
 - Decisión: todo lo inicia el usuario. El recordatorio de cierre y el resumen automático van a iteración 2 con plantillas de utilidad.
 - Consecuencias: costo de Meta cercano a cero en el MVP (verificar precio vigente de conversaciones de servicio); el riesgo de "el dueño no escribe el cierre" queda sin mitigar hasta la iteración 2.
 
+**ADR-013. Sin historia de tasas, se usa la primera conocida; la tasa manual es corrección, no requisito** (29/09/2026, tras la prueba real del día 6)
+- Contexto: "ayer pagué 450 mil de hielo" falló el primer día en producción porque la base solo tenía la tasa de hoy. Se evaluó pedirle la tasa al dueño en ese momento.
+- Opciones: (A) pedir la tasa al dueño cuando no exista; (B) usar la primera tasa conocida posterior y mostrar su fecha en el borrador; (C) B más carga de 60 días de historia al arrancar y una corrección opcional "tasa X" en el borrador.
+- Decisión: C. A se descarta porque introduce fricción en el registro, mete cifras humanas donde la regla es "la tasa la pone el sistema" (Fase 3) y rompe la comparabilidad entre negocios.
+- Consecuencias: el borrador siempre muestra la fecha de la tasa aplicada; comando `rates:backfill` en el día 7 para cargar historia; en S2, "Corregir" acepta "tasa 850" y el movimiento guarda `rate_source = manual` con auditoría. El caso queda acotado a fechas anteriores a toda la historia cargada.
+
 ### Decisiones tomadas en la Fase 3
 
 - Monolito modular, procesos web y worker, cola en Postgres, serialización por teléfono.
