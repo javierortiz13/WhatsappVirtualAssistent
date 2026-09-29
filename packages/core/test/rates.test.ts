@@ -137,13 +137,18 @@ describe("storeRate, refreshRates y rateFor", () => {
     expect(dead.errors).toHaveLength(2);
   });
 
-  it("rateFor: fin de semana usa la última publicada; sin tasa anterior lanza", async () => {
+  it("rateFor: fin de semana usa la última publicada; sin historia usa la más antigua posterior; sin nada lanza", async () => {
     const sat = await rateFor(t.db, asIsoDate("2026-10-03"));
     expect(sat.rate.effectiveDate).toBe("2026-10-01");
     expect(sat.usedPriorDay).toBe(true);
     const exact = await rateFor(t.db, asIsoDate("2026-09-30"));
     expect(exact.usedPriorDay).toBe(false);
     expect(exact.rate.value.toFixed(1)).toBe("858.1");
+    // El sistema es nuevo: una fecha anterior a toda la historia usa la primera tasa conocida.
+    const early = await rateFor(t.db, asIsoDate("2026-01-01"));
+    expect(early.rate.effectiveDate).toBe("2026-09-30");
+    expect(early.usedPriorDay).toBe(true);
+    await t.db.delete(schema.bcvRate);
     await expect(rateFor(t.db, asIsoDate("2026-01-01"))).rejects.toThrow(NoRateError);
   });
 });

@@ -93,6 +93,23 @@ describe("ledger de gastos", () => {
     expect(total.count).toBe(1);
   });
 
+  it("fecha anterior a toda la historia de tasas usa la primera conocida y lo marca", async () => {
+    const m = await withTenant(t.db, tenantId, (tx) =>
+      createExpense(tx, {
+        tenantId,
+        businessDate: asIsoDate("2026-01-05"),
+        amount: new Decimal("1"),
+        currency: "USD",
+        categoryId: null,
+        description: "Histórico",
+        sourceChannel: "text",
+        actor: { phoneId },
+      }),
+    );
+    expect(m.rateValue.toFixed(2)).toBe("850.00");
+    expect(m.rateEffectiveDate).toBe("2026-09-25");
+  });
+
   it("monto cero o sin tasa falla sin escribir", async () => {
     await expect(
       withTenant(t.db, tenantId, (tx) =>
@@ -108,6 +125,8 @@ describe("ledger de gastos", () => {
         }),
       ),
     ).rejects.toThrow(/monto/);
+    await withTenant(t.db, tenantId, (tx) => tx.delete(schema.movement));
+    await t.db.delete(schema.bcvRate);
     await expect(
       withTenant(t.db, tenantId, (tx) =>
         createExpense(tx, {
@@ -122,6 +141,10 @@ describe("ledger de gastos", () => {
         }),
       ),
     ).rejects.toThrow(/tasa/);
+    await t.db.insert(schema.bcvRate).values([
+      { effectiveDate: "2026-09-25", rate: "850.00000000", source: "test" },
+      { effectiveDate: "2026-09-29", rate: "858.00000000", source: "test" },
+    ]);
   });
 
   it("un borrador nuevo reemplaza al anterior y expira a los 10 minutos", async () => {

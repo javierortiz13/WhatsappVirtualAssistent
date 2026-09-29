@@ -12,6 +12,8 @@ export class NoRateError extends Error {
 /**
  * Tasa vigente para una fecha de negocio: la mayor `effective_date <= fecha`. Fin de semana o
  * feriado usan la del último día hábil publicado; `usedPriorDay` lo indica para el resumen.
+ * Si no existe ninguna hasta esa fecha (el sistema es nuevo y no tiene historia), usa la más
+ * antigua publicada después: el borrador muestra la fecha de la tasa y el dueño la confirma.
  */
 export async function rateFor(
   db: Queryable,
@@ -19,9 +21,14 @@ export async function rateFor(
 ): Promise<{ rate: Rate; usedPriorDay: boolean }> {
   const found = rows<{ id: string; effective_date: string; rate: string }>(
     await db.execute(sql`
-      select id, effective_date::text, rate::text from ${schema.bcvRate}
-      where effective_date <= ${businessDate}::date
-      order by effective_date desc limit 1
+      (select id, effective_date::text, rate::text, 0 as pref from ${schema.bcvRate}
+        where effective_date <= ${businessDate}::date
+        order by effective_date desc limit 1)
+      union all
+      (select id, effective_date::text, rate::text, 1 as pref from ${schema.bcvRate}
+        where effective_date > ${businessDate}::date
+        order by effective_date asc limit 1)
+      order by pref limit 1
     `),
   );
   const r = found[0];

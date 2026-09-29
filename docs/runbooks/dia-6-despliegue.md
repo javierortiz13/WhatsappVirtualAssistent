@@ -35,11 +35,12 @@ En el proyecto `asistente-caja`:
 2. **Authentication → URL Configuration**:
    - Site URL: `https://caja.jpsoftwaredev.com`
    - Redirect URLs: `https://caja.jpsoftwaredev.com/auth/confirm` y `http://localhost:3000/auth/confirm`.
-3. **Authentication → Emails → Templates → Magic Link**. Reemplaza el enlace del cuerpo por uno
-   con `token_hash`, para que el enlace sirva aunque lo abras en otro dispositivo:
+3. **Authentication → Emails → Templates**. Cambia **las dos** plantillas, **Confirm signup** y
+   **Magic Link** (a un correo nuevo Supabase le envía la primera), por este cuerpo con `token_hash`,
+   para que el enlace sirva aunque lo abras en otro dispositivo:
    ```html
    <h2>Tu enlace para entrar</h2>
-   <p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=magiclink">Entrar a Asistente de Caja</a></p>
+   <p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email">Entrar a Asistente de Caja</a></p>
    <p>Sirve por 15 minutos y una sola vez. Si no lo pediste, ignora este correo.</p>
    ```
    Asunto: `Tu enlace para entrar a Asistente de Caja`.
@@ -56,7 +57,8 @@ En el proyecto `asistente-caja`:
 1. vercel.com → **Add New → Project** → importa `javierortiz13/WhatsappVirtualAssistent`.
 2. **Root Directory**: `apps/web`. Framework: Next.js (lo detecta). Deja build e install por defecto
    (usa pnpm por el lockfile). Node.js 22.
-3. **Environment Variables** (Production y Preview):
+3. **Environment Variables** (Production y Preview). Las `NEXT_PUBLIC_*` van como **Config**, no como
+   Secret (Vercel lo rechaza); las demás como Secret. Tras cambiar cualquiera, **Redeploy**.
 
    | Variable | Valor |
    |---|---|
@@ -85,14 +87,25 @@ No toca los registros de Google Workspace ni los de Resend (esos están en `send
 Vercel emite el certificado solo cuando el CNAME propaga (5 a 30 minutos). Comprueba con
 `https://caja.jpsoftwaredev.com/login` desde el teléfono.
 
-## 5. Webhook de Meta (5 min)
+## 5. Webhook de Meta (15 min)
 
-developers.facebook.com → tu app → **WhatsApp → Configuration → Webhook → Edit**:
+developers.facebook.com → tu app → **Casos de uso → WhatsApp → Configuración → Webhook → Editar**:
 
-- Callback URL: `https://caja.jpsoftwaredev.com/api/whatsapp/webhook`
-- Verify token: el valor de `META_VERIFY_TOKEN` (el mismo que pusiste en Vercel).
-- **Verify and save**. Si falla, revisa que Vercel ya tenga el dominio con certificado y la variable.
-- **Manage** → suscribe el campo `messages`.
+- URL de devolución de llamada: `https://caja.jpsoftwaredev.com/api/whatsapp/webhook`
+- Token de verificación: el valor de `META_VERIFY_TOKEN` (el mismo que pusiste en Vercel).
+- **Verificar y guardar**. Si falla, revisa que Vercel ya tenga el dominio con certificado y la variable.
+- **Administrar** → suscribe el campo `messages`. Toca **Probar** en esa fila: en Vercel debe salir un POST 200.
+  Un 401 "firma inválida" significa que `META_APP_SECRET` en Vercel no es la **Clave secreta de la app** (Configuración de la app → Básica).
+
+Tres pasos más que Meta no hace solo y sin los cuales los mensajes reales no llegan:
+
+1. **Publicar la app.** En modo desarrollo Meta no entrega mensajes reales al webhook. Configuración de la app → Básica: URL de privacidad `https://caja.jpsoftwaredev.com/privacidad`, categoría "Negocios y páginas", guardar. Luego menú **Publicar** → publicar.
+2. **Token permanente.** El token de "Inicio rápido" caduca en 24 h. Business Manager → Usuarios del sistema → crear `caja-worker` (Administrador) → Asignar activos: la app y la cuenta de WhatsApp con control total → Generar token, caducidad "Nunca", permisos `whatsapp_business_messaging` y `whatsapp_business_management`. Va en `META_ACCESS_TOKEN` del `.env` y de Railway.
+3. **Suscribir la WABA a la app**, con el token permanente (sustituye el id de la WABA por el tuyo, `META_WABA_ID`):
+   ```bash
+   curl -s -X POST "https://graph.facebook.com/v24.0/1086626347062304/subscribed_apps" -H "Authorization: Bearer $META_ACCESS_TOKEN"
+   ```
+   Debe responder `{"success":true}`.
 
 ## 6. Sentry (5 min, opcional hoy)
 
