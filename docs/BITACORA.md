@@ -162,3 +162,15 @@ Decisión: al probar el walking skeleton, el menú ofrecía "Registrar venta" y 
 **Pendiente en S2**
 - Correr `pnpm evals` con la clave (ventas nuevas) y ajustar si el modelo confunde gasto con venta.
 - Cierre diario y consultas ("cierre", "cómo va el mes"), corrección y borrado del último movimiento, tasa manual como corrección (ADR-013), onboarding por código, reinyección de listas `currency:`/`cat:`, evals v1 con 40 casos.
+
+### S2 · día 1 (tarde) · 29/09/2026 · Cierre diario y consultas
+
+**Terminado**
+- `ledger/reports.ts`: `dailyClose` (ventas por método con su monto original en Bs, gastos por categoría, neto en USD y Bs a la tasa vigente del día, efectivo en caja, conteo), `periodSummary` (totales, cinco gastos más grandes, días con movimientos), `categoryTotal` (coincidencia exacta, parcial o por palabra; sugerencias si no existe) y `resolvePeriod` (hoy, ayer, semana lunes a domingo, mes calendario, rango hasta 12 meses).
+- `ledger/summary.ts`: `renderSummary` decide cierre, resumen o categoría y responde "No tengo movimientos registrados…" sin ceros. Lo usan el bot, la palabra clave y el dashboard: la misma cifra en los tres.
+- Sin LLM: "cierre", "cierre de hoy", "cómo fue hoy" y el botón **Ver cierre** dan el cierre de hoy. Empleados reciben "El cierre lo ve el dueño".
+- Herramienta `get_summary` (período, rango, categoría) para las variantes en lenguaje libre; el rechazo queda solo para corregir y borrar.
+- Plantillas de la Fase 4: cierre diario con bloques de máximo 6 líneas ("Otros N"), neto con signo, cierre del mes, total por categoría, categoría no encontrada, período demasiado largo.
+- Dashboard: pestaña Cierres con el cierre de hoy y el resumen del mes desde las mismas funciones.
+- 5 tests nuevos y 5 evals de cierres. Total: 168 más 26 evals.
+- Operación: Railway saltaba deploys que no tocaban `apps/worker` por los "watch patterns"; ampliados desde el conector a `packages/**` y los manifiestos. El arranque del worker registra el commit y el agente activo.

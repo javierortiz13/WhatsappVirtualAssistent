@@ -14,6 +14,8 @@ export type AgentContext = {
   /** Id de fila en `message` del mensaje entrante (para `movement.source_message_id`). */
   sourceMessageDbId: string | null;
   sourceChannel: "text" | "voice" | "image";
+  /** Enlace al dashboard para cierres y resúmenes. */
+  dashboardUrl: string;
 };
 
 export type AgentInput =

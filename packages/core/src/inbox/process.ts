@@ -16,6 +16,7 @@ import {
   IncomeSingleDraft,
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,
+  renderSummary,
   resolveMismatch,
 } from "../ledger/index";
 import { type Logger, maskPhone, silentLogger } from "../log";
@@ -274,6 +275,7 @@ async function routeMessage(
       if (keyword === "rate") return none([es.rate(await getRateInfo(tx, ctx.today))]);
       if (keyword === "help")
         return none([es.help(deps.config.dashboardUrl, deps.config.supportHint)]);
+      if (keyword === "close") return closeToday(tx, deps, ctx);
       if (msg.text.length > deps.config.maxTextLength) return none([es.tooLong()]);
       return runAgent(tx, deps, ctx, msg, { kind: "text", text: msg.text });
     }
@@ -297,8 +299,7 @@ async function routeInteractive(
     case "menu":
       if (parsed.action === "expense") return none([es.promptExpense()]);
       if (parsed.action === "income") return none([es.promptIncome()]);
-      if (ctx.role !== "owner") return none([es.ownerOnly()]);
-      return runAgent(tx, deps, ctx, null, { kind: "text", text: "cierre de hoy" });
+      return closeToday(tx, deps, ctx);
     case "confirm":
     case "fix":
     case "cancel":
@@ -370,6 +371,22 @@ async function routeInteractive(
   }
 }
 
+/** "cierre" y el botón Ver cierre: cierre de hoy sin LLM. Solo el dueño. */
+async function closeToday(tx: Tx, deps: ProcessDeps, ctx: RouteCtx): Promise<RouteResult> {
+  if (ctx.role !== "owner") return none([es.ownerOnly()]);
+  return none([
+    await renderSummary(tx, {
+      tenantId: ctx.tenantId,
+      today: ctx.today,
+      dashboardUrl: deps.config.dashboardUrl,
+      period: "today",
+      from: null,
+      to: null,
+      categoryName: null,
+    }),
+  ]);
+}
+
 async function runAgent(
   tx: Tx,
   deps: ProcessDeps,
@@ -409,6 +426,7 @@ async function runAgent(
         today: ctx.today,
         sourceMessageDbId: current?.id ?? null,
         sourceChannel: input.kind === "text" ? "text" : "image",
+        dashboardUrl: deps.config.dashboardUrl,
       },
       input,
     );
@@ -544,7 +562,7 @@ async function executePending(
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export type Keyword = "menu" | "rate" | "help" | null;
+export type Keyword = "menu" | "rate" | "help" | "close" | null;
 
 export function classifyKeyword(text: string): Keyword {
   const t = text
@@ -582,6 +600,8 @@ export function classifyKeyword(text: string): Keyword {
   )
     return "rate";
   if (["ayuda", "help", "que puedes hacer", "que haces"].includes(t)) return "help";
+  if (["cierre", "cierre de hoy", "cierre del dia", "como fue hoy", "como vamos hoy"].includes(t))
+    return "close";
   return null;
 }
 

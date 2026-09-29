@@ -83,6 +83,7 @@ describe.skipIf(!enabled)("evals v0 del agente", () => {
       today,
       sourceMessageDbId: null,
       sourceChannel: "text",
+      dashboardUrl: "https://caja.test",
     };
   });
 

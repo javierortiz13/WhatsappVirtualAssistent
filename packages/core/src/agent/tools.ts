@@ -16,6 +16,7 @@ import {
 } from "../ledger/drafts";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "../ledger/income";
 import { NoRateError } from "../ledger/rate-for";
+import { renderSummary } from "../ledger/summary";
 import { getRateInfo } from "../rates/current";
 import { es, type Outbound } from "../render/index";
 import type { LlmToolDef } from "./llm";
@@ -132,6 +133,22 @@ export const DraftIncomeDayTotalInput = z.object({
     .string()
     .nullable()
     .describe('"hoy", "ayer", "antier", un día de la semana o fecha ISO. null si no lo dijo.'),
+});
+
+export const GetSummaryInput = z.object({
+  period: z
+    .enum(["today", "yesterday", "this_week", "last_week", "this_month", "last_month", "custom"])
+    .describe(
+      '"today" para "cierre", "cómo fue hoy"; "this_month" para "cómo va el mes", "cuánto llevo"; "custom" con from/to para "del 1 al 15", "en agosto".',
+    ),
+  from: z.string().nullable().describe("Fecha ISO de inicio si period es custom; null si no."),
+  to: z.string().nullable().describe("Fecha ISO de fin si period es custom; null si no."),
+  category_name: z
+    .string()
+    .nullable()
+    .describe(
+      "Solo si pregunta cuánto gastó en UNA categoría o cosa ('en champú', 'en insumos'): el nombre de la lista o lo que dijo. null para el cierre o resumen general.",
+    ),
 });
 
 export const DraftIncomeSingleInput = z.object({
@@ -460,6 +477,28 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
   },
 };
 
+const getSummary: ToolSpec<typeof GetSummaryInput> = {
+  name: "get_summary",
+  description:
+    "Cierre del día, resumen de un período o total de una categoría: 'cierre', 'cómo fue hoy', 'cómo va el mes', 'cuánto llevo esta semana', 'cuánto gasté en insumos este mes', 'del 1 al 15'. Solo lectura. Lo ve el dueño.",
+  schema: GetSummaryInput,
+  roles: ["owner", "employee"],
+  async run(input, run) {
+    if (run.ctx.role !== "owner")
+      return { kind: "terminal", status: "ok", outbound: [es.ownerOnly()] };
+    const outbound = await renderSummary(run.tx, {
+      tenantId: run.ctx.tenantId,
+      today: run.ctx.today,
+      dashboardUrl: run.ctx.dashboardUrl,
+      period: input.period,
+      from: input.from && isIsoDate(input.from) ? input.from : null,
+      to: input.to && isIsoDate(input.to) ? input.to : null,
+      categoryName: input.category_name,
+    });
+    return { kind: "terminal", status: "ok", outbound: [outbound] };
+  },
+};
+
 /** Moneda de una venta: explícita > umbral de magnitud > moneda del método > defecto del negocio > USD. */
 function currencyFor(
   explicit: "USD" | "VES" | null,
@@ -501,7 +540,7 @@ const askClarification: ToolSpec<typeof AskClarificationInput> = {
 const rejectOutOfScope: ToolSpec<typeof RejectOutOfScopeInput> = {
   name: "reject_out_of_scope",
   description:
-    "El mensaje no es un gasto, una venta, un ingreso ni la tasa: saludos largos, preguntas generales, pedir que redactes algo, chistes, cualquier otra tarea (general_chat). También si pide algo de caja que aún no existe: cierres, resúmenes, consultas de totales, corregir o borrar (other_business_task).",
+    "El mensaje no es un gasto, una venta, un ingreso, un cierre o consulta, ni la tasa: saludos largos, preguntas generales, pedir que redactes algo, chistes, cualquier otra tarea (general_chat). También si pide algo de caja que aún no existe: corregir o borrar un movimiento, inventario, deudas (other_business_task).",
   schema: RejectOutOfScopeInput,
   roles: ["owner", "employee"],
   async run(input) {
@@ -543,6 +582,7 @@ export const ALL_TOOLS: ToolSpec<z.ZodType>[] = [
   draftExpense,
   draftIncomeDayTotal,
   draftIncomeSingle,
+  getSummary,
   askClarification,
   rejectOutOfScope,
   getBcvRate,

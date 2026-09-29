@@ -101,6 +101,7 @@ describe("agent loop", () => {
       today: asIsoDate("2026-09-29"),
       sourceMessageDbId: null,
       sourceChannel: "text",
+      dashboardUrl: "https://caja.test",
     };
   });
   afterAll(() => t.close());
@@ -142,7 +143,7 @@ describe("agent loop", () => {
     const req = requests[0];
     expect(req?.system.map((s) => s.cache)).toEqual([true, true]);
     expect(req?.system[1]?.text).toContain("Negocio: Autolavado El Rápido");
-    expect(req?.tools).toHaveLength(6);
+    expect(req?.tools).toHaveLength(7);
     expect(req?.turns).toHaveLength(1);
     expect(req?.turns[0]).toMatchObject({ role: "user" });
     expect(textOf(req, 0)).toContain("Fecha de hoy en Caracas: 2026-09-29");
@@ -210,7 +211,7 @@ describe("agent loop", () => {
       fakeLlm([call("reject_out_of_scope", { reason: "other_business_task" })]).client,
       "vendí 200$",
     );
-    expect((soon.outbound[0] as { body: string }).body).toContain("todavía no están listos");
+    expect((soon.outbound[0] as { body: string }).body).toContain("todavía no está listo");
     const rate = await run(fakeLlm([call("get_bcv_rate", {})]).client, "a cuánto está el dólar");
     expect(rate.status).toBe("ok");
     expect((rate.outbound[0] as { body: string }).body).toContain("Bs 858,00");

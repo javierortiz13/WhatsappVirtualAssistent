@@ -10,7 +10,7 @@ procesa con Claude Sonnet 5.5, guarda el movimiento en Supabase y el dueño lo v
 | Pieza | Dónde | Cómo se despliega | Logs |
 |---|---|---|---|
 | Web (webhook, dashboard) | Vercel, proyecto `whatsapp-virtual-assistent-web`, root `apps/web` | push a `claude/whatsapp-assistant-venezuela-wijnh8` (rama de producción) | Vercel → Logs, filtrar `whatsapp` o `confirm` |
-| Worker (cola, agente, cron de tasa) | Railway, servicio `@caja/worker` | push a la misma rama; si no arranca solo, **Redeploy** | Railway → Deploy Logs; "worker listo" al arrancar |
+| Worker (cola, agente, cron de tasa) | Railway, servicio `@caja/worker` | push a la misma rama. Los "watch patterns" del servicio deben incluir `/apps/worker/**`, `/packages/**` y los manifiestos de la raíz; si no, Railway marca el deploy como SKIPPED y sigue corriendo la versión vieja | Railway → Deploy Logs; "worker listo" muestra `commit` y `agent` |
 | Base y cola | Supabase Pro `asistente-caja` (`daomgsvvhvuhiccttrlg`), schemas `app` y `pgboss` | `pnpm db:migrate` desde tu máquina con `DATABASE_ADMIN_URL` | Supabase → Logs → Postgres |
 | Acceso al dashboard | Supabase Auth con SMTP de Resend | plantillas "Confirm signup" y "Magic Link" con `token_hash` | Supabase → Logs → Auth; Resend → Emails |
 | WhatsApp | Meta app `Asistente de Caja` (publicada), número de prueba `15551800369`, WABA `1086626347062304` | webhook en WhatsApp → Configuración | Meta → WhatsApp → Inicio rápido → actividad del webhook |

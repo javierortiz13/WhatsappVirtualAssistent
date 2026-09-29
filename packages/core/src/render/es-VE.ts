@@ -1,4 +1,4 @@
-import { asIsoDate, formatShortDate, type IsoDate } from "../domain/dates";
+import { asIsoDate, formatShortDate, type IsoDate, monthNameEs } from "../domain/dates";
 import { Decimal, formatMoney } from "../domain/money";
 import { IDS, type Outbound } from "./outbound";
 
@@ -110,7 +110,7 @@ export function outOfScope(): Outbound {
 export function comingSoon(): Outbound {
   return {
     type: "text",
-    body: "Los cierres y las consultas todavía no están listos: llegan en los próximos días. Por ahora registro gastos y ventas. Ejemplos: _gasté 15$ en champú_ · _hoy vendí 350$: 200 efectivo, 150 pago móvil_",
+    body: "Corregir o borrar por chat todavía no está listo: llega en los próximos días. Mientras tanto, corrige desde el dashboard. Ejemplos de lo que sí hago: _gasté 15$ en champú_ · _hoy vendí 350$: 200 efectivo, 150 pago móvil_ · _cierre_ · _cómo va el mes_",
   };
 }
 
@@ -400,6 +400,174 @@ export function incomeSaved(
     type: "text",
     body: `✅ Venta guardada.${note} ${when}: vendiste *${formatMoney(salesUsd, "USD")}*, gastaste *${formatMoney(expensesUsd, "USD")}*.`,
   };
+}
+
+// ---------------------------------------------------------------- cierre y consultas (Épica D)
+
+export type DailyCloseView = {
+  date: string;
+  today: string;
+  salesUsd: Decimal.Value;
+  salesByMethod: { label: string; usd: Decimal.Value; originalVes: Decimal.Value }[];
+  expensesUsd: Decimal.Value;
+  expensesByCategory: { name: string; usd: Decimal.Value }[];
+  netUsd: Decimal.Value;
+  netVes: Decimal.Value | null;
+  rateValue: Decimal.Value | null;
+  cashUsd: Decimal.Value;
+  cashVes: Decimal.Value;
+  count: number;
+  dashboardUrl: string;
+};
+
+const MAX_LINES_PER_BLOCK = 6;
+
+function signedUsd(v: Decimal.Value): string {
+  const d = new Decimal(v);
+  return d.isNegative() ? `−${formatMoney(d.abs(), "USD")}` : formatMoney(d, "USD");
+}
+
+function capped<T>(
+  items: T[],
+  line: (t: T) => string,
+  rest: (n: number, items: T[]) => string,
+): string[] {
+  if (items.length <= MAX_LINES_PER_BLOCK) return items.map(line);
+  const head = items.slice(0, MAX_LINES_PER_BLOCK - 1);
+  const tail = items.slice(MAX_LINES_PER_BLOCK - 1);
+  return [...head.map(line), rest(tail.length, tail)];
+}
+
+const sumUsd = (items: { usd: Decimal.Value }[]) =>
+  items.reduce((acc, i) => acc.plus(i.usd), new Decimal(0));
+
+export function dailyClose(v: DailyCloseView): Outbound {
+  const title =
+    v.date === v.today
+      ? `📊 Cierre diario · hoy, ${formatShortDate(asIsoDate(v.date))}`
+      : `📊 Cierre diario · ${formatShortDate(asIsoDate(v.date))}`;
+  const lines = [title, ""];
+  lines.push(`*Ventas: ${formatMoney(v.salesUsd, "USD")}*`);
+  lines.push(
+    ...capped(
+      v.salesByMethod,
+      (m) =>
+        new Decimal(m.originalVes).gt(0)
+          ? `${m.label} ${formatMoney(m.usd, "USD")} (${formatMoney(m.originalVes, "VES")})`
+          : `${m.label} ${formatMoney(m.usd, "USD")}`,
+      (n, items) => `Otros ${n} · ${formatMoney(sumUsd(items), "USD")}`,
+    ),
+  );
+  lines.push("");
+  lines.push(`*Gastos: ${formatMoney(v.expensesUsd, "USD")}*`);
+  lines.push(
+    ...capped(
+      v.expensesByCategory,
+      (c) => `${c.name} ${formatMoney(c.usd, "USD")}`,
+      (n, items) => `Otros ${n} · ${formatMoney(sumUsd(items), "USD")}`,
+    ),
+  );
+  lines.push("");
+  const net = `*Ventas menos gastos: ${signedUsd(v.netUsd)}*`;
+  lines.push(
+    v.netVes !== null && v.rateValue !== null
+      ? `${net} (${formatMoney(v.netVes, "VES")} a tasa ${formatMoney(v.rateValue, "VES").replace("Bs ", "")})`
+      : net,
+  );
+  lines.push("");
+  lines.push(
+    `Efectivo en caja: ${formatMoney(v.cashUsd, "USD")} · ${formatMoney(v.cashVes, "VES")}`,
+  );
+  lines.push(
+    `${v.count === 1 ? "1 movimiento" : `${v.count} movimientos`} · Dashboard: ${v.dashboardUrl}`,
+  );
+  return { type: "text", body: lines.join("\n") };
+}
+
+export function noMovements(label: string): Outbound {
+  return {
+    type: "text",
+    body: `No tengo movimientos registrados ${label}. Si vendiste o gastaste algo, dímelo y lo anoto.`,
+  };
+}
+
+export type PeriodSummaryView = {
+  title: string;
+  salesUsd: Decimal.Value;
+  expensesUsd: Decimal.Value;
+  netUsd: Decimal.Value;
+  topExpenses: { name: string; usd: Decimal.Value }[];
+  daysWithMovements: number;
+  dashboardUrl: string;
+};
+
+export function periodSummary(v: PeriodSummaryView): Outbound {
+  const lines = [`📊 ${v.title}`, ""];
+  lines.push(`*Ventas: ${formatMoney(v.salesUsd, "USD")}*`);
+  lines.push(`*Gastos: ${formatMoney(v.expensesUsd, "USD")}*`);
+  lines.push(`*Ventas menos gastos: ${signedUsd(v.netUsd)}*`);
+  if (v.topExpenses.length) {
+    lines.push("");
+    lines.push("Gastos más grandes:");
+    for (const c of v.topExpenses.slice(0, 5)) lines.push(`${c.name} ${formatMoney(c.usd, "USD")}`);
+  }
+  lines.push("");
+  lines.push(
+    `${v.daysWithMovements === 1 ? "1 día" : `${v.daysWithMovements} días`} con movimientos · Dashboard: ${v.dashboardUrl}`,
+  );
+  return { type: "text", body: lines.join("\n") };
+}
+
+export function categoryTotal(v: {
+  name: string;
+  periodLabel: string;
+  usd: Decimal.Value;
+  ves: Decimal.Value;
+  count: number;
+}): Outbound {
+  if (v.count === 0)
+    return { type: "text", body: `${v.name}, ${v.periodLabel}: sin gastos registrados.` };
+  return {
+    type: "text",
+    body: `${v.name}, ${v.periodLabel}: *${formatMoney(v.usd, "USD")}* (${formatMoney(v.ves, "VES")}) en ${v.count === 1 ? "1 gasto" : `${v.count} gastos`}.`,
+  };
+}
+
+export function categoryNotFound(name: string, suggestions: string[]): Outbound {
+  return {
+    type: "text",
+    body: `No tengo una categoría "${name}". ${suggestions.length ? `¿Te refieres a alguna de estas? ${suggestions.join(", ")}` : ""}`.trim(),
+  };
+}
+
+export function periodTooLong(dashboardUrl: string): Outbound {
+  return {
+    type: "text",
+    body: `Por chat consulto hasta 12 meses. Para más, usa el dashboard: ${dashboardUrl}`,
+  };
+}
+
+/** "hoy", "ayer", "esta semana (lun 22 al 29/09)", "septiembre (1 al 29)", "del 01/09 al 15/09". */
+export function periodLabel(key: string, from: IsoDate, to: IsoDate, today: IsoDate): string {
+  const d = (x: IsoDate) => x.slice(8, 10).replace(/^0/, "");
+  switch (key) {
+    case "today":
+      return "hoy";
+    case "yesterday":
+      return "ayer";
+    case "this_week":
+      return `esta semana (${formatShortDate(from)} al ${formatShortDate(to)})`;
+    case "last_week":
+      return `la semana pasada (${formatShortDate(from)} al ${formatShortDate(to)})`;
+    case "this_month":
+      return `${monthNameEs(from).toLowerCase()} (1 al ${d(to)})`;
+    case "last_month":
+      return `${monthNameEs(from).toLowerCase()} completo`;
+    default:
+      return from === to
+        ? formatShortDate(from)
+        : `del ${from.slice(8, 10)}/${from.slice(5, 7)} al ${to.slice(8, 10)}/${to.slice(5, 7)}${to === today ? "" : ""}`;
+  }
 }
 
 export function noRate(): Outbound {

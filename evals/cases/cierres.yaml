@@ -1,0 +1,30 @@
+# Cierre y consultas (US-D1, D2, D3). "cierre" solo se resuelve sin LLM; aquí van las variantes.
+- name: cómo fue hoy
+  input: "cómo fue hoy?"
+  expect:
+    tool: get_summary
+    args: { period: today, category_name: null }
+
+- name: cómo va el mes
+  input: "cómo va el mes"
+  expect:
+    tool: get_summary
+    args: { period: this_month, category_name: null }
+
+- name: cuánto llevo esta semana
+  input: "cuánto llevo esta semana"
+  expect:
+    tool: get_summary
+    args: { period: this_week }
+
+- name: gasto por categoría en el mes
+  input: "cuánto gasté en insumos este mes"
+  expect:
+    tool: get_summary
+    args: { period: this_month, category_name: Insumos de lavado }
+
+- name: corregir sigue fuera de alcance por chat
+  input: "borra el último gasto"
+  expect:
+    tool: reject_out_of_scope
+    args: { reason: other_business_task }
