@@ -205,6 +205,12 @@ describe("agent loop", () => {
       "cuéntame un chiste",
     );
     expect(rej.status).toBe("rejected_out_of_scope");
+    expect(rej.outbound[0]?.type).toBe("buttons");
+    const soon = await run(
+      fakeLlm([call("reject_out_of_scope", { reason: "other_business_task" })]).client,
+      "vendí 200$",
+    );
+    expect((soon.outbound[0] as { body: string }).body).toContain("todavía no están listos");
     const rate = await run(fakeLlm([call("get_bcv_rate", {})]).client, "a cuánto está el dólar");
     expect(rate.status).toBe("ok");
     expect((rate.outbound[0] as { body: string }).body).toContain("Bs 858,00");

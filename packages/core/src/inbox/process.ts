@@ -284,7 +284,7 @@ async function routeInteractive(
   switch (parsed.kind) {
     case "menu":
       if (parsed.action === "expense") return none([es.promptExpense()]);
-      if (parsed.action === "income") return none([es.promptIncome()]);
+      if (parsed.action === "income") return none([es.comingSoon()]);
       if (ctx.role !== "owner") return none([es.ownerOnly()]);
       return runAgent(tx, deps, ctx, null, { kind: "text", text: "cierre de hoy" });
     case "confirm":

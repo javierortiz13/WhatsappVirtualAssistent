@@ -106,6 +106,14 @@ export function outOfScope(): Outbound {
   };
 }
 
+/** Ventas, cierres y consultas existen en el menú pero llegan en S3: se dice claro y se ofrece el gasto. */
+export function comingSoon(): Outbound {
+  return {
+    type: "text",
+    body: "Las ventas, los cierres y las consultas todavía no están listos: llegan en los próximos días. Por ahora registro gastos. Ejemplo: _gasté 15$ en champú_",
+  };
+}
+
 export function ownerOnly(): Outbound {
   return { type: "text", body: "El cierre lo ve el dueño. Tú puedes registrar gastos y ventas." };
 }

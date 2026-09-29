@@ -256,8 +256,12 @@ const rejectOutOfScope: ToolSpec<typeof RejectOutOfScopeInput> = {
     "El mensaje no es un gasto, una venta, una consulta de caja ni la tasa: saludos largos, preguntas generales, pedir que redactes algo, chistes, cualquier otra tarea. También si pide algo de caja que aún no existe (ventas, cierres): usa esta herramienta.",
   schema: RejectOutOfScopeInput,
   roles: ["owner", "employee"],
-  async run() {
-    return { kind: "terminal", outbound: [es.outOfScope()], status: "rejected_out_of_scope" };
+  async run(input) {
+    return {
+      kind: "terminal",
+      outbound: [input.reason === "other_business_task" ? es.comingSoon() : es.outOfScope()],
+      status: "rejected_out_of_scope",
+    };
   },
 };
 
