@@ -83,6 +83,9 @@ async function main() {
       assistant: env.ASSISTANT_NAME,
       phoneNumberId: env.META_PHONE_NUMBER_ID,
       concurrency: env.WORKER_CONCURRENCY,
+      // Railway expone el commit desplegado: permite ver de un vistazo qué versión corre.
+      commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
+      agent: agent === stubAgent ? "stub" : env.LLM_PRIMARY,
     },
     "worker listo",
   );
