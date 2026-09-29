@@ -12,3 +12,4 @@ coverage/
 .pglite/
 .turbo/
 evals/report/
+certs/

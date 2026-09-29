@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema/index.js";
+import { sslFromEnv } from "./ssl.js";
 
 export type Db = ReturnType<typeof createDb>["db"];
 export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -23,10 +24,12 @@ export function rows<T>(result: unknown): T[] {
  * pequeños y Supabase limita conexiones directas.
  */
 export function createDb(url: string, opts: { max?: number } = {}) {
+  const ssl = sslFromEnv();
   const client = postgres(url, {
     max: opts.max ?? 5,
     prepare: false,
     onnotice: () => {},
+    ...(ssl ? { ssl } : {}),
   });
   const db = drizzle(client, { schema, casing: "snake_case" });
   return { db, client, close: () => client.end({ timeout: 5 }) };

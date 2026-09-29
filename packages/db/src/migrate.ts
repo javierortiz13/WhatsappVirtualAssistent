@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 import { loadNearestEnvFile } from "./env-file.js";
+import { sslFromEnv } from "./ssl.js";
 
 /**
  * Migrador mínimo: aplica `migrations/*.sql` en orden alfabético, una transacción por archivo,
@@ -12,7 +13,8 @@ export async function runMigrations(adminUrl: string, opts: { log?: (m: string) 
   const log = opts.log ?? (() => {});
   const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
   const files = (await readdir(dir)).filter((f) => f.endsWith(".sql")).sort();
-  const sql = postgres(adminUrl, { max: 1, onnotice: () => {} });
+  const ssl = sslFromEnv();
+  const sql = postgres(adminUrl, { max: 1, onnotice: () => {}, ...(ssl ? { ssl } : {}) });
   try {
     await sql`CREATE SCHEMA IF NOT EXISTS caja_meta`;
     await sql`CREATE TABLE IF NOT EXISTS caja_meta.schema_migrations (

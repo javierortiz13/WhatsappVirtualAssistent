@@ -2,6 +2,7 @@ import { PgBoss } from "pg-boss";
 import postgres from "postgres";
 import { loadNearestEnvFile } from "./env-file.js";
 import { PGBOSS_SCHEMA } from "./queue.js";
+import { sslFromEnv } from "./ssl.js";
 
 /**
  * Instala o actualiza el schema `pgboss` con el rol administrador y da permisos a `caja_app`.
@@ -10,7 +11,9 @@ import { PGBOSS_SCHEMA } from "./queue.js";
  * El worker arranca luego con `migrate: false`.
  */
 export async function installQueue(adminUrl: string, log: (m: string) => void = () => {}) {
+  const ssl = sslFromEnv();
   const boss = new PgBoss({
+    ...(ssl ? { ssl } : {}),
     connectionString: adminUrl,
     schema: PGBOSS_SCHEMA,
     migrate: true,
@@ -24,7 +27,7 @@ export async function installQueue(adminUrl: string, log: (m: string) => void = 
   await boss.stop({ graceful: false, close: true });
   log(`schema ${PGBOSS_SCHEMA} en versión ${version}`);
 
-  const sql = postgres(adminUrl, { max: 1, onnotice: () => {} });
+  const sql = postgres(adminUrl, { max: 1, onnotice: () => {}, ...(ssl ? { ssl } : {}) });
   try {
     await sql.unsafe(`
       GRANT USAGE ON SCHEMA ${PGBOSS_SCHEMA} TO caja_app;

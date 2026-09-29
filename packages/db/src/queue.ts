@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { fromDrizzle, PgBoss } from "pg-boss";
 import type { Tx } from "./client.js";
+import { sslFromEnv } from "./ssl.js";
 
 /**
  * Cola de trabajos sobre Postgres (ADR-003). Un solo lugar define nombres de cola, políticas y
@@ -34,9 +35,11 @@ export type BossRole = "producer" | "worker";
  * migración manual con `getConstructionPlans`.
  */
 export function createBoss(connectionString: string, role: BossRole): PgBoss {
+  const ssl = sslFromEnv();
   return new PgBoss({
     connectionString,
     schema: PGBOSS_SCHEMA,
+    ...(ssl ? { ssl } : {}),
     application_name: `caja-${role}`,
     max: role === "producer" ? 2 : 5,
     supervise: role === "worker",

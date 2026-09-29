@@ -55,23 +55,25 @@ Meta necesita una URL pública. Hoy solo genera el `META_VERIFY_TOKEN` (paso 0).
    - **Direct connection** (puerto 5432, host `db.<ref>.supabase.co`): usa IPv6. Sirve desde tu máquina si tienes IPv6; Railway y Vercel a veces no.
    - **Session pooler** (puerto 5432 vía `aws-0-<region>.pooler.supabase.com`, usuario `postgres.<ref>`): IPv4, mantiene sesión, compatible con `set_config(..., true)` dentro de transacciones. **Usa esta para `DATABASE_URL` y `DATABASE_ADMIN_URL`.**
    - **Transaction pooler** (puerto 6543): no la uses; rompe el `SET LOCAL` fuera de transacciones y no soporta prepared statements.
-3. `DATABASE_ADMIN_URL` = cadena del session pooler con el usuario `postgres.<ref>` y la contraseña del paso 1, más `?sslmode=require`.
-4. Aplica la migración desde tu máquina:
+3. **Certificado TLS.** En la misma página, sección "SSL configuration" (o "SSL Connection"), botón **Download certificate**. Guárdalo como `certs/supabase-ca.crt` en la raíz del repo (la carpeta `certs/` está ignorada por git) y deja `DATABASE_SSL_CA_PATH=./certs/supabase-ca.crt` en el `.env`. Sin esto, pg-boss falla con "self-signed certificate in certificate chain".
+4. `DATABASE_ADMIN_URL` = cadena del session pooler con el usuario `postgres.<ref>` y la contraseña del paso 1, más `?sslmode=require`.
+5. Aplica la migración desde tu máquina:
    ```bash
    pnpm db:migrate
+   pnpm --filter @caja/db run queue:install
    ```
-   Debe imprimir `applied 0001_init.sql` y `migraciones al día`.
-5. En Supabase → **SQL Editor**, dale login al rol de la app (elige otra contraseña fuerte):
+   Debe imprimir `applied 0001_init.sql`, `migraciones al día`, la versión del schema `pgboss` y `permisos otorgados a caja_app`.
+6. En Supabase → **SQL Editor**, dale login al rol de la app (elige otra contraseña fuerte):
    ```sql
    ALTER ROLE caja_app LOGIN PASSWORD 'PEGA_AQUI_UNA_CONTRASENA_FUERTE';
    ```
    `DATABASE_URL` = misma cadena del session pooler pero con usuario `caja_app.<ref>` y esa contraseña.
-6. Seed de los pilotos (tu número y el de tu novia, sin `+`):
+7. Seed de los pilotos (tu número y el de tu novia, sin `+`):
    ```bash
    pnpm db:seed
    ```
-7. **Storage → New bucket**: nombre `facturas`, **privado**. Nada más por ahora.
-8. **Authentication → Providers → Email**: activa "Enable email provider" y "Magic link" (o "Email OTP", verificar nombre). El SMTP propio (Resend) se configura el día 6.
+8. **Storage → New bucket**: nombre `facturas`, **privado**. Nada más por ahora.
+9. **Authentication → Providers → Email**: activa "Enable email provider" y "Magic link" (o "Email OTP", verificar nombre). El SMTP propio (Resend) se configura el día 6.
 
 ## 3. Railway: servicio del worker (10 min)
 
