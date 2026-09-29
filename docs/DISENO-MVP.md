@@ -10,8 +10,8 @@ Documento acumulativo. Cada fase agrega una sección al cerrarse.
 | 1. Requerimientos | Aprobado |
 | 2. Modelo de dominio y datos | Aprobado |
 | 3. Arquitectura | Aprobado |
-| 4. UX conversacional | Entregado, pendiente de aprobación |
-| 5. UX/UI dashboard | Pendiente |
+| 4. UX conversacional | Aprobado |
+| 5. UX/UI dashboard | Entregado, pendiente de aprobación |
 | 6. Stack tecnológico | Pendiente |
 | 7. Seguridad, cumplimiento y riesgos | Pendiente |
 | 8. Plan de ejecución | Pendiente |
@@ -176,10 +176,13 @@ Como dueño, quiero escribir "gasté 15$ en champú" y que quede registrado, par
 - Dado que toco Cancelar o pasan 10 minutos sin respuesta, cuando expira, entonces el borrador se descarta y no se guarda nada.
 - Dado que el monto tiene decimales en formato venezolano ("15,50"), cuando lo interpreto, entonces se guarda 15.50 sin ambigüedad.
 
-**US-B2. Moneda ambigua (Must, S).**
-Como dueño, quiero que si escribo "gasté 500 en hielo" me pregunte la moneda, para que no adivine.
-- Dado que el texto no indica moneda ni símbolo, cuando lo interpreto, entonces pregunto con dos botones: **USD** / **Bs**. No infiero por magnitud.
-- Dado que el tenant configuró una moneda por defecto para gastos, cuando el texto no indica moneda, entonces uso esa moneda y la muestro claramente en el resumen antes de confirmar.
+**US-B2. Moneda ambigua (Must, S).** *(Reescrita al aprobar la Fase 4.)*
+Como dueño, quiero que si escribo "gasté 2.000 de hielo" el sistema entienda que son bolívares, para no tener que aclararlo cada vez.
+- Dado que el texto indica moneda o símbolo, cuando lo interpreto, entonces esa moneda manda.
+- Dado que el texto no indica moneda y el monto es mayor o igual al umbral del tenant (1.000 por defecto), cuando lo interpreto, entonces la moneda es VES y el resumen la marca como inferida.
+- Dado que el texto no indica moneda y el monto es menor al umbral, cuando lo interpreto, entonces uso la moneda por defecto del tenant y el resumen la marca como inferida.
+- Dado que el tenant no tiene moneda por defecto y el monto es menor al umbral, cuando lo interpreto, entonces pregunto con dos botones: **Dólares** / **Bolívares**.
+- La inferencia es una regla determinista del backend, nunca del LLM. El umbral es configurable por tenant y por entorno (una reconversión lo cambiaría).
 
 **US-B3. Gasto en bolívares (Must, S).**
 - Dado que registro "pagué 1.200 bs de hielo", cuando confirmo, entonces se guarda 1200.00 VES, la tasa BCV vigente de la fecha y el equivalente en USD calculado por el backend con redondeo a 2 decimales (bankers no; redondeo half-up comercial).
@@ -345,7 +348,7 @@ CRM, pedidos, clientes. Bot de atención a clientes finales. Verificación banca
 ### Decisiones tomadas en la Fase 1
 
 - Confirmación de escrituras con botones interactivos de WhatsApp (Guardar / Corregir / Cancelar), no con texto libre "sí".
-- Moneda ambigua se pregunta, nunca se infiere por magnitud. Moneda por defecto configurable por tenant.
+- Moneda sin indicar: regla determinista por umbral (1.000 o más = Bs; menos = moneda por defecto del tenant). Solo se pregunta si no hay moneda por defecto. *(Actualizado en Fase 4.)*
 - Borrador de escritura expira a los 10 minutos. Corrección por chat solo dentro de 30 minutos; después, dashboard.
 - Borrados siempre lógicos y auditados.
 - Ingresos como movimientos: un total del día genera un movimiento por método.
@@ -1055,7 +1058,7 @@ Todas reciben implícitamente `tenant_id`, `phone_id`, `rol` y `ahora` desde el 
 
 | Herramienta | Parámetros (del LLM) | Validaciones en backend | Devuelve | Rol |
 |---|---|---|---|---|
-| `draft_expense` | `amount` (string decimal), `currency` (`USD`, `VES` o `null`), `description`, `category_name` (de la lista o `null`), `business_date` (ISO o `null` = hoy) | `amount > 0`, máximo 2 decimales; `currency` nulo y sin default del tenant → resultado `needs_currency`; fecha futura o > 30 días → `needs_date_confirmation`; categoría fuera de la lista → sugiere la más parecida u "Otros"; resuelve tasa; calcula equivalentes; crea `pending_action(create_expense)` | Borrador: monto, moneda, equivalente, tasa y su fecha, categoría, fecha, `pending_id` | owner, employee |
+| `draft_expense` | `amount` (string decimal), `currency` (`USD`, `VES` o `null`), `description`, `category_name` (de la lista o `null`), `business_date` (ISO o `null` = hoy) | `amount > 0`, máximo 2 decimales; `currency` nulo → regla de umbral (≥ 1.000 = VES, si no, default del tenant); sin default y bajo el umbral → `needs_currency`; fecha futura o > 30 días → `needs_date_confirmation`; categoría fuera de la lista → sugiere la más parecida u "Otros"; resuelve tasa; calcula equivalentes; crea `pending_action(create_expense)` | Borrador: monto, moneda, equivalente, tasa y su fecha, categoría, fecha, `pending_id` | owner, employee |
 | `draft_income_day_total` | `business_date`, `total_amount`, `total_currency`, `breakdown[]` de `{method, amount, currency}` | Suma del desglose = total en `Decimal` (si no, `mismatch` con la diferencia); métodos válidos; si ya existe `day_total` para esa fecha → `day_already_closed`; crea `pending_action(create_income_day_total)` o `replace_day_total` | Borrador con líneas y totales | owner, employee |
 | `draft_income_single` | `amount`, `currency`, `method`, `description`, `business_date` | Como `draft_expense`, método obligatorio | Borrador | owner, employee |
 | `amend_last_movement` | `changes`: subconjunto de `{amount, currency, category_name, description, business_date}` | Último movimiento vivo del mismo teléfono, < 30 min; si no, `too_old` con enlace al dashboard; recalcula tasa si cambia fecha; crea `pending_action(edit_last)` | Antes / después | owner, employee |
@@ -1263,14 +1266,14 @@ flowchart TD
 >
 > **Bot:** ✅ Listo, tu número quedó vinculado a *Autolavado El Rápido*.
 >
-> Soy tu asistente de caja. Me escribes como le escribirías a tu cajera:
+> Soy *Asistente de Caja* (nombre provisional). Me escribes como le escribirías a tu cajera:
 > • _gasté 15$ en champú_
 > • _hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto_
 > • _cómo va el mes_
 >
 > También me puedes mandar una nota de voz o la foto de una factura.
 >
-> Tasa BCV hoy: *Bs 36,45*
+> Tasa BCV hoy: *Bs 858,00*
 > [Registrar gasto] [Registrar venta] [Ver cierre]
 
 **Empleado.** El dueño agrega el número desde el dashboard con rol Empleado. No hay código: el empleado escribe cualquier cosa y recibe:
@@ -1284,7 +1287,7 @@ Por qué sin código para el empleado: el dueño ya lo autorizó desde su cuenta
 
 > **Dueño:** hola
 >
-> **Bot:** Tasa BCV hoy: *Bs 36,45* (vigente 29/09)
+> **Bot:** Tasa BCV hoy: *Bs 858,00* (vigente 29/09)
 > ¿Qué quieres hacer?
 > [Registrar gasto] [Registrar venta] [Ver cierre]
 
@@ -1297,8 +1300,8 @@ Al tocar un botón del menú, el bot pide el dato con un ejemplo, y el siguiente
 > **Dueño:** tasa
 >
 > **Bot:** 💵 Tasa BCV
-> Vigente hoy (lun 29/09): *Bs 36,45*
-> Próxima (mar 30/09): *Bs 36,52*
+> Vigente hoy (lun 29/09): *Bs 858,00*
+> Próxima (mar 30/09): *Bs 859,30*
 
 Si no hay próxima publicada, la segunda línea no aparece. Si la vigente tiene más de 3 días hábiles:
 
@@ -1320,7 +1323,7 @@ Si no hay próxima publicada, la segunda línea no aparece. Si la vigente tiene 
 > **Dueño:** gasté 15$ en champú
 >
 > **Bot:** Gasto por confirmar:
-> *$15,00* (Bs 546,75 a tasa 36,45)
+> *$15,00* (Bs 12.870,00 a tasa 858,00)
 > Champú · Insumos de lavado
 > Hoy, lun 29/09
 > [Guardar] [Corregir] [Cancelar]
@@ -1331,34 +1334,42 @@ Si no hay próxima publicada, la segunda línea no aparece. Si la vigente tiene 
 
 Diseño: la línea de total del día es el refuerzo que hace que el dueño sienta que "algo se acumula". No se agrega nada más.
 
-**Moneda ambigua** (sin moneda por defecto configurada, o texto explícitamente ambiguo):
+**Moneda sin indicar.** Regla determinista del backend: 1.000 o más sin moneda es Bs; menos de 1.000 es la moneda por defecto del tenant. El resumen marca la moneda inferida.
 
-> **Dueño:** pagué 500 de hielo
->
-> **Bot:** ¿500 en qué moneda?
-> [Dólares] [Bolívares]
->
-> **Dueño:** [Bolívares]
+> **Dueño:** pagué 2.000 de hielo
 >
 > **Bot:** Gasto por confirmar:
-> *Bs 500,00* ($13,72 a tasa 36,45)
+> *Bs 2.000,00* ($2,33 a tasa 858,00) · entendí bolívares
 > Hielo · Insumos de lavado
 > Hoy, lun 29/09
 > [Guardar] [Corregir] [Cancelar]
 
-Con USD por defecto configurado, "pagué 500 de hielo" se interpreta como $500 y el resumen lo muestra en grande; el dueño lo ve y corrige si no era. Es una decisión de diseño consciente: mejor un resumen visible que una pregunta cada vez.
+> **Dueño:** pagué 40 de hielo
+>
+> **Bot:** Gasto por confirmar:
+> *$40,00* (Bs 34.320,00 a tasa 858,00) · entendí dólares
+> Hielo · Insumos de lavado
+> Hoy, lun 29/09
+> [Guardar] [Corregir] [Cancelar]
+
+Solo si el tenant no tiene moneda por defecto y el monto está bajo el umbral:
+
+> **Bot:** ¿40 en qué moneda?
+> [Dólares] [Bolívares]
+
+Por qué así: con la tasa en cientos de bolívares por dólar, la magnitud es una señal casi infalible. Nadie escribe "2.000" pensando en dólares para el hielo, y nadie escribe "40" pensando en bolívares. El caso raro (una nevera de $1.500 sin símbolo) se ve en el resumen y se corrige con "eran dólares". El umbral vive en configuración porque una reconversión lo invalidaría.
 
 **Gasto en bolívares con "mil".**
 
 > **Dueño:** 450 mil bs de gasolina ayer
 >
 > **Bot:** Gasto por confirmar:
-> *Bs 450.000,00* ($12.345,68 a tasa 36,45)
+> *Bs 450.000,00* ($524,48 a tasa 858,00)
 > Gasolina · Transporte y gasolina
 > Ayer, dom 28/09 (tasa del viernes 26/09)
 > [Guardar] [Corregir] [Cancelar]
 
-Nota: el ejemplo usa una tasa ficticia. La conversión la hace el backend. Se muestra "tasa del viernes" porque el domingo no hay tasa propia.
+Nota: las tasas de los ejemplos son ilustrativas. La conversión la hace el backend. Se muestra "tasa del viernes" porque el domingo no hay tasa propia.
 
 **Corregir el borrador.**
 
@@ -1369,7 +1380,7 @@ Nota: el ejemplo usa una tasa ficticia. La conversión la hace el backend. Se mu
 > **Dueño:** eran 25 y es mantenimiento
 >
 > **Bot:** Gasto por confirmar:
-> *$25,00* (Bs 911,25 a tasa 36,45)
+> *$25,00* (Bs 21.450,00 a tasa 858,00)
 > Champú · Mantenimiento de equipos
 > Hoy, lun 29/09
 > [Guardar] [Corregir] [Cancelar]
@@ -1419,7 +1430,7 @@ Regla: el agente solo pregunta la categoría cuando no tiene una sugerencia con 
 >
 > **Bot:** Entendí: _"anota ahí veinte dólares de la comida de los muchachos"_
 > Gasto por confirmar:
-> *$20,00* (Bs 729,00 a tasa 36,45)
+> *$20,00* (Bs 17.160,00 a tasa 858,00)
 > Comida de los muchachos · Comida del personal
 > Hoy, lun 29/09
 > [Guardar] [Corregir] [Cancelar]
@@ -1441,7 +1452,7 @@ Si la transcripción falla:
 >
 > **Bot:** Leí la factura:
 > Ferretería El Tornillo · 27/09
-> Total *Bs 1.240,00* ($34,02 a tasa 36,45)
+> Total *Bs 1.240,00* ($1,45 a tasa 858,00)
 > Categoría: Mantenimiento de equipos
 > [Guardar] [Corregir] [Cancelar]
 
@@ -1459,8 +1470,8 @@ Y el siguiente texto crea el borrador con la foto adjunta igual.
 >
 > **Bot:** Venta del día por confirmar (lun 29/09):
 > Efectivo USD · *$200,00*
-> Pago Móvil · *$100,00* (Bs 3.645,00)
-> Punto · *$50,00* (Bs 1.822,50)
+> Pago Móvil · *$100,00* (Bs 85.800,00)
+> Punto · *$50,00* (Bs 42.900,00)
 > Total *$350,00*
 > [Guardar] [Corregir] [Cancelar]
 >
@@ -1468,7 +1479,7 @@ Y el siguiente texto crea el borrador con la foto adjunta igual.
 >
 > **Bot:** ✅ Venta guardada. Hoy: vendiste *$350,00*, gastaste *$47,00*.
 
-Nota de diseño: "pago móvil 100" en un mensaje en dólares se interpreta como el equivalente en dólares de un pago recibido en Bs. El resumen muestra ambos para que el dueño vea si era eso. Si el dueño escribe "3.645 bs de pago móvil", se guarda en Bs como original.
+Nota de diseño: "pago móvil 100" en un mensaje en dólares se interpreta como el equivalente en dólares de un pago recibido en Bs. El resumen muestra ambos para que el dueño vea si era eso. Si el dueño escribe "85.800 bs de pago móvil", se guarda en Bs como original.
 
 **Desglose que no cuadra.**
 
@@ -1512,23 +1523,23 @@ Nota de diseño: "pago móvil 100" en un mensaje en dólares se interpreta como 
 
 > **Dueño:** cierre
 >
-> **Bot:** 📊 Cierre del lun 29/09
+> **Bot:** 📊 Cierre diario · lun 29/09
 >
 > *Ventas: $350,00*
 > Efectivo USD $200,00
-> Pago Móvil $100,00 (Bs 3.645,00)
-> Punto $50,00 (Bs 1.822,50)
+> Pago Móvil $100,00 (Bs 85.800,00)
+> Punto $50,00 (Bs 42.900,00)
 >
 > *Gastos: $47,00*
 > Insumos de lavado $27,00
 > Comida del personal $20,00
 >
-> *Resultado: $303,00* (Bs 11.044,35 a tasa 36,45)
+> *Ventas menos gastos: $303,00* (Bs 259.974,00 a tasa 858,00)
 >
 > Efectivo en caja: $200,00 · Bs 0,00
 > 5 movimientos · Dashboard: {enlace}
 
-Reglas de formato: primero ventas, luego gastos, luego resultado en negrita, luego el efectivo real para cuadrar la gaveta, luego conteo y enlace. Categorías y métodos ordenados de mayor a menor. Máximo 6 líneas por bloque; si hay más categorías, se agrupan en "Otros N".
+Reglas de formato: primero ventas, luego gastos, luego "Ventas menos gastos" en negrita (si es negativo se muestra "−$40,00", sin eufemismos), luego el efectivo real para cuadrar la gaveta, luego conteo y enlace. Categorías y métodos ordenados de mayor a menor. Máximo 6 líneas por bloque; si hay más categorías, se agrupan en "Otros N".
 
 **Sin movimientos.**
 
@@ -1538,11 +1549,11 @@ Reglas de formato: primero ventas, luego gastos, luego resultado en negrita, lue
 
 > **Dueño:** cómo va el mes
 >
-> **Bot:** 📊 Septiembre (1 al 29)
+> **Bot:** 📊 Cierre del mes · Septiembre (1 al 29)
 >
 > *Ventas: $6.420,00*
 > *Gastos: $2.115,00*
-> *Resultado: $4.305,00*
+> *Ventas menos gastos: $4.305,00*
 >
 > Gastos más grandes:
 > Nómina y pagos a personal $900,00
@@ -1628,7 +1639,7 @@ Métodos de pago (fijos, para ventas): Efectivo USD, Efectivo Bs, Pago Móvil, P
 - Tono: venezolano, tuteo, corto, un emoji funcional como máximo.
 - Menú = tasa del día en texto + 3 botones. "tasa" y "ayuda" se resuelven sin LLM.
 - Empleado no necesita código: el dueño lo autoriza desde el dashboard.
-- Con moneda por defecto configurada, no se pregunta la moneda; se muestra en grande en el resumen.
+- Moneda sin indicar: regla de umbral en backend (1.000 o más = Bs; menos = moneda por defecto). Solo se pregunta sin moneda por defecto. El resumen marca "entendí dólares / bolívares".
 - El agente sugiere categoría; solo pregunta (con lista) cuando no tiene confianza.
 - Desglose que no cuadra: el dueño decide entre dos totales o corregir. El bot no rellena solo.
 - Un mensaje con varios gastos se procesa uno por uno, máximo 3.
@@ -1636,11 +1647,12 @@ Métodos de pago (fijos, para ventas): Efectivo USD, Efectivo Bs, Pago Móvil, P
 - El cierre siempre termina con "Efectivo en caja" por moneda y el enlace al dashboard.
 - Categorías por defecto definidas para los 5 tipos, máximo 10 por tipo.
 
-### Preguntas abiertas
+### Preguntas abiertas (resueltas al aprobar la fase)
 
-1. **Nombre del asistente.** Meta exige un nombre visible para el número, y los guiones lo necesitan ("Soy tu asistente de caja"). ¿Tienes marca? Si no, propongo algo corto, en español, que diga lo que hace. Se decide antes de solicitar el número.
-2. El botón "Registrar gasto": confirmo que va "gasto" y no "pagos". Si querías "pagos" a propósito, dime por qué.
-3. En el cierre, ¿"Resultado" te sirve como etiqueta, o prefieres "Ganancia del día" aunque no incluya todo? Mi recomendación sigue siendo "Resultado" para no prometer lo que no es.
+1. **Nombre del asistente.** No hay marca todavía; el fundador la definirá con una campaña en redes. Placeholder configurable: "Asistente de Caja". Se usa con el número de prueba; el nombre definitivo se decide antes de solicitar el número de producción, porque el nombre visible pasa revisión de Meta y cambiarlo después puede requerir otra revisión (verificar proceso vigente).
+2. Botón "Registrar gasto" confirmado ("pagos" fue un error de dictado).
+3. Etiqueta del neto: el título del mensaje es "Cierre diario" y la línea del neto es "Ventas menos gastos", que se explica sola y no miente cuando es negativo.
+4. Moneda sin indicar: el fundador pidió inferir por magnitud. Se adopta como regla determinista de backend con umbral configurable (ver US-B2).
 
 ### Riesgos detectados
 
@@ -1648,3 +1660,464 @@ Métodos de pago (fijos, para ventas): Efectivo USD, Efectivo Bs, Pago Móvil, P
 - La interpretación de "pago móvil 100" dentro de un mensaje en dólares puede confundir a algún dueño que piensa en Bs. Mitigación: el resumen muestra ambos montos; medir correcciones en el piloto.
 - Un menú con la tasa del día cuesta una consulta a la base por cada "hola"; trivial, pero la tasa debe estar cacheada en memoria del worker para no depender de la base en cada saludo.
 - Los límites de caracteres de botones y listas pueden cortar nombres de categorías largos ("Servicios (luz, agua, internet)" tiene 31). Mitigación: título corto en la fila y descripción con el detalle; validar en la semana 1.
+
+---
+
+## Fase 5. UX/UI del dashboard
+
+### Rol del dashboard en el producto
+
+WhatsApp es la puerta de entrada y el uso diario. El dashboard es **la trastienda**: donde se ve todo junto, se corrige lo que el bot entendió mal, se exporta para el contador y se configura el negocio. Un dueño puede pasar semanas sin abrirlo y el producto sigue funcionando. Consecuencias de diseño:
+
+1. Mobile-first de verdad: se diseña a 360 px de ancho y se adapta hacia arriba. La mayoría lo abrirá desde el enlace que el bot manda por WhatsApp, en el mismo teléfono.
+2. Cero gráficos en el MVP. Números grandes y tablas. Un gráfico mal hecho en un teléfono es peor que una tabla bien hecha.
+3. Toda cifra del dashboard sale de las mismas consultas que alimentan al bot. Si el bot dice $303,00, el dashboard dice $303,00.
+4. Registrar desde el dashboard existe como respaldo (cuando el bot no entendió, o para cargar cosas viejas), no como camino principal.
+
+### Arquitectura de información
+
+```
+Público
+├── /login                      Correo → magic link
+├── /auth/verify?token=…        Valida el enlace, crea sesión
+└── /registro                   Onboarding en 2 pasos (solo primera vez)
+    ├── Paso 1: negocio         Nombre, tipo, moneda por defecto
+    └── Paso 2: WhatsApp        Número, código, "Abrir WhatsApp", espera de verificación
+
+Privado (barra inferior en móvil, barra lateral en escritorio)
+├── /inicio                     Tasa, hoy, mes, últimos movimientos, avisos
+├── /movimientos                Lista filtrable de gastos y ventas
+│   ├── /movimientos/nuevo      Alta manual (respaldo)
+│   └── /movimientos/:id        Detalle, edición, foto, auditoría, eliminar
+├── /cierres                    Día / semana / mes / rango, mismo formato que WhatsApp, exportar
+└── /ajustes
+    ├── /ajustes/negocio        Nombre, tipo, moneda por defecto, umbral Bs
+    ├── /ajustes/categorias     Crear, renombrar, activar/desactivar, ordenar
+    ├── /ajustes/numeros        Números y roles, estado de verificación
+    ├── /ajustes/exportar       Rango → .xlsx
+    └── /ajustes/cuenta         Correo, cerrar sesión
+```
+
+Reservado, sin UI en el MVP: `/ajustes/integraciones` (Odoo, premium).
+
+Navegación móvil: 4 pestañas fijas abajo (Inicio, Movimientos, Cierres, Ajustes) y un botón flotante "+" en Inicio y Movimientos para el alta manual. En escritorio, las mismas cuatro entradas en una barra lateral y el "+" arriba a la derecha.
+
+### Wireframes (móvil, 360 px)
+
+**Login**
+
+```
+┌──────────────────────────────┐
+│                              │
+│      [logo]  Asistente       │
+│              de Caja         │
+│                              │
+│  Tu caja, por WhatsApp.      │
+│                              │
+│  Correo                      │
+│  ┌──────────────────────┐    │
+│  │ javier@ejemplo.com   │    │
+│  └──────────────────────┘    │
+│  ┌──────────────────────┐    │
+│  │  Enviarme el enlace  │    │
+│  └──────────────────────┘    │
+│                              │
+│  Te llega un enlace al       │
+│  correo. Sin contraseñas.    │
+│                              │
+└──────────────────────────────┘
+
+Tras enviar:
+│  ✉ Revisa tu correo.         │
+│  El enlace vence en 15 min.  │
+│  ¿No llegó? [Reenviar] (60s) │
+```
+
+**Onboarding, paso 1: negocio**
+
+```
+┌──────────────────────────────┐
+│ ● ○   Tu negocio             │
+│                              │
+│  Nombre del negocio          │
+│  ┌──────────────────────┐    │
+│  │ Autolavado El Rápido │    │
+│  └──────────────────────┘    │
+│  Tipo                        │
+│  ┌──────────────────────┐    │
+│  │ Autolavado         ▾ │    │
+│  └──────────────────────┘    │
+│  Moneda en la que sueles     │
+│  hablar de gastos            │
+│  (●) Dólares  ( ) Bolívares  │
+│                              │
+│  Te crearemos categorías de  │
+│  gasto típicas de un         │
+│  autolavado. Luego las       │
+│  puedes cambiar.             │
+│                              │
+│  ┌──────────────────────┐    │
+│  │      Continuar       │    │
+│  └──────────────────────┘    │
+└──────────────────────────────┘
+```
+
+**Onboarding, paso 2: WhatsApp**
+
+```
+┌──────────────────────────────┐
+│ ○ ●   Tu WhatsApp            │
+│                              │
+│  Número del dueño            │
+│  ┌────┐ ┌─────────────────┐  │
+│  │+58▾│ │ 412 1234567     │  │
+│  └────┘ └─────────────────┘  │
+│                              │
+│  Tu código de vinculación    │
+│  ┌──────────────────────┐    │
+│  │       482913         │    │
+│  └──────────────────────┘    │
+│  Envíalo desde ese número    │
+│  al asistente.               │
+│                              │
+│  ┌──────────────────────┐    │
+│  │   Abrir WhatsApp  ↗  │    │  ← wa.me con el código prellenado
+│  └──────────────────────┘    │
+│                              │
+│  ◌ Esperando tu mensaje…     │  ← se actualiza solo (polling 3 s)
+│  Vence en 14:32              │
+│  [Generar otro código]       │
+└──────────────────────────────┘
+
+Al verificar:
+│  ✅ Número vinculado.        │
+│  Ya puedes escribirle al     │
+│  asistente.  [Ir a Inicio]   │
+```
+
+**Inicio**
+
+```
+┌──────────────────────────────┐
+│ Autolavado El Rápido      ⚙  │
+│                              │
+│ Tasa BCV hoy   Bs 858,00     │
+│ vigente lun 29/09 · próx 859,30│
+│                              │
+│ ┌─ HOY ───────────────────┐  │
+│ │ Ventas          $350,00 │  │
+│ │ Gastos           $47,00 │  │
+│ │ ───────────────────────  │  │
+│ │ Ventas − gastos $303,00 │  │
+│ │ Efectivo: $200 · Bs 0   │  │
+│ └─────────────────────────┘  │
+│                              │
+│ ┌─ SEPTIEMBRE ────────────┐  │
+│ │ Ventas        $6.420,00 │  │
+│ │ Gastos        $2.115,00 │  │
+│ │ Ventas − gastos $4.305  │  │
+│ │ 18 días con movimientos │  │
+│ └─────────────────────────┘  │
+│                              │
+│ ⚠ Hoy no has registrado la   │
+│   venta del día.             │  ← solo si son > 18:00 y no hay day_total
+│                              │
+│ Últimos movimientos          │
+│ ▸ Champú          −$15,00    │
+│   Insumos · 🎤 · 10:32       │
+│ ▸ Venta del día  +$350,00    │
+│   3 métodos · ✍ · ayer 19:05 │
+│ ▸ Gasolina  −Bs 450.000,00   │
+│   Transporte · ✍ · ayer      │
+│   [Ver todos]                │
+│                              │
+│                          (+) │
+├──────────────────────────────┤
+│  Inicio  Movim.  Cierres  Aj.│
+└──────────────────────────────┘
+```
+
+Iconos de canal: ✍ texto, 🎤 voz, 📷 foto, 🖥 dashboard. Se muestran porque sirven para detectar de dónde vienen los errores.
+
+**Movimientos**
+
+```
+┌──────────────────────────────┐
+│ Movimientos              🔍  │
+│ [Todos] [Gastos] [Ventas]    │
+│ [Septiembre ▾] [Categoría ▾] │
+│                              │
+│ LUN 29/09         −$47 +$350 │
+│ ▸ Champú            −$15,00  │
+│   Insumos de lavado · 🎤     │
+│ ▸ Comida muchachos  −$20,00  │
+│   Comida del personal · ✍    │
+│ ▸ Hielo          −Bs 2.000   │
+│   Insumos · ✍ · ($2,33)      │
+│ ▸ Venta del día    +$350,00  │
+│   Efec. $200 · PM $100 · …   │
+│                              │
+│ DOM 28/09         −$524 +$0  │
+│ ▸ Gasolina      −Bs 450.000  │
+│   Transporte · ✍ · ($524,48) │
+│                              │
+│ SÁB 27/09        −$34 +$410  │
+│ ▸ Ferretería El T. −Bs 1.240 │
+│   Mantenimiento · 📷         │
+│ …                            │
+│                          (+) │
+├──────────────────────────────┤
+│  Inicio  Movim.  Cierres  Aj.│
+└──────────────────────────────┘
+```
+
+Reglas: agrupado por día con subtotal del día en la cabecera; monto original en grande y equivalente en pequeño; filtro "Eliminados" escondido en el buscador para no ensuciar; scroll infinito por mes.
+
+**Detalle y edición de un movimiento**
+
+```
+┌──────────────────────────────┐
+│ ←  Gasto                  ⋮  │
+│                              │
+│  Monto        Moneda         │
+│  ┌──────────┐ ┌──────┐       │
+│  │ 15,00    │ │ USD ▾│       │
+│  └──────────┘ └──────┘       │
+│  = Bs 12.870,00 a tasa 858,00│
+│                              │
+│  Fecha                       │
+│  ┌──────────────────────┐    │
+│  │ lun 29/09/2026     ▾ │    │
+│  └──────────────────────┘    │
+│  ⚠ Si cambias la fecha, se   │
+│    recalcula con la tasa de  │
+│    ese día.                  │  ← solo aparece al tocar la fecha
+│                              │
+│  Categoría                   │
+│  ┌──────────────────────┐    │
+│  │ Insumos de lavado  ▾ │    │
+│  └──────────────────────┘    │
+│  Descripción                 │
+│  ┌──────────────────────┐    │
+│  │ Champú               │    │
+│  └──────────────────────┘    │
+│                              │
+│  Factura                     │
+│  ┌────────┐                  │
+│  │ [foto] │  Ver · Quitar    │
+│  └────────┘                  │
+│                              │
+│  Registrado por WhatsApp 🎤  │
+│  Javier · lun 29/09 10:32    │
+│  "anota ahí veinte dólares…" │  ← transcripción, si vino de voz
+│  Editado: nunca              │
+│                              │
+│  ┌──────────────────────┐    │
+│  │       Guardar        │    │
+│  └──────────────────────┘    │
+│        Eliminar gasto        │  ← texto rojo, pide confirmación
+└──────────────────────────────┘
+```
+
+Para una venta del día, el detalle muestra las líneas por método y permite editar cada una; el total se recalcula y se muestra, no se edita.
+
+**Alta manual (respaldo)**
+
+Mismo formulario que el detalle, vacío, con un selector arriba: (●) Gasto ( ) Venta. Fecha por defecto hoy. Moneda por defecto la del tenant. Se guarda con `source_channel = dashboard`.
+
+**Cierres**
+
+```
+┌──────────────────────────────┐
+│ Cierres                      │
+│ [Día] [Semana] [Mes] [Rango] │
+│ ‹  lun 29/09/2026  ›         │
+│                              │
+│ Ventas             $350,00   │
+│  Efectivo USD      $200,00   │
+│  Pago Móvil        $100,00   │
+│                 Bs 85.800,00 │
+│  Punto              $50,00   │
+│                 Bs 42.900,00 │
+│                              │
+│ Gastos              $47,00   │
+│  Insumos de lavado  $27,00   │
+│  Comida del personal $20,00  │
+│                              │
+│ ══════════════════════════   │
+│ Ventas − gastos    $303,00   │
+│              Bs 259.974,00   │
+│ a tasa 858,00 del 29/09      │
+│                              │
+│ Efectivo en caja             │
+│  Dólares           $200,00   │
+│  Bolívares          Bs 0,00  │
+│                              │
+│ 5 movimientos  [Ver lista]   │
+│ [Exportar este período .xlsx]│
+├──────────────────────────────┤
+│  Inicio  Movim.  Cierres  Aj.│
+└──────────────────────────────┘
+```
+
+En "Mes" se agrega la tabla "Gastos por categoría" completa (no solo top 5) y "Ventas por método". Sin gráficos.
+
+**Ajustes**
+
+```
+┌──────────────────────────────┐
+│ Ajustes                      │
+│                              │
+│ ▸ Negocio                    │
+│   Autolavado El Rápido       │
+│ ▸ Categorías                 │
+│   10 activas                 │
+│ ▸ Números y roles            │
+│   2 números · 1 pendiente    │
+│ ▸ Exportar                   │
+│   Excel por rango de fechas  │
+│ ▸ Cuenta                     │
+│   javier@ejemplo.com         │
+│                              │
+│ Asistente de Caja v0.1       │
+│ Ayuda por WhatsApp: [abrir]  │
+├──────────────────────────────┤
+│  Inicio  Movim.  Cierres  Aj.│
+└──────────────────────────────┘
+```
+
+**Números y roles**
+
+```
+┌──────────────────────────────┐
+│ ←  Números y roles           │
+│                              │
+│ +58 412 1234567    Dueño     │
+│ Javier · ✅ verificado       │
+│                              │
+│ +58 414 7654321    Empleado  │
+│ Carlos · ✅ activo   [⋮]     │  ← ⋮: cambiar rol, desactivar
+│                              │
+│ +58 416 1112233    Empleado  │
+│ María · ◌ aún no ha escrito  │
+│                              │
+│ ┌──────────────────────┐     │
+│ │  + Agregar número    │     │
+│ └──────────────────────┘     │
+│                              │
+│ Los empleados registran      │
+│ gastos y ventas. Solo el     │
+│ dueño ve los cierres.        │
+└──────────────────────────────┘
+
+Agregar número (hoja inferior):
+│  Nombre      [Carlos      ]  │
+│  Número      [+58▾][414…  ]  │
+│  Rol         (●) Empleado    │
+│              ( ) Dueño       │
+│  [Agregar]                   │
+```
+
+**Categorías**
+
+```
+┌──────────────────────────────┐
+│ ←  Categorías de gasto       │
+│                              │
+│ ≡ Insumos de lavado      ✎   │
+│ ≡ Agua y electricidad    ✎   │
+│ ≡ Mantenimiento de equipos ✎ │
+│ ≡ Nómina y pagos a personal✎ │
+│ ≡ Alquiler               ✎   │
+│ ≡ Transporte y gasolina  ✎   │
+│ ≡ Comida del personal    ✎   │
+│ ≡ Publicidad             ✎   │
+│ ≡ Impuestos y trámites   ✎   │
+│ ≡ Otros                  🔒  │
+│                              │
+│ Desactivadas (1)  [ver]      │
+│                              │
+│ ┌──────────────────────┐     │
+│ │  + Nueva categoría   │     │
+│ └──────────────────────┘     │
+│ Máximo 10 activas para que   │
+│ quepan en la lista de        │
+│ WhatsApp.                    │
+└──────────────────────────────┘
+```
+
+Regla: si el dueño intenta activar la undécima, el dashboard pide desactivar otra. Renombrar no toca los movimientos históricos (referencian el id).
+
+**Exportar**
+
+```
+┌──────────────────────────────┐
+│ ←  Exportar                  │
+│                              │
+│  Desde   [01/09/2026]        │
+│  Hasta   [30/09/2026]        │
+│  Incluir ( ) Gastos          │
+│          ( ) Ventas          │
+│          (●) Todo            │
+│  ☐ Incluir eliminados        │
+│                              │
+│  ┌──────────────────────┐    │
+│  │  Descargar Excel     │    │
+│  └──────────────────────┘    │
+│                              │
+│  Columnas: fecha, tipo,      │
+│  categoría, descripción,     │
+│  monto, moneda, tasa, USD,   │
+│  Bs, método, quién, canal.   │
+└──────────────────────────────┘
+```
+
+### Escritorio
+
+Mismo contenido, barra lateral izquierda con las 4 entradas, contenido a máximo 1.100 px. Movimientos pasa a tabla con columnas (fecha, descripción, categoría/método, monto, equivalente, quién, canal) y el detalle se abre en un panel lateral en vez de una página. Nada más cambia. No se diseña una experiencia distinta para escritorio: se ensancha la de móvil.
+
+### Flujos de usuario principales
+
+**F1. Primer día (onboarding).** Login por correo → paso 1 negocio → paso 2 número y código → abre WhatsApp con el código prellenado → envía → la pantalla se actualiza sola a "vinculado" → Inicio vacío con un solo mensaje: "Escríbele al asistente tu primer gasto" y el enlace a WhatsApp.
+
+**F2. Corregir algo que el bot entendió mal (después de 30 min).** El bot manda el enlace directo `/movimientos/:id` → se abre el detalle en el teléfono → cambia monto o categoría → Guardar → vuelve a WhatsApp. Tres toques.
+
+**F3. Fin de mes para el contador.** Cierres → Mes → "Exportar este período" → se descarga el .xlsx → lo reenvía por WhatsApp al contador. O Ajustes → Exportar con rango libre.
+
+**F4. Agregar a la cajera.** Ajustes → Números y roles → Agregar → nombre, número, Empleado → listo. Ella escribe cualquier cosa al asistente y queda activa.
+
+**F5. "Hoy no registré la venta".** Aviso en Inicio después de las 18:00 → toca el aviso → se abre WhatsApp con el texto "hoy vendí " prellenado. El dashboard no pide la venta: la manda al canal donde el hábito vive.
+
+### Estados vacíos y de error
+
+| Pantalla | Vacío | Error |
+|---|---|---|
+| Inicio, sin movimientos | "Todavía no hay nada. Escríbele al asistente: _gasté 15$ en champú_" + botón a WhatsApp | "No pude cargar tus datos. [Reintentar]" |
+| Movimientos, filtro sin resultados | "Nada con esos filtros. [Quitar filtros]" | Igual |
+| Cierres, día sin datos | "Sin movimientos el 29/09." | Igual |
+| Sin conexión | Banner superior "Sin conexión" y la última vista cargada sigue visible en solo lectura | |
+| Sesión vencida | Vuelve a login con el mensaje "Tu sesión venció, pídete otro enlace" | |
+
+### Decisiones tomadas en la Fase 5
+
+- Dashboard como trastienda: ver, corregir, exportar, configurar. Registrar manualmente es respaldo.
+- Cuatro pestañas fijas: Inicio, Movimientos, Cierres, Ajustes. Botón "+" para alta manual.
+- Cero gráficos en el MVP; números grandes y tablas.
+- Cierres en el dashboard con exactamente el mismo formato y las mismas consultas que el mensaje de WhatsApp.
+- Iconos de canal (texto, voz, foto, dashboard) visibles en cada movimiento.
+- Máximo 10 categorías activas, forzado desde el dashboard.
+- El aviso "no registraste la venta" lleva a WhatsApp con texto prellenado, no a un formulario.
+- Escritorio = móvil ensanchado con barra lateral y tabla; sin diseño aparte.
+- Odoo no tiene UI en el MVP; la ruta queda reservada.
+
+### Preguntas abiertas
+
+1. ¿Quieres que el dashboard sea instalable como app (PWA con icono en el teléfono)? Es barato si el stack de la Fase 6 lo permite de serie; lo propongo como Should.
+2. Tema oscuro: propongo no hacerlo en el MVP. ¿Alguna objeción?
+3. Hora del aviso "no registraste la venta" en Inicio: propongo 18:00 hora Caracas, configurable por tenant después. ¿Tu autolavado cierra antes o después?
+
+### Riesgos detectados
+
+- El dueño puede intentar usar el dashboard como sistema principal y pedir funciones de POS. Mitigación: el alta manual es deliberadamente básica y la copy empuja a WhatsApp.
+- Edición de fecha con recálculo de tasa puede sorprender ("cambié la fecha y me cambió el monto en Bs"). Mitigación: advertencia visible antes de guardar y auditoría del cambio.
+- Nombres de categoría largos rompen la lista móvil. Mitigación: límite de 24 caracteres en el formulario, alineado con el límite de filas de WhatsApp.
