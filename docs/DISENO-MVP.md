@@ -2365,7 +2365,7 @@ Lectura: el costo por tenant baja de 5 USD a partir de unos 25 tenants; antes de
 
 ### Preguntas abiertas (resueltas al aprobar la fase)
 
-1. Business Manager con WABA existente: **sin respuesta todavía**. Si existe, registrar el método de pago antes del 30/09/2026.
+1. Business Manager con WABA existente: **no existe**. Se crea en la semana 1 con el método de pago registrado desde el inicio, antes de pasar del número de prueba a producción.
 2. Números para clientes de pago: SIM venezolana descartada (documentos, ~10 USD la SIM y ~5 USD al mes de plan). Se probará un **número virtual de Estados Unidos** desde la empresa del fundador con el primer cliente de pago. La decisión final depende del consumo real medido en el piloto; si el costo no cierra, se ajusta el precio de la suscripción o el esquema de números.
 3. Hosting: el fundador ya paga Vercel Pro y Supabase Pro. La web va en el equipo de Vercel existente (sin cuota base adicional, solo uso) y la base en un proyecto nuevo de la organización de Supabase (~10 USD al mes de cómputo Micro, porque el crédito cubre una sola instancia). El worker va en Railway. **Fijo incremental: ~18 USD al mes; piloto completo ~23 USD.** Verificar ambas cifras en la facturación real.
 4. Cifras a confirmar en página oficial antes de comprometer dinero: precio por mensaje de Meta para Resto de Latinoamérica y la franja gratuita de 1.000; tarifas de Railway; fecha de retiro de Haiku 4.5; tarifa de Gemini Flash-Lite en el Developer API. Haiku 4.5 queda descartado de todos modos; Claude Sonnet 5.5 aprobado como principal.
