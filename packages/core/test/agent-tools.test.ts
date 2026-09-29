@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ALL_TOOLS,
+  AskClarificationInput,
   DraftExpenseInput,
   matchCategory,
   numbersAreGrounded,
@@ -87,6 +88,14 @@ describe("definiciones de herramientas", () => {
     };
     expect(draft.required).toEqual(["amount", "currency", "description", "category_name", "when"]);
   });
+  it("quita las palabras clave que strict no admite (maxItems, maxLength) y deja la validación a Zod", () => {
+    const json = JSON.stringify(ALL_TOOLS.map(toLlmToolDef));
+    expect(json).not.toMatch(/maxItems|maxLength|minLength|minItems/);
+    expect(
+      AskClarificationInput.safeParse({ question: "x", options: ["a", "b", "c", "d"] }).success,
+    ).toBe(false);
+  });
+
   it("draft_expense exige los campos nulos explícitos (strict)", () => {
     expect(DraftExpenseInput.safeParse({ amount: "15", description: "Champú" }).success).toBe(
       false,

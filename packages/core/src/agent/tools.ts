@@ -298,9 +298,39 @@ export function toolsForRole(role: "owner" | "employee"): ToolSpec<z.ZodType>[] 
   return ALL_TOOLS.filter((t) => t.roles.includes(role));
 }
 
+/**
+ * Palabras clave que el modo `strict` de la API no admite. Zod las genera desde `.max()` y
+ * similares; se quitan del esquema que ve el modelo y siguen validándose con Zod en el backend.
+ */
+const UNSUPPORTED_IN_STRICT = new Set([
+  "maxLength",
+  "minLength",
+  "maxItems",
+  "minItems",
+  "pattern",
+  "format",
+  "minimum",
+  "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
+  "uniqueItems",
+  "default",
+]);
+
+export function stripUnsupportedKeywords(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(stripUnsupportedKeywords);
+  if (!node || typeof node !== "object") return node;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+    if (UNSUPPORTED_IN_STRICT.has(k)) continue;
+    out[k] = stripUnsupportedKeywords(v);
+  }
+  return out;
+}
+
 /** JSON Schema para el modelo, con `additionalProperties: false` (requisito de `strict`). */
 export function toLlmToolDef(t: ToolSpec<z.ZodType>): LlmToolDef {
-  const json = z.toJSONSchema(t.schema) as Record<string, unknown>;
+  const json = stripUnsupportedKeywords(z.toJSONSchema(t.schema)) as Record<string, unknown>;
   delete json.$schema;
   json.additionalProperties = false;
   if (!("properties" in json)) json.properties = {};
