@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
-import { createDb, withTenant } from "../client.js";
+import { createDb, rows, withTenant } from "../client.js";
 import { category, phoneNumber, tenant } from "../schema/index.js";
 import { DEFAULT_EXPENSE_CATEGORIES } from "./default-categories.js";
 
@@ -55,8 +55,8 @@ async function main() {
   const env = Env.parse(process.env);
   const { db, close } = createDb(env.DATABASE_URL, { max: 1 });
   try {
-    const taken = await db.execute<{ taken: boolean }>(
-      sql`select app.phone_is_taken(${env.SEED_OWNER_PHONE}) as taken`,
+    const taken = rows<{ taken: boolean }>(
+      await db.execute(sql`select app.phone_is_taken(${env.SEED_OWNER_PHONE}) as taken`),
     );
     if (taken[0]?.taken) {
       console.log("seed ya aplicado (número del dueño existe)");

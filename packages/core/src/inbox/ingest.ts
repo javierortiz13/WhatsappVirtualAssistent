@@ -34,6 +34,7 @@ export function serializationKeyFor(m: InboundMessage): string {
 
 export async function ingestWebhook(deps: IngestDeps, payload: unknown): Promise<IngestResult> {
   const log = deps.log ?? silentLogger;
+  const now = deps.now ?? (() => new Date());
   const parsed = parseWebhook(payload);
   const result: IngestResult = {
     accepted: 0,
@@ -46,7 +47,7 @@ export async function ingestWebhook(deps: IngestDeps, payload: unknown): Promise
     const inserted = await deps.db.transaction(async (tx) => {
       const rows = await tx
         .insert(schema.webhookEvent)
-        .values({ eventKey: eventKeyFor(m), payload: m, status: "received" })
+        .values({ eventKey: eventKeyFor(m), payload: m, status: "received", receivedAt: now() })
         .onConflictDoNothing({ target: schema.webhookEvent.eventKey })
         .returning({ id: schema.webhookEvent.id });
       const row = rows[0];
@@ -80,7 +81,12 @@ export async function ingestWebhook(deps: IngestDeps, payload: unknown): Promise
     if (s.status !== "failed" && s.errors.length === 0) continue;
     await deps.db
       .insert(schema.webhookEvent)
-      .values({ eventKey: `status:${s.waMessageId}:${s.status}`, payload: s, status: "ignored" })
+      .values({
+        eventKey: `status:${s.waMessageId}:${s.status}`,
+        payload: s,
+        status: "ignored",
+        receivedAt: now(),
+      })
       .onConflictDoNothing({ target: schema.webhookEvent.eventKey });
     result.failedStatuses += 1;
     log.warn({ waMessageId: s.waMessageId, errors: s.errors }, "estado de entrega fallido");

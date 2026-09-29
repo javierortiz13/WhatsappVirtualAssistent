@@ -1,22 +1,80 @@
-import { createDb, sql } from "@caja/db";
+import { type ProcessDeps, processInbound, stubAgent, whatsapp } from "@caja/core";
+import { createDb, rows, sql } from "@caja/db";
+import { createBoss, ensureQueues, type ProcessMessageJob, QUEUES } from "@caja/db/queue";
 import { loadEnv } from "./env.js";
 import { createLogger } from "./logger.js";
 
 /**
- * Proceso worker. Día 1: valida entorno, conecta a la base y espera. Día 3 agrega pg-boss,
- * el procesador de mensajes y el cron de tasa BCV.
+ * Proceso worker: pg-boss toma los jobs de `process-message` (uno a la vez por teléfono, en
+ * orden) y los entrega en lotes al handler. Cada job se procesa de forma idempotente.
  */
 async function main() {
   const env = loadEnv();
   const log = createLogger(env.LOG_LEVEL, env.NODE_ENV === "development");
-  const { db, close } = createDb(env.DATABASE_URL, { max: 3 });
-
-  const [row] = await db.execute<{ ok: number }>(sql`select 1 as ok`);
+  const { db, close } = createDb(env.DATABASE_URL, { max: 5 });
+  const [row] = rows<{ ok: number }>(await db.execute(sql`select 1 as ok`));
   if (row?.ok !== 1) throw new Error("la base no respondió");
-  log.info({ assistant: env.ASSISTANT_NAME }, "worker listo");
+
+  // Un cliente de Meta por número de la plataforma. Hoy uno (del entorno); ADR-001 revisado prevé N.
+  const clients = new Map<string, whatsapp.MetaClient>([
+    [
+      env.META_PHONE_NUMBER_ID,
+      new whatsapp.MetaClient({
+        accessToken: env.META_ACCESS_TOKEN,
+        phoneNumberId: env.META_PHONE_NUMBER_ID,
+        graphVersion: env.META_GRAPH_VERSION,
+      }),
+    ],
+  ]);
+
+  const deps: ProcessDeps = {
+    db,
+    metaFor: (id) => clients.get(id) ?? null,
+    agent: stubAgent,
+    log,
+    config: {
+      assistantName: env.ASSISTANT_NAME,
+      dashboardUrl: env.DASHBOARD_URL,
+      supportHint: env.SUPPORT_HINT ?? null,
+      unknownReplyMax: 5,
+      unknownReplyWindowMs: 60 * 60 * 1000,
+      maxEventAgeMs: 12 * 60 * 60 * 1000,
+      maxTextLength: 500,
+    },
+  };
+
+  const boss = createBoss(env.DATABASE_URL, "worker");
+  boss.on("error", (err) => log.error({ err: err.message }, "pg-boss"));
+  await boss.start();
+  await ensureQueues(boss);
+
+  await boss.work<ProcessMessageJob>(
+    QUEUES.processMessage,
+    { batchSize: 1, pollingIntervalSeconds: 1, localConcurrency: env.WORKER_CONCURRENCY },
+    async (jobs) => {
+      for (const job of jobs) {
+        const started = Date.now();
+        const outcome = await processInbound(deps, job.data);
+        log.info(
+          { jobId: job.id, outcome, ms: Date.now() - started, retry: job.retryCount },
+          "job procesado",
+        );
+      }
+    },
+  );
+
+  log.info(
+    {
+      assistant: env.ASSISTANT_NAME,
+      phoneNumberId: env.META_PHONE_NUMBER_ID,
+      concurrency: env.WORKER_CONCURRENCY,
+    },
+    "worker listo",
+  );
 
   const shutdown = async (signal: string) => {
     log.info({ signal }, "apagando");
+    await boss.stop({ graceful: true, timeout: 20_000, close: true });
     await close();
     process.exit(0);
   };

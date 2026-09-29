@@ -5,6 +5,18 @@ import * as schema from "./schema/index.js";
 
 export type Db = ReturnType<typeof createDb>["db"];
 export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+/** Conexión o transacción: lo que aceptan las consultas de lectura y escritura del dominio. */
+export type Queryable = Db | Tx;
+
+/**
+ * `execute()` devuelve un arreglo con postgres.js y `{ rows }` con PGlite (tests). Este helper
+ * normaliza para que el dominio no dependa del driver.
+ */
+export function rows<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  const r = result as { rows?: T[] } | null;
+  return r?.rows ?? [];
+}
 
 /**
  * Crea la conexión de la aplicación. `max` bajo a propósito: web y worker son procesos

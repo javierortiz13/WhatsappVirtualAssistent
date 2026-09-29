@@ -66,6 +66,9 @@ importers:
       '@caja/db':
         specifier: workspace:*
         version: link:../../packages/db
+      pg-boss:
+        specifier: ^12.35.0
+        version: 12.35.0
       pino:
         specifier: ^10.3.1
         version: 10.3.1

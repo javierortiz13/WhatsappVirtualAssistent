@@ -46,3 +46,25 @@ Registro corto por día de trabajo: qué quedó terminado, qué se aprendió, qu
 - Worker con pg-boss: `ensureQueues`, handler de `process-message`, resolución de teléfono a tenant y rol, handlers deterministas (desconocido, menú con tasa, "tasa", "ayuda", confirmar y cancelar), plantillas en `render/es-VE.ts`.
 - Instalación del schema `pgboss` en Supabase: el worker con `migrate: true` necesita `CREATE` en la base para `caja_app`, o se corre una vez con la URL de administrador. Decidir al desplegar en Railway.
 - Registrar la URL del webhook en Meta cuando exista un despliegue o un túnel local.
+
+### Día 3 · 29/09/2026 · Worker, handlers deterministas y plantillas
+
+**Terminado**
+- `packages/core/src/render/es-VE.ts`: todas las plantillas de la Fase 4 que no dependen del ledger (menú con tasa, tasa con próxima y advertencia, bienvenida de dueño y empleado, ayuda, desconocido, fuera de alcance, prompts de menú, corrección, vencido, cancelado, LLM caído). Ids de botones con prefijo (`menu:`, `confirm:`, `fix:`, `cancel:`, `currency:`, `cat:`) y `parseReplyId`.
+- `packages/core/src/identity`: `resolveSender` vía `app.resolve_phone` (sin tenant fijado), `canUse`, y rate limit de desconocidos con ventana deslizante en `unknown_sender_hit` (5 por hora, luego silencio).
+- `packages/core/src/rates/current.ts`: tasa vigente y próxima por consulta, con detección de tasa vieja por días hábiles.
+- `packages/core/src/inbox/process.ts`: `processInbound` idempotente: evento ya cerrado o ya respondido no se repite; eventos con más de 12 h se marcan vencidos; desconocidos reciben texto fijo sin LLM y sin guardar contenido; leído más indicador de escritura; enrutamiento determinista (hola/menú, tasa, ayuda, botones de menú, confirmar/corregir/cancelar borradores, empleado que pide cierre) y el resto al agente (stub hasta el día 5); cada respuesta se registra como `message(out, sending)` antes de enviar y pasa a `ok` o `failed`; 4xx de Meta no reintenta, 5xx sí.
+- `packages/db/src/install-queue.ts` (`pnpm --filter @caja/db run queue:install`): instala el schema `pgboss` con el rol administrador y otorga permisos a `caja_app`. El worker arranca con `migrate: false`.
+- `apps/worker`: pg-boss en modo worker, `ensureQueues`, handler en lote de `process-message` con `localConcurrency`, un `MetaClient` por número de la plataforma (mapa, listo para N números), apagado ordenado.
+- Postgres 16 local en el puerto 5433 para probar pg-boss real; CI con servicio `postgres:16`. Test verificado: tres jobs del mismo teléfono se procesan uno a la vez y en orden, otro teléfono en paralelo; encolar dentro de una transacción que falla no deja job; `caja_app` usa la cola y sigue bajo RLS. Total: 100 tests.
+
+**Aprendido**
+- `db.execute()` devuelve un arreglo con postgres.js y `{ rows }` con PGlite: helper `rows()` en `@caja/db` para no depender del driver.
+- pg-boss ordena FIFO por `created_on`: dos jobs en la misma transacción empatan. La ingesta usa una transacción por mensaje, así que el orden real se conserva.
+- Postgres se niega a correr como root; el servidor local corre como el usuario `postgres` bajo `/tmp/pg16`.
+- Un id de botón viene del cliente: se valida como UUID antes de consultar `pending_action`.
+
+**Pendiente para el día 4**
+- `rates`: scraper de bcv.org.ve con fecha valor y respaldo DolarAPI; cron en pg-boss (15:00 a 20:00 Caracas cada 30 min, más 08:00).
+- `ledger` (`LocalProvider`): `createExpense` transaccional con auditoría; ejecutor de `confirm` para `create_expense`; plantilla de borrador y de guardado con total del día.
+- Cuentas externas de S0 para conectar el webhook real.

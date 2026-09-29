@@ -8,13 +8,16 @@
     "./schema": "./src/schema/index.ts",
     "./seed-data": "./src/seed/default-categories.ts",
     "./queue": "./src/queue.ts",
-    "./testing": "./src/testing/pglite.ts"
+    "./testing": "./src/testing/pglite.ts",
+    "./install-queue": "./src/install-queue.ts",
+    "./seed": "./src/seed/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "migrate": "tsx src/migrate.ts",
-    "seed": "tsx src/seed/index.ts"
+    "seed": "tsx src/seed/index.ts",
+    "queue:install": "tsx src/install-queue.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.3",
