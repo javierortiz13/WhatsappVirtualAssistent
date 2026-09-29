@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./domain": "./src/domain/index.ts"
+    "./domain": "./src/domain/index.ts",
+    "./whatsapp": "./src/whatsapp/index.ts",
+    "./inbox": "./src/inbox/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
