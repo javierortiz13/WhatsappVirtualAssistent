@@ -174,10 +174,11 @@ function check(
     const args = (last?.args ?? {}) as Record<string, unknown>;
     for (const [k, v] of Object.entries(c.expect.args)) {
       if (k === "amount") {
-        expect(
-          new Decimal(String(args.amount)).eq(new Decimal(String(v))),
-          `amount ${args.amount}`,
-        ).toBe(true);
+        // "" significa "sin monto" (ausente o sin cambio); solo compara numéricamente si ambos lo traen.
+        const got = String(args.amount ?? "").trim();
+        const want = String(v ?? "").trim();
+        if (got === "" || want === "") expect(got, `amount ${args.amount}`).toBe(want);
+        else expect(new Decimal(got).eq(new Decimal(want)), `amount ${args.amount}`).toBe(true);
       } else if (k === "when") {
         const got = resolveWhen((args.when as string | null) ?? null, ctx.today);
         const want = resolveWhen((v as string | null) ?? null, ctx.today);
