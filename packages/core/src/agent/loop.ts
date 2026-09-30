@@ -168,7 +168,9 @@ async function recentHistory(
     })
     .from(schema.message)
     .where(and(eq(schema.message.phoneId, phoneId), gt(schema.message.createdAt, since)))
-    .orderBy(desc(schema.message.createdAt))
+    // Entrante y respuesta se escriben en la misma transacción y comparten created_at: con el
+    // empate, `direction` desc ("out" > "in") deja la respuesta después del mensaje al invertir.
+    .orderBy(desc(schema.message.createdAt), desc(schema.message.direction))
     .limit(limit + 1);
   // El último `in` es el mensaje actual (ya insertado antes de llamar al agente): se excluye.
   const ordered = rows.reverse();

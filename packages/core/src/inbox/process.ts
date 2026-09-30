@@ -160,7 +160,8 @@ export async function processInbound(
         direction: "in",
         waMessageId: msg.waMessageId,
         kind: msg.kind,
-        body: msg.kind === "text" ? msg.text : null,
+        // El título del botón queda como cuerpo: el historial del agente ve "Dólares" o "Guardar".
+        body: msg.kind === "text" ? msg.text : msg.kind === "interactive" ? msg.replyTitle : null,
         mediaId: msg.kind === "audio" || msg.kind === "image" ? msg.media.id : null,
         webhookEventId: event.id,
       })
@@ -388,7 +389,7 @@ async function routeMessage(
       if (keyword === "close") return closeToday(tx, deps, ctx);
       if (keyword === "delete") return deleteLast(tx, deps, ctx, msg);
       if (msg.text.length > deps.config.maxTextLength) return none([es.tooLong()]);
-      return runAgent(tx, deps, ctx, msg, { kind: "text", text: msg.text });
+      return runAgent(tx, deps, ctx, msg.waMessageId, { kind: "text", text: msg.text });
     }
     case "audio":
       return none([es.mediaNotYet("audio")]);
@@ -474,10 +475,31 @@ async function routeInteractive(
       }
       return executePending(tx, pending, ctx, nowTs);
     }
-    case "currency":
-    case "category":
-      // Día 5: se reinyectan al agente como respuesta a una aclaración.
-      return none([es.outOfScope()]);
+    case "currency": {
+      // Respuesta a "¿500 en qué moneda?": vuelve al agente con el historial de los últimos
+      // 30 minutos, que contiene el mensaje original y la pregunta.
+      const label = parsed.currency === "USD" ? "dólares (USD)" : "bolívares (VES)";
+      return runAgent(tx, deps, ctx, ctx.inboundId, {
+        kind: "text",
+        text: `Respuesta al botón de moneda: ${label}. Registra lo del mensaje anterior en esa moneda.`,
+      });
+    }
+    case "category": {
+      const [cat] = await tx
+        .select({ name: schema.category.name })
+        .from(schema.category)
+        .where(
+          and(
+            eq(schema.category.tenantId, ctx.tenantId),
+            eq(schema.category.id, parsed.categoryId),
+          ),
+        );
+      if (!cat) return none([es.clarification("No encontré esa categoría. ¿Cuál es?", [])]);
+      return runAgent(tx, deps, ctx, ctx.inboundId, {
+        kind: "text",
+        text: `Respuesta al botón de categoría: ${JSON.stringify(cat.name)}. Aplícala a lo del mensaje anterior.`,
+      });
+    }
     default:
       return none([es.outOfScope()]);
   }
@@ -531,7 +553,7 @@ async function runAgent(
   tx: Tx,
   deps: ProcessDeps,
   ctx: RouteCtx,
-  msg: InboundMessage | null,
+  waMessageId: string | null,
   input: AgentInput,
 ): Promise<RouteResult> {
   const log = deps.log ?? silentLogger;
@@ -546,11 +568,11 @@ async function runAgent(
       ),
     )
     .orderBy(schema.category.sortOrder);
-  const [current] = msg
+  const [current] = waMessageId
     ? await tx
         .select({ id: schema.message.id })
         .from(schema.message)
-        .where(eq(schema.message.waMessageId, msg.waMessageId))
+        .where(eq(schema.message.waMessageId, waMessageId))
     : [];
   try {
     const result = await deps.agent.run(

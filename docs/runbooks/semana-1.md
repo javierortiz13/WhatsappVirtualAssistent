@@ -147,8 +147,8 @@ Ordenada por lo que más duele en el piloto:
 
 1. ~~Onboarding~~ Hecho en S2 día 3: registro en `/registro`, código por WhatsApp, empleados desde Ajustes.
 2. ~~Cierres, consultas, corregir y borrar por chat~~ Hechos en S2 (días 1 y 2).
-3. **Listas `currency:` y `cat:`**: las respuestas de lista no se reinyectan al agente; la moneda
-   ambigua se resuelve pidiendo el monto con `$` o `bs`. S2.
+3. ~~Listas `currency:` y `cat:`~~ Hecho en S2 día 3: botones Dólares / Bolívares y reinyección al
+   agente con el historial.
 4. ~~Tasa manual como corrección~~ Hecho en S2 día 2 (migración 0003).
 5. **Historia de tasas automática**: hoy es CSV manual; evaluar el Excel del BCV por script. S2.
 6. **Voz y foto**: responden "todavía no". S4.

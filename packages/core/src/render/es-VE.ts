@@ -262,6 +262,18 @@ export function expenseSaved(dayTotalUsd: Decimal.Value, count: number): Outboun
   };
 }
 
+/** Moneda ambigua (sin moneda por defecto y monto bajo el umbral): dos botones, sin LLM al responder. */
+export function currencyQuestion(amountText: string): Outbound {
+  return {
+    type: "buttons",
+    body: `¿${amountText} en qué moneda?`,
+    buttons: [
+      { id: IDS.currency("USD"), title: "Dólares" },
+      { id: IDS.currency("VES"), title: "Bolívares" },
+    ],
+  };
+}
+
 export function clarification(question: string, options: string[]): Outbound {
   if (options.length === 0) return { type: "text", body: question };
   return { type: "text", body: `${question}\n${options.map((o) => `• ${o}`).join("\n")}` };

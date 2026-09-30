@@ -279,16 +279,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
       tenantDefault: run.ctx.defaultCurrency,
     });
     if (inferred.kind === "ask") {
-      return {
-        kind: "terminal",
-        outbound: [
-          es.clarification(
-            `¿${input.amount} en qué moneda? Responde por ejemplo: ${input.amount}$ o ${input.amount} bs`,
-            [],
-          ),
-        ],
-        status: "ok",
-      };
+      return { kind: "terminal", outbound: [es.currencyQuestion(input.amount)], status: "ok" };
     }
     const mr = manualRateFrom(nz(input.rate), when.date);
     if (mr === "invalid")
