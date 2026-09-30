@@ -4,25 +4,25 @@
   input: "no, eran 25"
   expect:
     tool: amend_last_movement
-    args: { amount: "25", currency: null, category_name: null, when: null }
+    args: { amount: "25", currency: keep, category_name: "", when: "" }
 
 - name: corregir la categoría
   input: "eso es mantenimiento"
   expect:
     tool: amend_last_movement
-    args: { category_name: Mantenimiento de equipos, amount: null }
+    args: { category_name: Mantenimiento de equipos, amount: "" }
 
 - name: corregir la fecha
   input: "ese gasto fue ayer"
   expect:
     tool: amend_last_movement
-    args: { when: ayer, amount: null }
+    args: { when: ayer, amount: "" }
 
 - name: tasa manual
   input: "ponlo a tasa 850"
   expect:
     tool: amend_last_movement
-    args: { rate: "850", amount: null }
+    args: { rate: "850", amount: "" }
 
 - name: borrar con otras palabras
   input: "quita ese último, me equivoqué"

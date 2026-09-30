@@ -3,13 +3,13 @@
   input: "cómo fue hoy?"
   expect:
     tool: get_summary
-    args: { period: today, category_name: null }
+    args: { period: today, category_name: "" }
 
 - name: cómo va el mes
   input: "cómo va el mes"
   expect:
     tool: get_summary
-    args: { period: this_month, category_name: null }
+    args: { period: this_month, category_name: "" }
 
 - name: cuánto llevo esta semana
   input: "cuánto llevo esta semana"

@@ -61,7 +61,22 @@ export type ToolSpec<S extends z.ZodType> = {
   run: (input: z.infer<S>, run: ToolRunCtx) => Promise<ToolOutcome>;
 };
 
-const Currency = z.enum(["USD", "VES"]);
+/**
+ * El modo `strict` admite como máximo 16 parámetros con tipo unión en todo el conjunto de
+ * herramientas, y cada `nullable` cuenta. Por eso "no lo dijo" se expresa con "" en los textos
+ * y con `unknown` / `keep` / `unspecified` en las listas, nunca con null. El backend normaliza
+ * con `nz` y `cur`.
+ */
+const CurrencyOrUnknown = z.enum(["USD", "VES", "unknown"]);
+const nz = (s: string): string | null => (s.trim() ? s.trim() : null);
+const cur = (c: "USD" | "VES" | "unknown" | "keep"): "USD" | "VES" | null =>
+  c === "USD" || c === "VES" ? c : null;
+
+const RATE_FIELD = z
+  .string()
+  .describe(
+    'Tasa en bolívares por dólar SOLO si el usuario la dice explícitamente ("a tasa 850", "tasa 857,89"), normalizada a dígitos con punto. "" si no la dijo.',
+  );
 
 export const DraftExpenseInput = z.object({
   amount: z
@@ -69,8 +84,8 @@ export const DraftExpenseInput = z.object({
     .describe(
       'Monto tal como lo dijo el usuario, normalizado a dígitos con punto decimal. "15,50" → "15.50"; "450 mil" → "450000"; "medio millón" → "500000".',
     ),
-  currency: Currency.nullable().describe(
-    "USD si dijo $, dólares, verdes, usd. VES si dijo bs, bolos, bolívares. null si no lo dijo.",
+  currency: CurrencyOrUnknown.describe(
+    "USD si dijo $, dólares, verdes, usd. VES si dijo bs, bolos, bolívares. unknown si no lo dijo.",
   ),
   description: z
     .string()
@@ -80,22 +95,15 @@ export const DraftExpenseInput = z.object({
     ),
   category_name: z
     .string()
-    .nullable()
     .describe(
-      "Una categoría de la lista del negocio, copiada exactamente, o null si ninguna encaja claramente.",
+      'Una categoría de la lista del negocio, copiada exactamente, o "" si ninguna encaja claramente.',
     ),
   when: z
     .string()
-    .nullable()
     .describe(
-      'Cuándo fue: "hoy", "ayer", "antier", un día de la semana ("lunes"), o una fecha ISO YYYY-MM-DD. null si no lo dijo (se asume hoy).',
+      'Cuándo fue: "hoy", "ayer", "antier", un día de la semana ("lunes"), o una fecha ISO YYYY-MM-DD. "" si no lo dijo (se asume hoy).',
     ),
-  rate: z
-    .string()
-    .nullable()
-    .describe(
-      'Tasa en bolívares por dólar SOLO si el usuario la dice explícitamente ("a tasa 850", "tasa 857,89"), normalizada a dígitos con punto. null si no la dijo.',
-    ),
+  rate: RATE_FIELD,
 });
 
 export const AskClarificationInput = z.object({
@@ -119,39 +127,6 @@ export const RejectOutOfScopeInput = z.object({
 
 export const GetBcvRateInput = z.object({});
 
-export const AmendLastInput = z.object({
-  amount: z.string().nullable().describe("Nuevo monto normalizado, o null si no cambia."),
-  currency: Currency.nullable().describe("Nueva moneda si la dijo; null si no cambia."),
-  category_name: z
-    .string()
-    .nullable()
-    .describe("Nueva categoría de la lista, o null si no cambia."),
-  description: z.string().max(120).nullable().describe("Nueva descripción, o null si no cambia."),
-  when: z
-    .string()
-    .nullable()
-    .describe("Nueva fecha (hoy, ayer, día de la semana, ISO), o null si no cambia."),
-  method: z
-    .enum([
-      "cash_usd",
-      "cash_ves",
-      "pago_movil",
-      "punto",
-      "zelle",
-      "transfer_usd",
-      "transfer_ves",
-      "other",
-    ])
-    .nullable()
-    .describe("Nuevo método de pago (solo ventas), o null si no cambia."),
-  rate: z
-    .string()
-    .nullable()
-    .describe("Nueva tasa Bs por dólar si la dice explícitamente, o null."),
-});
-
-export const DeleteLastInput = z.object({});
-
 const Method = z.enum([
   "cash_usd",
   "cash_ves",
@@ -163,14 +138,27 @@ const Method = z.enum([
   "other",
 ]);
 
+export const AmendLastInput = z.object({
+  amount: z.string().describe('Nuevo monto normalizado, o "" si no cambia.'),
+  currency: z.enum(["USD", "VES", "keep"]).describe("Nueva moneda si la dijo; keep si no cambia."),
+  category_name: z.string().describe('Nueva categoría de la lista, o "" si no cambia.'),
+  description: z.string().max(120).describe('Nueva descripción, o "" si no cambia.'),
+  when: z.string().describe('Nueva fecha (hoy, ayer, día de la semana, ISO), o "" si no cambia.'),
+  method: z
+    .enum([...Method.options, "keep"])
+    .describe("Nuevo método de pago (solo ventas), o keep si no cambia."),
+  rate: z.string().describe('Nueva tasa Bs por dólar si la dice explícitamente, o "".'),
+});
+
+export const DeleteLastInput = z.object({});
+
 export const DraftIncomeDayTotalInput = z.object({
   total_amount: z
     .string()
-    .nullable()
     .describe(
-      'Total de la venta del día tal como lo dijo, normalizado a dígitos con punto decimal ("350", "1.200,50" → "1200.50"). null si solo dio el desglose sin total.',
+      'Total de la venta del día tal como lo dijo, normalizado a dígitos con punto decimal ("350", "1.200,50" → "1200.50"). "" si solo dio el desglose sin total.',
     ),
-  total_currency: Currency.nullable().describe("Moneda del total si la dijo; null si no."),
+  total_currency: CurrencyOrUnknown.describe("Moneda del total si la dijo; unknown si no."),
   lines: z
     .array(
       z.object({
@@ -178,20 +166,14 @@ export const DraftIncomeDayTotalInput = z.object({
           "efectivo/cash en dólares = cash_usd; efectivo en bs = cash_ves; pago móvil/pm = pago_movil; punto/pdv = punto; zelle = zelle; transferencia en dólares = transfer_usd; transferencia en bs = transfer_ves; otro = other. Si dice solo 'efectivo' sin moneda y el total es en dólares, cash_usd.",
         ),
         amount: z.string().describe("Monto de ese método, normalizado igual que total_amount."),
-        currency: Currency.nullable().describe("Moneda si la dijo para ese método; null si no."),
+        currency: CurrencyOrUnknown.describe("Moneda si la dijo para ese método; unknown si no."),
       }),
     )
     .describe("Desglose por método de pago. Lista vacía si solo dijo el total."),
   when: z
     .string()
-    .nullable()
-    .describe('"hoy", "ayer", "antier", un día de la semana o fecha ISO. null si no lo dijo.'),
-  rate: z
-    .string()
-    .nullable()
-    .describe(
-      'Tasa en bolívares por dólar SOLO si el usuario la dice explícitamente ("a tasa 850", "tasa 857,89"), normalizada a dígitos con punto. null si no la dijo.',
-    ),
+    .describe('"hoy", "ayer", "antier", un día de la semana o fecha ISO. "" si no lo dijo.'),
+  rate: RATE_FIELD,
 });
 
 export const GetSummaryInput = z.object({
@@ -200,36 +182,27 @@ export const GetSummaryInput = z.object({
     .describe(
       '"today" para "cierre", "cómo fue hoy"; "this_month" para "cómo va el mes", "cuánto llevo"; "custom" con from/to para "del 1 al 15", "en agosto".',
     ),
-  from: z.string().nullable().describe("Fecha ISO de inicio si period es custom; null si no."),
-  to: z.string().nullable().describe("Fecha ISO de fin si period es custom; null si no."),
+  from: z.string().describe('Fecha ISO de inicio si period es custom; "" si no.'),
+  to: z.string().describe('Fecha ISO de fin si period es custom; "" si no.'),
   category_name: z
     .string()
-    .nullable()
     .describe(
-      "Solo si pregunta cuánto gastó en UNA categoría o cosa ('en champú', 'en insumos'): el nombre de la lista o lo que dijo. null para el cierre o resumen general.",
+      'Solo si pregunta cuánto gastó en UNA categoría o cosa ("en champú", "en insumos"): el nombre de la lista o lo que dijo. "" para el cierre o resumen general.',
     ),
 });
 
 export const DraftIncomeSingleInput = z.object({
   amount: z.string().describe("Monto normalizado a dígitos con punto decimal."),
-  currency: Currency.nullable().describe("USD, VES o null si no la dijo."),
-  method: Method.nullable().describe(
-    "Método de pago si lo dijo (zelle, pago móvil, efectivo...); null si no.",
-  ),
+  currency: CurrencyOrUnknown.describe("USD, VES o unknown si no la dijo."),
+  method: z
+    .enum([...Method.options, "unspecified"])
+    .describe("Método de pago si lo dijo (zelle, pago móvil, efectivo...); unspecified si no."),
   description: z
     .string()
     .max(120)
     .describe("Por qué le pagaron, en 1 a 6 palabras, sin el monto. Ej: 'Carro del abogado'."),
-  when: z
-    .string()
-    .nullable()
-    .describe('"hoy", "ayer", día de la semana o fecha ISO. null si no lo dijo.'),
-  rate: z
-    .string()
-    .nullable()
-    .describe(
-      'Tasa en bolívares por dólar SOLO si el usuario la dice explícitamente ("a tasa 850", "tasa 857,89"), normalizada a dígitos con punto. null si no la dijo.',
-    ),
+  when: z.string().describe('"hoy", "ayer", día de la semana o fecha ISO. "" si no lo dijo.'),
+  rate: RATE_FIELD,
 });
 
 export function defaultCategoryId(categories: AgentContext["categories"]): string | null {
@@ -289,7 +262,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
         status: "ok",
       };
     }
-    const when = resolveWhen(input.when, run.ctx.today);
+    const when = resolveWhen(nz(input.when), run.ctx.today);
     if ("error" in when) {
       const q =
         when.error === "future"
@@ -300,7 +273,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
       return { kind: "terminal", outbound: [es.clarification(q, [])], status: "ok" };
     }
     const inferred = inferCurrency({
-      explicit: input.currency,
+      explicit: cur(input.currency),
       amount,
       threshold: new Decimal(run.ctx.vesThreshold),
       tenantDefault: run.ctx.defaultCurrency,
@@ -317,10 +290,10 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
         status: "ok",
       };
     }
-    const mr = manualRateFrom(input.rate, when.date);
+    const mr = manualRateFrom(nz(input.rate), when.date);
     if (mr === "invalid")
       return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
-    const category = matchCategory(run.ctx.categories, input.category_name);
+    const category = matchCategory(run.ctx.categories, nz(input.category_name));
     const categoryId = category?.id ?? defaultCategoryId(run.ctx.categories);
     const categoryName =
       category?.name ?? run.ctx.categories.find((c) => c.id === categoryId)?.name ?? "Otros";
@@ -406,7 +379,7 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
   schema: DraftIncomeDayTotalInput,
   roles: ["owner", "employee"],
   async run(input, run) {
-    const when = resolveWhen(input.when, run.ctx.today);
+    const when = resolveWhen(nz(input.when), run.ctx.today);
     if ("error" in when)
       return {
         kind: "terminal",
@@ -433,9 +406,9 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
       };
     // Moneda del total: explícita, por magnitud, o por defecto del negocio; sin nada, USD para ventas.
     const statedCurrency = statedAmount
-      ? currencyFor(input.total_currency, statedAmount, run.ctx)
+      ? currencyFor(cur(input.total_currency), statedAmount, run.ctx)
       : null;
-    const mr = manualRateFrom(input.rate, when.date);
+    const mr = manualRateFrom(nz(input.rate), when.date);
     if (mr === "invalid")
       return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
     const lines: { method: PaymentMethod; amount: Decimal; currency: "USD" | "VES" }[] = [];
@@ -453,7 +426,7 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
           ],
         };
       const currency =
-        l.currency ??
+        cur(l.currency) ??
         statedCurrency ??
         currencyFor(null, amount, run.ctx, METHOD_CURRENCY[l.method]);
       lines.push({ method: l.method, amount, currency });
@@ -512,18 +485,18 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
         status: "ok",
         outbound: [es.clarification("No entendí el monto. ¿Cuánto te pagaron?", [])],
       };
-    const when = resolveWhen(input.when, run.ctx.today);
+    const when = resolveWhen(nz(input.when), run.ctx.today);
     if ("error" in when)
       return {
         kind: "terminal",
         status: "ok",
         outbound: [es.clarification(whenQuestion(when.error, input.when), [])],
       };
-    const mr = manualRateFrom(input.rate, when.date);
+    const mr = manualRateFrom(nz(input.rate), when.date);
     if (mr === "invalid")
       return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
-    const method: PaymentMethod = input.method ?? "unspecified";
-    const explicit = input.currency ?? METHOD_CURRENCY[method] ?? null;
+    const method: PaymentMethod = input.method;
+    const explicit = cur(input.currency) ?? METHOD_CURRENCY[method] ?? null;
     const currency = currencyFor(explicit, amount, run.ctx);
     try {
       const r = await createIncomeSingleDraft(
@@ -581,7 +554,7 @@ const getSummary: ToolSpec<typeof GetSummaryInput> = {
       period: input.period,
       from: input.from && isIsoDate(input.from) ? input.from : null,
       to: input.to && isIsoDate(input.to) ? input.to : null,
-      categoryName: input.category_name,
+      categoryName: nz(input.category_name),
     });
     return { kind: "terminal", status: "ok", outbound: [outbound] };
   },
@@ -614,10 +587,10 @@ const amendLast: ToolSpec<typeof AmendLastInput> = {
         };
       changes.amount = a;
     }
-    if (input.currency) changes.currency = input.currency;
-    if (input.description !== null) changes.description = input.description.trim() || null;
+    if (input.currency !== "keep") changes.currency = input.currency;
+    if (nz(input.description)) changes.description = input.description.trim();
     if (input.when) {
-      const w = resolveWhen(input.when, run.ctx.today);
+      const w = resolveWhen(nz(input.when), run.ctx.today);
       if ("error" in w)
         return {
           kind: "terminal",
@@ -645,9 +618,9 @@ const amendLast: ToolSpec<typeof AmendLastInput> = {
       changes.categoryId = c.id;
       changes.categoryName = c.name;
     }
-    if (input.method && m.type === "income") changes.paymentMethod = input.method;
+    if (input.method !== "keep" && m.type === "income") changes.paymentMethod = input.method;
     if (input.rate) {
-      const r = manualRateFrom(input.rate, changes.businessDate ?? (m.businessDate as IsoDate));
+      const r = manualRateFrom(nz(input.rate), changes.businessDate ?? (m.businessDate as IsoDate));
       if (r === "invalid" || !r)
         return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
       changes.manualRate = r;
@@ -860,6 +833,19 @@ export function stripUnsupportedKeywords(node: unknown): unknown {
   }
   return out;
 }
+
+/** Parámetros con tipo unión (`anyOf` o `type: [...]`) en un esquema; la API estricta admite 16 en total. */
+export function countUnions(node: unknown): number {
+  if (Array.isArray(node)) return node.reduce<number>((n, x) => n + countUnions(x), 0);
+  if (!node || typeof node !== "object") return 0;
+  const o = node as Record<string, unknown>;
+  let n = 0;
+  if (Array.isArray(o.anyOf) || Array.isArray(o.oneOf) || Array.isArray(o.type)) n += 1;
+  for (const v of Object.values(o)) n += countUnions(v);
+  return n;
+}
+
+export const STRICT_UNION_LIMIT = 16;
 
 /** JSON Schema para el modelo, con `additionalProperties: false` (requisito de `strict`). */
 export function toLlmToolDef(t: ToolSpec<z.ZodType>): LlmToolDef {

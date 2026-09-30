@@ -3,7 +3,7 @@
   input: "gasté 15$ en champú"
   expect:
     tool: draft_expense
-    args: { amount: "15", currency: USD, category_name: Insumos de lavado, when: null }
+    args: { amount: "15", currency: USD, category_name: Insumos de lavado, when: "" }
 
 - name: bolívares en miles con "mil" y fecha relativa
   input: "pagué 450 mil bs de hielo ayer"
@@ -15,13 +15,13 @@
   input: "15,50 de gasolina"
   expect:
     tool: draft_expense
-    args: { amount: "15.50", currency: null, category_name: Transporte y gasolina }
+    args: { amount: "15.50", currency: unknown, category_name: Transporte y gasolina }
 
 - name: punto de miles sin moneda ("se fueron")
   input: "se fueron 1.200 en la luz"
   expect:
     tool: draft_expense
-    args: { amount: "1200", currency: null, category_name: Agua y electricidad }
+    args: { amount: "1200", currency: unknown, category_name: Agua y electricidad }
 
 - name: medio millón de bolos
   input: "medio millón de bolos en el alquiler"
@@ -39,7 +39,7 @@
   input: "pagué 500 por pago móvil del agua"
   expect:
     tool: draft_expense
-    args: { amount: "500", currency: null, category_name: Agua y electricidad }
+    args: { amount: "500", currency: unknown, category_name: Agua y electricidad }
 
 - name: empleado registra un gasto igual
   input: "compré 8$ de cera"

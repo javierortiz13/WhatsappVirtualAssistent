@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   ALL_TOOLS,
   AskClarificationInput,
+  countUnions,
   DraftExpenseInput,
   matchCategory,
   numbersAreGrounded,
   resolveWhen,
+  STRICT_UNION_LIMIT,
   toLlmToolDef,
   toolsForRole,
 } from "../src/agent/tools";
@@ -108,6 +110,11 @@ describe("definiciones de herramientas", () => {
     ).toBe(false);
   });
 
+  it("el conjunto de herramientas no supera el tope de uniones del modo estricto", () => {
+    const total = ALL_TOOLS.reduce((n, t) => n + countUnions(toLlmToolDef(t).inputSchema), 0);
+    expect(total).toBeLessThanOrEqual(STRICT_UNION_LIMIT);
+  });
+
   it("draft_expense exige los campos nulos explícitos (strict)", () => {
     expect(DraftExpenseInput.safeParse({ amount: "15", description: "Champú" }).success).toBe(
       false,
@@ -115,11 +122,11 @@ describe("definiciones de herramientas", () => {
     expect(
       DraftExpenseInput.safeParse({
         amount: "15",
-        currency: null,
+        currency: "unknown",
         description: "Champú",
-        category_name: null,
-        when: null,
-        rate: null,
+        category_name: "",
+        when: "",
+        rate: "",
       }).success,
     ).toBe(true);
   });

@@ -60,8 +60,8 @@ const expense = (over: Record<string, unknown> = {}) => ({
   currency: "USD",
   description: "Champú",
   category_name: "Insumos de lavado",
-  when: null,
-  rate: null,
+  when: "",
+  rate: "",
   ...over,
 });
 
@@ -230,7 +230,7 @@ describe("agent loop", () => {
     );
     expect((future.outbound[0] as { body: string }).body).toContain("fecha es futura");
     const ask = await run(
-      fakeLlm([call("draft_expense", expense({ currency: null, amount: "500" }))]).client,
+      fakeLlm([call("draft_expense", expense({ currency: "unknown", amount: "500" }))]).client,
       "pagué 500 de luz",
       { ...ctx, defaultCurrency: null },
     );
@@ -246,7 +246,7 @@ describe("agent loop", () => {
       fakeLlm([
         call(
           "draft_expense",
-          expense({ amount: "450000", currency: null, description: "Hielo", when: "ayer" }),
+          expense({ amount: "450000", currency: "unknown", description: "Hielo", when: "ayer" }),
         ),
       ]).client,
       "ayer 450 mil de hielo",

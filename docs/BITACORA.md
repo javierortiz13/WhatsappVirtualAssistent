@@ -186,3 +186,5 @@ Decisión: al probar el walking skeleton, el menú ofrecía "Registrar venta" y 
 - 4 tests de punta a punta y 5 evals. Total: 149 en core, 172 en total, más 31 evals.
 
 **Operación**: hay que correr `pnpm db:migrate` en Supabase antes de que el worker nuevo reciba un gasto; si llega antes, el job falla por la columna nueva y pg-boss lo reintenta, así que no se pierde, solo se retrasa.
+
+**Corrección tras la prueba real (S2 día 2).** Con nueve herramientas, el modo `strict` de Anthropic rechazó la petición: admite como máximo 16 parámetros con tipo unión en todo el conjunto y cada `nullable` cuenta (teníamos 23). Los "no lo dijo" pasan a `""` en textos y `unknown` / `keep` / `unspecified` en listas; el backend normaliza. Un test cuenta las uniones de todas las herramientas y falla si superan 16, para que no vuelva a pasar en producción.
