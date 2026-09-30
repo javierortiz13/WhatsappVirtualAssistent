@@ -127,6 +127,19 @@ singleton_key = '<e164>' order by created_on desc`. Si hay uno en `failed`, bloq
 `update pgboss.job set state = 'cancelled' where id = '<id>'`. Después revisa en Railway por qué
 falló.
 
+**Monitor de salud (S2 día 3).** `GET /api/health` en el dashboard responde 200 si la base
+contesta, el worker terminó un housekeeping hace menos de 15 minutos y ningún mensaje lleva más de
+3 minutos esperando; 503 si algo de eso falla, con el detalle en JSON (solo banderas y edades, sin
+datos de negocio). Para que alguien avise, un monitor externo gratuito lo consulta cada 5 minutos:
+
+1. Better Stack (betterstack.com, plan gratuito) o UptimeRobot → nuevo monitor HTTP →
+   URL `https://<dominio del dashboard>/api/health` → intervalo 5 min → alerta por correo y
+   por la app del móvil cuando el estado no sea 200.
+2. En Railway → servicio worker → Settings → Notifications: avisos de deploy fallido y de
+   reinicio por crash al correo.
+3. Prueba: pausa el worker en Railway; a los 15 minutos el monitor debe avisar; reanuda y debe
+   recuperarse solo.
+
 **"max clients reached in session mode" en Railway.** El pooler de Supabase admite 15 clientes por
 rol y en cada deploy conviven dos workers. Si se repite, sube el Pool Size a 30 en Supabase →
 Project Settings → Database → Connection pooling.
@@ -158,6 +171,6 @@ Ordenada por lo que más duele en el piloto:
    venezolana al verificarla. S2.
 10. **Sentry sin DSN**: el código está, falta crear los proyectos y poner las variables. Cuando
     haya un error que no se vea en logs.
-11. **Railway sin health check ni alerta**: si el worker muere, nadie avisa. Un ping de uptime
-    sobre una ruta `/health` del web y una alerta de Railway por reinicios. S2.
+11. ~~Railway sin health check ni alerta~~ Hecho en S2 día 3: `/api/health` en el web; falta
+    crear el monitor externo (sección 6).
 12. **Evals**: 16 casos; agregar los fallos reales de esta semana antes de tocar el prompt.

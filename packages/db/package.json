@@ -11,7 +11,8 @@
     "./testing": "./src/testing/pglite.ts",
     "./install-queue": "./src/install-queue.ts",
     "./seed": "./src/seed/index.ts",
-    "./add-phone": "./src/seed/add-phone.ts"
+    "./add-phone": "./src/seed/add-phone.ts",
+    "./health": "./src/health.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

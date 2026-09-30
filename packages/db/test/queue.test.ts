@@ -1,6 +1,7 @@
 import type { PgBoss } from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, withTenant } from "../src/client";
+import { checkHealth } from "../src/health";
 import { installQueue } from "../src/install-queue";
 import { runMigrations } from "../src/migrate";
 import {
@@ -131,6 +132,34 @@ describe.skipIf(!url)("cola pg-boss sobre Postgres", () => {
     await wait(() => seen.includes("wamid.F.2"));
     expect(seen).toContain("wamid.F.2");
     await boss.updateQueue(QUEUES.processMessage, { retryLimit: 1 });
+  });
+
+  it("checkHealth: worker vivo solo si housekeeping terminó hace poco; cola atascada si un job espera", async () => {
+    await boss.offWork(QUEUES.processMessage);
+    const now = new Date();
+    const before = await checkHealth(db.db, now);
+    expect(before.db).toBe(true);
+    expect(before.worker.ok).toBe(false);
+    // Un housekeeping terminado hace 1 minuto: worker vivo.
+    await boss.work(QUEUES.housekeeping, { pollingIntervalSeconds: 0.5 }, async () => {});
+    await boss.send(QUEUES.housekeeping, {});
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const h = await checkHealth(db.db, new Date());
+      if (h.worker.ok) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const alive = await checkHealth(db.db, new Date());
+    expect(alive.worker.ok).toBe(true);
+    expect(alive.ok).toBe(true);
+    // Un mensaje esperando 5 minutos sin que nadie lo tome: cola atascada.
+    await db.db.transaction((tx) => enqueueProcessMessage(boss, tx, job(6, "H"), "H"));
+    const later = new Date(Date.now() + 5 * 60_000);
+    const stuck = await checkHealth(db.db, later);
+    expect(stuck.queue.ok).toBe(false);
+    expect(stuck.queue.waiting).toBeGreaterThanOrEqual(1);
+    expect(stuck.ok).toBe(false);
+    await boss.deleteAllJobs(QUEUES.processMessage);
   });
 
   it("el rol caja_app puede usar la cola y sigue sujeto a RLS", async () => {

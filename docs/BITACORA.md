@@ -225,3 +225,11 @@ Contexto: Meta cobra desde el 1/10/2026 cada respuesta libre como mensaje de ser
 - Bug de historial encontrado por el test: entrante y respuesta se escriben en la misma transacción y comparten `created_at`; con el empate, el orden era aleatorio y a veces la respuesta quedaba antes del mensaje y se descartaba (la API exige que el primer turno sea del usuario). Desempate por `direction`.
 - No se ofrece lista de categorías antes del borrador (ADR-014: sería un mensaje más por gasto); el borrador sugiere una categoría y "es mantenimiento" la corrige.
 - 2 tests de punta a punta. Total: 161 en core, 190 en total con Postgres real, más 28 evals.
+
+### S2 · día 3 (noche) · 30/09/2026 · Health check
+
+**Terminado**
+- `@caja/db/health`: `checkHealth` lee de pg-boss el último `housekeeping` terminado (worker vivo si hace menos de 15 min) y el mensaje más viejo en espera en `process-message` (cola atascada si pasa de 3 min). Sin tabla de latidos ni proceso nuevo.
+- `GET /api/health` en el dashboard: 200 o 503 con banderas y edades, sin datos de negocio; incluye el commit desplegado. Público y fuera del proxy de sesión.
+- Test contra Postgres real: worker caído → vivo tras un housekeeping → cola atascada con un job esperando 5 minutos.
+- Runbook: cómo crear el monitor externo (Better Stack o UptimeRobot cada 5 min) y las notificaciones de Railway. Eso queda en manos de Javier; el código ya responde.
