@@ -49,15 +49,18 @@ export async function allowUnknownReply(
   key: string,
   opts: { max: number; windowMs: number; now: Date },
 ): Promise<boolean> {
-  const windowStart = new Date(opts.now.getTime() - opts.windowMs);
+  // Fechas como ISO con cast: postgres-js no serializa un Date en SQL crudo (PGlite sí, y por
+  // eso el test no lo veía). Falló en producción el 30/09/2026.
+  const now = opts.now.toISOString();
+  const windowStart = new Date(opts.now.getTime() - opts.windowMs).toISOString();
   const t = schema.unknownSenderHit;
   const result = rows<{ hits: number }>(
     await db.execute(sql`
       insert into ${t} (e164, hits, window_start)
-      values (${key}, 1, ${opts.now})
+      values (${key}, 1, ${now}::timestamptz)
       on conflict (e164) do update set
-        hits = case when ${t}.window_start < ${windowStart} then 1 else ${t}.hits + 1 end,
-        window_start = case when ${t}.window_start < ${windowStart} then ${opts.now} else ${t}.window_start end
+        hits = case when ${t}.window_start < ${windowStart}::timestamptz then 1 else ${t}.hits + 1 end,
+        window_start = case when ${t}.window_start < ${windowStart}::timestamptz then ${now}::timestamptz else ${t}.window_start end
       returning hits
     `),
   );
