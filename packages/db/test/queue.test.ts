@@ -4,6 +4,7 @@ import { createDb, withTenant } from "../src/client";
 import { installQueue } from "../src/install-queue";
 import { runMigrations } from "../src/migrate";
 import {
+  cancelFailedFifoJobs,
   createBoss,
   enqueueProcessMessage,
   ensureQueues,
@@ -98,6 +99,38 @@ describe.skipIf(!url)("cola pg-boss sobre Postgres", () => {
     ]);
     expect(maxActiveSameKey).toBe(1);
     expect(events).toContain("wamid.B.4");
+  });
+
+  it("un job en failed bloquea su teléfono; cancelFailedFifoJobs lo libera", async () => {
+    const seen: string[] = [];
+    await boss.offWork(QUEUES.processMessage);
+    await boss.work<ProcessMessageJob>(
+      QUEUES.processMessage,
+      { batchSize: 1, pollingIntervalSeconds: 0.5 },
+      async (jobs) => {
+        for (const j of jobs) {
+          seen.push(j.data.waMessageId);
+          if (j.data.waMessageId === "wamid.F.1") throw new Error("boom");
+        }
+      },
+    );
+    // retryLimit 1 y retryDelay 15 s: para que quede en failed rápido, sin reintento.
+    await boss.updateQueue(QUEUES.processMessage, { retryLimit: 0 });
+    await db.db.transaction((tx) => enqueueProcessMessage(boss, tx, job(1, "F"), "F"));
+    const wait = async (pred: () => boolean) => {
+      const deadline = Date.now() + 10_000;
+      while (!pred() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+    };
+    await wait(() => seen.includes("wamid.F.1"));
+    await new Promise((r) => setTimeout(r, 1_000));
+    await db.db.transaction((tx) => enqueueProcessMessage(boss, tx, job(2, "F"), "F"));
+    await new Promise((r) => setTimeout(r, 2_000));
+    expect(seen).not.toContain("wamid.F.2");
+    const cancelled = await cancelFailedFifoJobs(db.db);
+    expect(cancelled.map((c) => c.webhookEventId)).toContain(job(1, "F").webhookEventId);
+    await wait(() => seen.includes("wamid.F.2"));
+    expect(seen).toContain("wamid.F.2");
+    await boss.updateQueue(QUEUES.processMessage, { retryLimit: 1 });
   });
 
   it("el rol caja_app puede usar la cola y sigue sujeto a RLS", async () => {

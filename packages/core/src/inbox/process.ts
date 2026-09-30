@@ -834,6 +834,16 @@ function bodyOf(out: Outbound): string {
   return out.body;
 }
 
+/** Estado final de un evento del webhook. El worker lo usa cuando un job agota los reintentos. */
+export async function markWebhookEvent(
+  db: Db,
+  id: string,
+  status: "done" | "ignored" | "expired" | "failed",
+  error: string | null,
+): Promise<void> {
+  return markEvent(db, id, status, error);
+}
+
 async function markEvent(
   db: Db,
   id: string,

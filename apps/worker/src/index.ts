@@ -14,7 +14,7 @@ async function main() {
   const env = loadEnv();
   const log = createLogger(env.LOG_LEVEL, env.NODE_ENV === "development");
   if (initSentry(env.SENTRY_DSN, env.NODE_ENV)) log.info({}, "sentry activo");
-  const { db, close } = createDb(env.DATABASE_URL, { max: 5 });
+  const { db, close } = createDb(env.DATABASE_URL, { max: 3 });
   const [row] = rows<{ ok: number }>(await db.execute(sql`select 1 as ok`));
   if (row?.ok !== 1) throw new Error("la base no respondió");
 

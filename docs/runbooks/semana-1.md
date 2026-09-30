@@ -120,6 +120,18 @@ elegidas, eventos del webhook por estado y movimientos guardados. Llena esta tab
 
 ## 6. Rotación y emergencias
 
+**Un teléfono no recibe respuesta y los demás sí.** Mira en Supabase si hay jobs de ese número
+atascados: `select id, state, created_on from pgboss.job where name = 'process-message' and
+singleton_key = '<e164>' order by created_on desc`. Si hay uno en `failed`, bloquea a los demás
+(cola FIFO por teléfono). El housekeeping lo cancela solo en menos de 5 minutos; para no esperar,
+`update pgboss.job set state = 'cancelled' where id = '<id>'`. Después revisa en Railway por qué
+falló.
+
+**"max clients reached in session mode" en Railway.** El pooler de Supabase admite 15 clientes por
+rol y en cada deploy conviven dos workers. Si se repite, sube el Pool Size a 30 en Supabase →
+Project Settings → Database → Connection pooling.
+
+
 - **Token de Meta comprometido**: Business Manager → Usuarios del sistema → `caja-worker` →
   Revocar tokens → generar uno nuevo → Railway y `.env`. Un minuto de corte.
 - **Clave de Anthropic**: console → API keys → desactivar → crear → Railway. El worker arranca en

@@ -3,12 +3,19 @@ import {
   dolarApiSource,
   expirePendingActions,
   type Logger,
+  markWebhookEvent,
   type ProcessDeps,
   processInbound,
   refreshRates,
 } from "@caja/core";
 import type { Db } from "@caja/db";
-import { type PgBoss, type ProcessMessageJob, QUEUES } from "@caja/db/queue";
+import {
+  cancelFailedFifoJobs,
+  type PgBoss,
+  PROCESS_MESSAGE_RETRY_LIMIT,
+  type ProcessMessageJob,
+  QUEUES,
+} from "@caja/db/queue";
 
 /**
  * Registro de handlers y cron del worker. Separado de `index.ts` para poder probarlo.
@@ -49,11 +56,24 @@ export async function registerJobs(opts: {
     guarded(QUEUES.processMessage, async (jobs) => {
       for (const job of jobs) {
         const started = Date.now();
-        const outcome = await processInbound(deps, job.data);
-        log.info(
-          { jobId: job.id, outcome, ms: Date.now() - started, retry: job.retryCount },
-          "job procesado",
-        );
+        try {
+          const outcome = await processInbound(deps, job.data);
+          log.info(
+            { jobId: job.id, outcome, ms: Date.now() - started, retry: job.retryCount },
+            "job procesado",
+          );
+        } catch (err) {
+          if (job.retryCount < PROCESS_MESSAGE_RETRY_LIMIT) throw err;
+          // Último intento: en `failed` bloquearía para siempre la cola FIFO de este teléfono.
+          // Se cierra el job, se marca el evento y se avisa; el mensaje no se responde.
+          const message = err instanceof Error ? err.message : String(err);
+          log.error(
+            { jobId: job.id, retry: job.retryCount, err: message },
+            "job agotó los reintentos; se cierra para no bloquear el teléfono",
+          );
+          opts.onError?.(err, QUEUES.processMessage);
+          await markWebhookEvent(db, job.data.webhookEventId, "failed", message.slice(0, 500));
+        }
       }
     }),
   );
@@ -73,6 +93,18 @@ export async function registerJobs(opts: {
     guarded(QUEUES.housekeeping, async () => {
       const expired = await expirePendingActions(db, new Date());
       if (expired > 0) log.info({ expired }, "borradores vencidos");
+      // Jobs vencidos por tiempo que quedaron en `failed`: desbloquear el teléfono.
+      const stuck = await cancelFailedFifoJobs(db);
+      for (const s of stuck) {
+        if (s.webhookEventId)
+          await markWebhookEvent(
+            db,
+            s.webhookEventId,
+            "failed",
+            "job vencido o fallido; cancelado",
+          );
+      }
+      if (stuck.length > 0) log.warn({ jobs: stuck.map((s) => s.jobId) }, "jobs FIFO cancelados");
     }),
   );
 

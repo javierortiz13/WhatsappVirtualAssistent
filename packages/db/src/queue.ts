@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { fromDrizzle, PgBoss } from "pg-boss";
-import type { Tx } from "./client";
+import { type Queryable, rows, type Tx } from "./client";
 import { pgConnection } from "./ssl";
 
 /**
@@ -17,6 +17,9 @@ export const QUEUES = {
 } as const;
 
 export const PGBOSS_SCHEMA = "pgboss";
+
+/** Reintentos de `process-message`. El worker cierra el job en el último intento (ver `cancelFailedFifoJobs`). */
+export const PROCESS_MESSAGE_RETRY_LIMIT = 1;
 
 export type ProcessMessageJob = {
   webhookEventId: string;
@@ -39,7 +42,9 @@ export function createBoss(connectionString: string, role: BossRole): PgBoss {
     ...pgConnection(connectionString),
     schema: PGBOSS_SCHEMA,
     application_name: `caja-${role}`,
-    max: role === "producer" ? 2 : 5,
+    // Supabase (pooler de sesión) limita a 15 clientes por rol; en cada deploy conviven dos
+    // workers unos segundos. 3 + 3 (Drizzle) por worker deja margen para el web.
+    max: role === "producer" ? 2 : 3,
     supervise: role === "worker",
     schedule: role === "worker",
     migrate: role === "worker",
@@ -59,7 +64,7 @@ export async function ensureQueues(boss: PgBoss): Promise<void> {
     {
       name: QUEUES.processMessage,
       policy: "key_strict_fifo",
-      retryLimit: 1,
+      retryLimit: PROCESS_MESSAGE_RETRY_LIMIT,
       retryDelay: 15,
       expireInSeconds: 120,
     },
@@ -104,3 +109,23 @@ export async function enqueueProcessMessage(
 }
 
 export type { PgBoss };
+
+/**
+ * Red de seguridad de `key_strict_fifo`: un job en `failed` (reintentos agotados o vencido por
+ * tiempo) bloquea para siempre los mensajes siguientes del mismo teléfono. El 30/09/2026 un
+ * teléfono quedó mudo así. Los pasa a `cancelled` y devuelve sus eventos para marcarlos.
+ */
+export async function cancelFailedFifoJobs(
+  db: Queryable,
+): Promise<{ jobId: string; webhookEventId: string | null }[]> {
+  return rows<{ jobId: string; webhookEventId: string | null }>(
+    await db.execute(sql`
+      update pgboss.job
+      set state = 'cancelled', completed_on = now()
+      where name = ${QUEUES.processMessage}
+        and state = 'failed'
+        and policy = 'key_strict_fifo'
+      returning id as "jobId", data->>'webhookEventId' as "webhookEventId"
+    `),
+  );
+}
