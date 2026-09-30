@@ -169,8 +169,8 @@ Ordenada por lo que más duele en el piloto:
 8. **Términos de servicio**: la URL en Meta apunta a la política de privacidad. Antes del primer cobro.
 9. **Portafolio de Meta**: la app vive en "Just Travel"; mover la WABA al portafolio de la empresa
    venezolana al verificarla. S2.
-10. **Sentry sin DSN**: el código está, falta crear los proyectos y poner las variables. Cuando
-    haya un error que no se vea en logs.
-11. ~~Railway sin health check ni alerta~~ Hecho en S2 día 3: `/api/health` en el web; falta
-    crear el monitor externo (sección 6).
+10. **Sentry sin DSN**: el código está; los pasos para crear los proyectos y poner las variables
+    están en `docs/runbooks/s2-monitoreo.md`.
+11. ~~Railway sin health check ni alerta~~ Hecho en S2 día 3: `/api/health` en el web; el monitor
+    externo se crea con `docs/runbooks/s2-monitoreo.md`.
 12. **Evals**: 16 casos; agregar los fallos reales de esta semana antes de tocar el prompt.
