@@ -166,8 +166,9 @@ export function confirmationExpired(): Outbound {
   return { type: "text", body: "Esa confirmación ya venció. Mándame el gasto de nuevo." };
 }
 
-export function cancelled(): Outbound {
-  return { type: "text", body: "Listo, descartado. No guardé nada." };
+/** Descartar un borrador: reacción sobre el toque de "Cancelar". Gratis y suficiente como acuse. */
+export function cancelled(inboundId: string): Outbound {
+  return { type: "reaction", body: "🗑️", waMessageId: inboundId };
 }
 
 export function llmDown(): Outbound {

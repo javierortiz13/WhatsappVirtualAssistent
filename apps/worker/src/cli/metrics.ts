@@ -20,7 +20,47 @@ const q = async (label: string, query: ReturnType<typeof sql>) => {
   console.table(rows<Row>(await db.execute(query)));
 };
 
+/** Tarifa por mensaje de servicio (Meta, "Rest of Latin America"). Ajustable: META_MSG_RATE_USD. */
+const rate = Number(process.env.META_MSG_RATE_USD ?? "0.013");
+const FREE_TIER = 1000;
+
 (async () => {
+  await q(
+    "Cupo de Meta este mes: mensajes de servicio del número de la plataforma (1.000 gratis por número)",
+    sql`
+      with m as (
+        select direction, kind, status
+        from app.message
+        where created_at >= (date_trunc('month', now() at time zone 'America/Caracas') at time zone 'America/Caracas')
+      ),
+      d as (
+        select extract(day from (now() at time zone 'America/Caracas'))::int as dia_hoy,
+               extract(day from (date_trunc('month', now() at time zone 'America/Caracas') + interval '1 month - 1 day'))::int as dias_mes
+      ),
+      c as (
+        select count(*) filter (where direction = 'out' and kind <> 'reaction' and status in ('ok', 'sending')) as enviados,
+               count(*) filter (where direction = 'out' and kind = 'reaction' and status in ('ok', 'sending')) as reacciones,
+               count(*) filter (where direction = 'in') as entrantes
+        from m
+      )
+      select c.enviados, c.reacciones, c.entrantes,
+             greatest(c.enviados - ${FREE_TIER}, 0) as sobre_cupo,
+             round(greatest(c.enviados - ${FREE_TIER}, 0) * ${rate}::numeric, 2) as costo_usd_estimado,
+             round(c.enviados::numeric / nullif(c.entrantes, 0), 2) as salientes_por_entrante,
+             round(c.enviados::numeric / d.dia_hoy * d.dias_mes) as proyeccion_mes
+      from c, d`,
+  );
+  await q(
+    "Mensajes salientes del mes por negocio (para repartir el costo de Meta)",
+    sql`
+      select t.name as negocio,
+             count(*) filter (where m.direction = 'out' and m.kind <> 'reaction') as salientes,
+             count(*) filter (where m.direction = 'in') as entrantes,
+             round(count(*) filter (where m.direction = 'out' and m.kind <> 'reaction') * ${rate}::numeric, 2) as costo_usd_si_sin_cupo
+      from app.message m join app.tenant t on t.id = m.tenant_id
+      where m.created_at >= date_trunc('month', now() at time zone 'America/Caracas') at time zone 'America/Caracas'
+      group by 1 order by 2 desc`,
+  );
   await q(
     "Mensajes por día (hora Caracas)",
     sql`

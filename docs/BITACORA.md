@@ -200,3 +200,15 @@ Decisión: al probar el walking skeleton, el menú ofrecía "Registrar venta" y 
 - 9 tests de punta a punta del onboarding y 4 del formato de teléfonos. Total: 159 en core, 183 en la corrida local sin Postgres real, más 28 evals (28/28 con el modelo real).
 
 **Pendiente en S2**: reinyección de listas `currency:`/`cat:`, evals v1 con los fallos reales de la semana, health check y alerta, Sentry con DSN.
+
+### S2 · día 3 (tarde) · 30/09/2026 · Preparación para el cobro por mensaje del 1 de octubre
+
+Contexto: Meta cobra desde el 1/10/2026 cada respuesta libre como mensaje de servicio, con 1.000 gratis al mes por número; reacciones y mensajes del cliente gratis; sin tarjeta no se entregan. ADR-014.
+
+**Terminado**
+- Auditoría de envíos: todos los flujos respondían con un solo mensaje salvo la bienvenida del empleado (dos). `mergeOutbound` los fusiona en un envío: bienvenida + respuesta con sus botones.
+- `MetaClient.sendReaction` y el tipo `Outbound` de reacción. Cancelar un borrador responde con 🗑️ sobre el toque del botón, gratis, en lugar de "Listo, descartado". Se guarda en `message` con `kind = reaction` para que el conteo lo excluya.
+- `pnpm metrics`: primera tabla con el cupo del mes (enviados sin reacciones, reacciones, entrantes, sobre cupo, costo estimado con `META_MSG_RATE_USD`, salientes por entrante, proyección del mes) y reparto de salientes por negocio. Probado contra Postgres local.
+- Runbook: tarjeta en el Billing Hub antes del 1/10, prueba de entrega temprano, lectura del cupo cada domingo, y la señal para reabrir ADR-002 (un número por negocio) si la proyección supera el cupo.
+
+**Lo que no cambia**: el LLM nunca envía texto (ADR-006), así que la regla "una respuesta en un solo mensaje" ya estaba garantizada por diseño; el indicador de escribiendo y el acuse de lectura no son mensajes. Guardar sigue siendo texto porque lleva el total del día.

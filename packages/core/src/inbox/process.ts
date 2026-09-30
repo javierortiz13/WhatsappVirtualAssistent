@@ -27,7 +27,7 @@ import {
 import { type Logger, maskPhone, silentLogger } from "../log";
 import { activatePhone, CODE_RE, verifyCode } from "../onboarding/register";
 import { getRateInfo } from "../rates/current";
-import { es, type Outbound, parseReplyId } from "../render/index";
+import { es, mergeOutbound, type Outbound, parseReplyId } from "../render/index";
 import { MetaApiError, type MetaClient } from "../whatsapp/client";
 import type { InboundMessage } from "../whatsapp/types";
 
@@ -212,9 +212,17 @@ export async function processInbound(
       defaultCurrency: (tenant.defaultExpenseCurrency as "USD" | "VES" | null) ?? null,
       vesThreshold: tenant.vesThreshold,
       today,
+      inboundId: msg.waMessageId,
     });
 
-    for (const out of [...welcome, ...route.outbound]) {
+    // Una respuesta = un mensaje (ADR-014): la bienvenida viaja en el mismo envío que la respuesta.
+    const first = welcome[0];
+    const second = route.outbound[0];
+    const outbound =
+      first && second
+        ? [...mergeOutbound(first, second), ...route.outbound.slice(1)]
+        : [...welcome, ...route.outbound];
+    for (const out of outbound) {
       const [row] = await tx
         .insert(schema.message)
         .values({
@@ -342,6 +350,8 @@ type RouteCtx = {
   defaultCurrency: "USD" | "VES" | null;
   vesThreshold: string;
   today: ReturnType<typeof businessDateOf>;
+  /** wa_message_id del mensaje entrante, para reaccionar sobre él. */
+  inboundId: string;
 };
 
 type RouteResult = {
@@ -425,7 +435,8 @@ async function routeInteractive(
           .update(schema.pendingAction)
           .set({ status: "cancelled", resolvedAt: nowTs })
           .where(eq(schema.pendingAction.id, pending.id));
-        return none([es.cancelled()]);
+        // Cancelar se confirma con una reacción sobre el toque del botón: gratis (ADR-014).
+        return none([es.cancelled(ctx.inboundId)]);
       }
       if (parsed.kind === "fix") {
         await tx
@@ -814,6 +825,8 @@ export async function sendOutbound(
         out.sections,
         out.header ? { header: out.header } : {},
       );
+    case "reaction":
+      return meta.sendReaction(to, out.waMessageId, out.body);
   }
 }
 

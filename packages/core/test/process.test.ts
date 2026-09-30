@@ -264,7 +264,9 @@ describe("processInbound", () => {
       title: "Cancelar",
     };
     await processInbound(deps(client), await ingest(cancel));
-    expect(textOf(sent[1])).toContain("descartado");
+    // Cancelar se confirma con una reacción (gratis) sobre el toque del botón.
+    expect(sent[1]?.body.type).toBe("reaction");
+    expect(sent[1]?.body.reaction).toMatchObject({ emoji: "🗑️", message_id: "wamid.C1" });
     const [after] = await withTenant(t.db, tenantId, (tx) =>
       tx.select().from(schema.pendingAction),
     );
@@ -282,9 +284,10 @@ describe("processInbound", () => {
       title: "Ver cierre",
     };
     await processInbound(deps(client), await ingest(p));
-    // Primer mensaje de un empleado dado de alta sin verificar: bienvenida y luego la respuesta.
+    // Primer mensaje de un empleado dado de alta sin verificar: bienvenida y respuesta en un solo envío.
+    expect(sent).toHaveLength(1);
     expect(textOf(sent[0])).toContain("Quedaste registrado como empleado");
-    expect(textOf(sent[1])).toContain("El cierre lo ve el dueño");
+    expect(textOf(sent[0])).toContain("El cierre lo ve el dueño");
   });
 
   it("reintento de un job ya respondido no reenvía", async () => {

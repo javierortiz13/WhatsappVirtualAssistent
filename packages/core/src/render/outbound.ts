@@ -4,7 +4,20 @@ import type { Button, ListSection } from "../whatsapp/client";
 export type Outbound =
   | { type: "text"; body: string }
   | { type: "buttons"; body: string; buttons: Button[]; footer?: string }
-  | { type: "list"; body: string; buttonLabel: string; sections: ListSection[]; header?: string };
+  | { type: "list"; body: string; buttonLabel: string; sections: ListSection[]; header?: string }
+  /** Reacción sobre un mensaje del usuario: gratis y no gasta el cupo de servicio (ADR-014). `body` es el emoji. */
+  | { type: "reaction"; body: string; waMessageId: string };
+
+/**
+ * Junta dos mensajes en uno (ADR-014: una respuesta = un mensaje). El cuerpo del primero va
+ * arriba; los botones o la lista del segundo mandan. Una reacción no se fusiona.
+ */
+export function mergeOutbound(first: Outbound, second: Outbound): Outbound[] {
+  if (first.type === "reaction" || second.type === "reaction") return [first, second];
+  const body = `${first.body}\n\n${second.body}`;
+  if (second.type === "text" && first.type !== "text") return [{ ...first, body }];
+  return [{ ...second, body }];
+}
 
 /** Ids de botones y filas. El handler determinista enruta por prefijo, nunca por el título. */
 export const IDS = {

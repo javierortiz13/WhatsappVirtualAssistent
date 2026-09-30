@@ -87,6 +87,21 @@ La importación nunca pisa una tasa tomada en vivo del BCV, y repetirla es inofe
 
 ## 5. Medir la semana
 
+**Cupo de Meta desde el 1 de octubre (ADR-014).** Cada respuesta del bot es un mensaje de servicio
+cobrado a la tarifa de utilidad del país del cliente, con 1.000 gratis al mes por número de
+negocio; las reacciones y lo que escribe el cliente son gratis. Antes del primer mensaje del 1/10:
+
+1. Meta Business Suite → Facturación y pagos → confirma que la cuenta de WhatsApp del portafolio
+   tiene una tarjeta válida, sin bloqueo de cargos internacionales. Sin tarjeta, Meta no factura:
+   deja de entregar las respuestas y el bot parece mudo. El número de prueba sigue gratis con sus
+   5 destinatarios; la tarjeta importa al pasar al número real.
+2. El 1/10 temprano, escribe `hola` desde tu teléfono y confirma que llega la respuesta.
+3. Cada domingo, la primera tabla de `pnpm metrics` dice cuánto del cupo va usado, la proyección
+   del mes y el costo estimado por encima de 1.000 (tarifa en `META_MSG_RATE_USD`, 0,013 por
+   defecto; verifica la de Venezuela en la tabla oficial de precios de Meta). Si la proyección
+   pasa de 1.000 con pocos negocios, toca la conversación de un número por negocio (ADR-002).
+
+
 `pnpm metrics` imprime, para los últimos 7 días: mensajes por día, latencia p50 y p95 separando
 turnos del agente de respuestas deterministas, costo del LLM total y promedio, herramientas
 elegidas, eventos del webhook por estado y movimientos guardados. Llena esta tabla el domingo:
@@ -99,6 +114,8 @@ elegidas, eventos del webhook por estado y movimientos guardados. Llena esta tab
 | Latencia p95 turno de agente | | ≤ 8 s |
 | Costo promedio por turno de agente | | ≤ 0,01 USD |
 | Envíos fallidos | | 0 tras la configuración |
+| Mensajes de servicio enviados en el mes (cupo 1.000) | | proyección < 1.000 |
+| Salientes por entrante | | ≤ 1,1 |
 | Fallos del agente (respuesta equivocada) | | anotar cada uno |
 
 ## 6. Rotación y emergencias

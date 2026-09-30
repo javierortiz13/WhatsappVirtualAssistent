@@ -168,6 +168,14 @@ export class MetaClient {
     });
   }
 
+  /** Reacción con un emoji sobre un mensaje del usuario. Gratis, no cuenta como mensaje de servicio. */
+  async sendReaction(to: string, waMessageId: string, emoji: string): Promise<SendResult> {
+    return this.#sendMessage(to, {
+      type: "reaction",
+      reaction: { message_id: waMessageId, emoji },
+    });
+  }
+
   /** Marca como leído y muestra "escribiendo…" hasta que respondamos o pasen 25 s. Solo si vamos a responder. */
   async markReadWithTyping(waMessageId: string): Promise<void> {
     await this.#post(`/${this.#phoneNumberId}/messages`, {
