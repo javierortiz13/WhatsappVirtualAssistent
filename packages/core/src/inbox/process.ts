@@ -5,7 +5,7 @@ import { deleteLastFlow } from "../agent/tools";
 import type { AgentInput, AgentRunner } from "../agent/types";
 import { asIsoDate, businessDateOf, formatShortDate } from "../domain/dates";
 import { Decimal } from "../domain/money";
-import { allowUnknownReply, canUse, resolveSender } from "../identity/resolve";
+import { allowUnknownReply, canUse, type ResolvedSender, resolveSender } from "../identity/resolve";
 import {
   amendMovement,
   createExpense,
@@ -25,6 +25,7 @@ import {
   resolveMismatch,
 } from "../ledger/index";
 import { type Logger, maskPhone, silentLogger } from "../log";
+import { activatePhone, CODE_RE, verifyCode } from "../onboarding/register";
 import { getRateInfo } from "../rates/current";
 import { es, type Outbound, parseReplyId } from "../render/index";
 import { MetaApiError, type MetaClient } from "../whatsapp/client";
@@ -101,6 +102,14 @@ export async function processInbound(
     .where(eq(schema.webhookEvent.id, event.id));
 
   const resolved = await resolveSender(deps.db, msg.sender);
+  if (
+    resolved &&
+    resolved.phoneStatus === "pending" &&
+    resolved.role === "owner" &&
+    resolved.tenantStatus !== "suspended"
+  ) {
+    return handlePendingOwner(deps, meta, msg, resolved, event.id, log, now);
+  }
   if (!resolved || !canUse(resolved)) {
     const key = msg.sender.e164 ?? msg.sender.waUserId ?? msg.waMessageId;
     const reply = await allowUnknownReply(deps.db, key, {
@@ -174,6 +183,27 @@ export async function processInbound(
 
     const started = now();
     const today = businessDateOf(started);
+
+    // Empleado autorizado desde el dashboard: su primer mensaje lo activa y recibe la bienvenida.
+    const [phone] = await tx
+      .select({ verifiedAt: schema.phoneNumber.verifiedAt, name: schema.phoneNumber.displayName })
+      .from(schema.phoneNumber)
+      .where(eq(schema.phoneNumber.id, resolved.phoneId));
+    const welcome: Outbound[] = [];
+    if (phone && !phone.verifiedAt && resolved.role === "employee") {
+      await activatePhone(
+        tx,
+        {
+          tenantId: resolved.tenantId,
+          phoneId: resolved.phoneId,
+          waUserId: msg.sender.waUserId,
+          displayName: msg.sender.displayName,
+        },
+        started,
+      );
+      welcome.push(es.welcomeEmployee(phone.name ?? msg.sender.displayName, tenant.name));
+    }
+
     const route = await routeMessage(tx, deps, msg, {
       tenantId: resolved.tenantId,
       tenantName: tenant.name,
@@ -184,7 +214,7 @@ export async function processInbound(
       today,
     });
 
-    for (const out of route.outbound) {
+    for (const out of [...welcome, ...route.outbound]) {
       const [row] = await tx
         .insert(schema.message)
         .values({
@@ -237,6 +267,71 @@ export async function processInbound(
   }
   await markEvent(deps.db, event.id, "done", null);
   return "done";
+}
+
+/**
+ * Número del dueño en `pending` (US-A2): solo se acepta el código de 6 dígitos del dashboard. No se
+ * guarda el contenido del mensaje ni se usa el LLM. Mismo límite de respuestas que un desconocido.
+ */
+async function handlePendingOwner(
+  deps: ProcessDeps,
+  meta: MetaClient,
+  msg: InboundMessage,
+  resolved: ResolvedSender,
+  eventId: string,
+  log: Logger,
+  now: () => Date,
+): Promise<ProcessOutcome> {
+  const to = msg.sender.e164;
+  const nowTs = now();
+  const key = to ?? msg.sender.waUserId ?? msg.waMessageId;
+  const allowed = await allowUnknownReply(deps.db, key, {
+    max: deps.config.unknownReplyMax,
+    windowMs: deps.config.unknownReplyWindowMs,
+    now: nowTs,
+  });
+  const registerUrl = `${deps.config.dashboardUrl}/registro`;
+  const outcome = await withTenant(deps.db, resolved.tenantId, async (tx) => {
+    const code = msg.kind === "text" ? CODE_RE.exec(msg.text)?.[1] : undefined;
+    if (!code) return { reply: es.askCode(registerUrl), note: "pendiente: sin código" };
+    const result = await verifyCode(
+      tx,
+      {
+        tenantId: resolved.tenantId,
+        phoneId: resolved.phoneId,
+        waUserId: msg.sender.waUserId,
+        displayName: msg.sender.displayName,
+      },
+      code,
+      nowTs,
+    );
+    if (result === "mismatch")
+      return { reply: es.codeMismatch(), note: "pendiente: código incorrecto" };
+    if (result === "expired")
+      return { reply: es.codeExpired(registerUrl), note: "pendiente: código vencido" };
+    const [tenant] = await tx
+      .select({ name: schema.tenant.name })
+      .from(schema.tenant)
+      .where(eq(schema.tenant.id, resolved.tenantId));
+    const rate = await getRateInfo(tx, businessDateOf(nowTs));
+    return {
+      reply: es.welcomeOwner(tenant?.name ?? "tu negocio", deps.config.assistantName, rate),
+      note: null,
+    };
+  });
+  if (to && (allowed || outcome.note === null)) {
+    try {
+      await sendOutbound(meta, to, outcome.reply);
+    } catch (err) {
+      log.warn(
+        { err: errMsg(err), from: maskPhone(to) },
+        "no se pudo responder al número pendiente",
+      );
+    }
+  }
+  await markEvent(deps.db, eventId, outcome.note ? "ignored" : "done", outcome.note);
+  log.info({ from: maskPhone(to), verified: outcome.note === null }, "mensaje de número pendiente");
+  return outcome.note ? "ignored" : "done";
 }
 
 type RouteCtx = {

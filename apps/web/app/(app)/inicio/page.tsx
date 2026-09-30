@@ -1,4 +1,4 @@
-import { formatMoney, formatShortDate, getRateInfo } from "@caja/core";
+import { formatMoney, formatShortDate, getRateInfo, ownerPhone } from "@caja/core";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { monthBounds, movementsBetween, todayInCaracas, totalsBetween } from "@/lib/queries";
@@ -12,14 +12,21 @@ export default async function Inicio() {
   const { tenant } = await requireTenant();
   const today = todayInCaracas();
   const month = monthBounds(today);
-  const [rate, todayTotals, monthTotals, recent] = await Promise.all([
+  const [rate, todayTotals, monthTotals, recent, owner] = await Promise.all([
     getRateInfo(db(), today),
     totalsBetween(tenant.id, today, today),
     totalsBetween(tenant.id, month.from, month.to),
     movementsBetween(tenant.id, month.from, month.to, 8),
+    ownerPhone(db(), tenant.id),
   ]);
   return (
     <div className="stack">
+      {owner?.status === "pending" ? (
+        <div className="notice err">
+          <strong>Tu número todavía no está vinculado.</strong>{" "}
+          <a href="/registro">Envía el código por WhatsApp</a> para empezar a registrar.
+        </div>
+      ) : null}
       <div className="card rate">
         <div>
           <p className="kpi-label">Tasa BCV</p>

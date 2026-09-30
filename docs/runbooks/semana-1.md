@@ -36,7 +36,15 @@ rápido → "Para" → **Administrar lista de números** → agregar el número 
 código por WhatsApp y lo introduce. Sin este paso Meta rechaza la respuesta del bot con el
 código 131030 y en Railway sale "Meta rechazó el envío".
 
-**En la base**, cada teléfono debe pertenecer a un negocio. Desde tu máquina, con el `.env`:
+**En la base**, cada teléfono debe pertenecer a un negocio. Desde S2 día 3 hay dos caminos:
+
+- **Dashboard** (el de verdad): la persona entra con su correo en `/login`, completa `/registro`
+  (nombre, tipo, moneda, su número) y envía el código de 6 dígitos por WhatsApp. Sus empleados los
+  agrega en **Ajustes → Números de WhatsApp**; sin código, el primer mensaje los activa. Para que
+  el botón "Abrir WhatsApp" lleve el código ya escrito, Vercel necesita `PLATFORM_WA_NUMBER`
+  (el número de la plataforma en E.164 sin `+`); sin la variable el botón no aparece y la
+  persona escribe el código a mano.
+- **CLI** (respaldo mientras dura el número de prueba). Desde tu máquina, con el `.env`:
 
 ```bash
 # Empleado del autolavado (tu negocio, dueño 17869660391)
@@ -108,7 +116,7 @@ elegidas, eventos del webhook por estado y movimientos guardados. Llena esta tab
 
 Ordenada por lo que más duele en el piloto:
 
-1. **Onboarding**: no hay registro de negocio ni vinculación por código; todo entra por seed y CLI. S2.
+1. ~~Onboarding~~ Hecho en S2 día 3: registro en `/registro`, código por WhatsApp, empleados desde Ajustes.
 2. ~~Cierres, consultas, corregir y borrar por chat~~ Hechos en S2 (días 1 y 2).
 3. **Listas `currency:` y `cat:`**: las respuestas de lista no se reinyectan al agente; la moneda
    ambigua se resuelve pidiendo el monto con `$` o `bs`. S2.

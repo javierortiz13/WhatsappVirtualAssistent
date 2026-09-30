@@ -52,6 +52,6 @@ export async function requireTenant(): Promise<
 > {
   const session = await currentSession();
   if (!session) redirect("/login");
-  if (!session.tenant) redirect("/sin-negocio");
+  if (!session.tenant) redirect("/registro");
   return { ...session, tenant: session.tenant };
 }

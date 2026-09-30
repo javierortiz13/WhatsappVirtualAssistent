@@ -98,6 +98,29 @@ export function unknownNumber(registerUrl: string): Outbound {
   };
 }
 
+/** Número del dueño todavía sin verificar: solo acepta el código del dashboard. */
+export function askCode(registerUrl: string): Outbound {
+  return {
+    type: "text",
+    body: `Para activar este número, envíame el código de 6 dígitos que ves en ${registerUrl}`,
+  };
+}
+
+/** Código incorrecto. No dice a qué negocio pertenece el número. */
+export function codeMismatch(): Outbound {
+  return {
+    type: "text",
+    body: "Ese código no coincide. Revisa el que muestra la pantalla de vinculación y envíamelo de nuevo.",
+  };
+}
+
+export function codeExpired(registerUrl: string): Outbound {
+  return {
+    type: "text",
+    body: `Ese código ya venció o se agotaron los intentos. Genera otro en ${registerUrl} y envíamelo.`,
+  };
+}
+
 export function outOfScope(): Outbound {
   return {
     type: "buttons",

@@ -5,7 +5,14 @@ import { type NextRequest, NextResponse } from "next/server";
  * Proxy (antes middleware): refresca la sesión de Supabase en cada petición y manda a /login a
  * quien entre sin sesión a una ruta privada. El webhook de Meta no pasa por aquí.
  */
-const PRIVATE_PREFIXES = ["/inicio", "/movimientos", "/cierres", "/ajustes", "/sin-negocio"];
+const PRIVATE_PREFIXES = [
+  "/inicio",
+  "/movimientos",
+  "/cierres",
+  "/ajustes",
+  "/registro",
+  "/sin-negocio",
+];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

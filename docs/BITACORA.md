@@ -188,3 +188,15 @@ Decisión: al probar el walking skeleton, el menú ofrecía "Registrar venta" y 
 **Operación**: hay que correr `pnpm db:migrate` en Supabase antes de que el worker nuevo reciba un gasto; si llega antes, el job falla por la columna nueva y pg-boss lo reintenta, así que no se pierde, solo se retrasa.
 
 **Corrección tras la prueba real (S2 día 2).** Con nueve herramientas, el modo `strict` de Anthropic rechazó la petición: admite como máximo 16 parámetros con tipo unión en todo el conjunto y cada `nullable` cuenta (teníamos 23). Los "no lo dijo" pasan a `""` en textos y `unknown` / `keep` / `unspecified` en listas; el backend normaliza. Un test cuenta las uniones de todas las herramientas y falla si superan 16, para que no vuelva a pasar en producción.
+
+### S2 · día 3 · 30/09/2026 · Onboarding por código de vinculación
+
+**Terminado**
+- `onboarding/register.ts`: `registerBusiness` (tenant en prueba, categorías por tipo, membresía del dashboard, número del dueño en `pending`, primer código), `issueCode` (6 dígitos, solo el hash SHA-256 con el id del teléfono, 15 minutos, vence los anteriores), `verifyCode` (3 intentos; al tercero el código muere), `activatePhone` (auditoría `verify`), `addEmployee`, `setPhoneStatus`, `tenantPhones`, `ownerPhone`. Un número pertenece a un solo negocio en toda la plataforma (`app.phone_is_taken` antes de escribir; `PhoneTakenError`).
+- Procesador: un número del dueño en `pending` solo acepta el código; sin código pide el del dashboard; no guarda el contenido, no usa LLM y comparte el límite de 5 respuestas por hora de los desconocidos. Con el código correcto responde la bienvenida con la tasa y el menú (US-A2). El empleado dado de alta desde el dashboard queda `active` sin `verified_at`: su primer mensaje lo verifica, recibe "Hola, Carlos. Quedaste registrado como empleado…" y a continuación la respuesta normal (US-A4). Desactivado = trato de desconocido.
+- Dashboard: `/registro` en dos pasos (negocio → código con "Abrir WhatsApp" por `wa.me` y polling cada 3 s a `/registro/estado`; "Generar otro código"). El código en claro viaja solo en una cookie `httpOnly` acotada a `/registro` que dura lo que el código. `requireTenant` manda a `/registro` a quien no tiene negocio; Inicio y Ajustes avisan si el número del dueño sigue sin vincular. Ajustes → Números de WhatsApp: lista con estado, alta de empleado, desactivar y reactivar (solo el dueño).
+- Teléfonos del formulario: selector de país (+58 por defecto), quita el 0 inicial venezolano y exige 10 dígitos nacionales.
+- Variable nueva en Vercel: `PLATFORM_WA_NUMBER`. Sin migración: `phone_verification` existía desde 0001.
+- 9 tests de punta a punta del onboarding y 4 del formato de teléfonos. Total: 159 en core, 183 en la corrida local sin Postgres real, más 28 evals (28/28 con el modelo real).
+
+**Pendiente en S2**: reinyección de listas `currency:`/`cat:`, evals v1 con los fallos reales de la semana, health check y alerta, Sentry con DSN.

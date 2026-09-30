@@ -282,7 +282,9 @@ describe("processInbound", () => {
       title: "Ver cierre",
     };
     await processInbound(deps(client), await ingest(p));
-    expect(textOf(sent[0])).toContain("El cierre lo ve el dueño");
+    // Primer mensaje de un empleado dado de alta sin verificar: bienvenida y luego la respuesta.
+    expect(textOf(sent[0])).toContain("Quedaste registrado como empleado");
+    expect(textOf(sent[1])).toContain("El cierre lo ve el dueño");
   });
 
   it("reintento de un job ya respondido no reenvía", async () => {

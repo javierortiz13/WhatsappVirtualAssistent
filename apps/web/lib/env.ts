@@ -9,6 +9,11 @@ const Env = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
   DASHBOARD_URL: z.string().url().default("http://localhost:3000"),
+  /** Número de WhatsApp de la plataforma (E.164 sin '+') para el enlace wa.me del onboarding. */
+  PLATFORM_WA_NUMBER: z
+    .string()
+    .regex(/^\d{8,15}$/)
+    .optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

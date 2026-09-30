@@ -4,6 +4,7 @@ export * from "./identity/index";
 export * from "./inbox/index";
 export * from "./ledger/index";
 export * from "./log";
+export * from "./onboarding/index";
 export * from "./rates/index";
 export * from "./render/index";
 export * as whatsapp from "./whatsapp/index";
