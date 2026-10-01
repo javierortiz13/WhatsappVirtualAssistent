@@ -1,4 +1,5 @@
 export * from "./attachments";
+export * from "./categories";
 export * from "./drafts";
 export * from "./expenses";
 export * from "./income";

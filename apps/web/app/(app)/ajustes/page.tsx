@@ -1,10 +1,15 @@
-import { BUSINESS_TYPE_LABELS, type TenantPhone, tenantPhones } from "@caja/core";
-import { eq, schema, withTenant } from "@caja/db";
+import {
+  BUSINESS_TYPE_LABELS,
+  getTenantSettings,
+  type TenantPhone,
+  tenantPhones,
+} from "@caja/core";
+import { withTenant } from "@caja/db";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { COUNTRY_CODES, formatE164 } from "@/lib/phone";
 import { requireTenant } from "@/lib/session";
-import { addEmployeeAction, setPhoneStatusAction } from "./actions";
+import { addEmployeeAction, setPhoneStatusAction, updateSettingsAction } from "./actions";
 
 export const metadata: Metadata = { title: "Ajustes" };
 export const dynamic = "force-dynamic";
@@ -30,32 +35,84 @@ export default async function Ajustes({
 }) {
   const { user, tenant } = await requireTenant();
   const sp = await searchParams;
-  const { phones, businessType } = await withTenant(db(), tenant.id, async (tx) => {
-    const [row] = await tx
-      .select({ businessType: schema.tenant.businessType })
-      .from(schema.tenant)
-      .where(eq(schema.tenant.id, tenant.id));
-    return { phones: await tenantPhones(tx, tenant.id), businessType: row?.businessType ?? "" };
-  });
+  const { phones, settings } = await withTenant(db(), tenant.id, async (tx) => ({
+    phones: await tenantPhones(tx, tenant.id),
+    settings: await getTenantSettings(tx, tenant.id),
+  }));
   const owner = phones.find((p) => p.role === "owner");
   const isOwner = tenant.role === "owner";
   return (
     <div className="stack">
-      <div className="card stack">
-        <div>
-          <p className="kpi-label">Negocio</p>
-          <p style={{ margin: 0, fontWeight: 600 }}>{tenant.name}</p>
-          <p className="kpi-sub">
-            {BUSINESS_TYPE_LABELS[businessType as keyof typeof BUSINESS_TYPE_LABELS] ??
-              businessType}{" "}
-            · estado: {tenant.status === "trial" ? "en prueba" : tenant.status}
-          </p>
-        </div>
-        <div>
-          <p className="kpi-label">Cuenta</p>
-          <p style={{ margin: 0 }}>{user.email}</p>
-        </div>
-      </div>
+      {sp.ok === "negocio" ? <div className="notice ok">Datos del negocio guardados.</div> : null}
+      <form action={updateSettingsAction} className="card stack">
+        <h2 style={{ margin: 0 }}>Negocio</h2>
+        <label className="field">
+          <span>Nombre</span>
+          <input
+            className="input"
+            name="name"
+            defaultValue={settings?.name ?? tenant.name}
+            minLength={2}
+            maxLength={80}
+            required
+            disabled={!isOwner}
+          />
+        </label>
+        <label className="field">
+          <span>Tipo</span>
+          <select
+            className="input"
+            name="business_type"
+            defaultValue={settings?.businessType ?? "other"}
+            disabled={!isOwner}
+          >
+            {Object.entries(BUSINESS_TYPE_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </label>
+        <fieldset className="field choices">
+          <legend>Moneda en la que sueles hablar de gastos</legend>
+          <label>
+            <input
+              type="radio"
+              name="currency"
+              value="USD"
+              defaultChecked={settings?.defaultExpenseCurrency !== "VES"}
+              disabled={!isOwner}
+            />{" "}
+            Dólares
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="currency"
+              value="VES"
+              defaultChecked={settings?.defaultExpenseCurrency === "VES"}
+              disabled={!isOwner}
+            />{" "}
+            Bolívares
+          </label>
+        </fieldset>
+        <p className="kpi-sub">
+          Estado: {tenant.status === "trial" ? "en prueba" : tenant.status} · Cuenta: {user.email}
+        </p>
+        {isOwner ? (
+          <button className="btn secondary" type="submit">
+            Guardar
+          </button>
+        ) : null}
+      </form>
+      <a
+        className="card"
+        href="/ajustes/categorias"
+        style={{ display: "block", textDecoration: "none" }}
+      >
+        <p className="kpi-label">Categorías de gasto</p>
+        <p style={{ margin: 0 }}>Crear, renombrar o desactivar →</p>
+      </a>
 
       <div className="card stack">
         <h2 style={{ margin: 0 }}>Números de WhatsApp</h2>
@@ -153,12 +210,6 @@ export default async function Ajustes({
           Descargar .xlsx
         </button>
       </form>
-      <div className="card">
-        <p className="kpi-label">Categorías</p>
-        <p style={{ margin: 0 }} className="muted">
-          Llegan en el próximo bloque.
-        </p>
-      </div>
       <form action="/auth/logout" method="post">
         <button className="btn secondary" type="submit">
           Cerrar sesión

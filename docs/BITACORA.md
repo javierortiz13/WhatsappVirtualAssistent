@@ -264,3 +264,12 @@ Contexto: Meta cobra desde el 1/10/2026 cada respuesta libre como mensaje de ser
 - Exportar (US-E3): `GET /exportar?desde&hasta` genera un .xlsx con exceljs (una fila por movimiento, columnas de la historia, números como números, hoja Info con el rango). Botones en Movimientos, Cierres y un formulario por rango en Ajustes. Tope de 12 meses por archivo.
 - `computeAmend` separado de `createEditLastDraft` para que chat y dashboard compartan el cálculo.
 - Tests: generación del libro y nombre del archivo.
+
+### S2 · día 5 · 01/10/2026 · Categorías y configuración del negocio (US-E5, US-E7)
+
+**Terminado**
+- `ledger/categories.ts`: `listCategories` (con conteo de gastos vivos), `createCategory`, `renameCategory`, `setCategoryActive` (nunca se borran; una desactivada deja de sugerirse al agente y sus gastos conservan el nombre), duplicados sin distinguir mayúsculas, nombres de 2 a 40 caracteres; `getTenantSettings` y `updateTenantSettings` (nombre, tipo, moneda por defecto). Todo con auditoría `user` por `dashboard`.
+- Dashboard: Ajustes → formulario del negocio (solo el dueño) y página `/ajustes/categorias` con renombrar en línea, desactivar, reactivar y crear.
+- 2 tests. Con esto queda cubierta la Épica E del MVP salvo el resumen del mes en el dashboard (US-E4), que ya existe en Cierres en su versión básica, y el pulido visual.
+
+**Cierre de S2.** Hecho: onboarding por código, ventas, cierres, correcciones, tasa manual, voz, foto, reacciones y una respuesta por mensaje (ADR-014), health check, métricas de cupo, edición, exportación, categorías y configuración. Pendiente de Javier: migración 0004, prueba del empleado, Sentry, notificaciones de Railway. Siguiente bloque: diseño del dashboard.

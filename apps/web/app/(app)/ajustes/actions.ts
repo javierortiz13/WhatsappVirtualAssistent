@@ -1,6 +1,14 @@
 "use server";
 
-import { addEmployee, PhoneTakenError, setPhoneStatus } from "@caja/core";
+import {
+  addEmployee,
+  BUSINESS_TYPE_LABELS,
+  CategoryError,
+  PhoneTakenError,
+  setPhoneStatus,
+  updateTenantSettings,
+} from "@caja/core";
+import { withTenant } from "@caja/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -55,4 +63,37 @@ export async function setPhoneStatusAction(formData: FormData): Promise<void> {
   );
   revalidatePath("/ajustes");
   redirect("/ajustes");
+}
+
+const SettingsForm = z.object({
+  name: z.string().trim().min(2).max(80),
+  business_type: z.enum(Object.keys(BUSINESS_TYPE_LABELS) as [string, ...string[]]),
+  currency: z.enum(["USD", "VES"]),
+});
+
+/** Nombre, tipo y moneda por defecto del negocio (US-E7). Solo el dueño. */
+export async function updateSettingsAction(formData: FormData): Promise<void> {
+  const { user, tenant } = await requireTenant();
+  if (tenant.role !== "owner") redirect("/ajustes?error=permiso");
+  const parsed = SettingsForm.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) redirect("/ajustes?error=datos");
+  try {
+    await withTenant(db(), tenant.id, (tx) =>
+      updateTenantSettings(
+        tx,
+        { tenantId: tenant.id, userId: user.id },
+        {
+          name: parsed.data.name,
+          businessType: parsed.data.business_type as keyof typeof BUSINESS_TYPE_LABELS,
+          defaultExpenseCurrency: parsed.data.currency,
+        },
+      ),
+    );
+  } catch (err) {
+    if (err instanceof CategoryError) redirect("/ajustes?error=datos");
+    console.error(JSON.stringify({ level: "error", msg: "ajustes", detail: String(err) }));
+    redirect("/ajustes?error=servidor");
+  }
+  revalidatePath("/", "layout");
+  redirect("/ajustes?ok=negocio");
 }
