@@ -28,7 +28,8 @@ import { type Logger, maskPhone, silentLogger } from "../log";
 import { activatePhone, CODE_RE, verifyCode } from "../onboarding/register";
 import { getRateInfo } from "../rates/current";
 import { es, mergeOutbound, type Outbound, parseReplyId } from "../render/index";
-import { MetaApiError, type MetaClient } from "../whatsapp/client";
+import type { SpeechClient } from "../speech/client";
+import { LimitError, MetaApiError, type MetaClient } from "../whatsapp/client";
 import type { InboundMessage } from "../whatsapp/types";
 
 /**
@@ -44,6 +45,8 @@ export type ProcessDeps = {
   db: Db;
   metaFor: (phoneNumberId: string) => MetaClient | null;
   agent: AgentRunner;
+  /** Voz a texto (US-B5). Sin cliente, las notas de voz responden "llegan pronto". */
+  speech?: SpeechClient | null;
   log?: Logger;
   now?: () => Date;
   config: {
@@ -205,6 +208,23 @@ export async function processInbound(
       welcome.push(es.welcomeEmployee(phone.name ?? msg.sender.displayName, tenant.name));
     }
 
+    const ack = async (out: Outbound) => {
+      try {
+        const sent = await sendOutbound(meta, to, out);
+        await tx.insert(schema.message).values({
+          tenantId: resolved.tenantId,
+          phoneId: resolved.phoneId,
+          direction: "out",
+          kind: out.type,
+          body: bodyOf(out),
+          status: "ok",
+          waMessageId: sent.waMessageId,
+          webhookEventId: event.id,
+        });
+      } catch (err) {
+        log.debug({ err: errMsg(err) }, "acuse falló");
+      }
+    };
     const route = await routeMessage(tx, deps, msg, {
       tenantId: resolved.tenantId,
       tenantName: tenant.name,
@@ -214,6 +234,7 @@ export async function processInbound(
       vesThreshold: tenant.vesThreshold,
       today,
       inboundId: msg.waMessageId,
+      ack,
     });
 
     // Una respuesta = un mensaje (ADR-014): la bienvenida viaja en el mismo envío que la respuesta.
@@ -353,6 +374,8 @@ type RouteCtx = {
   today: ReturnType<typeof businessDateOf>;
   /** wa_message_id del mensaje entrante, para reaccionar sobre él. */
   inboundId: string;
+  /** Envía y registra un acuse antes de terminar la ruta (reacción 🎧 mientras se transcribe). */
+  ack: (out: Outbound) => Promise<void>;
 };
 
 type RouteResult = {
@@ -392,12 +415,64 @@ async function routeMessage(
       return runAgent(tx, deps, ctx, msg.waMessageId, { kind: "text", text: msg.text });
     }
     case "audio":
-      return none([es.mediaNotYet("audio")]);
+      return handleAudio(tx, deps, ctx, msg);
     case "image":
       return none([es.mediaNotYet("image")]);
     default:
       return none([es.unsupported()]);
   }
+}
+
+/** Nota de voz: 5 MB y 2 minutos como máximo. */
+export const AUDIO_MAX_BYTES = 5 * 1024 * 1024;
+export const AUDIO_MAX_SECONDS = 120;
+
+/**
+ * Nota de voz (US-B5): acuse con reacción, descarga en memoria, transcripción, y el texto va al
+ * agente como si lo hubiera escrito. La transcripción queda como cuerpo del mensaje entrante (el
+ * historial la ve); el audio no se guarda en ningún lado.
+ */
+async function handleAudio(
+  tx: Tx,
+  deps: ProcessDeps,
+  ctx: RouteCtx,
+  msg: Extract<InboundMessage, { kind: "audio" }>,
+): Promise<RouteResult> {
+  const log = deps.log ?? silentLogger;
+  const meta = deps.metaFor(msg.phoneNumberId);
+  if (!deps.speech || !meta) return none([es.mediaNotYet("audio")]);
+  await ctx.ack(es.audioAck(msg.waMessageId));
+  let text: string;
+  try {
+    const info = await meta.getMediaInfo(msg.media.id);
+    const media = await meta.downloadMedia(info.url, AUDIO_MAX_BYTES);
+    const t = await deps.speech.transcribe(media.bytes, media.mimeType ?? msg.media.mimeType);
+    if (t.durationSeconds !== null && t.durationSeconds > AUDIO_MAX_SECONDS)
+      return none([es.audioTooLong()]);
+    log.info(
+      { provider: deps.speech.provider, seconds: t.durationSeconds, confidence: t.confidence },
+      "nota de voz transcrita",
+    );
+    text = t.text;
+  } catch (err) {
+    if (err instanceof LimitError) return none([es.audioTooLong()]);
+    log.warn({ err: errMsg(err) }, "nota de voz: transcripción falló");
+    return none([es.audioUnclear()]);
+  }
+  if (!text) return none([es.audioUnclear()]);
+  if (text.length > deps.config.maxTextLength) text = text.slice(0, deps.config.maxTextLength);
+  await tx
+    .update(schema.message)
+    .set({ body: text })
+    .where(eq(schema.message.waMessageId, msg.waMessageId));
+  const result = await runAgent(tx, deps, ctx, msg.waMessageId, { kind: "voice", text });
+  const first = result.outbound[0];
+  return {
+    ...result,
+    outbound: first
+      ? [...mergeOutbound(es.transcript(text), first), ...result.outbound.slice(1)]
+      : result.outbound,
+  };
 }
 
 async function routeInteractive(
@@ -587,7 +662,7 @@ async function runAgent(
         categories,
         today: ctx.today,
         sourceMessageDbId: current?.id ?? null,
-        sourceChannel: input.kind === "text" ? "text" : "image",
+        sourceChannel: input.kind === "text" ? "text" : input.kind === "voice" ? "voice" : "image",
         dashboardUrl: deps.config.dashboardUrl,
       },
       input,

@@ -140,6 +140,13 @@ datos de negocio). Para que alguien avise, un monitor externo gratuito lo consul
 3. Prueba: pausa el worker en Railway; a los 15 minutos el monitor debe avisar; reanuda y debe
    recuperarse solo.
 
+**Activar las notas de voz (5 min).** console.deepgram.com → cuenta gratuita (200 USD de crédito)
+→ API Keys → Create key, permiso Member, sin caducidad → cópiala en Railway → worker → Variables
+→ `DEEPGRAM_API_KEY`. Railway redespliega; en "worker listo" debe salir `speech: deepgram:es`.
+Prueba: nota de voz "anota veinte dólares de la comida de los muchachos" → reacción 🎧 al
+instante y, en unos segundos, un mensaje con la transcripción entre comillas y el borrador.
+Costo: 0,0043 USD por minuto de audio.
+
 **"max clients reached in session mode" en Railway.** El pooler de Supabase admite 15 clientes por
 rol y en cada deploy conviven dos workers. Si se repite, sube el Pool Size a 30 en Supabase →
 Project Settings → Database → Connection pooling.
@@ -164,7 +171,8 @@ Ordenada por lo que más duele en el piloto:
    agente con el historial.
 4. ~~Tasa manual como corrección~~ Hecho en S2 día 2 (migración 0003).
 5. **Historia de tasas automática**: hoy es CSV manual; evaluar el Excel del BCV por script. S2.
-6. **Voz y foto**: responden "todavía no". S4.
+6. **Voz**: hecha en S2 día 4 (Deepgram Nova-3, `DEEPGRAM_API_KEY` en Railway; sin clave responde
+   "llegan pronto"). **Foto**: responde "todavía no". S4.
 7. **Dashboard**: solo lectura; sin edición, borrado, exportación, categorías ni números. S5.
 8. **Términos de servicio**: la URL en Meta apunta a la política de privacidad. Antes del primer cobro.
 9. **Portafolio de Meta**: la app vive en "Just Travel"; mover la WABA al portafolio de la empresa

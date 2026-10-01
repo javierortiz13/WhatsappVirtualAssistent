@@ -37,7 +37,10 @@ export function createAgent(opts: AgentOptions): AgentRunner {
       const tools = toolsForRole(ctx.role);
       const defs = tools.map(toLlmToolDef);
       const byName = new Map(tools.map((t) => [t.name, t]));
-      const userText = input.kind === "text" ? input.text : JSON.stringify(input.extracted);
+      const userText =
+        input.kind === "text" || input.kind === "voice"
+          ? input.text
+          : JSON.stringify(input.extracted);
 
       const pending = await pendingDraftFor(tx, ctx.phoneId);
       const FIXABLE: Record<string, string> = {

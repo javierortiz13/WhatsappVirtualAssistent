@@ -1,4 +1,11 @@
-import { AnthropicLlmClient, createAgent, type ProcessDeps, stubAgent, whatsapp } from "@caja/core";
+import {
+  AnthropicLlmClient,
+  createAgent,
+  DeepgramClient,
+  type ProcessDeps,
+  stubAgent,
+  whatsapp,
+} from "@caja/core";
 import { createDb, rows, sql } from "@caja/db";
 import { createBoss, ensureQueues } from "@caja/db/queue";
 import { loadEnv } from "./env";
@@ -45,10 +52,17 @@ async function main() {
   if (agent === stubAgent)
     log.warn({ provider }, "sin LLM configurado: el agente responde fuera de alcance");
 
+  // Voz a texto: Deepgram si hay clave; si no, las notas de voz responden "llegan pronto".
+  const speech = env.DEEPGRAM_API_KEY
+    ? new DeepgramClient({ apiKey: env.DEEPGRAM_API_KEY, language: env.DEEPGRAM_LANGUAGE })
+    : null;
+  if (!speech) log.warn({}, "sin DEEPGRAM_API_KEY: notas de voz desactivadas");
+
   const deps: ProcessDeps = {
     db,
     metaFor: (id) => clients.get(id) ?? null,
     agent,
+    speech,
     log,
     config: {
       assistantName: env.ASSISTANT_NAME,
@@ -86,6 +100,7 @@ async function main() {
       // Railway expone el commit desplegado: permite ver de un vistazo qué versión corre.
       commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
       agent: agent === stubAgent ? "stub" : env.LLM_PRIMARY,
+      speech: speech ? `${speech.provider}:${env.DEEPGRAM_LANGUAGE}` : "off",
     },
     "worker listo",
   );

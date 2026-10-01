@@ -16,6 +16,8 @@ const Env = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   LLM_PRIMARY: z.string().default("anthropic:claude-sonnet-5-5"),
   SENTRY_DSN: z.string().optional(),
+  DEEPGRAM_API_KEY: z.string().optional(),
+  DEEPGRAM_LANGUAGE: z.string().default("es"),
 });
 
 export type Env = z.infer<typeof Env>;

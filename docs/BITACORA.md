@@ -233,3 +233,12 @@ Contexto: Meta cobra desde el 1/10/2026 cada respuesta libre como mensaje de ser
 - `GET /api/health` en el dashboard: 200 o 503 con banderas y edades, sin datos de negocio; incluye el commit desplegado. Público y fuera del proxy de sesión.
 - Test contra Postgres real: worker caído → vivo tras un housekeeping → cola atascada con un job esperando 5 minutos.
 - Runbook: cómo crear el monitor externo (Better Stack o UptimeRobot cada 5 min) y las notificaciones de Railway. Eso queda en manos de Javier; el código ya responde.
+
+### S2 · día 4 · 01/10/2026 · Notas de voz (US-B5)
+
+**Terminado**
+- `speech/client.ts`: interfaz `SpeechClient` y `DeepgramClient` (Nova-3 por HTTP, sin SDK; `language` configurable, `es` por defecto). `SpeechError` con estado y si conviene reintentar. El audio va de la descarga a la transcripción en memoria; nunca se guarda.
+- Procesador: una nota de voz recibe al instante una reacción 🎧 (gratis, ADR-014; sustituye el acuse de texto "Recibí tu nota de voz" del diseño), se descarga con tope de 5 MB, se transcribe, y la transcripción va al agente como entrada `voice` (el movimiento queda con canal `voice`). La respuesta es un solo mensaje: `🎤 "…"` más el borrador o la pregunta. Más de 2 minutos o de 5 MB → "Solo proceso notas de voz cortas"; transcripción vacía o proveedor caído → "No pude escuchar bien la nota de voz. ¿Me lo escribes?". Sin `DEEPGRAM_API_KEY` sigue "llegan pronto".
+- La transcripción queda como cuerpo del mensaje entrante: el historial del agente la ve y "no, eran 25" funciona igual que con texto.
+- `RouteCtx.ack` para acuses previos a la respuesta (envía y registra el mensaje). Worker: `DEEPGRAM_API_KEY`, `DEEPGRAM_LANGUAGE`; el arranque registra `speech`.
+- 3 tests del cliente y 5 de punta a punta. Sin `keyterm` por ahora: Deepgram lo documenta para inglés en Nova-3; se evalúa con las 30 notas reales de la Fase 8.

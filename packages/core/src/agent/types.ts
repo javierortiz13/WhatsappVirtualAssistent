@@ -20,6 +20,8 @@ export type AgentContext = {
 
 export type AgentInput =
   | { kind: "text"; text: string }
+  /** Transcripción de una nota de voz: se trata como texto, pero el movimiento lleva canal `voice`. */
+  | { kind: "voice"; text: string }
   | { kind: "receipt"; extracted: Record<string, unknown> };
 
 export type AgentResult = {

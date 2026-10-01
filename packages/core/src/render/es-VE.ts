@@ -185,6 +185,29 @@ export function mediaNotYet(kind: "audio" | "image"): Outbound {
   };
 }
 
+// ---------------------------------------------------------------- notas de voz (US-B5)
+
+/** Acuse inmediato de la nota de voz: una reacción, gratis (ADR-014), mientras se transcribe. */
+export function audioAck(inboundId: string): Outbound {
+  return { type: "reaction", body: "🎧", waMessageId: inboundId };
+}
+
+/** La transcripción entre comillas; va en el mismo envío que el borrador o la pregunta. */
+export function transcript(text: string): Outbound {
+  return { type: "text", body: `🎤 "${text.length > 300 ? `${text.slice(0, 297)}…` : text}"` };
+}
+
+export function audioTooLong(): Outbound {
+  return {
+    type: "text",
+    body: "Solo proceso notas de voz cortas, de menos de 2 minutos. ¿Me la repites más corta?",
+  };
+}
+
+export function audioUnclear(): Outbound {
+  return { type: "text", body: "No pude escuchar bien la nota de voz. ¿Me lo escribes?" };
+}
+
 export function unsupported(): Outbound {
   return { type: "text", body: "Solo entiendo texto, notas de voz y fotos de facturas." };
 }
