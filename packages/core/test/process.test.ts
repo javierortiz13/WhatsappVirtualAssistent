@@ -150,6 +150,42 @@ describe("processInbound", () => {
     expect(outbound?.latencyMs).toBeTypeOf("number");
   });
 
+  it("conocido por encima del límite: un aviso al cruzarlo, después silencio sin agente ni mensaje", async () => {
+    const { sent, client } = fakeMeta();
+    const d = deps(client);
+    d.config.knownMax = 2;
+    d.config.knownWindowMs = 300_000;
+    // Teléfono propio del test: el contador vive por e164 y el `now` fijo no vence la ventana.
+    const from = "584140000003";
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.insert(schema.phoneNumber).values({
+        tenantId,
+        e164: from,
+        role: "employee",
+        status: "active",
+        displayName: "Luis",
+        verifiedAt: now(),
+      }),
+    );
+    expect(await processInbound(d, await ingest(message("wamid.L1", from, "tasa")))).toBe("done");
+    expect(await processInbound(d, await ingest(message("wamid.L2", from, "tasa")))).toBe("done");
+    expect(sent).toHaveLength(2);
+    expect(await processInbound(d, await ingest(message("wamid.L3", from, "tasa")))).toBe(
+      "ignored",
+    );
+    expect(sent).toHaveLength(3);
+    expect(textOf(sent[2])).toContain("muchos mensajes seguidos");
+    expect(await processInbound(d, await ingest(message("wamid.L4", from, "tasa")))).toBe(
+      "ignored",
+    );
+    expect(sent).toHaveLength(3);
+    const ignored = await t.db
+      .select({ status: schema.webhookEvent.status })
+      .from(schema.webhookEvent)
+      .where(eq(schema.webhookEvent.eventKey, "msg:wamid.L4"));
+    expect(ignored[0]?.status).toBe("ignored");
+  });
+
   it("'tasa' y 'ayuda' se resuelven sin agente", async () => {
     const { sent, client } = fakeMeta();
     await processInbound(deps(client), await ingest(message("wamid.T1", "584121234567", "tasa")));

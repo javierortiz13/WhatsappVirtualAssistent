@@ -31,3 +31,9 @@
   expect:
     tool: draft_income_day_total
     args: { total_amount: "500", when: ayer }
+
+- name: pago puntual por pago móvil en bolívares
+  input: "me pagaron 1.200 bs por pago móvil del lavado de la camioneta"
+  expect:
+    tool: draft_income_single
+    args: { amount: "1200", currency: VES, method: pago_movil }

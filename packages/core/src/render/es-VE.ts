@@ -98,6 +98,14 @@ export function unknownNumber(registerUrl: string): Outbound {
   };
 }
 
+/** Conocido que pasó el límite de mensajes: un solo aviso, luego silencio hasta que venza la ventana. */
+export function tooFast(): Outbound {
+  return {
+    type: "text",
+    body: "Me llegaron muchos mensajes seguidos. Espera unos minutos y me escribes de nuevo.",
+  };
+}
+
 /** Número del dueño todavía sin verificar: solo acepta el código del dashboard. */
 export function askCode(registerUrl: string): Outbound {
   return {

@@ -1,0 +1,36 @@
+# Notas de voz (US-B5): la transcripción llega como texto, con números en palabras y sin
+# puntuación. Casos de las pruebas reales de Javier en S2 (voz con corrección, voz sin monto,
+# venta por voz).
+- name: gasto dictado con el monto en palabras
+  input: "gasté treinta dólares en dos sacos de harina en el mercado mayorista"
+  kind: voice
+  expect:
+    tool: draft_expense
+    args: { amount: "30", currency: USD }
+
+- name: dictado sin monto pregunta
+  input: "compré harina y azúcar en el mayorista"
+  kind: voice
+  expect:
+    tool: ask_clarification
+
+- name: venta del día dictada con desglose
+  input: "hoy vendí doscientos cuarenta dólares ciento veinte en efectivo y el resto por pago móvil"
+  kind: voice
+  expect:
+    tool: draft_income_day_total
+    args: { total_amount: "240", total_currency: USD }
+
+- name: corrección dictada del último guardado
+  input: "no eran cincuenta no treinta"
+  kind: voice
+  expect:
+    tool: amend_last_movement
+    args: { amount: "50" }
+
+- name: bolívares en palabras
+  input: "pagué cuatrocientos cincuenta mil bolívares de hielo"
+  kind: voice
+  expect:
+    tool: draft_expense
+    args: { amount: "450000", currency: VES }

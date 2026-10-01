@@ -50,6 +50,22 @@ describe("POST entrada", () => {
     expect(ingest).not.toHaveBeenCalled();
   });
 
+  it("firma inválida llama al contador de alertas y su fallo no cambia el 401", async () => {
+    const onInvalidSignature = vi.fn(async () => {
+      throw new Error("db down");
+    });
+    const res = await handleInbound(
+      new Request("https://x/w", {
+        method: "POST",
+        body,
+        headers: { "x-hub-signature-256": "sha256=00" },
+      }),
+      { ...deps(), onInvalidSignature },
+    );
+    expect(res.status).toBe(401);
+    expect(onInvalidSignature).toHaveBeenCalledTimes(1);
+  });
+
   it("200 con firma válida y payload vacío", async () => {
     const res = await handleInbound(
       new Request("https://x/w", {

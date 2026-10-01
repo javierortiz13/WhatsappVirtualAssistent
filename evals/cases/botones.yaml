@@ -1,0 +1,37 @@
+# Respuestas a botones que vuelven al agente como texto con el historial (S2 día 3):
+# el modelo debe completar lo del mensaje anterior, no empezar de cero ni volver a preguntar.
+- name: botón de moneda completa el gasto anterior
+  history:
+    - { role: in, body: "pagué 500 del agua" }
+    - { role: out, body: "¿500 en qué moneda?" }
+  input: "Respuesta al botón de moneda: dólares (USD). Registra lo del mensaje anterior en esa moneda."
+  expect:
+    tool: draft_expense
+    args: { amount: "500", currency: USD, category_name: Agua y electricidad }
+
+- name: botón de moneda en bolívares
+  history:
+    - { role: in, body: "se fueron 1.200 en la luz" }
+    - { role: out, body: "¿1.200 en qué moneda?" }
+  input: "Respuesta al botón de moneda: bolívares (VES). Registra lo del mensaje anterior en esa moneda."
+  expect:
+    tool: draft_expense
+    args: { amount: "1200", currency: VES }
+
+- name: botón de categoría aplica la categoría al gasto anterior
+  history:
+    - { role: in, body: "gasté 20$ en eso que faltaba" }
+    - { role: out, body: "¿En qué categoría va?" }
+  input: "Respuesta al botón de categoría: \"Insumos de lavado\". Aplícala a lo del mensaje anterior."
+  expect:
+    tool: draft_expense
+    args: { amount: "20", currency: USD, category_name: Insumos de lavado }
+
+- name: aclaración respondida con solo el monto
+  history:
+    - { role: in, body: "compré 3 cajas de cera" }
+    - { role: out, body: "¿Cuánto costaron las 3 cajas de cera?" }
+  input: "45$"
+  expect:
+    tool: draft_expense
+    args: { amount: "45", currency: USD }

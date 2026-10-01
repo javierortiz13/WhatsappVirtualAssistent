@@ -41,14 +41,15 @@ export function canUse(r: ResolvedSender): boolean {
 }
 
 /**
- * Rate limit para desconocidos: `max` mensajes por ventana, luego silencio. Sin contenido.
- * Devuelve true si toca responder.
+ * Contador por clave y ventana deslizante fija, en la tabla `unknown_sender_hit` (una fila por
+ * clave; la ventana se reinicia al vencer). Sirve para desconocidos (`e164`), conocidos
+ * (`k:<e164>`) y firmas inválidas del webhook (`sig:invalid`). Devuelve los hits de la ventana.
  */
-export async function allowUnknownReply(
+export async function countHit(
   db: Queryable,
   key: string,
-  opts: { max: number; windowMs: number; now: Date },
-): Promise<boolean> {
+  opts: { windowMs: number; now: Date },
+): Promise<number> {
   // Fechas como ISO con cast: postgres-js no serializa un Date en SQL crudo (PGlite sí, y por
   // eso el test no lo veía). Falló en producción el 30/09/2026.
   const now = opts.now.toISOString();
@@ -64,5 +65,32 @@ export async function allowUnknownReply(
       returning hits
     `),
   );
-  return (result[0]?.hits ?? Number.POSITIVE_INFINITY) <= opts.max;
+  return Number(result[0]?.hits ?? Number.POSITIVE_INFINITY);
+}
+
+/**
+ * Rate limit para desconocidos: `max` mensajes por ventana, luego silencio. Sin contenido.
+ * Devuelve true si toca responder.
+ */
+export async function allowUnknownReply(
+  db: Queryable,
+  key: string,
+  opts: { max: number; windowMs: number; now: Date },
+): Promise<boolean> {
+  return (await countHit(db, key, opts)) <= opts.max;
+}
+
+/**
+ * Rate limit para números conocidos (checklist S2: 30 mensajes por 5 minutos). Devuelve
+ * `ok` dentro del límite, `notify` exactamente al cruzarlo (un solo aviso) y `drop` después:
+ * silencio total, sin LLM ni mensajes de servicio, hasta que venza la ventana.
+ */
+export async function checkKnownLimit(
+  db: Queryable,
+  e164: string,
+  opts: { max: number; windowMs: number; now: Date },
+): Promise<"ok" | "notify" | "drop"> {
+  const hits = await countHit(db, `k:${e164}`, opts);
+  if (hits <= opts.max) return "ok";
+  return hits === opts.max + 1 ? "notify" : "drop";
 }

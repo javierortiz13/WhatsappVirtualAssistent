@@ -9,6 +9,11 @@ export type WebhookDeps = {
   verifyToken: string;
   ingest: () => Promise<IngestDeps>;
   log: Logger;
+  /**
+   * Se llama en cada firma inválida, sin esperar su resultado y sin que su fallo cambie la
+   * respuesta. Sirve para contar y alertar (checklist S2: más de 10 por minuto).
+   */
+  onInvalidSignature?: () => Promise<void>;
 };
 
 export function handleVerify(req: Request, deps: Pick<WebhookDeps, "verifyToken">): Response {
@@ -27,6 +32,15 @@ export async function handleInbound(req: Request, deps: WebhookDeps): Promise<Re
   const signature = req.headers.get("x-hub-signature-256");
   if (!whatsapp.verifySignature(raw, signature, deps.appSecret)) {
     deps.log.warn({ hasSignature: Boolean(signature) }, "firma de webhook inválida");
+    if (deps.onInvalidSignature)
+      await deps
+        .onInvalidSignature()
+        .catch((err) =>
+          deps.log.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            "contador de firmas",
+          ),
+        );
     return new Response("invalid signature", { status: 401 });
   }
   let payload: unknown;

@@ -22,3 +22,15 @@
   expect:
     tool: get_summary
     args: { period: this_month, category_name: Insumos de lavado }
+
+- name: rango de fechas del mes
+  input: "del 1 al 15 cuánto vendí"
+  expect:
+    tool: get_summary
+    args: { period: custom }
+
+- name: empleado que pide el cierre no lo ve
+  input: "cómo fue hoy?"
+  role: employee
+  expect:
+    reply_contains: ["dueño"]

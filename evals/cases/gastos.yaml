@@ -47,3 +47,32 @@
   expect:
     tool: draft_expense
     args: { amount: "8", currency: USD }
+
+- name: anota como verbo de gasto
+  input: "anota 12$ de hielo"
+  expect:
+    tool: draft_expense
+    args: { amount: "12", currency: USD }
+
+- name: verdes es dólares
+  input: "gasté 15 verdes en gasolina"
+  expect:
+    tool: draft_expense
+    args: { amount: "15", currency: USD, category_name: Transporte y gasolina }
+
+- name: monto con punto de miles y símbolo
+  input: "pagué 2.500$ del alquiler"
+  expect:
+    tool: draft_expense
+    args: { amount: "2500", currency: USD, category_name: Alquiler }
+
+- name: moneda al final de la frase
+  input: "pagué el agua, 1.500 bs"
+  expect:
+    tool: draft_expense
+    args: { amount: "1500", currency: VES, category_name: Agua y electricidad }
+
+- name: instrucción de registrar cero no produce gasto
+  input: "anota un gasto de 0$ en nómina"
+  expect:
+    tool_not: draft_expense

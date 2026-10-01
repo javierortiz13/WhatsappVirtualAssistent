@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   type AgentContext,
+  type AgentInput,
   type AgentResult,
   AnthropicLlmClient,
   addDays,
@@ -17,7 +18,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type EvalCase, loadCases } from "./cases";
 
 /**
- * Evals v0 (Fase 8, día 5): los casos de `cases/*.yaml` contra el LLM real. Se corren solo con
+ * Evals v1 (Fase 8, día 5 y S2): los casos de `cases/*.yaml` contra el LLM real. Se corren solo con
  * `RUN_EVALS=1` y `ANTHROPIC_API_KEY`. Tope de costo por ejecución: `EVALS_MAX_USD` (0.50).
  * Escribe `report/last.json` con herramienta, argumentos, tokens, costo y latencia por caso.
  */
@@ -41,7 +42,7 @@ type Row = {
   error?: string;
 };
 
-describe.skipIf(!enabled)("evals v0 del agente", () => {
+describe.skipIf(!enabled)("evals v1 del agente", () => {
   let t: Awaited<ReturnType<typeof createTestDb>>;
   let tenantId: string;
   let base: AgentContext;
@@ -113,14 +114,34 @@ describe.skipIf(!enabled)("evals v0 del agente", () => {
   for (const c of cases) {
     it(c.name, async () => {
       if (spent.gte(maxUsd)) throw new Error(`tope de costo alcanzado: ${spent.toFixed(4)} USD`);
-      const ctx: AgentContext = { ...base, role: c.role, defaultCurrency: c.default_currency };
+      const ctx: AgentContext = {
+        ...base,
+        role: c.role,
+        defaultCurrency: c.default_currency,
+        sourceChannel: c.receipt ? "image" : c.kind,
+      };
       const started = Date.now();
       let result: AgentResult;
       try {
         result = await withTenant(t.db, tenantId, async (tx) => {
           await tx.delete(schema.pendingAction);
           await tx.delete(schema.message);
-          return agent.run(tx, ctx, { kind: "text", text: c.input });
+          // Historial reciente: un turno por fila, en orden, dentro de la ventana de 30 minutos.
+          const t0 = Date.now() - 60_000 * c.history.length;
+          for (const [i, h] of c.history.entries()) {
+            await tx.insert(schema.message).values({
+              tenantId,
+              phoneId: ctx.phoneId,
+              direction: h.role,
+              kind: "text",
+              body: h.body,
+              createdAt: new Date(t0 + i * 60_000),
+            });
+          }
+          const input: AgentInput = c.receipt
+            ? { kind: "receipt", extracted: c.receipt }
+            : { kind: c.kind, text: c.input };
+          return agent.run(tx, ctx, input);
         });
       } catch (err) {
         rows.push({

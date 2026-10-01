@@ -1,4 +1,5 @@
 import { enqueueProcessMessage } from "@caja/db/queue";
+import { noteInvalidSignature } from "@/lib/alerts";
 import { boss } from "@/lib/boss";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -26,6 +27,7 @@ export async function POST(req: Request) {
     appSecret: env().META_APP_SECRET,
     verifyToken: env().META_VERIFY_TOKEN,
     log,
+    onInvalidSignature: () => noteInvalidSignature(),
     ingest: async () => {
       const b = await boss();
       return {

@@ -5,7 +5,13 @@ import { deleteLastFlow } from "../agent/tools";
 import type { AgentInput, AgentRunner } from "../agent/types";
 import { asIsoDate, businessDateOf, formatShortDate } from "../domain/dates";
 import { Decimal } from "../domain/money";
-import { allowUnknownReply, canUse, type ResolvedSender, resolveSender } from "../identity/resolve";
+import {
+  allowUnknownReply,
+  canUse,
+  checkKnownLimit,
+  type ResolvedSender,
+  resolveSender,
+} from "../identity/resolve";
 import { createAttachment, discardAttachment } from "../ledger/attachments";
 import {
   amendMovement,
@@ -62,10 +68,17 @@ export type ProcessDeps = {
     supportHint: string | null;
     unknownReplyMax: number;
     unknownReplyWindowMs: number;
+    /** Conocidos: mensajes por ventana antes de avisar una vez y callar (checklist S2). */
+    knownMax?: number;
+    knownWindowMs?: number;
     maxEventAgeMs: number;
     maxTextLength: number;
   };
 };
+
+/** Checklist de seguridad S2: 30 mensajes por 5 minutos para números conocidos. */
+export const KNOWN_MAX = 30;
+export const KNOWN_WINDOW_MS = 5 * 60 * 1000;
 
 export type ProcessOutcome = "done" | "ignored" | "expired" | "duplicate";
 
@@ -154,6 +167,27 @@ export async function processInbound(
   }
 
   const to = msg.sender.e164 ?? msg.sender.waUserId ?? "";
+
+  // Rate limit de conocidos: protege la cuota de LLM y de mensajes de servicio (ADR-014) de un
+  // teléfono en bucle o robado. Al cruzar el límite un aviso; después, silencio sin tocar el LLM.
+  const limit = await checkKnownLimit(deps.db, to, {
+    max: deps.config.knownMax ?? KNOWN_MAX,
+    windowMs: deps.config.knownWindowMs ?? KNOWN_WINDOW_MS,
+    now: now(),
+  });
+  if (limit !== "ok") {
+    if (limit === "notify" && msg.sender.e164) {
+      try {
+        await meta.sendText(msg.sender.e164, es.tooFast().body);
+      } catch (err) {
+        log.warn({ err: errMsg(err), from: maskPhone(msg.sender.e164) }, "aviso de límite falló");
+      }
+    }
+    await markEvent(deps.db, event.id, "ignored", "límite de mensajes del remitente");
+    log.warn({ from: maskPhone(msg.sender.e164), limit }, "remitente por encima del límite");
+    return "ignored";
+  }
+
   const outcome = await withTenant(deps.db, resolved.tenantId, async (tx) => {
     const [tenant] = await tx
       .select()

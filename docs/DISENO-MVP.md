@@ -2414,8 +2414,8 @@ Cada línea tiene un responsable implícito (tú), una fase en que se implementa
 - [ ] S1. Endpoint GET de verificación con `verify_token` aleatorio de 32 bytes.
 - [ ] S1. Aceptar solo payloads cuyo `phone_number_id` esté en la tabla de números de la plataforma; el resto se registra y se ignora.
 - [ ] S1. Idempotencia por `event_key` único; respuesta 200 en menos de 1 s; nada de LLM ni de Meta dentro del handler.
-- [ ] S2. Rate limit por remitente: 30 mensajes por 5 minutos para números conocidos; 5 por hora para desconocidos, después silencio.
-- [ ] S2. Alerta si las firmas inválidas superan 10 por minuto (posible secreto rotado o ataque).
+- [x] S2. Rate limit por remitente: 30 mensajes por 5 minutos para números conocidos; 5 por hora para desconocidos, después silencio. (Hecho 01/10: `checkKnownLimit`, un aviso al cruzar y silencio.)
+- [x] S2. Alerta si las firmas inválidas superan 10 por minuto (posible secreto rotado o ataque). (Hecho 01/10: contador en base y un aviso a Sentry por ventana.)
 
 **Secretos y credenciales**
 - [ ] S1. Todo secreto en variables de entorno de Railway y Vercel; `.env.example` sin valores; `gitleaks` en CI para impedir commits con secretos.

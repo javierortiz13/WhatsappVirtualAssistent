@@ -28,3 +28,14 @@
   input: "quita ese último, me equivoqué"
   expect:
     tool: delete_last_movement
+
+- name: corregir la moneda
+  input: "era en bolívares"
+  expect:
+    tool: amend_last_movement
+    args: { currency: VES, amount: "" }
+
+- name: borrar con lo último
+  input: "borra lo último que anoté"
+  expect:
+    tool: delete_last_movement

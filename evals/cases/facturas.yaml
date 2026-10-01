@@ -1,0 +1,19 @@
+# Fotos de facturas (US-B6): el agente recibe la lectura estructurada y arma el gasto sin
+# inventar lo que no se leyó. Casos de la prueba real de S2 día 4.
+- name: factura completa en dólares
+  receipt: { total: "45.90", currency: USD, date: "", vendor: "Ferretería El Tornillo", line_items_count: 3 }
+  expect:
+    tool: draft_expense
+    args: { amount: "45.90", currency: USD, when: "" }
+
+- name: factura sin moneda legible deja la moneda en unknown
+  receipt: { total: "1250", currency: unknown, date: "", vendor: "Hielos del Centro", line_items_count: 1 }
+  expect:
+    tool: draft_expense
+    args: { amount: "1250", currency: unknown }
+
+- name: factura con fecha de ayer
+  receipt: { total: "18", currency: USD, date: "ayer", vendor: "Bodegón La 20", line_items_count: 2 }
+  expect:
+    tool: draft_expense
+    args: { amount: "18", currency: USD, when: ayer }
