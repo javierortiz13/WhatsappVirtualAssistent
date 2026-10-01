@@ -123,20 +123,14 @@ function snapshot(m: Movement, categoryName: string | null): MovementSnapshot {
 }
 
 /**
- * Calcula el "después": si cambia la fecha se recalcula la tasa (salvo tasa manual explícita);
- * si cambia monto o moneda se reconvierten los equivalentes con la tasa vigente del movimiento.
+ * Calcula el "después" de una corrección (chat o dashboard): si cambia la fecha se recalcula la
+ * tasa (salvo tasa manual explícita); si cambia monto o moneda se reconvierten los equivalentes
+ * con la tasa vigente del movimiento. No escribe nada.
  */
-export async function createEditLastDraft(
+export async function computeAmend(
   tx: Tx,
-  input: {
-    tenantId: string;
-    phoneId: string;
-    movement: Movement;
-    categoryName: string | null;
-    changes: AmendChanges;
-  },
-  now: Date,
-): Promise<{ pendingId: string; draft: EditLastDraft; replacedPrevious: boolean }> {
+  input: { movement: Movement; categoryName: string | null; changes: AmendChanges },
+): Promise<EditLastDraft> {
   const m = input.movement;
   const before = snapshot(m, input.categoryName);
   const businessDate = input.changes.businessDate ?? asIsoDate(m.businessDate);
@@ -173,13 +167,22 @@ export async function createEditLastDraft(
   const changed = (Object.keys(after) as (keyof MovementSnapshot)[]).filter(
     (k) => after[k] !== before[k],
   );
-  const draft: EditLastDraft = {
-    movementId: m.id,
-    type: m.type as "expense" | "income",
-    before,
-    after,
-    changed,
-  };
+  return { movementId: m.id, type: m.type as "expense" | "income", before, after, changed };
+}
+
+/** Borrador de corrección por chat: `computeAmend` más un `pending_action` de tipo `edit_last`. */
+export async function createEditLastDraft(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    phoneId: string;
+    movement: Movement;
+    categoryName: string | null;
+    changes: AmendChanges;
+  },
+  now: Date,
+): Promise<{ pendingId: string; draft: EditLastDraft; replacedPrevious: boolean }> {
+  const draft = await computeAmend(tx, input);
   const r = await insertDraft(
     tx,
     { tenantId: input.tenantId, phoneId: input.phoneId, kind: "edit_last", payload: draft },
@@ -224,7 +227,7 @@ async function audit(
     entityId: before.id,
     before,
     after,
-    channel: "whatsapp",
+    channel: actor.phoneId ? "whatsapp" : "dashboard",
   });
 }
 

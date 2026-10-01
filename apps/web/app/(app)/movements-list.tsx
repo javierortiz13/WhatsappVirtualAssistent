@@ -25,7 +25,10 @@ export function MovementsList({ rows, today }: { rows: MovementRow[]; today: str
           <ul className="list card" style={{ padding: "0 var(--space-4)" }}>
             {items.map((m) => (
               <li key={m.id} className={m.type}>
-                <span className="title">{m.description ?? "Sin descripción"}</span>
+                <span className="title">
+                  <a href={`/movimientos/${m.id}`}>{m.description ?? "Sin descripción"}</a>
+                  {m.deletedAt ? <span className="badge warn">eliminado</span> : null}
+                </span>
                 <span className="amt">
                   {m.type === "expense" ? "−" : "+"}
                   {formatMoney(m.amount, m.currency as "USD" | "VES")}

@@ -12,6 +12,7 @@ const PRIVATE_PREFIXES = [
   "/ajustes",
   "/registro",
   "/adjuntos",
+  "/exportar",
   "/sin-negocio",
 ];
 

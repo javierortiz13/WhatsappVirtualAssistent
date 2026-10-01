@@ -133,10 +133,30 @@ export default async function Ajustes({
         ) : null}
       </div>
 
+      <form className="card stack" action="/exportar" method="get">
+        <h2 style={{ margin: 0 }}>Exportar a Excel</h2>
+        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+          Una fila por movimiento: fecha, tipo, categoría, descripción, monto, moneda, tasa,
+          equivalentes, método, autor y canal. Hasta 12 meses por archivo.
+        </p>
+        <div className="grid-2">
+          <label className="field">
+            <span>Desde</span>
+            <input className="input" type="date" name="desde" required />
+          </label>
+          <label className="field">
+            <span>Hasta</span>
+            <input className="input" type="date" name="hasta" required />
+          </label>
+        </div>
+        <button className="btn secondary" type="submit">
+          Descargar .xlsx
+        </button>
+      </form>
       <div className="card">
-        <p className="kpi-label">Categorías y exportación</p>
+        <p className="kpi-label">Categorías</p>
         <p style={{ margin: 0 }} className="muted">
-          Llegan en los próximos sprints.
+          Llegan en el próximo bloque.
         </p>
       </div>
       <form action="/auth/logout" method="post">

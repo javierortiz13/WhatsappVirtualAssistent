@@ -71,7 +71,18 @@ export default async function Cierres() {
           </div>
         </div>
       )}
-      <h2>{monthNameEs(today)}</h2>
+      <h2>
+        {monthNameEs(today)}
+        {"error" in month ? null : (
+          <a
+            className="chip"
+            style={{ marginLeft: 12, fontWeight: 400 }}
+            href={`/exportar?desde=${month.from}&hasta=${month.to}`}
+          >
+            ⬇ Excel del mes
+          </a>
+        )}
+      </h2>
       {!summary || summary.count === 0 ? (
         <p className="empty">Sin movimientos este mes.</p>
       ) : (

@@ -255,3 +255,12 @@ Contexto: Meta cobra desde el 1/10/2026 cada respuesta libre como mensaje de ser
 - 12 tests nuevos (lector, bucket, punta a punta con Guardar, Cancelar, no factura, baja confianza, lector caído, foto pesada, tipo no admitido, sin lector, barrido). Pendiente de la Fase 6: `sharp` para reducir a 1.000 px y quitar metadatos antes de guardar.
 
 **Corrección tras la prueba real de fotos (S2 día 4).** Javier mandó una factura, corrigió el monto con una nota de voz y el gasto quedó sin foto. Causa: la corrección arma un borrador nuevo (el modelo vuelve a llamar `draft_expense`) y el adjunto solo viajaba en el contexto del turno de la foto. Ahora toda herramienta recibe el borrador pendiente del teléfono (`prior`), y `draft_expense` hereda `attachmentId` y el canal `image` cuando reemplaza un borrador de gasto con foto, con o sin tocar Corregir. Test de punta a punta: foto → "no, eran 50" → Guardar deja la foto vinculada y no quedan fotos huérfanas.
+
+### S2 · día 4 (noche) · 01/10/2026 · Dashboard: editar, borrar y exportar (US-E2, US-E3)
+
+**Terminado**
+- Movimientos: navegación por mes (‹ ›), filtros Todo / Gastos / Ventas / Eliminados y "Excel del mes". Cada fila abre su detalle.
+- Detalle `/movimientos/<id>`: monto, moneda, fecha, categoría (gastos) o método (ventas), descripción, foto de la factura si la hay, quién lo registró, por qué canal y el mensaje original (texto o transcripción). Guardar pasa por `computeAmend`, la misma función que la corrección por chat: si cambia la fecha se recalcula la tasa y la pantalla lo avisa; auditoría con `actor_type = user` y canal `dashboard`. Eliminar es borrado lógico y el movimiento sigue visible con el filtro Eliminados.
+- Exportar (US-E3): `GET /exportar?desde&hasta` genera un .xlsx con exceljs (una fila por movimiento, columnas de la historia, números como números, hoja Info con el rango). Botones en Movimientos, Cierres y un formulario por rango en Ajustes. Tope de 12 meses por archivo.
+- `computeAmend` separado de `createEditLastDraft` para que chat y dashboard compartan el cálculo.
+- Tests: generación del libro y nombre del archivo.

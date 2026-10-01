@@ -408,3 +408,40 @@ select.input {
   padding: 0 var(--space-3);
   font-size: 14px;
 }
+
+/* Movimientos: filtros y edición */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  font-size: 14px;
+  text-decoration: none;
+}
+.chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.list .title a {
+  text-decoration: none;
+}
+.list .title .badge {
+  margin-left: var(--space-2);
+}
+.btn.danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.rate .btn.small {
+  min-width: 40px;
+}

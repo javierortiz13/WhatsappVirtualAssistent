@@ -190,7 +190,8 @@ Ordenada por lo que más duele en el piloto:
 5. **Historia de tasas automática**: hoy es CSV manual; evaluar el Excel del BCV por script. S2.
 6. ~~Voz y foto~~ Hechas en S2 día 4. Pendiente: reprocesar la imagen con `sharp` (1.000 px,
    sin metadatos GPS) antes de guardarla; hoy se guarda tal cual, con tope de 5 MB.
-7. **Dashboard**: solo lectura; sin edición, borrado, exportación, categorías ni números. S5.
+7. **Dashboard**: ~~edición, borrado, exportación y números~~ hechos en S2 (días 3 y 4); faltan
+   categorías y configuración del negocio.
 8. **Términos de servicio**: la URL en Meta apunta a la política de privacidad. Antes del primer cobro.
 9. **Portafolio de Meta**: la app vive en "Just Travel"; mover la WABA al portafolio de la empresa
    venezolana al verificarla. S2.
