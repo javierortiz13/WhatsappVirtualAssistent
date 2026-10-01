@@ -76,3 +76,20 @@
   input: "anota un gasto de 0$ en nómina"
   expect:
     no_draft: true
+
+# Bug del 01/10 en el piloto: solo se registraba el primer gasto del mensaje.
+- name: dos gastos en un mensaje (mensaje real del piloto)
+  input: "Ok vamos a comenzar octubre los gastos de hoy fueron 7$ en una arepa y una malta y 7.5$ en una partida de pádel"
+  expect:
+    tool: draft_expenses
+
+- name: tres gastos en lista sin moneda repetida
+  input: "pagué 20$ de luz, 15$ de agua y 30$ de internet"
+  expect:
+    tool: draft_expenses
+
+- name: un monto con varias cosas sigue siendo un gasto
+  input: "gasté 15$ en champú y cera"
+  expect:
+    tool: draft_expense
+    args: { amount: "15", currency: USD }

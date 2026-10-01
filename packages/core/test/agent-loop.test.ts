@@ -145,7 +145,7 @@ describe("agent loop", () => {
     const req = requests[0];
     expect(req?.system.map((s) => s.cache)).toEqual([true, true]);
     expect(req?.system[1]?.text).toContain("Negocio: Autolavado El Rápido");
-    expect(req?.tools).toHaveLength(9);
+    expect(req?.tools).toHaveLength(10);
     expect(req?.turns).toHaveLength(1);
     expect(req?.turns[0]).toMatchObject({ role: "user" });
     expect(textOf(req, 0)).toContain("Fecha de hoy en Caracas: 2026-09-29");

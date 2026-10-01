@@ -46,6 +46,7 @@ export function createAgent(opts: AgentOptions): AgentRunner {
       const pending = await pendingDraftFor(tx, ctx.phoneId);
       const FIXABLE: Record<string, string> = {
         create_expense: "draft_expense",
+        create_expenses: "draft_expenses",
         create_income_day_total: "draft_income_day_total",
         create_income_single: "draft_income_single",
       };

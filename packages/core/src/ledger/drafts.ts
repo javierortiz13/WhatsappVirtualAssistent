@@ -60,16 +60,11 @@ export type DraftInput = {
   manualRate?: Rate | null;
 };
 
-export async function createExpenseDraft(
+/** Convierte un gasto dicho por el usuario al payload del borrador, con la tasa del día. */
+async function buildExpenseDraft(
   tx: Tx,
   input: DraftInput,
-  now: Date,
-): Promise<{
-  pendingId: string;
-  draft: ExpenseDraft;
-  replacedPrevious: boolean;
-  usedPriorDayRate: boolean;
-}> {
+): Promise<{ draft: ExpenseDraft; usedPriorDay: boolean }> {
   const { rate, usedPriorDay } = input.manualRate
     ? { rate: input.manualRate, usedPriorDay: false }
     : await rateFor(tx, input.businessDate);
@@ -93,12 +88,64 @@ export async function createExpenseDraft(
     attachmentId: input.attachmentId,
     transcript: input.transcript,
   };
+  return { draft, usedPriorDay };
+}
+
+export async function createExpenseDraft(
+  tx: Tx,
+  input: DraftInput,
+  now: Date,
+): Promise<{
+  pendingId: string;
+  draft: ExpenseDraft;
+  replacedPrevious: boolean;
+  usedPriorDayRate: boolean;
+}> {
+  const { draft, usedPriorDay } = await buildExpenseDraft(tx, input);
   const { pendingId, replacedPrevious } = await insertDraft(
     tx,
     { tenantId: input.tenantId, phoneId: input.phoneId, kind: "create_expense", payload: draft },
     now,
   );
   return { pendingId, draft, replacedPrevious, usedPriorDayRate: usedPriorDay };
+}
+
+/**
+ * Varios gastos en un solo mensaje ("7$ en una arepa y 7,5$ en pádel"): un único borrador con la
+ * lista; Guardar escribe un movimiento por renglón. Cada renglón lleva su propia tasa y fecha.
+ */
+export const ExpensesDraft = z.object({
+  items: z.array(ExpenseDraft).min(1),
+  fixing: z.boolean().optional(),
+});
+export type ExpensesDraft = z.infer<typeof ExpensesDraft>;
+
+export async function createExpensesDraft(
+  tx: Tx,
+  inputs: DraftInput[],
+  now: Date,
+): Promise<{
+  pendingId: string;
+  draft: ExpensesDraft;
+  replacedPrevious: boolean;
+  usedPriorDayRate: boolean;
+}> {
+  const first = inputs[0];
+  if (!first) throw new Error("un borrador múltiple necesita al menos un gasto");
+  const items: ExpenseDraft[] = [];
+  let usedPriorDayRate = false;
+  for (const input of inputs) {
+    const { draft, usedPriorDay } = await buildExpenseDraft(tx, input);
+    items.push(draft);
+    usedPriorDayRate ||= usedPriorDay;
+  }
+  const draft: ExpensesDraft = { items };
+  const { pendingId, replacedPrevious } = await insertDraft(
+    tx,
+    { tenantId: first.tenantId, phoneId: first.phoneId, kind: "create_expenses", payload: draft },
+    now,
+  );
+  return { pendingId, draft, replacedPrevious, usedPriorDayRate };
 }
 
 /** Un solo borrador activo por teléfono: cancela el anterior e inserta el nuevo. */

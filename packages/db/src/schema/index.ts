@@ -50,6 +50,7 @@ export const PAYMENT_METHODS = [
 ] as const;
 export const PENDING_KINDS = [
   "create_expense",
+  "create_expenses",
   "create_income_day_total",
   "create_income_single",
   "replace_day_total",

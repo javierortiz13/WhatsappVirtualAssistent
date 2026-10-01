@@ -17,8 +17,10 @@ import {
 } from "../domain/money";
 import {
   createExpenseDraft,
+  createExpensesDraft,
   createIncomeDayTotalDraft,
   createIncomeSingleDraft,
+  type DraftInput,
 } from "../ledger/drafts";
 import { findCategory } from "../ledger/expenses";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "../ledger/income";
@@ -104,6 +106,29 @@ export const DraftExpenseInput = z.object({
     .string()
     .describe(
       'Cuándo fue: "hoy", "ayer", "antier", un día de la semana ("lunes"), o una fecha ISO YYYY-MM-DD. "" si no lo dijo (se asume hoy).',
+    ),
+  rate: RATE_FIELD,
+});
+
+/**
+ * Varios gastos en un mensaje: la misma forma que draft_expense, por renglón, con una sola tasa
+ * manual para todos. Sin `nullable` para no gastar uniones del modo estricto.
+ */
+const ExpenseItem = z.object({
+  amount: DraftExpenseInput.shape.amount,
+  currency: DraftExpenseInput.shape.currency,
+  description: DraftExpenseInput.shape.description,
+  category_name: DraftExpenseInput.shape.category_name,
+  when: DraftExpenseInput.shape.when,
+});
+
+export const DraftExpensesInput = z.object({
+  items: z
+    .array(ExpenseItem)
+    .min(2)
+    .max(6)
+    .describe(
+      "Un elemento por gasto, en el orden en que los dijo el usuario. Cada uno con su monto y su descripción.",
     ),
   rate: RATE_FIELD,
 });
@@ -336,6 +361,104 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
             categoryName: draft.draft.categoryName,
             description: draft.draft.description,
             transcript: draft.draft.transcript,
+            replacedPrevious: draft.replacedPrevious,
+          }),
+        ],
+      };
+    } catch (err) {
+      if (err instanceof NoRateError)
+        return { kind: "terminal", outbound: [es.noRate()], status: "ok" };
+      throw err;
+    }
+  },
+};
+
+const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
+  name: "draft_expenses",
+  description:
+    "Registra DOS O MÁS gastos dichos en un mismo mensaje, cada uno con su monto ('7$ en una arepa y 7,5$ en pádel', 'pagué 20 de luz, 15 de agua y 30 de internet'), como un solo borrador para confirmar. Nunca registres solo el primero con draft_expense. No calcules conversiones ni sumes: el sistema lo hace.",
+  schema: DraftExpensesInput,
+  roles: ["owner", "employee"],
+  async run(input, run) {
+    if (manualRateFrom(nz(input.rate), run.ctx.today) === "invalid")
+      return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
+    // Una sola tasa manual para todos los renglones, fechada en el día de cada gasto.
+    const rateFor = (date: IsoDate): Rate | null => {
+      const r = manualRateFrom(nz(input.rate), date);
+      return r === "invalid" ? null : r;
+    };
+    const inputs: DraftInput[] = [];
+    const ambiguous: string[] = [];
+    for (const item of input.items) {
+      const amount = parseAmount(item.amount);
+      const label = item.description.trim() || item.amount;
+      if (!amount) {
+        return {
+          kind: "terminal",
+          outbound: [es.clarification(`No entendí el monto de ${label}. ¿Cuánto fue?`, [])],
+          status: "ok",
+        };
+      }
+      const when = resolveWhen(nz(item.when), run.ctx.today);
+      if ("error" in when) {
+        const q =
+          when.error === "future"
+            ? `Esa fecha es futura. ¿Cuándo fue lo de ${label}?`
+            : when.error === "too_old"
+              ? `¿Lo de ${label} fue el ${item.when}? Es de hace más de un mes. Si es así, escríbelo aparte con la fecha completa (por ejemplo 2026-08-15).`
+              : `No entendí la fecha de ${label}. ¿Fue hoy, ayer o qué día?`;
+        return { kind: "terminal", outbound: [es.clarification(q, [])], status: "ok" };
+      }
+      const inferred = inferCurrency({
+        explicit: cur(item.currency),
+        amount,
+        threshold: new Decimal(run.ctx.vesThreshold),
+        tenantDefault: run.ctx.defaultCurrency,
+      });
+      if (inferred.kind === "ask") {
+        ambiguous.push(item.amount);
+        continue;
+      }
+      const category = matchCategory(run.ctx.categories, nz(item.category_name));
+      const categoryId = category?.id ?? defaultCategoryId(run.ctx.categories);
+      const categoryName =
+        category?.name ?? run.ctx.categories.find((c) => c.id === categoryId)?.name ?? "Otros";
+      inputs.push({
+        tenantId: run.ctx.tenantId,
+        phoneId: run.ctx.phoneId,
+        amount,
+        currency: inferred.currency,
+        currencyInferred: inferred.kind === "inferred",
+        categoryId,
+        categoryName,
+        description: item.description.trim() || null,
+        businessDate: when.date,
+        sourceChannel: run.ctx.sourceChannel,
+        sourceMessageId: run.ctx.sourceMessageDbId,
+        attachmentId: null,
+        transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
+        manualRate: rateFor(when.date),
+      });
+    }
+    // Con moneda ambigua en algún renglón se pregunta una sola vez por todos (los botones vuelven
+    // al agente con el mensaje original en el historial).
+    if (ambiguous.length)
+      return {
+        kind: "terminal",
+        outbound: [es.currencyQuestion(ambiguous.join(" y "))],
+        status: "ok",
+      };
+    try {
+      const draft = await createExpensesDraft(run.tx, inputs, run.now);
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [
+          es.expensesDraft({
+            pendingId: draft.pendingId,
+            items: draft.draft.items,
+            today: run.ctx.today,
+            transcript: draft.draft.items[0]?.transcript ?? null,
             replacedPrevious: draft.replacedPrevious,
           }),
         ],
@@ -789,6 +912,7 @@ export function numbersAreGrounded(text: string, userText: string): boolean {
 
 export const ALL_TOOLS: ToolSpec<z.ZodType>[] = [
   draftExpense,
+  draftExpenses,
   draftIncomeDayTotal,
   draftIncomeSingle,
   getSummary,

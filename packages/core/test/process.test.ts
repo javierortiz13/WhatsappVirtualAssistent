@@ -268,6 +268,83 @@ describe("processInbound", () => {
     await withTenant(t.db, tenantId, (tx) => tx.delete(schema.pendingAction));
   });
 
+  it("varios gastos en un mensaje: un borrador con la lista y Guardar escribe todos (bug 01/10)", async () => {
+    const { sent, client } = fakeMeta();
+    const llm: LlmClient = {
+      model: "claude-sonnet-5-5",
+      async complete() {
+        return {
+          toolCalls: [
+            {
+              id: "toolu_m",
+              name: "draft_expenses",
+              input: {
+                items: [
+                  {
+                    amount: "7",
+                    currency: "USD",
+                    description: "Arepa y malta",
+                    category_name: "Comida del personal",
+                    when: "hoy",
+                  },
+                  {
+                    amount: "7.5",
+                    currency: "USD",
+                    description: "Partida de pádel",
+                    category_name: "",
+                    when: "hoy",
+                  },
+                ],
+                rate: "",
+              },
+            },
+          ],
+          text: null,
+          stopReason: "tool_use",
+          usage: { inputTokens: 1000, outputTokens: 80, cacheReadTokens: 0, cacheWriteTokens: 0 },
+          model: "claude-sonnet-5-5",
+        };
+      },
+      costUsd: () => new Decimal("0.003"),
+    };
+    const before = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));
+    const job = await ingest(
+      message(
+        "wamid.MULTI1",
+        "584121234567",
+        "los gastos de hoy fueron 7$ en una arepa y una malta y 7.5$ en una partida de pádel",
+      ),
+    );
+    expect(await processInbound({ ...deps(client), agent: createAgent({ llm, now }) }, job)).toBe(
+      "done",
+    );
+    const draftMsg = sent[0]?.body as { interactive: { body: { text: string } } };
+    expect(draftMsg.interactive.body.text).toContain("2 gastos por confirmar");
+    expect(draftMsg.interactive.body.text).toContain("Arepa y malta");
+    expect(draftMsg.interactive.body.text).toContain("Partida de pádel");
+    expect(draftMsg.interactive.body.text).toContain("Total: *$14,50*");
+    const [pa] = await withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.pendingAction).where(eq(schema.pendingAction.status, "pending")),
+    );
+    expect(pa?.kind).toBe("create_expenses");
+
+    const tap = JSON.parse(JSON.stringify(fx.buttonReply));
+    tap.entry[0].changes[0].value.messages[0].id = "wamid.MULTI2";
+    tap.entry[0].changes[0].value.messages[0].interactive.button_reply = {
+      id: `confirm:${pa?.id}`,
+      title: "Guardar",
+    };
+    expect(await processInbound(deps(client), await ingest(tap))).toBe("done");
+    expect(textOf(sent[1])).toContain("Guardados 2 gastos");
+    const after = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));
+    const added = after.filter((m) => !before.some((b) => b.id === m.id));
+    expect(added.map((m) => [m.amountUsd, m.description]).sort()).toEqual([
+      ["7.00", "Arepa y malta"],
+      ["7.50", "Partida de pádel"],
+    ]);
+    await withTenant(t.db, tenantId, (tx) => tx.delete(schema.pendingAction));
+  });
+
   it("nota de voz y sticker reciben respuestas fijas por ahora", async () => {
     const { sent, client } = fakeMeta();
     await processInbound(deps(client), await ingest(fx.audioMessage));

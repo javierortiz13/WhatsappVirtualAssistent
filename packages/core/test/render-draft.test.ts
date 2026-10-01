@@ -65,3 +65,54 @@ describe("borrador de gasto", () => {
     );
   });
 });
+
+describe("borrador de varios gastos", () => {
+  const item = {
+    amount: "7.00",
+    currency: "USD" as const,
+    currencyInferred: false,
+    amountUsd: "7.00",
+    amountVes: "6006.00",
+    rateValue: "858.00000000",
+    rateEffectiveDate: "2026-09-29",
+    rateSource: "bcv" as const,
+    businessDate: "2026-09-29",
+    categoryName: "Comida del personal",
+    description: "Arepa y malta",
+  };
+  it("un renglón por gasto, total y una sola confirmación", () => {
+    const m = es.expensesDraft({
+      pendingId: base.pendingId,
+      items: [
+        item,
+        {
+          ...item,
+          amount: "7.50",
+          amountUsd: "7.50",
+          amountVes: "6435.00",
+          description: "Partida de pádel",
+          categoryName: "Otros",
+        },
+      ],
+      today: asIsoDate("2026-09-29"),
+      transcript: null,
+      replacedPrevious: false,
+    });
+    expect(m.body).toBe(
+      "2 gastos por confirmar:\n1. *$7,00* (Bs 6.006,00) · Arepa y malta · Comida del personal\n2. *$7,50* (Bs 6.435,00) · Partida de pádel · Otros\nTotal: *$14,50* (Bs 12.441,00 · a tasa 858,00)\nHoy, mar 29/09",
+    );
+    if (m.type === "buttons")
+      expect(m.buttons.map((b) => b.title)).toEqual(["Guardar", "Corregir", "Cancelar"]);
+  });
+  it("días distintos van en cada renglón", () => {
+    const m = es.expensesDraft({
+      pendingId: base.pendingId,
+      items: [item, { ...item, businessDate: "2026-09-28" }],
+      today: asIsoDate("2026-09-29"),
+      transcript: null,
+      replacedPrevious: false,
+    });
+    expect(m.body).toContain("· ayer, lun 28/09");
+    expect(m.body).not.toMatch(/\nHoy,/);
+  });
+});

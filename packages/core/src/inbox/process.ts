@@ -23,6 +23,7 @@ import {
   deleteMovement,
   EditLastDraft,
   ExpenseDraft,
+  ExpensesDraft,
   expenseTotalForDay,
   IncomeDayTotalDraft,
   IncomeSingleDraft,
@@ -657,9 +658,19 @@ async function routeInteractive(
           .set({ status: "cancelled", resolvedAt: nowTs })
           .where(eq(schema.pendingAction.id, pending.id));
         // La foto provisional de un gasto cancelado se borra (US-B6).
-        const att = (pending.payload as { attachmentId?: string | null }).attachmentId;
-        if (pending.kind === "create_expense" && att)
-          await discardAttachment(tx, deps.store ?? null, ctx.tenantId, att, nowTs, deps.log);
+        const payload = pending.payload as {
+          attachmentId?: string | null;
+          items?: { attachmentId?: string | null }[];
+        };
+        const atts =
+          pending.kind === "create_expense"
+            ? [payload.attachmentId]
+            : pending.kind === "create_expenses"
+              ? (payload.items ?? []).map((i) => i.attachmentId)
+              : [];
+        for (const att of atts)
+          if (att)
+            await discardAttachment(tx, deps.store ?? null, ctx.tenantId, att, nowTs, deps.log);
         // Cancelar se confirma con una reacción sobre el toque del botón: gratis (ADR-014).
         return none([es.cancelled(ctx.inboundId)]);
       }
@@ -870,6 +881,40 @@ async function executePending(
         .where(eq(schema.pendingAction.id, pending.id));
       const total = await expenseTotalForDay(tx, ctx.tenantId, asIsoDate(draft.businessDate));
       return none([es.expenseSaved(total.usd, total.count)]);
+    }
+    case "create_expenses": {
+      const draft = ExpensesDraft.parse(pending.payload);
+      for (const item of draft.items) {
+        await createExpense(tx, {
+          tenantId: ctx.tenantId,
+          businessDate: asIsoDate(item.businessDate),
+          amount: new Decimal(item.amount),
+          currency: item.currency,
+          categoryId: item.categoryId,
+          description: item.description,
+          sourceChannel: item.sourceChannel,
+          actor: { phoneId: ctx.phoneId },
+          sourceMessageId: item.sourceMessageId,
+          attachmentId: item.attachmentId,
+          rate: {
+            id: item.rateId,
+            value: item.rateValue,
+            effectiveDate: asIsoDate(item.rateEffectiveDate),
+            source: item.rateSource,
+          },
+        });
+      }
+      await tx
+        .update(schema.pendingAction)
+        .set({ status: "confirmed", resolvedAt: nowTs })
+        .where(eq(schema.pendingAction.id, pending.id));
+      const last = draft.items[draft.items.length - 1];
+      const total = await expenseTotalForDay(
+        tx,
+        ctx.tenantId,
+        asIsoDate(last?.businessDate ?? ctx.today),
+      );
+      return none([es.expensesSaved(draft.items.length, total.usd, total.count)]);
     }
     case "create_income_day_total": {
       const draft = IncomeDayTotalDraft.parse(pending.payload);

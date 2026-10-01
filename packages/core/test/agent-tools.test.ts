@@ -71,6 +71,7 @@ describe("definiciones de herramientas", () => {
   it("las cuatro herramientas están para ambos roles", () => {
     expect(ALL_TOOLS.map((t) => t.name)).toEqual([
       "draft_expense",
+      "draft_expenses",
       "draft_income_day_total",
       "draft_income_single",
       "get_summary",
@@ -80,8 +81,8 @@ describe("definiciones de herramientas", () => {
       "reject_out_of_scope",
       "get_bcv_rate",
     ]);
-    expect(toolsForRole("employee")).toHaveLength(9);
-    expect(toolsForRole("owner")).toHaveLength(9);
+    expect(toolsForRole("employee")).toHaveLength(10);
+    expect(toolsForRole("owner")).toHaveLength(10);
   });
   it("el JSON Schema es estricto: sin $schema, sin propiedades extra, con properties", () => {
     for (const t of ALL_TOOLS) {

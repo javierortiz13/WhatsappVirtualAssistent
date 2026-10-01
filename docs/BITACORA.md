@@ -340,3 +340,19 @@ Javier pidió seguir la guía `skills.sentry.dev/instrument`; el entorno bloque�
 **Foto del hero (01/10).** Javier generó la imagen con Nano Banana a partir del prompt del runbook: dueño de "Autolavado El Rayo" al atardecer, teléfono en mano, carro recién lavado detrás. Recortada a 4:5 (921 × 1152) y comprimida a 176 KB en `apps/web/public/hero.jpg`; la portada la muestra con las tarjetas de la comparación encima. Negocio y persona ficticios, sin logos de marcas.
 
 **Foto del hero, retirada (01/10).** Vista en el teléfono, a Javier le pareció peor que la versión sin foto. Se quita el archivo; la portada vuelve a las dos tarjetas de la comparación. El soporte queda en el código por si otra imagen funciona mejor: basta con volver a dejar `public/hero.jpg`.
+
+### S2 · 01/10/2026 · Bug: varios gastos en un mensaje
+
+**Síntoma (Javier, WhatsApp real):** "los gastos de hoy fueron 7$ en una arepa y una malta y 7.5$ en una partida de pádel" generó un borrador solo con la arepa ($7,00). El pádel se perdía sin aviso.
+
+**Causa:** `draft_expense` acepta un solo gasto y el agente elige una herramienta por turno (ADR-005). El modelo hizo lo único que podía: registrar el primero.
+
+**Arreglo**
+- Herramienta nueva `draft_expenses`: lista de 2 a 6 gastos, cada uno con monto, moneda, descripción, categoría y fecha, más una tasa manual opcional para todos. Sin campos `nullable`, así que no suma uniones al tope del modo estricto.
+- Borrador nuevo `create_expenses` (migración `0005_multi_expense.sql` amplía el CHECK de `pending_action.kind`). Un solo mensaje con un renglón por gasto, el total en $ y Bs y los botones Guardar / Corregir / Cancelar. Si las fechas difieren, cada renglón lleva su día.
+- Guardar escribe un movimiento por renglón en la misma transacción y responde "✅ Guardados 2 gastos. Gastos de hoy: …". Cancelar borra las fotos de todos los renglones. Corregir funciona igual que en un gasto: el agente vuelve a llamar `draft_expenses` con todos los renglones.
+- Si algún renglón tiene moneda ambigua se pregunta una sola vez por todos; si un monto o una fecha no se entiende, se pregunta por ese renglón con su descripción.
+- Regla 3 del prompt: con dos o más montos, `draft_expenses` con todos; nunca solo el primero. Un monto con varias cosas ("15$ en champú y cera") sigue siendo un gasto.
+- Tests: render del borrador múltiple, procesador de punta a punta (mensaje → borrador con los dos → Guardar → dos movimientos). Tres casos de eval nuevos, entre ellos el mensaje real del piloto (54 casos).
+
+**Para desplegar:** correr `pnpm db:migrate` (aplica la 0005) antes o junto con el deploy del worker. Sin la migración, un mensaje con varios gastos falla al guardar el borrador.

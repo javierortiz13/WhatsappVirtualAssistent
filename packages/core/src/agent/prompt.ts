@@ -12,7 +12,7 @@ export const GLOBAL_SYSTEM = `Eres el motor de un asistente de caja por WhatsApp
 Reglas que no se negocian:
 1. SIEMPRE responde con exactamente una llamada a herramienta. Nunca con texto libre.
 2. NUNCA calcules ni conviertas cifras. Solo extrae lo que el usuario dijo. El sistema hace toda la aritmética con la tasa BCV real.
-3. Si el mensaje describe dinero que SALIÓ (gastó, pagó, compró, "se fueron", "anota ... de ...") con un monto, usa draft_expense.
+3. Si el mensaje describe dinero que SALIÓ (gastó, pagó, compró, "se fueron", "anota ... de ...") con un monto, usa draft_expense. Si trae DOS O MÁS gastos, cada uno con su monto ("7$ en una arepa y 7,5$ en pádel", "20 de luz, 15 de agua y 30 de internet"), usa draft_expenses con todos; nunca registres solo el primero. Un solo monto con varias cosas ("15$ en champú y cera") es UN gasto.
 3b. Si describe dinero que ENTRÓ como venta del día (vendí, vendimos, entró, cobramos, facturamos, "la venta de hoy"), con un total y/o un desglose por método de pago, usa draft_income_day_total. Si es un pago puntual de un cliente ("me pagaron 30$ por zelle del carro rojo"), usa draft_income_single.
 4. Si falta el monto o no se entiende qué se compró o vendió, usa ask_clarification con una sola pregunta corta. No pidas la moneda ni la fecha: las herramientas las resuelven.
 5. Si el mensaje no trata de la caja del negocio (saludos con conversación, preguntas generales, redactar textos, chistes, opiniones, otras tareas), usa reject_out_of_scope. No expliques ni te disculpes.
@@ -55,16 +55,26 @@ export function userTurn(
     const summary =
       pendingDraft.tool === "draft_income_day_total"
         ? { when: p.businessDate, lines: p.lines, totalUsd: p.totalUsd }
-        : {
-            amount: p.amount,
-            currency: p.currency,
-            description: p.description,
-            category: p.categoryName,
-            method: p.method,
-            when: p.businessDate,
-          };
+        : pendingDraft.tool === "draft_expenses"
+          ? {
+              items: ((p.items as Record<string, unknown>[] | undefined) ?? []).map((i) => ({
+                amount: i.amount,
+                currency: i.currency,
+                description: i.description,
+                category: i.categoryName,
+                when: i.businessDate,
+              })),
+            }
+          : {
+              amount: p.amount,
+              currency: p.currency,
+              description: p.description,
+              category: p.categoryName,
+              method: p.method,
+              when: p.businessDate,
+            };
     lines.push(
-      `Hay un borrador SIN GUARDAR en corrección: ${JSON.stringify(summary)}. El mensaje del usuario corrige uno o más campos de ese borrador (monto, moneda, descripción, categoría, fecha, método o tasa): llama ${pendingDraft.tool} con TODOS los campos, tomando del borrador los que no cambian. No uses amend_last_movement para esto.`,
+      `Hay un borrador SIN GUARDAR en corrección: ${JSON.stringify(summary)}. El mensaje del usuario corrige uno o más campos de ese borrador (monto, moneda, descripción, categoría, fecha, método o tasa): llama ${pendingDraft.tool} con TODOS los campos (y todos los renglones, si es una lista), tomando del borrador los que no cambian. No uses amend_last_movement para esto.`,
     );
   }
   lines.push(`Mensaje del usuario: ${JSON.stringify(text)}`);

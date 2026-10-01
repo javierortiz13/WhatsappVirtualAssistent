@@ -322,6 +322,66 @@ export function expenseDraft(d: ExpenseDraftView): Outbound {
   };
 }
 
+export type ExpensesDraftView = {
+  pendingId: string;
+  items: Omit<ExpenseDraftView, "pendingId" | "today" | "transcript" | "replacedPrevious">[];
+  today: IsoDate;
+  transcript: string | null;
+  replacedPrevious: boolean;
+};
+
+/** Varios gastos de un mensaje: un renglón por gasto, el total en dólares y una sola confirmación. */
+export function expensesDraft(v: ExpensesDraftView): Outbound {
+  const lines: string[] = [];
+  if (v.replacedPrevious) lines.push("Descarté el borrador anterior sin guardar.");
+  if (v.transcript) lines.push(`Entendí: _"${v.transcript}"_`);
+  lines.push(`${v.items.length} gastos por confirmar:`);
+  const sameDay = v.items.every((i) => i.businessDate === v.items[0]?.businessDate);
+  let totalUsd = new Decimal(0);
+  let totalVes = new Decimal(0);
+  v.items.forEach((d, i) => {
+    totalUsd = totalUsd.plus(d.amountUsd);
+    totalVes = totalVes.plus(d.amountVes);
+    const main = formatMoney(d.amount, d.currency);
+    const other =
+      d.currency === "USD" ? formatMoney(d.amountVes, "VES") : formatMoney(d.amountUsd, "USD");
+    const day = sameDay ? "" : ` · ${relativeDay(d.businessDate, v.today).toLowerCase()}`;
+    lines.push(
+      `${i + 1}. *${main}* (${other}) · ${d.description ?? "Sin descripción"} · ${d.categoryName ?? "Otros"}${day}`,
+    );
+  });
+  const first = v.items[0];
+  const rateNote = first
+    ? first.rateSource === "manual"
+      ? ` · a tasa ${formatMoney(first.rateValue, "VES").replace("Bs ", "")} (manual)`
+      : ` · a tasa ${formatMoney(first.rateValue, "VES").replace("Bs ", "")}`
+    : "";
+  const inferred = v.items.some((i) => i.currencyInferred)
+    ? ` · entendí ${first?.currency === "USD" ? "dólares" : "bolívares"}`
+    : "";
+  lines.push(
+    `Total: *${formatMoney(totalUsd, "USD")}* (${formatMoney(totalVes, "VES")}${rateNote})${inferred}`,
+  );
+  if (sameDay && first) lines.push(relativeDay(first.businessDate, v.today));
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: [
+      { id: IDS.confirm(v.pendingId), title: "Guardar" },
+      { id: IDS.fix(v.pendingId), title: "Corregir" },
+      { id: IDS.cancel(v.pendingId), title: "Cancelar" },
+    ],
+  };
+}
+
+export function expensesSaved(saved: number, dayTotalUsd: Decimal.Value, count: number): Outbound {
+  const n = count === 1 ? "1 registro" : `${count} registros`;
+  return {
+    type: "text",
+    body: `✅ Guardados ${saved} gastos. Gastos de hoy: *${formatMoney(dayTotalUsd, "USD")}* (${n}).`,
+  };
+}
+
 export function expenseSaved(dayTotalUsd: Decimal.Value, count: number): Outbound {
   const n = count === 1 ? "1 registro" : `${count} registros`;
   return {
