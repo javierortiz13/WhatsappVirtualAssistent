@@ -720,6 +720,7 @@ async function deleteLast(
     },
     userText: msg.kind === "text" ? msg.text : "",
     now: (deps.now ?? (() => new Date()))(),
+    prior: null,
   });
   return outcome.kind === "terminal" ? none(outcome.outbound) : none([es.outOfScope()]);
 }

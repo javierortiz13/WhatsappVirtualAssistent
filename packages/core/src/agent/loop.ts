@@ -135,6 +135,9 @@ export function createAgent(opts: AgentOptions): AgentRunner {
           ctx,
           userText,
           now: started,
+          prior: pending
+            ? { kind: pending.kind, payload: pending.payload as Record<string, unknown> }
+            : null,
         });
         if (outcome.kind === "terminal") {
           log.info(

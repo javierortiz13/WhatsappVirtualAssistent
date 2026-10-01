@@ -47,6 +47,8 @@ export type ToolRunCtx = {
   /** Texto del usuario en este turno (para validar cifras en aclaraciones). */
   userText: string;
   now: Date;
+  /** Borrador pendiente del teléfono (en corrección o no): un borrador nuevo lo reemplaza y hereda su foto. */
+  prior: { kind: string; payload: Record<string, unknown> } | null;
 };
 
 export type ToolOutcome =
@@ -284,6 +286,12 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
     const mr = manualRateFrom(nz(input.rate), when.date);
     if (mr === "invalid")
       return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
+    // Corrección de un borrador de factura ("no, eran 50" por texto o voz): el borrador nuevo
+    // reemplaza al pendiente y hereda su foto; si no, el respaldo se perdía (bug del 01/10).
+    const inherited =
+      !run.ctx.attachmentId && run.prior?.kind === "create_expense"
+        ? ((run.prior.payload.attachmentId as string | null | undefined) ?? null)
+        : null;
     const category = matchCategory(run.ctx.categories, nz(input.category_name));
     const categoryId = category?.id ?? defaultCategoryId(run.ctx.categories);
     const categoryName =
@@ -301,9 +309,9 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
           categoryName,
           description: input.description.trim() || null,
           businessDate: when.date,
-          sourceChannel: run.ctx.sourceChannel,
+          sourceChannel: inherited ? "image" : run.ctx.sourceChannel,
           sourceMessageId: run.ctx.sourceMessageDbId,
-          attachmentId: run.ctx.attachmentId,
+          attachmentId: run.ctx.attachmentId ?? inherited,
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
           manualRate: mr,
         },

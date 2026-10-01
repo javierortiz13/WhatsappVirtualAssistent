@@ -85,6 +85,27 @@ const llm: LlmClient = {
   async complete(req) {
     const last = req.turns[req.turns.length - 1];
     const text = last && "text" in last ? (last.text ?? "") : "";
+    if (text.includes("eran 50"))
+      return {
+        toolCalls: [
+          {
+            id: "i3",
+            name: "draft_expense",
+            input: {
+              amount: "50",
+              currency: "USD",
+              description: "Ferretería El Tornillo",
+              category_name: "",
+              when: "",
+              rate: "",
+            },
+          },
+        ],
+        text: null,
+        stopReason: "tool_use",
+        usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        model: "fake",
+      };
     const m = /total ([\d.]+) (USD|VES)/.exec(text);
     const vendor = /proveedor ([^;.]+)/.exec(text)?.[1] ?? "Factura";
     const date = /fecha (\d{4}-\d{2}-\d{2})/.exec(text)?.[1] ?? "";
@@ -207,16 +228,36 @@ describe("fotos de facturas", () => {
     expect(mv).toMatchObject({ sourceChannel: "image", amountUsd: "45.00" });
   });
 
+  it("una corrección por texto o voz hereda la foto del borrador que reemplaza", async () => {
+    const { sent, client } = fakeMeta();
+    const vision = fakeVision(RECEIPT);
+    await sendImage(client, vision);
+    const before = (await attachments()).filter((a) => !a.deletedAt).length;
+    jobs.length = 0;
+    const p = fx.textMessage(`wamid.FIX${++seq}`, "no, eran 50");
+    await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
+    await processInbound(deps(client, vision), jobs[0] as ProcessMessageJob);
+    expect(textOf(sent[2])).toContain("*$50,00*");
+    await tap(client, vision, buttonsOf(sent[2])[0]?.id as string, "Guardar");
+    const atts = (await attachments()).filter((a) => !a.deletedAt);
+    expect(atts).toHaveLength(before);
+    const [mv] = await withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.movement).where(eq(schema.movement.amountUsd, "50.00")),
+    );
+    expect(mv?.attachmentId).toBe(atts[atts.length - 1]?.id);
+    expect(mv?.sourceChannel).toBe("image");
+  });
+
   it("Cancelar borra la foto provisional del bucket y la da de baja", async () => {
     const { sent, client } = fakeMeta();
     const vision = fakeVision(RECEIPT);
     await sendImage(client, vision);
-    expect(store.objects.size).toBe(2);
+    expect(store.objects.size).toBe(3);
     const cancel = buttonsOf(sent[1])[2];
     expect(cancel?.title).toBe("Cancelar");
     await tap(client, vision, cancel?.id as string, "Cancelar");
     expect(sent[2]?.body.type).toBe("reaction");
-    expect(store.objects.size).toBe(1);
+    expect(store.objects.size).toBe(2);
     const atts = await attachments();
     expect(atts.filter((a) => a.deletedAt).length).toBe(1);
   });
@@ -231,7 +272,7 @@ describe("fotos de facturas", () => {
     const down = fakeMeta();
     await sendImage(down.client, fakeVision(new Error("503")));
     expect(textOf(down.sent[1])).toContain("No pude leer bien la factura");
-    expect(store.objects.size).toBe(1);
+    expect(store.objects.size).toBe(2);
   });
 
   it("foto muy pesada o tipo no admitido; sin lector responde 'llegan pronto'", async () => {
@@ -268,8 +309,8 @@ describe("fotos de facturas", () => {
     );
     expect(swept).toBe(1);
     expect(store.objects.has("t/old.jpg")).toBe(false);
-    // La vinculada al gasto guardado sigue viva; la recién cancelada ya estaba de baja.
+    // Las dos vinculadas a gastos guardados siguen vivas; la cancelada ya estaba de baja.
     const atts = await attachments();
-    expect(atts.filter((a) => !a.deletedAt)).toHaveLength(1);
+    expect(atts.filter((a) => !a.deletedAt)).toHaveLength(2);
   });
 });
