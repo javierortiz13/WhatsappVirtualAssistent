@@ -6,8 +6,10 @@ landing los lee de ahí: cambiar un precio es cambiar una línea.
 
 ## 1. Resumen en diez líneas
 
-- Producto: un asistente de caja por WhatsApp. Escribes, dictas o mandas la foto; él registra con la
-  tasa BCV del día y te da el cierre. Dashboard para corregir y exportar.
+- Producto: un asistente administrativo por WhatsApp que hace la parte de la caja que hoy hace una
+  persona. Escribes, dictas o mandas la foto; él registra con la tasa BCV del día y te da el cierre.
+  Dashboard para corregir y exportar. Ancla de precio: el sueldo de una administradora (~300 USD/mes,
+  hipótesis) frente a 19,99 del plan Negocio.
 - Dos segmentos con el mismo motor: **finanzas personales** (una persona, su número) y **negocio
   pequeño** (dueño más empleados, ventas y cierre).
 - El costo variable dominante no es la IA: es el mensaje de servicio de WhatsApp, que Meta cobra

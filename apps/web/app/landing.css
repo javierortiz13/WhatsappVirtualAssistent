@@ -109,7 +109,7 @@
 
 /* ------------------------------------------------------------ hero */
 .lp-hero {
-  padding: 56px 0 40px;
+  padding: 48px 0 32px;
   min-height: calc(100svh - 64px);
   display: flex;
   align-items: center;
@@ -311,23 +311,54 @@
   font-size: 18px;
   margin-top: -6px;
 }
-.msg:nth-child(1) {
-  animation-delay: 0.4s;
+.msg.live {
+  animation: lp-msg 0.3s ease forwards;
+  animation-play-state: running;
 }
-.msg:nth-child(2) {
-  animation-delay: 1.3s;
+.msg.typing {
+  display: flex;
+  gap: 4px;
+  padding: 10px 12px;
 }
-.msg:nth-child(3) {
-  animation-delay: 2.6s;
+.msg.typing i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8696a0;
+  animation: lp-dot 1s infinite ease-in-out;
 }
-.msg:nth-child(4) {
-  animation-delay: 3.4s;
+.msg.typing i:nth-child(2) {
+  animation-delay: 0.15s;
 }
-.msg:nth-child(5) {
-  animation-delay: 4.3s;
+.msg.typing i:nth-child(3) {
+  animation-delay: 0.3s;
 }
-.msg:nth-child(6) {
-  animation-delay: 5.6s;
+@keyframes lp-dot {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+.msg .planline b {
+  color: var(--mint);
+}
+.chat {
+  scroll-behavior: smooth;
+}
+.chat-foot span {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 12px;
+  color: #8696a0;
+  overflow: hidden;
+  white-space: nowrap;
 }
 @keyframes lp-msg {
   to {
@@ -352,6 +383,217 @@
   height: 32px;
   border-radius: 50%;
   background: #00a884;
+}
+
+/* ------------------------------------------------------------ historia (teléfono fijo) */
+.story {
+  position: relative;
+}
+.stage {
+  position: sticky;
+  top: 0;
+  height: 100svh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  align-items: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 76px var(--lp-gutter) 12px;
+  overflow: hidden;
+}
+.stage .caption {
+  text-align: center;
+  max-width: 560px;
+  animation: lp-cap 0.5s ease both;
+}
+.stage .caption h2 {
+  font-size: clamp(20px, 5.5vw, 40px);
+  margin: 0 0 6px;
+}
+.stage .caption .lead {
+  font-size: 14px;
+  margin: 0 auto;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.stage-cta {
+  grid-row: 3;
+  min-height: 18px;
+}
+.stage-cta .ctas {
+  justify-content: center;
+  margin: 0;
+}
+.stage-cta .btn.lg {
+  height: 44px;
+  font-size: 14px;
+  padding: 0 18px;
+}
+@keyframes lp-cap {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.stage .phone {
+  height: min(58svh, 640px);
+  width: calc(min(58svh, 640px) * 9 / 18.5);
+  aspect-ratio: auto;
+  transform: none;
+  margin: 0;
+}
+.stage .phone .chat {
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.stage .phone .chat::-webkit-scrollbar {
+  display: none;
+}
+.stage .hint {
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 18px;
+  animation: lp-pulse 2s infinite ease-in-out;
+}
+@keyframes lp-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+@media (max-width: 899px) {
+  .stage .phone .chat {
+    font-size: 12px;
+    padding: 10px 8px;
+  }
+  .stage .phone .chat-head {
+    padding: 34px 12px 8px;
+    font-size: 12px;
+  }
+  .stage .phone .chat-head .av {
+    width: 26px;
+    height: 26px;
+    font-size: 11px;
+  }
+  .stage .phone .notch {
+    height: 20px;
+    width: 80px;
+  }
+  .stage .phone {
+    border-radius: 36px;
+    padding: 9px;
+  }
+  .stage .phone .screen {
+    inset: 9px;
+    border-radius: 28px;
+  }
+  .stage-cta .ctas {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+}
+.story.static .stage {
+  position: static;
+  height: auto;
+  overflow: visible;
+  padding-top: 40px;
+}
+.story.static .stage .phone {
+  height: 720px;
+  width: 350px;
+}
+@media (min-width: 900px) {
+  .stage {
+    grid-template-columns: 1fr auto;
+    grid-template-rows: 1fr auto;
+    column-gap: 56px;
+    max-width: var(--lp-max);
+    margin: 0 auto;
+  }
+  .stage .caption {
+    text-align: left;
+    justify-self: end;
+    max-width: 480px;
+  }
+  .stage .caption .lead {
+    margin: 0;
+    font-size: 18px;
+  }
+  .stage-cta {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: end;
+    width: 480px;
+    max-width: 100%;
+  }
+  .stage-cta .ctas {
+    justify-content: flex-start;
+  }
+  .stage-cta .btn.lg {
+    height: 52px;
+    font-size: 16px;
+    padding: 0 26px;
+  }
+  .stage .phone {
+    height: min(78svh, 720px);
+    width: calc(min(78svh, 720px) * 9 / 18.5);
+    grid-row: 1;
+    grid-column: 2;
+  }
+  .stage .hint {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+}
+
+/* ------------------------------------------------------------ comparación del hero */
+.hero-compare {
+  display: grid;
+  gap: 12px;
+  max-width: 420px;
+  width: 100%;
+  margin: 0 auto;
+}
+.cmp .big {
+  font-size: 40px;
+  margin: 4px 0;
+}
+.cmp.hi {
+  border-color: rgba(63, 224, 176, 0.45);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 20px 50px rgba(63, 224, 176, 0.12);
+}
+.scroll-hint {
+  grid-column: 1 / -1;
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.scroll-hint span {
+  display: inline-block;
+  animation: lp-bounce 1.6s infinite ease-in-out;
+}
+@keyframes lp-bounce {
+  50% {
+    transform: translateY(4px);
+  }
+}
+@media (min-width: 900px) {
+  .hero-compare {
+    margin: 0;
+    justify-self: end;
+  }
 }
 
 /* ------------------------------------------------------------ revelado al hacer scroll */
@@ -400,6 +642,9 @@
   .msg,
   .lp-hero::before,
   .lp-hero::after,
+  .scroll-hint span,
+  .stage .hint,
+  .stage .caption,
   .phone {
     animation: none !important;
     transition: none !important;

@@ -1,9 +1,16 @@
 import { PILOT_NOTE, PLANS } from "@/lib/plans";
 import { Effects } from "./effects";
+import { type Scene, Story } from "./story";
+
+/** Sueldo de referencia de una administradora de caja en Venezuela (USD/mes). Hipótesis del fundador. */
+const ADMIN_SALARY = 300;
+const NEGOCIO = PLANS.find((p) => p.id === "negocio") ?? PLANS[1];
+const money = (n: number | undefined) => `$${(n ?? 0).toFixed(2).replace(".", ",")}`;
 
 /**
- * Landing pública. Texto en segunda persona, concreto, sin promesas de contabilidad: el producto
- * es "la caja del día sin sentarse". Los planes salen de `lib/plans.ts`.
+ * Landing pública. Posicionamiento: un asistente administrativo por WhatsApp que hace la parte
+ * de la caja que hoy hace una persona, por una fracción del sueldo. La página es una conversación:
+ * el visitante "le escribe" al asistente al hacer scroll y las respuestas son el servicio.
  */
 export function Landing({ waUrl }: { waUrl: string | null }) {
   const primary = waUrl ?? "/login";
@@ -17,8 +24,7 @@ export function Landing({ waUrl }: { waUrl: string | null }) {
             Asistente de Caja
           </a>
           <nav className="links" aria-label="Secciones">
-            <a href="#como">Cómo funciona</a>
-            <a href="#funciones">Funciones</a>
+            <a href="#historia">Cómo funciona</a>
             <a href="#planes">Planes</a>
             <a href="#preguntas">Preguntas</a>
           </nav>
@@ -35,13 +41,15 @@ export function Landing({ waUrl }: { waUrl: string | null }) {
       <section className="lp-hero">
         <div className="wrap">
           <div>
-            <span className="eyebrow">Para negocios pequeños en Venezuela</span>
+            <span className="eyebrow">Asistente administrativo por WhatsApp</span>
             <h1>
-              Tu caja, <span className="accent">por WhatsApp.</span>
+              Una administradora cuesta <span className="accent">${ADMIN_SALARY}</span> al mes.
+              <br />
+              Tu asistente, <span className="accent">{money(NEGOCIO?.priceUsd)}</span>.
             </h1>
             <p className="lead">
-              Escribe "gasté 15$ en champú", dicta una nota de voz o manda la foto de la factura. El
-              asistente lo registra con la tasa BCV del día y te da el cierre cuando lo pidas.
+              Lleva la caja de tu negocio desde el chat: anota gastos y ventas, cuida la tasa BCV y
+              te da el cierre cada noche. Sin app, sin Excel, sin sueldo.
             </p>
             <div className="ctas">
               <a
@@ -58,88 +66,49 @@ export function Landing({ waUrl }: { waUrl: string | null }) {
               </a>
             </div>
             <div className="trust">
-              <span className="pill">Tasa BCV automática</span>
-              <span className="pill">Bs y $ el mismo día</span>
-              <span className="pill">Pago Móvil, punto, Zelle</span>
-              <span className="pill">Sin app que instalar</span>
+              <span className="pill">Responde en segundos, 7 días</span>
+              <span className="pill">Bs y $ con tasa BCV</span>
+              <span className="pill">Texto, voz y foto</span>
             </div>
           </div>
-          <Phone />
+          <div className="hero-compare reveal d1" aria-hidden="true">
+            <div className="card cmp">
+              <span className="label">Administradora de caja</span>
+              <p className="big num amber">${ADMIN_SALARY}</p>
+              <p className="sub">al mes · un turno · se enferma, se va de vacaciones</p>
+            </div>
+            <div className="card cmp hi">
+              <span className="label">Asistente de Caja · plan Negocio</span>
+              <p className="big num mint">{money(NEGOCIO?.priceUsd)}</p>
+              <p className="sub">al mes · 24 horas · nunca se le olvida la tasa</p>
+            </div>
+          </div>
+          <a className="scroll-hint" href="#historia">
+            Desliza y háblale <span>↓</span>
+          </a>
         </div>
       </section>
 
-      <section id="como">
-        <div className="wrap">
-          <div className="reveal">
-            <span className="eyebrow">Cómo funciona</span>
-            <h2>Tres hábitos. Nada más.</h2>
-            <p className="lead">
-              No hay menús ni formularios. Le hablas al asistente como le hablarías a tu cajera.
-            </p>
+      <div id="historia">
+        <Story scenes={scenes(waUrl)}>
+          <div className="ctas">
+            <a className="btn lg" href="/registro">
+              Crear mi cuenta
+            </a>
+            {waUrl ? (
+              <a className="btn lg secondary" href={waUrl} target="_blank" rel="noreferrer">
+                Escribirle ahora
+              </a>
+            ) : null}
           </div>
-          <div className="steps" style={{ marginTop: 36 }}>
-            <div className="card step reveal d1">
-              <h3>Cada gasto, en el momento</h3>
-              <p>Pagaste el hielo, lo escribes y tocas Guardar. Él pone la categoría y la tasa.</p>
-              <div className="ex">
-                <b>Tú:</b> pagué 450 mil de hielo
-              </div>
-            </div>
-            <div className="card step reveal d2">
-              <h3>La venta, al cerrar</h3>
-              <p>Un mensaje con el total y cómo entró. Él cuadra el desglose y lo convierte.</p>
-              <div className="ex">
-                <b>Tú:</b> hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto
-              </div>
-            </div>
-            <div className="card step reveal d3">
-              <h3>"cierre", antes de contar</h3>
-              <p>Te dice cuánto efectivo debería haber en la caja. Cuentas y ves si cuadra.</p>
-              <div className="ex">
-                <b>Él:</b> Efectivo en caja: $180,00 · Bs 6.570,00
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="funciones">
-        <div className="wrap">
-          <div className="reveal">
-            <span className="eyebrow">Funciones</span>
-            <h2>Hecho para cómo se maneja la plata aquí.</h2>
-          </div>
-          <div className="feats" style={{ marginTop: 36 }}>
-            {FEATURES.map((f, i) => (
-              <div className={`card feat reveal d${(i % 3) + 1}`} key={f.title}>
-                <span className="ico">{f.icon}</span>
-                <h3>{f.title}</h3>
-                <p>{f.text}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="dashboard">
-        <div className="wrap dash">
-          <div className="reveal">
-            <span className="eyebrow">Dashboard</span>
-            <h2>Y cuando quieras ver todo junto, lo tienes.</h2>
-            <p className="lead">
-              Entras desde el teléfono con tu correo. Ves el día, el mes, cada movimiento con su
-              foto, corriges lo que haga falta y bajas el Excel para tu contador.
-            </p>
-          </div>
-          <DashMock />
-        </div>
-      </section>
+        </Story>
+      </div>
 
       <section id="planes">
         <div className="wrap">
           <div className="reveal">
             <span className="eyebrow">Planes</span>
-            <h2>Menos de lo que cuesta un cuaderno con errores.</h2>
+            <h2>Lo que cuesta una tarde de trabajo, no un sueldo.</h2>
             <p className="lead">{PILOT_NOTE}</p>
           </div>
           <div className="plans" style={{ marginTop: 36 }}>
@@ -150,7 +119,7 @@ export function Landing({ waUrl }: { waUrl: string | null }) {
                   {p.highlight ? <span className="badge ok">Más elegido</span> : null}
                 </div>
                 <div className="price num">
-                  ${p.priceUsd.toFixed(2)} <small>/ mes</small>
+                  {money(p.priceUsd)} <small>/ mes</small>
                 </div>
                 <p className="tag">{p.tagline}</p>
                 <ul>
@@ -187,9 +156,9 @@ export function Landing({ waUrl }: { waUrl: string | null }) {
       <section className="lp-final">
         <div className="wrap">
           <div className="card reveal">
-            <h2>Esta noche cierra la caja desde el chat.</h2>
+            <h2>Esta noche, que la caja la cuadre él.</h2>
             <p className="lead" style={{ margin: "12px auto 24px" }}>
-              Crea tu cuenta, vincula tu número con un código y escribe tu primer gasto. Toma tres
+              Crea tu cuenta, vincula tu número con un código y escríbele tu primer gasto. Toma tres
               minutos.
             </p>
             <div className="ctas" style={{ justifyContent: "center" }}>
@@ -220,173 +189,168 @@ export function Landing({ waUrl }: { waUrl: string | null }) {
   );
 }
 
-function Phone() {
-  return (
-    <div className="phone reveal" aria-hidden="true">
-      <div className="notch" />
-      <div className="screen">
-        <div className="chat-head">
-          <span className="av">C</span>
-          <div>
-            Asistente de Caja
-            <small>en línea</small>
+function scenes(waUrl: string | null): Scene[] {
+  return [
+    {
+      user: "hola",
+      bot: (
+        <>
+          Hola 👋 Soy tu asistente de caja. Hago lo que una administradora hace con la caja: anoto
+          lo que entra y lo que sale, lo cuadro y te aviso. ¿Qué quieres saber?
+          <div className="btns">
+            <span>Qué haces</span>
+            <span>Cuánto cuestas</span>
           </div>
-        </div>
-        <div className="chat">
-          <div className="msg in">gasté 15$ en champú</div>
-          <div className="msg out">
-            <strong>Gasto por confirmar</strong>
-            <br />
-            $15,00 · Bs 547,50 (tasa 36,50)
-            <br />
-            Insumos · hoy
-            <div className="btns">
-              <span>Guardar</span>
-              <span>Corregir</span>
-              <span>Cancelar</span>
-            </div>
+        </>
+      ),
+      caption: {
+        title: "Siempre en línea. Nunca de reposo.",
+        text: "Responde en segundos, los siete días, desde el mismo WhatsApp que ya usas con tus clientes.",
+      },
+    },
+    {
+      user: "¿qué haces?",
+      bot: (
+        <>
+          Registro cada gasto y cada venta. Me escribes, me dictas una nota de voz o me mandas la
+          foto de la factura. Yo pongo la categoría y la tasa BCV del día, y lo guardo cuando tú
+          confirmas.
+          <br />
+          <br />
+          También llevo las ventas por método de pago, te doy el cierre, y tu empleado puede
+          registrar desde su número.
+        </>
+      ),
+      caption: {
+        title: "Lo que le dictarías a tu administradora, me lo dictas a mí.",
+        text: "Texto, nota de voz o foto. Bolívares y dólares el mismo día, cada uno con su tasa.",
+      },
+    },
+    {
+      user: "gasté 15$ en champú",
+      bot: (
+        <>
+          <strong>Gasto por confirmar</strong>
+          <br />
+          $15,00 · Bs 547,50 (tasa 36,50)
+          <br />
+          Insumos · hoy
+          <div className="btns">
+            <span>Guardar</span>
+            <span>Corregir</span>
+            <span>Cancelar</span>
           </div>
-          <div className="msg in">Guardar</div>
-          <div className="msg out">Listo. Hoy llevas $15,00 en gastos.</div>
-          <div className="msg in">cierre</div>
-          <div className="msg out">
-            <strong>Cierre · jue 01/10</strong>
-            <br />
-            Ventas $350,00 · Gastos $15,00
-            <br />
-            Neto <strong>$335,00</strong>
-            <br />
-            Efectivo en caja: $200,00
-          </div>
-        </div>
-        <div className="chat-foot">
-          <span />
-          <i />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DashMock() {
-  const bars = [
-    { day: "V", h: 38 },
-    { day: "S", h: 22 },
-    { day: "D", h: 72, cls: " best" },
-    { day: "L", h: 44 },
-    { day: "M", h: 8, cls: " worst" },
-    { day: "M2", h: 55 },
-    { day: "J", h: 64, cls: " today" },
-  ];
-  return (
-    <div className="dash-mock reveal d1" aria-hidden="true">
-      <div className="card hero">
-        <span className="label">Hoy · jue 01/10</span>
-        <p className="big num mint">$335,00</p>
-        <p className="sub num">Bs 12.227,50 · 7 movimientos</p>
-        <div className="grid-2" style={{ marginTop: 16 }}>
-          <div className="tile">
-            <span className="label">Ventas</span>
-            <strong className="num mint tile-n">$350,00</strong>
-          </div>
-          <div className="tile">
-            <span className="label">Gastos</span>
-            <strong className="num amber tile-n">$15,00</strong>
-          </div>
-        </div>
-        <div className="bars">
-          {bars.map((b) => (
-            <span className={`bar${b.cls ?? ""}`} key={b.day}>
-              <i style={{ height: b.h }} />
-              <b>{b.day.charAt(0)}</b>
+        </>
+      ),
+      caption: {
+        title: "Nada entra sin tu OK.",
+        text: "Te muestra el borrador con el monto, la categoría y la tasa. Guardas, corriges o cancelas con un toque.",
+      },
+    },
+    {
+      user: "Guardar",
+      bot: <>Listo ✅ Hoy llevas $15,00 en gastos.</>,
+      caption: {
+        title: "Y queda guardado con fecha, tasa y quién lo registró.",
+        text: 'Si algo cambia, le dices "no, eran 25" y lo corrige. Todo cambio deja rastro.',
+      },
+    },
+    {
+      user: "cierre",
+      bot: (
+        <>
+          <strong>Cierre · jue 01/10</strong>
+          <br />
+          Ventas $350,00 · Gastos $15,00
+          <br />
+          Neto <strong>$335,00</strong> · Bs 12.227,50
+          <br />
+          Efectivo en caja: $200,00 · Bs 3.650,00
+        </>
+      ),
+      caption: {
+        title: "El cierre, antes de contar la caja.",
+        text: "Ventas por método, gastos por categoría, neto del día y el efectivo que debe haber. Cuentas y ves si cuadra.",
+      },
+    },
+    {
+      user: "¿cuánto cuestas?",
+      bot: (
+        <>
+          Menos que una tarde de trabajo.
+          <br />
+          <br />
+          {PLANS.map((p) => (
+            <span key={p.id} className="planline">
+              <b>{p.name}</b> · {money(p.priceUsd)}/mes · {p.features[0]}
+              <br />
             </span>
           ))}
-        </div>
-      </div>
-    </div>
-  );
+          <br />
+          Durante el piloto, gratis.
+        </>
+      ),
+      caption: {
+        title: `$${ADMIN_SALARY} de sueldo al mes, o ${money(NEGOCIO?.priceUsd)} de plan.`,
+        text: "El plan Negocio incluye tu número y el de un empleado, ventas, cierre y dashboard. Sin contrato.",
+      },
+    },
+    {
+      user: "¿y mis datos?",
+      bot: (
+        <>
+          Son tuyos. Cada negocio está aislado de los demás, exportas todo a Excel cuando quieras y
+          puedes borrar tu cuenta desde el dashboard. Las notas de voz se transcriben y se
+          descartan: nunca se guardan.
+        </>
+      ),
+      caption: {
+        title: "Tu caja es tuya.",
+        text: "Nada se comparte, nada se vende. Y tu contador recibe el Excel que siempre pidió.",
+      },
+    },
+    {
+      user: "quiero empezar",
+      bot: (
+        <>
+          Crea tu cuenta con tu correo, vincula tu número con un código de seis dígitos y escríbeme
+          tu primer gasto. Tres minutos.
+          <div className="btns">
+            <span>Crear cuenta</span>
+            {waUrl ? <span>Escribirle ahora</span> : null}
+          </div>
+        </>
+      ),
+      caption: {
+        title: "Empieza esta noche.",
+        text: "Sin tarjeta, sin instalar nada. Durante el piloto no se cobra.",
+      },
+    },
+  ];
 }
 
-const FEATURES = [
-  {
-    title: "Notas de voz",
-    text: "Dicta el gasto mientras cargas la camioneta. Él lo transcribe y arma el borrador.",
-    icon: (
-      <Ico d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3" />
-    ),
-  },
-  {
-    title: "Foto de la factura",
-    text: "Manda la foto. Lee el total, el proveedor y la fecha, y guarda la imagen con el gasto.",
-    icon: (
-      <Ico d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1zM12 16.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" />
-    ),
-  },
-  {
-    title: "Bs y $ con la tasa del día",
-    text: "Cada movimiento guarda su tasa BCV. Lo de ayer no se recalcula con la de hoy.",
-    icon: <Ico d="M3 17l6-6 4 4 8-8M14 7h7v7" />,
-  },
-  {
-    title: "Cierre del día",
-    text: "Ventas por método de pago, gastos por categoría, neto y efectivo que debe haber en caja.",
-    icon: <Ico d="M5 20V10m7 10V4m7 16v-7" />,
-  },
-  {
-    title: "Tu empleado también registra",
-    text: "Le das acceso con su número. Registra gastos y ventas; los cierres los ves solo tú.",
-    icon: (
-      <Ico d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-    ),
-  },
-  {
-    title: "Corrige sin pelear",
-    text: '"No, eran 25" y listo. Todo cambio queda registrado, y en el dashboard editas lo que quieras.',
-    icon: <Ico d="M12 20h9M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4z" />,
-  },
-];
-
 const FAQ = [
+  {
+    q: "¿De verdad reemplaza a una administradora?",
+    a: "Reemplaza la parte de la caja: anotar, convertir, cuadrar y cerrar. No factura, no lleva inventario ni nómina. Si hoy pagas a alguien solo para que lleve el cuaderno de la caja, sí.",
+  },
   {
     q: "¿Tengo que instalar algo?",
     a: "No. El asistente es un número de WhatsApp. Creas la cuenta con tu correo, vinculas tu número con un código de seis dígitos y empiezas a escribirle.",
   },
   {
-    q: "¿Qué pasa con mis datos?",
-    a: "Son tuyos. Cada negocio está aislado de los demás, puedes exportar todo a Excel cuando quieras y borrar tu cuenta desde el dashboard. Las notas de voz se transcriben y se descartan; nunca se guardan.",
-  },
-  {
     q: "¿Y si la tasa cambia a mitad de día?",
-    a: 'Usamos la tasa oficial del BCV vigente para la fecha del movimiento. Si registras algo de ayer, va con la de ayer. Si necesitas otra tasa para un caso puntual, se la dices: "ponlo a tasa 850".',
+    a: 'Usa la tasa oficial del BCV vigente para la fecha del movimiento. Lo de ayer va con la de ayer. Si necesitas otra tasa para un caso puntual, se la dices: "ponlo a tasa 850".',
   },
   {
-    q: "¿Lleva inventario o factura?",
-    a: "No, y a propósito. Esto es la caja: lo que entra, lo que sale y cuánto queda. Para inventario y facturación sigue con tu sistema; el Excel que exportas se lo pasas a tu contador.",
+    q: "¿Mi empleado puede usarlo?",
+    a: "Sí. Lo agregas con su número desde Ajustes y registra gastos y ventas; los cierres y los totales los ves solo tú.",
   },
   {
     q: "¿Cómo se paga?",
-    a: "Pago Móvil en bolívares a la tasa del día, Zelle o USDT. Durante el piloto no se cobra.",
+    a: "Pago Móvil en bolívares a la tasa del día, Zelle o USDT. Durante el piloto no se cobra y los precios se avisan con 30 días de anticipación.",
   },
 ];
-
-function Ico({ d }: { d: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      width="40"
-      height="40"
-      style={{ padding: 8, background: "rgba(63,224,176,.1)", borderRadius: 12 }}
-    >
-      <path d={d} />
-    </svg>
-  );
-}
 
 function Logo() {
   return (
