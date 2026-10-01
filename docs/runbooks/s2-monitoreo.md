@@ -69,6 +69,14 @@ Marca las de Vercel para Production (y Preview si quieres). Después:
 - Railway redespliega solo al guardar la variable. Confirma en Logs la línea `sentry activo`.
 - Vercel: Deployments → último → Redeploy (las variables no entran en el deploy que ya corre).
 
+Opcional, para que los errores del navegador muestren la línea de código real y no el bundle
+minificado: en Vercel añade `SENTRY_ORG` (el slug de tu organización), `SENTRY_PROJECT` (`caja-web`)
+y `SENTRY_AUTH_TOKEN` (Sentry → Settings → Auth Tokens → crear con permiso `project:releases`,
+Sensitive). Con esos tres el build sube los source maps; sin ellos no sube nada y no avisa.
+
+Los eventos del navegador salen por `https://caja.jpsoftwaredev.com/monitoring` (túnel propio) y no
+directo a sentry.io, así los bloqueadores de contenido del teléfono no los descartan.
+
 ### Comprobar
 
 - Worker: en Sentry → `caja-worker` → Issues debe quedar vacío. Para forzar un error sin tocar

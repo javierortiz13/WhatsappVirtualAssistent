@@ -302,3 +302,7 @@ Contexto: Meta cobra desde el 1/10/2026 cada respuesta libre como mensaje de ser
 - Objetivos táctiles: chips 38 px, segmento 40 px, botones pequeños 36 px.
 
 **Nota.** En `next dev` dentro del sandbox el cliente no hidrataba (HMR bloqueado) y el botón ☰ no respondía; en el build de producción, que es lo que corre Vercel, funciona. No es un bug del producto, pero conviene probarlo en el teléfono real.
+
+### S2 · 01/10/2026 · Sentry en Next: build, túnel y runtime
+
+Javier pidió seguir la guía `skills.sentry.dev/instrument`; el entorno bloqueó ese host, así que se completó con la configuración documentada del SDK (`@sentry/nextjs` 11). Ya existían `instrumentation.ts`, `instrumentation-client.ts` y `global-error.tsx`; faltaba el envoltorio del build. Ahora `next.config.ts` pasa por `withSentryConfig` (importado de `@sentry/nextjs/config` en v11): túnel `/monitoring` (excluido del proxy de sesión), source maps solo si hay `SENTRY_AUTH_TOKEN`, sin telemetría. El `register()` del servidor solo inicia en los runtimes `nodejs`/`edge` y etiqueta `release` con el commit de Vercel; el navegador igual. `sendDefaultPii` ya no existe en v11; la política sigue siendo no enviar cuerpos de mensajes. Build de producción en verde con la reescritura `/monitoring` en el manifiesto.
