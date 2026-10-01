@@ -108,11 +108,12 @@ export function Story({ scenes, children }: { scenes: Scene[]; children?: ReactN
   const showUser = (i: number) => done || i < step || (i === step && frac >= USER_AT);
   const showTyping = (i: number) => !done && i === step && frac >= TYPING_AT && frac < BOT_AT;
   const showBot = (i: number) => done || i < step || (i === step && frac >= BOT_AT);
-  const visibleCount = scenes.reduce(
-    (n, _, i) => n + (showUser(i) ? 1 : 0) + (showBot(i) ? 1 : 0) + (showTyping(i) ? 1 : 0),
-    0,
-  );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: el chat baja cuando cambia el número de burbujas.
+  // Cambia cuando aparece o se reemplaza cualquier burbuja (el "escribiendo…" por la respuesta
+  // no altera el número de burbujas, por eso no basta con contarlas).
+  const visibleKey = scenes
+    .map((_, i) => `${showUser(i) ? "u" : ""}${showTyping(i) ? "t" : ""}${showBot(i) ? "b" : ""}`)
+    .join("|");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: el chat baja cuando cambian las burbujas visibles.
   useEffect(() => {
     const c = chatRef.current;
     if (!c) return;
@@ -122,7 +123,7 @@ export function Story({ scenes, children }: { scenes: Scene[]; children?: ReactN
     // La burbuja termina de aparecer unos milisegundos después: segundo empujón.
     const t = window.setTimeout(toBottom, 380);
     return () => window.clearTimeout(t);
-  }, [visibleCount, mode]);
+  }, [visibleKey, mode]);
 
   const captionIndex = done ? scenes.length - 1 : step;
   const caption = scenes[captionIndex]?.caption;

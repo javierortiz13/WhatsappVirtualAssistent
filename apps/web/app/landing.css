@@ -65,7 +65,7 @@
   z-index: 30;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  background: rgba(11, 14, 19, 0.72);
+  background: rgba(11, 14, 19, 0.88);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 .lp-nav .wrap {
@@ -163,10 +163,12 @@
   background-clip: text;
   color: transparent;
 }
-.lp-hero .ctas {
+.lp .ctas {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+}
+.lp-hero .ctas {
   margin-top: 26px;
 }
 .lp .btn.lg {
