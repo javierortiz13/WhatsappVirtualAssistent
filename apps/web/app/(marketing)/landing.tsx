@@ -12,7 +12,7 @@ const money = (n: number | undefined) => `$${(n ?? 0).toFixed(2).replace(".", ",
  * de la caja que hoy hace una persona, por una fracción del sueldo. La página es una conversación:
  * el visitante "le escribe" al asistente al hacer scroll y las respuestas son el servicio.
  */
-export function Landing({ waUrl }: { waUrl: string | null }) {
+export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto: string | null }) {
   const primary = waUrl ?? "/login";
   return (
     <div className="lp">
@@ -71,18 +71,19 @@ export function Landing({ waUrl }: { waUrl: string | null }) {
               <span className="pill">Texto, voz y foto</span>
             </div>
           </div>
-          <div className="hero-compare reveal d1" aria-hidden="true">
-            <div className="card cmp">
-              <span className="label">Administradora de caja</span>
-              <p className="big num amber">${ADMIN_SALARY}</p>
-              <p className="sub">al mes · un turno · se enferma, se va de vacaciones</p>
-            </div>
-            <div className="card cmp hi">
-              <span className="label">Asistente de Caja · plan Negocio</span>
-              <p className="big num mint">{money(NEGOCIO?.priceUsd)}</p>
-              <p className="sub">al mes · 24 horas · nunca se le olvida la tasa</p>
-            </div>
-          </div>
+          {heroPhoto ? (
+            <figure className="hero-photo reveal d1">
+              <img
+                src={heroPhoto}
+                alt="Dueño de un negocio registrando un gasto por WhatsApp desde su mostrador"
+                width={1200}
+                height={1500}
+              />
+              <Compare />
+            </figure>
+          ) : (
+            <Compare />
+          )}
           <a className="scroll-hint" href="#historia">
             Desliza y háblale <span>↓</span>
           </a>
@@ -185,6 +186,23 @@ export function Landing({ waUrl }: { waUrl: string | null }) {
           </nav>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function Compare() {
+  return (
+    <div className="hero-compare reveal d1" aria-hidden="true">
+      <div className="card cmp">
+        <span className="label">Administradora de caja</span>
+        <p className="big num amber">${ADMIN_SALARY}</p>
+        <p className="sub">al mes · un turno · se enferma, se va de vacaciones</p>
+      </div>
+      <div className="card cmp hi">
+        <span className="label">Asistente de Caja · plan Negocio</span>
+        <p className="big num mint">{money(NEGOCIO?.priceUsd)}</p>
+        <p className="sub">al mes · 24 horas · nunca se le olvida la tasa</p>
+      </div>
     </div>
   );
 }

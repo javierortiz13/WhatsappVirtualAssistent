@@ -71,3 +71,40 @@ usa "la parte de la caja" cuando quepa.
   Dominios). Es el mismo portafolio del WhatsApp Business.
 - Enlazar anuncios directo a WhatsApp ("click to WhatsApp") requiere el número real, no el de
   prueba: hasta la verificación del negocio, los anuncios van a la landing.
+
+## 5. Foto del hero (Nano Banana u otro generador)
+
+La portada se activa sola con una foto: deja el archivo en `apps/web/public/hero.jpg` y la
+página la muestra con las dos tarjetas de la comparación encima. Sin el archivo se ven solo las
+tarjetas. Formato: JPG, 1200 × 1500 px (4:5, vertical), menos de 300 KB (exporta a calidad 80).
+
+Lo que tiene que transmitir: una persona real de un negocio pequeño venezolano, en su local, con
+el teléfono en la mano, tranquila. Nada de pantallas con texto (lo pone la página), nada de
+oficinas ni laptops, nada de "stock" sonriendo a cámara.
+
+**Prompt principal (en inglés, los generadores responden mejor):**
+
+> Editorial photograph, vertical 4:5. A Venezuelan small business owner in his late 30s stands
+> behind the counter of his car wash at dusk, holding a smartphone in one hand and glancing at it
+> with a calm half-smile, as if he just sent a quick message. Behind him, out of focus: a freshly
+> washed car with water drops catching warm light, pressure washer hoses, a hand-painted price
+> board in Spanish. He wears a worn polo shirt with a small logo, a cap, a towel over one
+> shoulder. Natural light mixed with warm tungsten bulbs, teal and amber tones, shallow depth of
+> field, 35 mm lens, candid documentary style, slight film grain. No text on the phone screen, no
+> visible brand logos, no watermark.
+
+**Variantes para probar:**
+
+- Bodega: *"…a woman in her 50s at the counter of a small neighborhood grocery store (bodega) in
+  Caracas, shelves of products behind her, a bolívar and dollar price sign, holding her phone
+  with one hand while the other rests on the counter…"*
+- Panadería: *"…a young baker in a flour-dusted apron leaning on the glass counter of a small
+  bakery at closing time, trays of cachitos behind her, phone in hand…"*
+- Peluquería: *"…a barber in his 40s in his two-chair barbershop, mirror and clippers behind
+  him, checking his phone between clients…"*
+
+**Para la imagen del anuncio** (cuadrada, 1:1), el mismo prompt cambiando el encuadre: *"square
+1:1, tighter framing on the hands and the phone, the counter and cash drawer visible"*.
+
+Lo que no sirve: fotos con texto generado (sale mal escrito), personas mirando a cámara con
+sonrisa de catálogo, iPhones con el logo visible, oficinas.

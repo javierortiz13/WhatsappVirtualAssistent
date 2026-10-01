@@ -19,7 +19,7 @@ export default async function LoginPage({
   const error = sp.error ? ERRORS[sp.error] : null;
   return (
     <main className="login">
-      <div className="card">
+      <div className="card stack">
         <div className="brand">
           <svg viewBox="0 0 64 64" aria-hidden="true">
             <rect width="64" height="64" rx="14" fill="#0f7b5f" />
@@ -29,7 +29,7 @@ export default async function LoginPage({
           </svg>
           <div>
             <h1>Asistente de Caja</h1>
-            <p>Tu caja, por WhatsApp.</p>
+            <p>Tu asistente administrativo por WhatsApp.</p>
           </div>
         </div>
         {sp.enviado ? (
@@ -39,35 +39,60 @@ export default async function LoginPage({
               minutos y solo una vez.
             </p>
             <p className="muted" style={{ margin: 0, fontSize: 14 }}>
-              Si no llega, mira en spam o pide otro.
+              Si no llega en un minuto, mira en spam o pide otro.
             </p>
-            <a className="btn secondary" href="/login">
-              Pedir otro enlace
-            </a>
+            <div className="center">
+              <a className="btn secondary" href="/login">
+                Pedir otro enlace
+              </a>
+            </div>
           </div>
         ) : (
-          <form action={sendMagicLink} className="stack">
-            {error ? <div className="notice err">{error}</div> : null}
-            <label className="field">
-              <span>Tu correo</span>
-              <input
-                className="input"
-                type="email"
-                name="email"
-                required
-                autoComplete="email"
-                inputMode="email"
-                placeholder="dueno@minegocio.com"
-              />
-            </label>
-            <button className="btn" type="submit">
-              Enviarme el enlace
-            </button>
-            <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-              Sin contraseñas. Te llega un enlace y entras con un toque.
-            </p>
-          </form>
+          <>
+            <div>
+              <h2 style={{ fontSize: 22, marginBottom: 6 }}>Entra o crea tu cuenta en 3 minutos</h2>
+              <p className="sub">Sin contraseñas ni tarjeta. Durante el piloto no se cobra.</p>
+            </div>
+            <ol className="howto">
+              <li>
+                <strong>Escribe tu correo.</strong> Te mandamos un enlace y entras con un toque.
+              </li>
+              <li>
+                <strong>Registra tu negocio</strong> y el número de WhatsApp desde el que vas a
+                escribirle.
+              </li>
+              <li>
+                <strong>Envía el código de 6 dígitos</strong> al asistente. Desde ese momento anota
+                lo que le digas.
+              </li>
+            </ol>
+            <form action={sendMagicLink} className="stack">
+              {error ? <div className="notice err">{error}</div> : null}
+              <label className="field">
+                <span>Tu correo</span>
+                <input
+                  className="input center"
+                  type="email"
+                  name="email"
+                  required
+                  autoComplete="email"
+                  inputMode="email"
+                  placeholder="dueno@minegocio.com"
+                />
+              </label>
+              <button className="btn block" type="submit">
+                Enviarme el enlace
+              </button>
+              <p className="sub center-text">
+                Tus datos son tuyos: cada negocio está aislado y puedes borrar tu cuenta cuando
+                quieras.
+              </p>
+            </form>
+          </>
         )}
+        <p className="sub center-text">
+          <a href="/">← Ver cómo funciona</a>
+        </p>
       </div>
     </main>
   );

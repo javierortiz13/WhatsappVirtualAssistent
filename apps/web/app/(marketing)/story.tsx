@@ -282,8 +282,8 @@ function StoryScene({
 
 function SendIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
-      <path d="M3.4 20.4l17.4-7.5c.8-.4.8-1.5 0-1.8L3.4 3.6c-.7-.3-1.4.3-1.3 1l1.6 6.3c.1.4.4.6.8.7l9.5.9-9.5.9c-.4 0-.7.3-.8.7L2.1 19.4c-.1.7.6 1.3 1.3 1z" />
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" aria-hidden="true">
+      <path d="M2.5 3.3a1 1 0 0 1 1.1-.2l17.6 7.9a1 1 0 0 1 0 1.8L3.6 20.7a1 1 0 0 1-1.4-1.1l1.7-6.1a1 1 0 0 1 .8-.7l8.9-1-8.9-1a1 1 0 0 1-.8-.7L2.2 4.3a1 1 0 0 1 .3-1z" />
     </svg>
   );
 }

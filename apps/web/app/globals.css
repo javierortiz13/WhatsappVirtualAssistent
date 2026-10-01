@@ -917,7 +917,41 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
 }
 .login .card {
   width: 100%;
-  max-width: 420px;
+  max-width: 460px;
+}
+.howto {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  counter-reset: howto;
+}
+.howto li {
+  position: relative;
+  padding-left: 40px;
+  font-size: 14px;
+  color: var(--fg-2);
+  line-height: 1.45;
+}
+.howto li strong {
+  color: var(--fg);
+}
+.howto li::before {
+  counter-increment: howto;
+  content: counter(howto);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--mint-soft);
+  color: var(--mint);
+  font-weight: 700;
+  font-size: 13px;
 }
 .brand {
   display: flex;

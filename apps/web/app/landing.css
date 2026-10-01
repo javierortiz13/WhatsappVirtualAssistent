@@ -195,9 +195,10 @@
 
 /* ------------------------------------------------------------ iPhone (CSS, sin imagen) */
 .iphone {
+  position: relative;
+  z-index: 0;
   --ph-h: min(78svh, 760px);
   --ph-w: calc(var(--ph-h) * 9 / 19.5);
-  position: relative;
   height: var(--ph-h);
   width: var(--ph-w);
   border-radius: calc(var(--ph-w) * 0.17);
@@ -585,20 +586,49 @@
   }
 }
 .stage .hint {
-  font-size: 12px;
-  color: var(--muted);
-  min-height: 18px;
-  animation: lp-pulse 2s infinite ease-in-out;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0b0e13;
+  background: var(--mint);
+  box-shadow:
+    0 0 0 1px rgba(63, 224, 176, 0.6),
+    0 0 24px rgba(63, 224, 176, 0.55),
+    0 0 60px rgba(63, 224, 176, 0.25);
+  animation: lp-glow 1.8s infinite ease-in-out;
+  margin-top: 6px;
+  justify-self: center;
+  width: max-content;
+  max-width: 100%;
+  text-align: center;
 }
-@keyframes lp-pulse {
+.stage .hint::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0b0e13;
+  opacity: 0.7;
+}
+@keyframes lp-glow {
   50% {
-    opacity: 0.4;
+    box-shadow:
+      0 0 0 1px rgba(63, 224, 176, 0.6),
+      0 0 10px rgba(63, 224, 176, 0.35),
+      0 0 24px rgba(63, 224, 176, 0.12);
   }
 }
 .stage-cta {
+  position: relative;
+  z-index: 1;
   min-height: 18px;
   width: 100%;
   max-width: 420px;
+  margin-top: 28px;
 }
 .stage-cta .ctas {
   justify-content: center;
@@ -658,6 +688,54 @@
   .story.scroll .stage-cta .ctas {
     flex-direction: row;
     justify-content: flex-start;
+  }
+}
+
+/* ------------------------------------------------------------ foto del hero */
+.hero-photo {
+  position: relative;
+  margin: 0;
+  width: 100%;
+  max-width: 520px;
+  justify-self: center;
+  border-radius: 28px;
+  overflow: hidden;
+  aspect-ratio: 4 / 5;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 40px 80px rgba(0, 0, 0, 0.6);
+}
+.hero-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.hero-photo .hero-compare {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  max-width: none;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.hero-photo .cmp {
+  padding: 12px 14px;
+  background: rgba(11, 14, 19, 0.82);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.hero-photo .cmp .big {
+  font-size: 28px;
+}
+.hero-photo .cmp .sub {
+  display: none;
+}
+@media (min-width: 900px) {
+  .hero-photo {
+    justify-self: end;
+    aspect-ratio: 4 / 5;
   }
 }
 

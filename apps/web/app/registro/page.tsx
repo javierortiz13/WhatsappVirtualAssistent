@@ -121,7 +121,7 @@ function Step1({ error }: { error: string | null }) {
             Te crearemos categorías de gasto típicas de tu tipo de negocio. Luego las puedes
             cambiar.
           </p>
-          <button className="btn" type="submit">
+          <button className="btn block" type="submit">
             Continuar
           </button>
         </form>
@@ -165,7 +165,7 @@ function Step2(props: {
               </p>
             </div>
             {waHref ? (
-              <a className="btn" href={waHref} target="_blank" rel="noreferrer">
+              <a className="btn block" href={waHref} target="_blank" rel="noreferrer">
                 Abrir WhatsApp ↗
               </a>
             ) : (
@@ -180,7 +180,7 @@ function Step2(props: {
             Tu número todavía no está vinculado. Genera un código y envíalo por WhatsApp.
           </p>
         )}
-        <form action={newCodeAction}>
+        <form action={newCodeAction} className="center">
           <button className="btn secondary" type="submit">
             {props.code ? "Generar otro código" : "Generar código"}
           </button>

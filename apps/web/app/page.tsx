@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { Metadata } from "next";
 import { Landing } from "./(marketing)/landing";
 import "./landing.css";
@@ -21,5 +23,7 @@ export default function Home() {
   const waUrl = wa
     ? `https://wa.me/${wa}?text=${encodeURIComponent("hola")}&utm_source=landing&utm_medium=cta`
     : null;
-  return <Landing waUrl={waUrl} />;
+  // Foto del hero: se activa sola al dejar `public/hero.jpg` (runbook de marketing, §5).
+  const heroPhoto = existsSync(join(process.cwd(), "public", "hero.jpg")) ? "/hero.jpg" : null;
+  return <Landing waUrl={waUrl} heroPhoto={heroPhoto} />;
 }
