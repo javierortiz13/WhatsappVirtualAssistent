@@ -1,220 +1,102 @@
-import {
-  BUSINESS_TYPE_LABELS,
-  getTenantSettings,
-  type TenantPhone,
-  tenantPhones,
-} from "@caja/core";
+import { BUSINESS_TYPE_LABELS, getTenantSettings, tenantPhones } from "@caja/core";
 import { withTenant } from "@caja/db";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
-import { COUNTRY_CODES, formatE164 } from "@/lib/phone";
 import { requireTenant } from "@/lib/session";
-import { addEmployeeAction, setPhoneStatusAction, updateSettingsAction } from "./actions";
+import {
+  IconChevronRight,
+  IconDownload,
+  IconLogout,
+  IconPhone,
+  IconStore,
+  IconTags,
+  IconUser,
+} from "../icons";
 
 export const metadata: Metadata = { title: "Ajustes" };
 export const dynamic = "force-dynamic";
 
-const ERRORS: Record<string, string> = {
-  datos: "Revisa los datos del formulario.",
-  telefono: "Ese número no se ve bien. Escríbelo sin el código de país, por ejemplo 412 1234567.",
-  ocupado: "Ese número ya pertenece a otro negocio.",
-  permiso: "Solo el dueño puede cambiar los números.",
-  servidor: "No pudimos guardar el cambio. Inténtalo en unos minutos.",
-};
-
-const STATUS: Record<TenantPhone["status"], { label: string; cls: string }> = {
-  active: { label: "activo", cls: "ok" },
-  pending: { label: "sin vincular", cls: "warn" },
-  disabled: { label: "desactivado", cls: "" },
-};
-
-export default async function Ajustes({
-  searchParams,
-}: {
-  searchParams: Promise<{ error?: string; ok?: string }>;
-}) {
+/** Portada de ajustes: una tarjeta por sección. Cada una vive en su propia página. */
+export default async function Ajustes() {
   const { user, tenant } = await requireTenant();
-  const sp = await searchParams;
   const { phones, settings } = await withTenant(db(), tenant.id, async (tx) => ({
     phones: await tenantPhones(tx, tenant.id),
     settings: await getTenantSettings(tx, tenant.id),
   }));
-  const owner = phones.find((p) => p.role === "owner");
-  const isOwner = tenant.role === "owner";
+  const pending = phones.filter((p) => p.status === "pending").length;
+  const active = phones.filter((p) => p.status === "active").length;
+  const item = (
+    href: string,
+    icon: React.ReactNode,
+    title: string,
+    sub: string,
+    badge?: React.ReactNode,
+  ) => (
+    <a className="row" href={href}>
+      <span className="ico lg">{icon}</span>
+      <span className="what">
+        <strong>{title}</strong>
+        <span className="sub">{sub}</span>
+      </span>
+      <span className="amts" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        {badge}
+        <IconChevronRight size={18} className="muted" />
+      </span>
+    </a>
+  );
   return (
     <div className="stack">
-      {sp.ok === "negocio" ? <div className="notice ok">Datos del negocio guardados.</div> : null}
-      <form action={updateSettingsAction} className="card stack">
-        <h2 style={{ margin: 0 }}>Negocio</h2>
-        <label className="field">
-          <span>Nombre</span>
-          <input
-            className="input"
-            name="name"
-            defaultValue={settings?.name ?? tenant.name}
-            minLength={2}
-            maxLength={80}
-            required
-            disabled={!isOwner}
-          />
-        </label>
-        <label className="field">
-          <span>Tipo</span>
-          <select
-            className="input"
-            name="business_type"
-            defaultValue={settings?.businessType ?? "other"}
-            disabled={!isOwner}
-          >
-            {Object.entries(BUSINESS_TYPE_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </label>
-        <fieldset className="field choices">
-          <legend>Moneda en la que sueles hablar de gastos</legend>
-          <label>
-            <input
-              type="radio"
-              name="currency"
-              value="USD"
-              defaultChecked={settings?.defaultExpenseCurrency !== "VES"}
-              disabled={!isOwner}
-            />{" "}
-            Dólares
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="currency"
-              value="VES"
-              defaultChecked={settings?.defaultExpenseCurrency === "VES"}
-              disabled={!isOwner}
-            />{" "}
-            Bolívares
-          </label>
-        </fieldset>
-        <p className="kpi-sub">
-          Estado: {tenant.status === "trial" ? "en prueba" : tenant.status} · Cuenta: {user.email}
-        </p>
-        {isOwner ? (
-          <button className="btn secondary" type="submit">
-            Guardar
-          </button>
-        ) : null}
-      </form>
-      <a
-        className="card"
-        href="/ajustes/categorias"
-        style={{ display: "block", textDecoration: "none" }}
-      >
-        <p className="kpi-label">Categorías de gasto</p>
-        <p style={{ margin: 0 }}>Crear, renombrar o desactivar →</p>
-      </a>
-
-      <div className="card stack">
-        <h2 style={{ margin: 0 }}>Números de WhatsApp</h2>
-        {sp.error ? <div className="notice err">{ERRORS[sp.error] ?? sp.error}</div> : null}
-        {sp.ok === "alta" ? (
-          <div className="notice ok">
-            Listo. Cuando ese número le escriba al asistente por primera vez, recibe la bienvenida y
-            ya puede registrar gastos y ventas.
-          </div>
-        ) : null}
-        {owner?.status === "pending" ? (
-          <div className="notice err">
-            Tu número todavía no está vinculado. <a href="/registro">Vincúlalo aquí</a> para poder
-            escribirle al asistente.
-          </div>
-        ) : null}
-        <ul className="list">
-          {phones.map((p) => (
-            <li key={p.id}>
-              <span className="title">
-                {p.displayName ?? (p.role === "owner" ? "Dueño" : "Empleado")}{" "}
-                <span className={`badge ${STATUS[p.status].cls}`}>{STATUS[p.status].label}</span>
-              </span>
-              <span className="amt" style={{ fontWeight: 400, fontSize: 14 }}>
-                {formatE164(p.e164)}
-              </span>
-              <span className="meta">{p.role === "owner" ? "dueño" : "empleado"}</span>
-              {isOwner && p.role === "employee" ? (
-                <form action={setPhoneStatusAction} className="amt2">
-                  <input type="hidden" name="phone_id" value={p.id} />
-                  <input
-                    type="hidden"
-                    name="status"
-                    value={p.status === "disabled" ? "active" : "disabled"}
-                  />
-                  <button className="btn secondary small" type="submit">
-                    {p.status === "disabled" ? "Reactivar" : "Desactivar"}
-                  </button>
-                </form>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-        {isOwner ? (
-          <form action={addEmployeeAction} className="stack">
-            <p className="kpi-label" style={{ margin: 0 }}>
-              Agregar un empleado
-            </p>
-            <div className="phone-row">
-              <select className="input" name="country" defaultValue="58" aria-label="País">
-                {COUNTRY_CODES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="input"
-                name="phone"
-                required
-                inputMode="tel"
-                placeholder="412 1234567"
-                aria-label="Número"
-              />
-            </div>
-            <input className="input" name="name" maxLength={60} placeholder="Nombre (opcional)" />
-            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-              El empleado registra gastos y ventas; los cierres los ves solo tú. No necesita código:
-              con escribirle al asistente queda activo.
-            </p>
-            <button className="btn secondary" type="submit">
-              Agregar
+      <section className="card rate">
+        <span className="avatar lg">{tenant.name.charAt(0).toUpperCase()}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h2 style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {tenant.name}
+          </h2>
+          <p className="sub" style={{ margin: 0 }}>
+            {BUSINESS_TYPE_LABELS[settings?.businessType ?? "other"]} ·{" "}
+            {tenant.status === "trial" ? "en prueba" : tenant.status}
+          </p>
+        </div>
+      </section>
+      <div className="card tight">
+        {item("/ajustes/negocio", <IconStore />, "Negocio", "Nombre, tipo y moneda de los gastos")}
+        {item(
+          "/ajustes/categorias",
+          <IconTags />,
+          "Categorías de gasto",
+          "Crear, renombrar o desactivar",
+        )}
+        {item(
+          "/ajustes/numeros",
+          <IconPhone />,
+          "Números de WhatsApp",
+          active === 1 ? "1 número activo" : `${active} números activos`,
+          pending > 0 ? <span className="badge warn">{pending} sin vincular</span> : undefined,
+        )}
+        {item(
+          "/ajustes/exportar",
+          <IconDownload />,
+          "Exportar a Excel",
+          "Un archivo por rango de fechas",
+        )}
+      </div>
+      <div className="card tight">
+        <div className="row">
+          <span className="ico lg" style={{ color: "var(--muted)" }}>
+            <IconUser />
+          </span>
+          <span className="what">
+            <strong>Cuenta</strong>
+            <span className="sub">{user.email}</span>
+          </span>
+          <form action="/auth/logout" method="post">
+            <button className="btn secondary small" type="submit">
+              <IconLogout size={16} />
+              Salir
             </button>
           </form>
-        ) : null}
-      </div>
-
-      <form className="card stack" action="/exportar" method="get">
-        <h2 style={{ margin: 0 }}>Exportar a Excel</h2>
-        <p className="muted" style={{ margin: 0, fontSize: 13 }}>
-          Una fila por movimiento: fecha, tipo, categoría, descripción, monto, moneda, tasa,
-          equivalentes, método, autor y canal. Hasta 12 meses por archivo.
-        </p>
-        <div className="grid-2">
-          <label className="field">
-            <span>Desde</span>
-            <input className="input" type="date" name="desde" required />
-          </label>
-          <label className="field">
-            <span>Hasta</span>
-            <input className="input" type="date" name="hasta" required />
-          </label>
         </div>
-        <button className="btn secondary" type="submit">
-          Descargar .xlsx
-        </button>
-      </form>
-      <form action="/auth/logout" method="post">
-        <button className="btn secondary" type="submit">
-          Cerrar sesión
-        </button>
-      </form>
+      </div>
     </div>
   );
 }

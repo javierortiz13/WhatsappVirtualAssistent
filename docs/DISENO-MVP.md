@@ -1719,7 +1719,7 @@ Privado (barra inferior en móvil, barra lateral en escritorio)
 
 Reservado, sin UI en el MVP: `/ajustes/integraciones` (Odoo, premium).
 
-Navegación móvil: 4 pestañas fijas abajo (Inicio, Movimientos, Cierres, Ajustes) y un botón flotante "+" en Inicio y Movimientos para el alta manual. En escritorio, las mismas cuatro entradas en una barra lateral y el "+" arriba a la derecha.
+Navegación (revisada en S2, bloque de diseño): un menú lateral que en el teléfono abre el botón ☰ de la cabecera y en escritorio queda fijo a la izquierda, con Inicio, Movimientos, Cierres y la sección Negocio (Categorías, Números de WhatsApp, Exportar a Excel, Ajustes), más "Abrir el asistente" y cerrar sesión abajo. Sustituye a las 4 pestañas inferiores del borrador. El "+" de alta manual sigue fuera del MVP: el alta es por WhatsApp.
 
 ### Wireframes (móvil, 360 px)
 

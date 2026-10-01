@@ -25,11 +25,11 @@ const AddForm = z.object({
 /** Alta de un empleado (US-A4). Solo el dueño del dashboard. */
 export async function addEmployeeAction(formData: FormData): Promise<void> {
   const { user, tenant } = await requireTenant();
-  if (tenant.role !== "owner") redirect("/ajustes?error=permiso");
+  if (tenant.role !== "owner") redirect("/ajustes/numeros?error=permiso");
   const parsed = AddForm.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) redirect("/ajustes?error=datos");
+  if (!parsed.success) redirect("/ajustes/numeros?error=datos");
   const e164 = toE164(parsed.data.country, parsed.data.phone);
-  if (!e164) redirect("/ajustes?error=telefono");
+  if (!e164) redirect("/ajustes/numeros?error=telefono");
   try {
     await addEmployee(
       db(),
@@ -37,12 +37,12 @@ export async function addEmployeeAction(formData: FormData): Promise<void> {
       { e164, displayName: parsed.data.name || null },
     );
   } catch (err) {
-    if (err instanceof PhoneTakenError) redirect("/ajustes?error=ocupado");
+    if (err instanceof PhoneTakenError) redirect("/ajustes/numeros?error=ocupado");
     console.error(JSON.stringify({ level: "error", msg: "alta empleado", detail: String(err) }));
-    redirect("/ajustes?error=servidor");
+    redirect("/ajustes/numeros?error=servidor");
   }
-  revalidatePath("/ajustes");
-  redirect("/ajustes?ok=alta");
+  revalidatePath("/ajustes/numeros");
+  redirect("/ajustes/numeros?ok=alta");
 }
 
 const StatusForm = z.object({
@@ -52,17 +52,17 @@ const StatusForm = z.object({
 
 export async function setPhoneStatusAction(formData: FormData): Promise<void> {
   const { user, tenant } = await requireTenant();
-  if (tenant.role !== "owner") redirect("/ajustes?error=permiso");
+  if (tenant.role !== "owner") redirect("/ajustes/numeros?error=permiso");
   const parsed = StatusForm.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) redirect("/ajustes?error=datos");
+  if (!parsed.success) redirect("/ajustes/numeros?error=datos");
   await setPhoneStatus(
     db(),
     { tenantId: tenant.id, userId: user.id },
     parsed.data.phone_id,
     parsed.data.status,
   );
-  revalidatePath("/ajustes");
-  redirect("/ajustes");
+  revalidatePath("/ajustes/numeros");
+  redirect("/ajustes/numeros");
 }
 
 const SettingsForm = z.object({
@@ -74,9 +74,9 @@ const SettingsForm = z.object({
 /** Nombre, tipo y moneda por defecto del negocio (US-E7). Solo el dueño. */
 export async function updateSettingsAction(formData: FormData): Promise<void> {
   const { user, tenant } = await requireTenant();
-  if (tenant.role !== "owner") redirect("/ajustes?error=permiso");
+  if (tenant.role !== "owner") redirect("/ajustes/negocio?error=permiso");
   const parsed = SettingsForm.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) redirect("/ajustes?error=datos");
+  if (!parsed.success) redirect("/ajustes/negocio?error=datos");
   try {
     await withTenant(db(), tenant.id, (tx) =>
       updateTenantSettings(
@@ -90,10 +90,10 @@ export async function updateSettingsAction(formData: FormData): Promise<void> {
       ),
     );
   } catch (err) {
-    if (err instanceof CategoryError) redirect("/ajustes?error=datos");
+    if (err instanceof CategoryError) redirect("/ajustes/negocio?error=datos");
     console.error(JSON.stringify({ level: "error", msg: "ajustes", detail: String(err) }));
-    redirect("/ajustes?error=servidor");
+    redirect("/ajustes/negocio?error=servidor");
   }
   revalidatePath("/", "layout");
-  redirect("/ajustes?ok=negocio");
+  redirect("/ajustes/negocio?ok=negocio");
 }

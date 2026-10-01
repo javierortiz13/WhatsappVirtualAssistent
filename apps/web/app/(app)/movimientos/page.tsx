@@ -9,6 +9,7 @@ import {
   totalsBetween,
 } from "@/lib/queries";
 import { requireTenant } from "@/lib/session";
+import { IconChevronLeft, IconChevronRight, IconDownload } from "../icons";
 import { MovementsList } from "../movements-list";
 
 export const metadata: Metadata = { title: "Movimientos" };
@@ -38,6 +39,7 @@ export default async function Movimientos({
     movementsBetween(tenant.id, month.from, month.to, 500, filter),
     totalsBetween(tenant.id, month.from, month.to),
   ]);
+  const net = totals.incomeUsd.minus(totals.expensesUsd);
   const link = (over: Record<string, string | undefined>) => {
     const q = new URLSearchParams();
     const merged = { mes: ym, tipo: sp.tipo, eliminados: sp.eliminados, ...over };
@@ -52,31 +54,32 @@ export default async function Movimientos({
   return (
     <div className="stack">
       {sp.ok && OK[sp.ok] ? <div className="notice ok">{OK[sp.ok]}</div> : null}
-      <div className="card rate">
-        <a
-          className="btn secondary small"
-          href={link({ mes: shiftMonth(ym, -1) })}
-          aria-label="Mes anterior"
-        >
-          ‹
+      <div className="rate">
+        <a className="iconbtn" href={link({ mes: shiftMonth(ym, -1) })} aria-label="Mes anterior">
+          <IconChevronLeft />
         </a>
-        <div style={{ textAlign: "center" }}>
-          <p className="kpi-label" style={{ margin: 0 }}>
-            {monthNameEs(month.from)} {ym.slice(0, 4)}
-          </p>
-          <p className="kpi-sub">
-            ventas {formatMoney(totals.incomeUsd, "USD")} · gastos{" "}
-            {formatMoney(totals.expensesUsd, "USD")} · neto{" "}
-            <strong>{formatMoney(totals.incomeUsd.minus(totals.expensesUsd), "USD")}</strong>
-          </p>
+        <h2 style={{ textAlign: "center", flex: 1 }}>
+          {monthNameEs(month.from)} {ym.slice(0, 4)}
+        </h2>
+        <a className="iconbtn" href={link({ mes: shiftMonth(ym, 1) })} aria-label="Mes siguiente">
+          <IconChevronRight />
+        </a>
+      </div>
+      <div className="card grid-3 kpis">
+        <div>
+          <span className="label">Ventas</span>
+          <strong className="num mint">{formatMoney(totals.incomeUsd, "USD")}</strong>
         </div>
-        <a
-          className="btn secondary small"
-          href={link({ mes: shiftMonth(ym, 1) })}
-          aria-label="Mes siguiente"
-        >
-          ›
-        </a>
+        <div>
+          <span className="label">Gastos</span>
+          <strong className="num amber">{formatMoney(totals.expensesUsd, "USD")}</strong>
+        </div>
+        <div>
+          <span className="label">Neto</span>
+          <strong className={`num${net.isNegative() ? " amber" : ""}`}>
+            {formatMoney(net, "USD")}
+          </strong>
+        </div>
       </div>
       <div className="chips">
         {chip(
@@ -85,18 +88,19 @@ export default async function Movimientos({
           link({ tipo: undefined, eliminados: undefined }),
         )}
         {chip(
-          "Gastos",
-          filter.type === "expense" && !filter.deleted,
-          link({ tipo: "expense", eliminados: undefined }),
-        )}
-        {chip(
           "Ventas",
           filter.type === "income" && !filter.deleted,
           link({ tipo: "income", eliminados: undefined }),
         )}
+        {chip(
+          "Gastos",
+          filter.type === "expense" && !filter.deleted,
+          link({ tipo: "expense", eliminados: undefined }),
+        )}
         {chip("Eliminados", !!filter.deleted, link({ tipo: undefined, eliminados: "1" }))}
         <a className="chip" href={`/exportar?desde=${month.from}&hasta=${month.to}`}>
-          ⬇ Excel del mes
+          <IconDownload size={16} />
+          Excel del mes
         </a>
       </div>
       <MovementsList rows={rows} today={today} />

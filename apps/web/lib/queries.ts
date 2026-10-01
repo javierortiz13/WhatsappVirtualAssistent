@@ -122,6 +122,31 @@ export async function totalsBetween(tenantId: string, from: IsoDate, to: IsoDate
   };
 }
 
+/** Neto (ventas − gastos, USD) por día del rango; los días sin movimientos no aparecen. */
+export async function dailyNets(
+  tenantId: string,
+  from: IsoDate,
+  to: IsoDate,
+): Promise<{ date: string; net: Decimal; sales: Decimal; expenses: Decimal }[]> {
+  const list = await withTenant(db(), tenantId, async (tx) =>
+    rows<{ date: string; sales: string; expenses: string }>(
+      await tx.execute(sql`
+        select business_date::text as date,
+               coalesce(sum(amount_usd) filter (where type = 'income'), 0)::text as sales,
+               coalesce(sum(amount_usd) filter (where type = 'expense'), 0)::text as expenses
+        from ${schema.movement}
+        where deleted_at is null and business_date between ${from}::date and ${to}::date
+        group by business_date order by business_date
+      `),
+    ),
+  );
+  return list.map((r) => {
+    const sales = new Decimal(r.sales);
+    const expenses = new Decimal(r.expenses);
+    return { date: r.date, sales, expenses, net: sales.minus(expenses) };
+  });
+}
+
 export type MovementDetail = MovementRow & {
   categoryId: string | null;
   origin: string;

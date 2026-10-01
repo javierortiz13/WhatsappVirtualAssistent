@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Tu caja, por WhatsApp.",
     start_url: "/inicio",
     display: "standalone",
-    background_color: "#f6f7f9",
-    theme_color: "#0f7b5f",
+    background_color: "#0b0e13",
+    theme_color: "#0b0e13",
     lang: "es-VE",
     icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" }],
   };

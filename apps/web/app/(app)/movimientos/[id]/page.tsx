@@ -4,16 +4,24 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { categoriesOf, movementById } from "@/lib/queries";
 import { requireTenant } from "@/lib/session";
+import {
+  IconArrowDown,
+  IconArrowUp,
+  IconCalendar,
+  IconCamera,
+  IconChevronDown,
+  IconChevronLeft,
+} from "../../icons";
 import { deleteMovementAction, updateMovementAction } from "./actions";
 
 export const metadata: Metadata = { title: "Movimiento" };
 export const dynamic = "force-dynamic";
 
 const CHANNEL: Record<string, string> = {
-  text: "WhatsApp ✍",
-  voice: "WhatsApp 🎤",
-  image: "WhatsApp 📷",
-  dashboard: "dashboard",
+  text: "por WhatsApp",
+  voice: "por nota de voz",
+  image: "por foto",
+  dashboard: "desde el dashboard",
 };
 const MSG: Record<string, string> = {
   guardado: "Cambios guardados.",
@@ -39,26 +47,52 @@ export default async function Movimiento({
   const [m, categories] = await Promise.all([movementById(tenant.id, id), categoriesOf(tenant.id)]);
   if (!m) notFound();
   const isExpense = m.type === "expense";
+  const locked = !!m.deletedAt;
   const notice = sp.ok ? MSG[sp.ok] : sp.error ? MSG[sp.error] : null;
   const fmt = (d: Date) =>
     `${formatShortDate(asIsoDate(d.toISOString().slice(0, 10)))} ${d.toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit", timeZone: "America/Caracas" })}`;
   return (
     <div className="stack">
-      <p style={{ margin: 0 }}>
-        <a href={`/movimientos?mes=${m.businessDate.slice(0, 7)}`}>← Movimientos</a>
-      </p>
+      <div className="rate">
+        <a
+          className="iconbtn"
+          href={`/movimientos?mes=${m.businessDate.slice(0, 7)}`}
+          aria-label="Volver a movimientos"
+        >
+          <IconChevronLeft />
+        </a>
+        <span className={`tag ${isExpense ? "expense" : "income"}`}>
+          {isExpense ? <IconArrowDown size={14} /> : <IconArrowUp size={14} />}
+          {isExpense ? "Gasto" : "Venta"}
+        </span>
+        <span style={{ flex: 1 }} />
+        {m.deletedAt ? <span className="badge warn">eliminado</span> : null}
+      </div>
       {notice ? <div className={`notice ${sp.error ? "err" : "ok"}`}>{notice}</div> : null}
       {m.deletedAt ? (
         <div className="notice err">Este movimiento fue eliminado el {fmt(m.deletedAt)}.</div>
       ) : null}
+
+      <section className="card center-text">
+        <span className="label">{m.description ?? (isExpense ? "Gasto" : "Venta")}</span>
+        <p className={`big num ${isExpense ? "amber" : "mint"}`}>
+          {isExpense ? "−" : "+"}
+          {formatMoney(m.amount, m.currency as "USD" | "VES")}
+        </p>
+        <p className="sub num">
+          {m.currency === "USD" ? formatMoney(m.amountVes, "VES") : formatMoney(m.amountUsd, "USD")}{" "}
+          · tasa {formatMoney(m.rateValue, "VES").replace("Bs ", "")}
+          {m.rateSource === "manual" ? " (manual)" : ""}
+        </p>
+      </section>
+
       <form action={updateMovementAction} className="card stack">
         <input type="hidden" name="id" value={m.id} />
-        <h2 style={{ margin: 0 }}>{isExpense ? "Gasto" : "Venta"}</h2>
         <div className="grid-2">
           <label className="field">
             <span>Monto</span>
             <input
-              className="input"
+              className="input center num"
               name="amount"
               type="number"
               step="0.01"
@@ -66,121 +100,130 @@ export default async function Movimiento({
               inputMode="decimal"
               defaultValue={m.amount}
               required
-              disabled={!!m.deletedAt}
+              disabled={locked}
             />
           </label>
           <label className="field">
             <span>Moneda</span>
-            <select
-              className="input"
-              name="currency"
-              defaultValue={m.currency}
-              disabled={!!m.deletedAt}
-            >
-              <option value="USD">USD</option>
-              <option value="VES">Bs</option>
-            </select>
+            <span className="sel">
+              <select className="input" name="currency" defaultValue={m.currency} disabled={locked}>
+                <option value="USD">USD</option>
+                <option value="VES">Bs</option>
+              </select>
+              <IconChevronDown size={16} />
+            </span>
           </label>
         </div>
-        <p className="kpi-sub" style={{ marginTop: -8 }}>
-          ={" "}
-          {m.currency === "USD" ? formatMoney(m.amountVes, "VES") : formatMoney(m.amountUsd, "USD")}{" "}
-          a tasa {formatMoney(m.rateValue, "VES").replace("Bs ", "")}
-          {m.rateSource === "manual" ? " (manual)" : ""}
-        </p>
         <label className="field">
           <span>Fecha</span>
-          <input
-            className="input"
-            name="business_date"
-            type="date"
-            defaultValue={m.businessDate}
-            required
-            disabled={!!m.deletedAt}
-          />
+          <span className="sel">
+            <input
+              className="input"
+              name="business_date"
+              type="date"
+              defaultValue={m.businessDate}
+              required
+              disabled={locked}
+            />
+            <IconCalendar className="cal" size={18} />
+          </span>
+          <span className="sub">Si cambias la fecha, se recalcula con la tasa BCV de ese día.</span>
         </label>
-        <p className="muted" style={{ margin: "-8px 0 0", fontSize: 13 }}>
-          Si cambias la fecha, se recalcula con la tasa BCV de ese día.
-        </p>
         {isExpense ? (
           <label className="field">
             <span>Categoría</span>
-            <select
-              className="input"
-              name="category_id"
-              defaultValue={m.categoryId ?? ""}
-              disabled={!!m.deletedAt}
-            >
-              <option value="">Otros</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <span className="sel">
+              <select
+                className="input"
+                name="category_id"
+                defaultValue={m.categoryId ?? ""}
+                disabled={locked}
+              >
+                <option value="">Otros</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <IconChevronDown size={16} />
+            </span>
           </label>
         ) : (
           <label className="field">
             <span>Método de pago</span>
-            <select
-              className="input"
-              name="payment_method"
-              defaultValue={m.paymentMethod}
-              disabled={!!m.deletedAt}
-            >
-              {(Object.keys(PAYMENT_METHOD_LABELS) as PaymentMethod[]).map((k) => (
-                <option key={k} value={k}>
-                  {PAYMENT_METHOD_LABELS[k]}
-                </option>
-              ))}
-            </select>
+            <span className="sel">
+              <select
+                className="input"
+                name="payment_method"
+                defaultValue={m.paymentMethod}
+                disabled={locked}
+              >
+                {(Object.keys(PAYMENT_METHOD_LABELS) as PaymentMethod[]).map((k) => (
+                  <option key={k} value={k}>
+                    {PAYMENT_METHOD_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+              <IconChevronDown size={16} />
+            </span>
           </label>
         )}
         <label className="field">
           <span>Descripción</span>
           <input
-            className="input"
+            className="input center"
             name="description"
             maxLength={200}
             defaultValue={m.description ?? ""}
-            disabled={!!m.deletedAt}
+            disabled={locked}
           />
         </label>
-        {m.attachmentId ? (
-          <p style={{ margin: 0 }}>
-            <span className="kpi-label">Factura</span>
-            <a href={`/adjuntos/${m.attachmentId}`} target="_blank" rel="noreferrer">
-              Ver foto
-            </a>
-          </p>
-        ) : null}
-        <div>
-          <p className="kpi-label">Registrado por {CHANNEL[m.sourceChannel] ?? m.sourceChannel}</p>
-          <p style={{ margin: 0, fontSize: 14 }}>
-            {m.author} · {fmt(m.createdAt)}
-          </p>
-          {m.sourceBody && m.sourceChannel !== "dashboard" ? (
-            <p className="muted" style={{ margin: "4px 0 0", fontSize: 13 }}>
-              "{m.sourceBody.slice(0, 200)}"
-            </p>
-          ) : null}
-          <p className="kpi-sub">
-            {m.updatedAt.getTime() - m.createdAt.getTime() > 1000
-              ? `Editado ${fmt(m.updatedAt)}`
-              : "Editado: nunca"}
-            {m.origin === "day_total" ? " · parte de la venta del día" : ""}
-          </p>
-        </div>
-        {!m.deletedAt ? (
-          <button className="btn" type="submit">
-            Guardar
-          </button>
+        {!locked ? (
+          <div className="center">
+            <button className="btn" type="submit">
+              Guardar
+            </button>
+          </div>
         ) : null}
       </form>
-      {!m.deletedAt ? (
-        <form action={deleteMovementAction}>
+
+      <section className="card">
+        <div className="row" style={{ padding: 0 }}>
+          <span className="avatar">{m.author.charAt(0).toUpperCase()}</span>
+          <span className="what">
+            <strong>{m.author}</strong>
+            <span className="sub">
+              {CHANNEL[m.sourceChannel] ?? m.sourceChannel} · {fmt(m.createdAt)}
+            </span>
+          </span>
+          {m.attachmentId ? (
+            <a
+              className="btn secondary small"
+              href={`/adjuntos/${m.attachmentId}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <IconCamera size={16} />
+              Foto
+            </a>
+          ) : null}
+        </div>
+        {m.sourceBody && m.sourceChannel !== "dashboard" ? (
+          <p className="sub quote">"{m.sourceBody.slice(0, 200)}"</p>
+        ) : null}
+        <p className="sub" style={{ margin: "var(--space-2) 0 0" }}>
+          {m.updatedAt.getTime() - m.createdAt.getTime() > 1000
+            ? `Editado ${fmt(m.updatedAt)}`
+            : "Sin ediciones"}
+          {m.origin === "day_total" ? " · parte de la venta del día" : ""}
+        </p>
+      </section>
+
+      {!locked ? (
+        <form action={deleteMovementAction} className="center">
           <input type="hidden" name="id" value={m.id} />
-          <button className="btn danger" type="submit" onClick={undefined}>
+          <button className="btn danger" type="submit">
             Eliminar {isExpense ? "gasto" : "venta"}
           </button>
         </form>

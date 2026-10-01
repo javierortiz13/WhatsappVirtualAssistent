@@ -1,24 +1,28 @@
-import { formatMoney, formatShortDate, getRateInfo, ownerPhone } from "@caja/core";
+import { dailyClose, formatMoney, formatShortDate, getRateInfo, ownerPhone } from "@caja/core";
+import { monthNameEs } from "@caja/core/domain";
+import { withTenant } from "@caja/db";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { monthBounds, movementsBetween, todayInCaracas, totalsBetween } from "@/lib/queries";
 import { requireTenant } from "@/lib/session";
-import { MovementsList } from "../movements-list";
+import { MovementRowView } from "../movements-list";
 
 export const metadata: Metadata = { title: "Inicio" };
 export const dynamic = "force-dynamic";
 
+/** Una cifra grande (el neto de hoy), dos tarjetas del mes y los últimos movimientos. */
 export default async function Inicio() {
   const { tenant } = await requireTenant();
   const today = todayInCaracas();
   const month = monthBounds(today);
-  const [rate, todayTotals, monthTotals, recent, owner] = await Promise.all([
+  const [rate, close, monthTotals, recent, owner] = await Promise.all([
     getRateInfo(db(), today),
-    totalsBetween(tenant.id, today, today),
+    withTenant(db(), tenant.id, (tx) => dailyClose(tx, tenant.id, today)),
     totalsBetween(tenant.id, month.from, month.to),
-    movementsBetween(tenant.id, month.from, month.to, 8),
+    movementsBetween(tenant.id, month.from, month.to, 6),
     ownerPhone(db(), tenant.id),
   ]);
+  const monthNet = monthTotals.incomeUsd.minus(monthTotals.expensesUsd);
   return (
     <div className="stack">
       {owner?.status === "pending" ? (
@@ -27,52 +31,67 @@ export default async function Inicio() {
           <a href="/registro">Envía el código por WhatsApp</a> para empezar a registrar.
         </div>
       ) : null}
-      <div className="card rate">
-        <div>
-          <p className="kpi-label">Tasa BCV</p>
-          {rate.current ? (
-            <p className="kpi-sub">vigente {formatShortDate(rate.current.effectiveDate)}</p>
-          ) : null}
+      {rate.stale ? <div className="notice">La tasa BCV puede estar desactualizada.</div> : null}
+
+      <section className="card hero">
+        <span className="label">Hoy · {formatShortDate(today)}</span>
+        <p className={`big num ${close.netUsd.isNegative() ? "amber" : "mint"}`}>
+          {formatMoney(close.netUsd, "USD")}
+        </p>
+        <p className="sub num">
+          {close.netVes !== null ? `${formatMoney(close.netVes, "VES")} · ` : ""}
+          {close.count === 0
+            ? "sin movimientos todavía"
+            : close.count === 1
+              ? "1 movimiento"
+              : `${close.count} movimientos`}
+        </p>
+        <div className="grid-2" style={{ marginTop: "var(--space-4)" }}>
+          <div className="tile">
+            <span className="label">Ventas</span>
+            <strong className="num mint tile-n">{formatMoney(close.salesUsd, "USD")}</strong>
+          </div>
+          <div className="tile">
+            <span className="label">Gastos</span>
+            <strong className="num amber tile-n">{formatMoney(close.expensesUsd, "USD")}</strong>
+          </div>
         </div>
-        <strong>{rate.current ? formatMoney(rate.current.value, "VES") : "sin tasa"}</strong>
-      </div>
-      {rate.stale ? <p className="warn">La tasa puede estar desactualizada.</p> : null}
+      </section>
+
       <div className="grid-2">
         <div className="card">
-          <p className="kpi-label">Ventas de hoy</p>
-          <p className="kpi">{formatMoney(todayTotals.incomeUsd, "USD")}</p>
-          <p className="kpi-sub">
-            neto {formatMoney(todayTotals.incomeUsd.minus(todayTotals.expensesUsd), "USD")}
+          <span className="label">{monthNameEs(today)}</span>
+          <p className={`kpi ${monthNet.isNegative() ? "amber" : ""}`}>
+            {formatMoney(monthNet, "USD")}
+          </p>
+          <p className="kpi-sub num">
+            <span className="mint">{formatMoney(monthTotals.incomeUsd, "USD")}</span>
+            {" · "}
+            <span className="amber">{formatMoney(monthTotals.expensesUsd, "USD")}</span>
           </p>
         </div>
         <div className="card">
-          <p className="kpi-label">Gastos de hoy</p>
-          <p className="kpi">{formatMoney(todayTotals.expensesUsd, "USD")}</p>
-          <p className="kpi-sub">
-            {todayTotals.expenseCount === 1
-              ? "1 registro"
-              : `${todayTotals.expenseCount} registros`}
-          </p>
-        </div>
-        <div className="card">
-          <p className="kpi-label">Ventas del mes</p>
-          <p className="kpi">{formatMoney(monthTotals.incomeUsd, "USD")}</p>
-          <p className="kpi-sub">
-            neto {formatMoney(monthTotals.incomeUsd.minus(monthTotals.expensesUsd), "USD")}
-          </p>
-        </div>
-        <div className="card">
-          <p className="kpi-label">Gastos del mes</p>
-          <p className="kpi">{formatMoney(monthTotals.expensesUsd, "USD")}</p>
-          <p className="kpi-sub">
-            {monthTotals.expenseCount === 1
-              ? "1 registro"
-              : `${monthTotals.expenseCount} registros`}
-          </p>
+          <span className="label">Efectivo en caja</span>
+          <p className="kpi">{formatMoney(close.cashUsd, "USD")}</p>
+          <p className="kpi-sub num">{formatMoney(close.cashVes, "VES")} en bolívares</p>
         </div>
       </div>
-      <h2>Últimos movimientos</h2>
-      <MovementsList rows={recent} today={today} />
+
+      <div className="day">
+        <h2>Últimos movimientos</h2>
+        <a className="sub" href="/movimientos">
+          Ver todos ›
+        </a>
+      </div>
+      {recent.length === 0 ? (
+        <p className="empty">Todavía no hay movimientos este mes.</p>
+      ) : (
+        <div className="card tight">
+          {recent.map((m) => (
+            <MovementRowView key={m.id} m={m} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

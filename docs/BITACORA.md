@@ -273,3 +273,17 @@ Contexto: Meta cobra desde el 1/10/2026 cada respuesta libre como mensaje de ser
 - 2 tests. Con esto queda cubierta la Épica E del MVP salvo el resumen del mes en el dashboard (US-E4), que ya existe en Cierres en su versión básica, y el pulido visual.
 
 **Cierre de S2.** Hecho: onboarding por código, ventas, cierres, correcciones, tasa manual, voz, foto, reacciones y una respuesta por mensaje (ADR-014), health check, métricas de cupo, edición, exportación, categorías y configuración. Pendiente de Javier: migración 0004, prueba del empleado, Sentry, notificaciones de Railway. Siguiente bloque: diseño del dashboard.
+
+### S2 · bloque de diseño · 01/10/2026 · Nuevo diseño del dashboard
+
+**Proceso.** Javier pidió un estilo tipo Raycast (oscuro, capas de elevación, tarjetas con acentos sutiles). Antes de tocar código se hizo un mockup de 6 pantallas (Inicio, Movimientos, Detalle, Cierres, Ajustes, Menú) y se iteró con sus comentarios en el propio mockup: cifras menos aglomeradas, menú lateral que abre y cierra en lugar de pestañas abajo, selects y fechas centrados con chevrón, botón Guardar verde con letras blancas y en píldora, exportar con el mismo botón, barras de la semana con el mejor día en menta, el peor en ámbar y hoy en degradado, icono del calendario en blanco, gastos en ámbar y ventas en menta. Con el "ok listo ya me gusta" se pasó a código.
+
+**Terminado**
+- `globals.css` reescrito: solo tema oscuro (fondo `#0B0E13`, tarjetas con degradado, borde de 1 px y brillo superior), fuente Geist, cifras tabulares, dos colores con significado fijo (menta = ventas y neto, ámbar = gastos), radios 20/14 px, botón primario en píldora `#168A66`. En escritorio (≥ 960 px) el menú queda fijo y el contenido ocupa hasta 760 px.
+- `Shell` (`sidebar.tsx`): cajón lateral con cortina, cierre con Escape y al navegar; cabecera con ☰, título de la sección y píldora con la tasa BCV. Reemplaza `nav.tsx`. Iconos de trazo propios en `icons.tsx` (sin librería).
+- Inicio: una cifra grande (neto de hoy) con ventas y gastos en dos baldosas, tarjetas del mes y de efectivo en caja, últimos 6 movimientos.
+- Movimientos: flechas de mes, tira Ventas / Gastos / Neto, filtros y Excel del mes; la lista agrupa por día con el neto del día y filas con icono, concepto, canal y equivalente.
+- Detalle: etiqueta Gasto/Venta, monto grande en su color, formulario con selects centrados y calendario blanco, tarjeta de origen con avatar y botón "Foto", Guardar en píldora y Eliminar abajo.
+- Cierres: segmento Día / Semana / Mes / Rango (`?periodo=`; rango con dos fechas y las validaciones de `resolvePeriod`), neto grande con las barras de los últimos 7 días (`dailyNets`), ventas por método y gastos por categoría, efectivo en caja y exportar.
+- Ajustes se divide en páginas: portada con tarjetas, `/ajustes/negocio`, `/ajustes/numeros` (empleados), `/ajustes/exportar` (rango y atajos de 30 y 90 días) y `/ajustes/categorias` con el mismo lenguaje visual. Los redirects de las acciones apuntan a cada subpágina.
+- Sin cambios en el bot ni en la base. Lint, typecheck, `next build` y 216 tests en verde.
