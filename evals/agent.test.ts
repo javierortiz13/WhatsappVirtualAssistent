@@ -121,7 +121,7 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
         sourceChannel: c.receipt ? "image" : c.kind,
       };
       const started = Date.now();
-      let result: AgentResult;
+      let result: AgentResult & { drafts: number };
       try {
         result = await withTenant(t.db, tenantId, async (tx) => {
           await tx.delete(schema.pendingAction);
@@ -141,7 +141,11 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
           const input: AgentInput = c.receipt
             ? { kind: "receipt", extracted: c.receipt }
             : { kind: c.kind, text: c.input };
-          return agent.run(tx, ctx, input);
+          const r = await agent.run(tx, ctx, input);
+          const drafts = await tx
+            .select({ id: schema.pendingAction.id })
+            .from(schema.pendingAction);
+          return { ...r, drafts: drafts.length };
         });
       } catch (err) {
         rows.push({
@@ -174,7 +178,7 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
       };
       rows.push(row);
       try {
-        check(c, last, reply, ctx);
+        check(c, last, reply, ctx, result.drafts);
         row.ok = true;
       } catch (err) {
         row.error = err instanceof Error ? err.message : String(err);
@@ -189,7 +193,9 @@ function check(
   last: { name: string; args: unknown } | null,
   reply: string,
   ctx: AgentContext,
+  drafts: number,
 ) {
+  if (c.expect.no_draft) expect(drafts, `borradores tras "${c.input}"`).toBe(0);
   if (c.expect.tool) expect(last?.name, `herramienta para "${c.input}"`).toBe(c.expect.tool);
   if (c.expect.tool_not) expect(last?.name).not.toBe(c.expect.tool_not);
   if (c.expect.args) {

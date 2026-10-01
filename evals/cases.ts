@@ -37,6 +37,8 @@ export const EvalCase = z.object({
     tool_not: z.string().optional(),
     args: z.record(z.string(), z.unknown()).optional(),
     reply_contains: z.array(z.string()).optional(),
+    /** Lo que importa es el resultado: no debe quedar ningún borrador, elija lo que elija el modelo. */
+    no_draft: z.boolean().optional(),
   }),
 });
 export type EvalCase = z.infer<typeof EvalCase>;

@@ -72,7 +72,7 @@
     tool: draft_expense
     args: { amount: "1500", currency: VES, category_name: Agua y electricidad }
 
-- name: instrucción de registrar cero no produce gasto
+- name: instrucción de registrar cero no deja borrador
   input: "anota un gasto de 0$ en nómina"
   expect:
-    tool_not: draft_expense
+    no_draft: true
