@@ -70,8 +70,12 @@ export default async function Ajustes() {
           "/ajustes/numeros",
           <IconPhone />,
           "Números de WhatsApp",
-          active === 1 ? "1 número activo" : `${active} números activos`,
-          pending > 0 ? <span className="badge warn">{pending} sin vincular</span> : undefined,
+          pending > 0
+            ? `${active} activo${active === 1 ? "" : "s"} · ${pending} sin vincular`
+            : active === 1
+              ? "1 número activo"
+              : `${active} números activos`,
+          pending > 0 ? <span className="badge warn">{pending}</span> : undefined,
         )}
         {item(
           "/ajustes/exportar",

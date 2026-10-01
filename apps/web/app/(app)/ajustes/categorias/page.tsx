@@ -43,22 +43,15 @@ export default async function Categorias({
         <span className="sub">Ajustes</span>
       </div>
       {notice ? <div className={`notice ${sp.error ? "err" : "ok"}`}>{notice}</div> : null}
-      <p className="sub" style={{ margin: 0 }}>
+      <p className="sub">
         El asistente clasifica cada gasto en una de estas. Una categoría desactivada deja de
         sugerirse, pero sus gastos conservan el nombre.
       </p>
       <div className="card tight">
         {active.map((c) => (
-          <div className="row" key={c.id}>
-            <span className="ico lg" style={{ color: "var(--amber)" }}>
-              <IconTags />
-            </span>
+          <div className="cat" key={c.id}>
             {isOwner ? (
-              <form
-                action={renameCategoryAction}
-                className="what"
-                style={{ flexDirection: "row", gap: 8 }}
-              >
+              <form action={renameCategoryAction} className="edit">
                 <input type="hidden" name="id" value={c.id} />
                 <input
                   className="input"
@@ -67,29 +60,26 @@ export default async function Categorias({
                   maxLength={40}
                   required
                   aria-label="Nombre"
-                  style={{ height: 40 }}
                 />
                 <button className="btn secondary small" type="submit">
                   Guardar
                 </button>
               </form>
             ) : (
-              <span className="what">
-                <strong>{c.name}</strong>
-              </span>
+              <strong>{c.name}</strong>
             )}
-            <span className="amts" style={{ gap: 6 }}>
-              <span className="sub">{count(c.movements)}</span>
+            <div className="foot">
+              <span>{count(c.movements)}</span>
               {isOwner ? (
                 <form action={setCategoryActiveAction}>
                   <input type="hidden" name="id" value={c.id} />
                   <input type="hidden" name="active" value="0" />
-                  <button className="btn secondary small" type="submit">
+                  <button className="linkbtn" type="submit">
                     Desactivar
                   </button>
                 </form>
               ) : null}
-            </span>
+            </div>
           </div>
         ))}
       </div>
@@ -129,7 +119,7 @@ export default async function Categorias({
                   <form action={setCategoryActiveAction}>
                     <input type="hidden" name="id" value={c.id} />
                     <input type="hidden" name="active" value="1" />
-                    <button className="btn secondary small" type="submit">
+                    <button className="linkbtn" type="submit">
                       Reactivar
                     </button>
                   </form>

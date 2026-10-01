@@ -287,3 +287,18 @@ Contexto: Meta cobra desde el 1/10/2026 cada respuesta libre como mensaje de ser
 - Cierres: segmento Día / Semana / Mes / Rango (`?periodo=`; rango con dos fechas y las validaciones de `resolvePeriod`), neto grande con las barras de los últimos 7 días (`dailyNets`), ventas por método y gastos por categoría, efectivo en caja y exportar.
 - Ajustes se divide en páginas: portada con tarjetas, `/ajustes/negocio`, `/ajustes/numeros` (empleados), `/ajustes/exportar` (rango y atajos de 30 y 90 días) y `/ajustes/categorias` con el mismo lenguaje visual. Los redirects de las acciones apuntan a cada subpágina.
 - Sin cambios en el bot ni en la base. Lint, typecheck, `next build` y 216 tests en verde.
+
+### S2 · bloque de diseño · 01/10/2026 · QA de la versión móvil
+
+**Método.** Base local con migraciones al día y un negocio sembrado (dueño, empleada sin vincular, 4 categorías, 40 días de tasa, 89 movimientos con texto, voz, foto, dashboard, uno eliminado y una venta grande en Bs). El dashboard se construyó en modo producción con un puente de sesión temporal (no versionado) y Playwright recorrió las 18 pantallas como iPhone 13 (390 px): captura completa, ancho de scroll, elementos que se salen del viewport, objetivos táctiles menores de 40 px, errores de consola; luego las acciones: abrir y cerrar el menú (cortina, Escape, navegar), editar un movimiento, renombrar y crear categoría, descargar el .xlsx.
+
+**Resultado.** Ninguna pantalla con scroll horizontal ni errores de JavaScript; todos los flujos devuelven el aviso esperado. Hallazgos corregidos:
+- Categorías: el renombrado en línea quedaba en un campo de 60 px con los botones amontonados. Ahora cada categoría ocupa dos líneas (nombre + Guardar, conteo + Desactivar como enlace).
+- Cierres: en las tarjetas Ventas/Gastos a dos columnas el método de pago chocaba con el monto; en el teléfono van apiladas y las etiquetas largas parten de línea. Con "Rango" sin fechas solo se muestra el formulario (antes salía un $0,00 engañoso). Pie "Neto de los últimos 7 días" bajo las barras para que no se confundan con el período elegido.
+- Ajustes: la fila "Números de WhatsApp" se truncaba por la insignia "1 sin vincular"; ahora la insignia es solo el número y el subtítulo dice "1 activo · 1 sin vincular". Título de la página "Números" para que quepa junto a la píldora de la tasa.
+- Textos auxiliares pegados al elemento anterior: `p.sub` ya no anula el espaciado de `.stack`.
+- Detalle: montos largos (Bs con millones) bajan a 30 px para no partir en dos líneas.
+- Menú: el nombre del negocio parte en dos líneas en lugar de truncarse.
+- Objetivos táctiles: chips 38 px, segmento 40 px, botones pequeños 36 px.
+
+**Nota.** En `next dev` dentro del sandbox el cliente no hidrataba (HMR bloqueado) y el botón ☰ no respondía; en el build de producción, que es lo que corre Vercel, funciona. No es un bug del producto, pero conviene probarlo en el teléfono real.

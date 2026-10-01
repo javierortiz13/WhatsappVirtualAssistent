@@ -138,94 +138,97 @@ export default async function Cierres({
         </form>
       ) : null}
 
-      <section className="card hero">
-        <span className="label">{title}</span>
-        <p className={`big num ${net.isNegative() ? "amber" : "mint"}`}>
-          {formatMoney(net, "USD")}
-        </p>
-        <p className="sub num">
-          {close.rateValue !== null
-            ? `${formatMoney(net.mul(close.rateValue).toDecimalPlaces(2, Decimal.ROUND_HALF_UP), "VES")} · tasa ${formatMoney(close.rateValue, "VES").replace("Bs ", "")}`
-            : "sin tasa del día"}
-        </p>
-        <Bars nets={nets} from={weekFrom} today={today} />
-      </section>
+      {!ok ? null : (
+        <>
+          <section className="card hero">
+            <span className="label">{title}</span>
+            <p className={`big num ${net.isNegative() ? "amber" : "mint"}`}>
+              {formatMoney(net, "USD")}
+            </p>
+            <p className="sub num">
+              {close.rateValue !== null
+                ? `${formatMoney(net.mul(close.rateValue).toDecimalPlaces(2, Decimal.ROUND_HALF_UP), "VES")} · tasa ${formatMoney(close.rateValue, "VES").replace("Bs ", "")}`
+                : "sin tasa del día"}
+            </p>
+            <Bars nets={nets} from={weekFrom} today={today} />
+            <span className="cap">Neto de los últimos 7 días</span>
+          </section>
 
-      <div className="grid-2">
-        <section className="card">
-          <span className="label">Ventas</span>
-          <p className="kpi mint">{formatMoney(sales, "USD")}</p>
-          {periodo === "dia" ? (
-            <div style={{ marginTop: "var(--space-2)" }}>
-              {close.salesByMethod.length === 0 ? (
-                <p className="sub" style={{ margin: 0 }}>
-                  sin ventas
-                </p>
+          <div className="grid-2 stack-sm">
+            <section className="card">
+              <span className="label">Ventas</span>
+              <p className="kpi mint">{formatMoney(sales, "USD")}</p>
+              {periodo === "dia" ? (
+                <div style={{ marginTop: "var(--space-2)" }}>
+                  {close.salesByMethod.length === 0 ? (
+                    <p className="sub" style={{ margin: 0 }}>
+                      sin ventas
+                    </p>
+                  ) : (
+                    close.salesByMethod.map((x) => (
+                      <div className="line" key={x.method}>
+                        <span className="muted">
+                          {PAYMENT_METHOD_LABELS[x.method as PaymentMethod]}
+                        </span>
+                        <span className="num">{formatMoney(x.usd, "USD")}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
               ) : (
-                close.salesByMethod.map((x) => (
-                  <div className="line" key={x.method}>
-                    <span className="muted">
-                      {PAYMENT_METHOD_LABELS[x.method as PaymentMethod]}
-                    </span>
-                    <span className="num">{formatMoney(x.usd, "USD")}</span>
-                  </div>
-                ))
+                <p className="kpi-sub">
+                  {summary?.daysWithMovements === 1
+                    ? "1 día con movimientos"
+                    : `${summary?.daysWithMovements ?? 0} días con movimientos`}
+                </p>
               )}
-            </div>
-          ) : (
-            <p className="kpi-sub">
-              {summary?.daysWithMovements === 1
-                ? "1 día con movimientos"
-                : `${summary?.daysWithMovements ?? 0} días con movimientos`}
-            </p>
-          )}
-        </section>
-        <section className="card">
-          <span className="label">Gastos</span>
-          <p className="kpi amber">{formatMoney(expenses, "USD")}</p>
-          <div style={{ marginTop: "var(--space-2)" }}>
-            {(periodo === "dia" ? close.expensesByCategory : (summary?.topExpenses ?? []))
-              .length === 0 ? (
-              <p className="sub" style={{ margin: 0 }}>
-                sin gastos
-              </p>
-            ) : (
-              (periodo === "dia" ? close.expensesByCategory : (summary?.topExpenses ?? [])).map(
-                (c) => (
-                  <div className="line" key={c.name}>
-                    <span className="muted">{c.name}</span>
-                    <span className="num">{formatMoney(c.usd, "USD")}</span>
-                  </div>
-                ),
-              )
-            )}
+            </section>
+            <section className="card">
+              <span className="label">Gastos</span>
+              <p className="kpi amber">{formatMoney(expenses, "USD")}</p>
+              <div style={{ marginTop: "var(--space-2)" }}>
+                {(periodo === "dia" ? close.expensesByCategory : (summary?.topExpenses ?? []))
+                  .length === 0 ? (
+                  <p className="sub" style={{ margin: 0 }}>
+                    sin gastos
+                  </p>
+                ) : (
+                  (periodo === "dia" ? close.expensesByCategory : (summary?.topExpenses ?? [])).map(
+                    (c) => (
+                      <div className="line" key={c.name}>
+                        <span className="muted">{c.name}</span>
+                        <span className="num">{formatMoney(c.usd, "USD")}</span>
+                      </div>
+                    ),
+                  )
+                )}
+              </div>
+            </section>
           </div>
-        </section>
-      </div>
 
-      {periodo === "dia" ? (
-        <section className="card rate">
-          <div>
-            <span className="label">Efectivo en caja</span>
-            <p className="kpi">{formatMoney(close.cashUsd, "USD")}</p>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <span className="label">En bolívares</span>
-            <p className="kpi num" style={{ fontSize: 20 }}>
-              {formatMoney(close.cashVes, "VES")}
-            </p>
-          </div>
-        </section>
-      ) : null}
+          {periodo === "dia" ? (
+            <section className="card rate">
+              <div>
+                <span className="label">Efectivo en caja</span>
+                <p className="kpi">{formatMoney(close.cashUsd, "USD")}</p>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <span className="label">En bolívares</span>
+                <p className="kpi num" style={{ fontSize: 20 }}>
+                  {formatMoney(close.cashVes, "VES")}
+                </p>
+              </div>
+            </section>
+          ) : null}
 
-      {ok ? (
-        <div className="center">
-          <a className="btn" href={`/exportar?desde=${range.from}&hasta=${range.to}`}>
-            <IconDownload size={18} />
-            Exportar a Excel
-          </a>
-        </div>
-      ) : null}
+          <div className="center">
+            <a className="btn" href={`/exportar?desde=${range.from}&hasta=${range.to}`}>
+              <IconDownload size={18} />
+              Exportar a Excel
+            </a>
+          </div>
+        </>
+      )}
     </div>
   );
 }

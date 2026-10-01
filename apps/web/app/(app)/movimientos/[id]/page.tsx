@@ -49,6 +49,7 @@ export default async function Movimiento({
   const isExpense = m.type === "expense";
   const locked = !!m.deletedAt;
   const notice = sp.ok ? MSG[sp.ok] : sp.error ? MSG[sp.error] : null;
+  const amountText = `${isExpense ? "−" : "+"}${formatMoney(m.amount, m.currency as "USD" | "VES")}`;
   const fmt = (d: Date) =>
     `${formatShortDate(asIsoDate(d.toISOString().slice(0, 10)))} ${d.toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit", timeZone: "America/Caracas" })}`;
   return (
@@ -75,9 +76,10 @@ export default async function Movimiento({
 
       <section className="card center-text">
         <span className="label">{m.description ?? (isExpense ? "Gasto" : "Venta")}</span>
-        <p className={`big num ${isExpense ? "amber" : "mint"}`}>
-          {isExpense ? "−" : "+"}
-          {formatMoney(m.amount, m.currency as "USD" | "VES")}
+        <p
+          className={`big num ${isExpense ? "amber" : "mint"}${amountText.length > 12 ? " long" : ""}`}
+        >
+          {amountText}
         </p>
         <p className="sub num">
           {m.currency === "USD" ? formatMoney(m.amountVes, "VES") : formatMoney(m.amountUsd, "USD")}{" "}
@@ -127,7 +129,9 @@ export default async function Movimiento({
             />
             <IconCalendar className="cal" size={18} />
           </span>
-          <span className="sub">Si cambias la fecha, se recalcula con la tasa BCV de ese día.</span>
+          <span className="hint">
+            Si cambias la fecha, se recalcula con la tasa BCV de ese día.
+          </span>
         </label>
         {isExpense ? (
           <label className="field">

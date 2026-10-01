@@ -31,7 +31,7 @@ const TITLES: [string, string][] = [
   ["/movimientos", "Movimientos"],
   ["/cierres", "Cierres"],
   ["/ajustes/categorias", "Categorías"],
-  ["/ajustes/numeros", "Números de WhatsApp"],
+  ["/ajustes/numeros", "Números"],
   ["/ajustes/negocio", "Negocio"],
   ["/ajustes/exportar", "Exportar"],
   ["/ajustes", "Ajustes"],
@@ -83,17 +83,7 @@ export function Shell({ children, ...p }: SidebarProps & { children: ReactNode }
         <div className="who">
           <span className="avatar">{p.tenantName.charAt(0).toUpperCase()}</span>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div
-              style={{
-                fontSize: 15,
-                fontWeight: 600,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {p.tenantName}
-            </div>
+            <div className="name">{p.tenantName}</div>
             {p.rateLine ? <div className="sub">{p.rateLine}</div> : null}
           </div>
           <button

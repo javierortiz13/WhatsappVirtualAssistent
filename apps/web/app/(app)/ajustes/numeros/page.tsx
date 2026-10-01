@@ -81,7 +81,7 @@ export default async function Numeros({
                     name="status"
                     value={p.status === "disabled" ? "active" : "disabled"}
                   />
-                  <button className="btn secondary small" type="submit">
+                  <button className="linkbtn" type="submit">
                     {p.status === "disabled" ? "Reactivar" : "Desactivar"}
                   </button>
                 </form>
@@ -114,7 +114,7 @@ export default async function Numeros({
             />
           </div>
           <input className="input" name="name" maxLength={60} placeholder="Nombre (opcional)" />
-          <p className="sub" style={{ margin: 0 }}>
+          <p className="sub">
             El empleado registra gastos y ventas; los cierres los ves solo tú. No necesita código:
             con escribirle al asistente queda activo.
           </p>

@@ -89,9 +89,7 @@ export default async function Negocio({
             </button>
           </div>
         ) : (
-          <p className="sub" style={{ margin: 0, textAlign: "center" }}>
-            Solo el dueño puede cambiar estos datos.
-          </p>
+          <p className="sub center-text">Solo el dueño puede cambiar estos datos.</p>
         )}
       </form>
     </div>

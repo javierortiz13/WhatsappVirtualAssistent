@@ -27,7 +27,7 @@ export default async function Exportar() {
       </div>
       <form className="card stack" action="/exportar" method="get">
         <h2>Exportar a Excel</h2>
-        <p className="sub" style={{ margin: 0 }}>
+        <p className="sub">
           Una fila por movimiento: fecha, tipo, categoría, descripción, monto, moneda, tasa,
           equivalentes, método, autor y canal. Hasta 12 meses por archivo.
         </p>

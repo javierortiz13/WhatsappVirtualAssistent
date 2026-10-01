@@ -87,6 +87,13 @@ h2 {
   font-size: 13px;
   color: var(--muted);
 }
+p.sub {
+  margin: 0;
+}
+.stack > p.sub + *,
+.stack > * + p.sub {
+  margin-top: var(--space-3);
+}
 .muted {
   color: var(--muted);
 }
@@ -122,8 +129,62 @@ h2 {
   line-height: 1.1;
   margin: var(--space-1) 0 var(--space-1);
 }
+.big.long {
+  font-size: 30px;
+}
 .tile-n {
   font-size: 18px;
+}
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 2px 0 var(--space-1);
+}
+.cap {
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted-2);
+  margin-top: var(--space-2);
+}
+.linkbtn {
+  background: none;
+  border: 0;
+  padding: 6px 0;
+  min-height: 36px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.cat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+}
+.cat:first-child {
+  border-top: 0;
+}
+.cat .edit {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.cat .edit .input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+}
+.cat .foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--muted);
 }
 .day .label {
   display: inline;
@@ -303,6 +364,15 @@ h2 {
   align-items: center;
   gap: var(--space-3);
   padding: 0 6px var(--space-4);
+}
+.drawer .who .name {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .avatar {
   width: 44px;
@@ -499,9 +569,22 @@ h2 {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+  gap: var(--space-2);
   padding: var(--space-2) 0;
   border-top: 1px solid var(--border);
   font-size: 13px;
+}
+.line > :first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 479px) {
+  .grid-2.stack-sm {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.line > :last-child {
+  flex-shrink: 0;
 }
 .line:first-child {
   border-top: 0;
@@ -556,7 +639,7 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 34px;
+  height: 38px;
   padding: 0 14px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.05);
@@ -582,7 +665,7 @@ h2 {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 36px;
+  height: 40px;
   border-radius: 10px;
   font-size: 13px;
   font-weight: 500;
@@ -801,7 +884,7 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
   font-size: 14px;
 }
 .btn.small {
-  height: 34px;
+  height: 36px;
   padding: 0 14px;
   font-size: 13px;
 }
