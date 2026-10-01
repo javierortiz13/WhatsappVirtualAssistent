@@ -2,6 +2,7 @@ import { and, desc, eq, gt, schema, type Tx } from "@caja/db";
 import type { z } from "zod";
 import { type Logger, silentLogger } from "../log";
 import { es } from "../render/index";
+import { receiptUserText } from "../vision/receipt";
 import { type LlmClient, type LlmTurn, LlmUnavailableError } from "./llm";
 import { GLOBAL_SYSTEM, tenantSystem, userTurn } from "./prompt";
 import { pendingDraftFor, type ToolSpec, toLlmToolDef, toolsForRole } from "./tools";
@@ -40,7 +41,7 @@ export function createAgent(opts: AgentOptions): AgentRunner {
       const userText =
         input.kind === "text" || input.kind === "voice"
           ? input.text
-          : JSON.stringify(input.extracted);
+          : receiptUserText(input.extracted);
 
       const pending = await pendingDraftFor(tx, ctx.phoneId);
       const FIXABLE: Record<string, string> = {

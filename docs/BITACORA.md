@@ -242,3 +242,14 @@ Contexto: Meta cobra desde el 1/10/2026 cada respuesta libre como mensaje de ser
 - La transcripción queda como cuerpo del mensaje entrante: el historial del agente la ve y "no, eran 25" funciona igual que con texto.
 - `RouteCtx.ack` para acuses previos a la respuesta (envía y registra el mensaje). Worker: `DEEPGRAM_API_KEY`, `DEEPGRAM_LANGUAGE`; el arranque registra `speech`.
 - 3 tests del cliente y 5 de punta a punta. Sin `keyterm` por ahora: Deepgram lo documenta para inglés en Nova-3; se evalúa con las 30 notas reales de la Fase 8.
+
+### S2 · día 4 (tarde) · 01/10/2026 · Fotos de facturas (US-B6)
+
+**Terminado**
+- `vision/receipt.ts`: lectura con el mismo modelo del agente (ADR-007), una llamada con la imagen y una sola herramienta estricta `read_receipt` → `{is_receipt, total, currency, date, vendor, line_items_count, confidence}` sin uniones. `receiptUserText` convierte la lectura en el "mensaje del usuario" que lleva a `draft_expense`; el modelo no inventa lo que no se leyó. El turno de usuario del `LlmClient` admite una imagen (base64 en Anthropic).
+- `storage/store.ts`: `ObjectStore` con `SupabaseStorage` por REST (subir, borrar, URL firmada) y `MemoryObjectStore` para tests.
+- Procesador: foto → reacción 🧾 → descarga (5 MB; JPEG, PNG, WebP) → lectura → si no es factura "Solo proceso fotos de facturas y recibos"; si la confianza es menor a 0,6 o no hay total "No pude leer bien la factura. ¿Cuánto fue y en qué moneda?" → si sirve, la foto va al bucket como `attachment` provisional y el agente arma el borrador con `attachmentId`; respuesta en un envío: "🧾 Leí la factura: proveedor · total · fecha" más el borrador. Guardar deja `movement.attachment_id`; Cancelar da de baja la foto y la borra del bucket. El costo de la lectura se suma al del turno.
+- Housekeeping: hallazgo de un bug latente, `expirePendingActions` corría sin tenant y con RLS nunca vencía nada en producción. Migración `0004_housekeeping.sql` con `app.all_tenant_ids()` (SECURITY DEFINER); el job recorre los negocios bajo `withTenant`, vence borradores y barre fotos provisionales de más de una hora sin movimiento (`sweepOrphanAttachments`).
+- Dashboard: "ver foto" en cada gasto con factura → `/adjuntos/<id>` valida la sesión y el tenant, firma una URL de 10 minutos y redirige. Requiere `SUPABASE_SERVICE_ROLE_KEY` en Vercel.
+- Worker: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `STORAGE_BUCKET`; sin bucket la foto se lee y el gasto se registra igual, sin respaldo. El arranque registra `vision` y `store`.
+- 12 tests nuevos (lector, bucket, punta a punta con Guardar, Cancelar, no factura, baja confianza, lector caído, foto pesada, tipo no admitido, sin lector, barrido). Pendiente de la Fase 6: `sharp` para reducir a 1.000 px y quitar metadatos antes de guardar.

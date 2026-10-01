@@ -17,6 +17,10 @@ const Env = z.object({
   LLM_PRIMARY: z.string().default("anthropic:claude-sonnet-5-5"),
   SENTRY_DSN: z.string().optional(),
   DEEPGRAM_API_KEY: z.string().optional(),
+  /** Bucket privado de fotos (US-B6). Sin estas dos, las fotos se leen pero no se guardan. */
+  SUPABASE_URL: z.string().url().optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  STORAGE_BUCKET: z.string().default("receipts"),
   DEEPGRAM_LANGUAGE: z.string().default("es"),
 });
 

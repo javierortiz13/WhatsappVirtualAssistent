@@ -1,8 +1,10 @@
 import {
   AnthropicLlmClient,
   createAgent,
+  createReceiptReader,
   DeepgramClient,
   type ProcessDeps,
+  SupabaseStorage,
   stubAgent,
   whatsapp,
 } from "@caja/core";
@@ -39,16 +41,22 @@ async function main() {
 
   // Agente: Claude Sonnet 5.5 si hay clave; si no, el stub (todo fuera de alcance) para no romper.
   const [provider, model] = env.LLM_PRIMARY.split(":");
-  const agent =
+  const llm =
     env.ANTHROPIC_API_KEY && provider === "anthropic"
-      ? createAgent({
-          llm: new AnthropicLlmClient({
-            apiKey: env.ANTHROPIC_API_KEY,
-            ...(model ? { model } : {}),
-          }),
-          log,
+      ? new AnthropicLlmClient({ apiKey: env.ANTHROPIC_API_KEY, ...(model ? { model } : {}) })
+      : null;
+  const agent = llm ? createAgent({ llm, log }) : stubAgent;
+  // Fotos de facturas: el mismo modelo lee la imagen (ADR-007); el bucket guarda el respaldo.
+  const vision = llm ? createReceiptReader(llm) : null;
+  const store =
+    env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY
+      ? new SupabaseStorage({
+          url: env.SUPABASE_URL,
+          serviceKey: env.SUPABASE_SERVICE_ROLE_KEY,
+          bucket: env.STORAGE_BUCKET,
         })
-      : stubAgent;
+      : null;
+  if (!store) log.warn({}, "sin SUPABASE_SERVICE_ROLE_KEY: las fotos no se guardan como respaldo");
   if (agent === stubAgent)
     log.warn({ provider }, "sin LLM configurado: el agente responde fuera de alcance");
 
@@ -63,6 +71,8 @@ async function main() {
     metaFor: (id) => clients.get(id) ?? null,
     agent,
     speech,
+    vision,
+    store,
     log,
     config: {
       assistantName: env.ASSISTANT_NAME,
@@ -87,6 +97,7 @@ async function main() {
     boss,
     db,
     deps,
+    store,
     log,
     concurrency: env.WORKER_CONCURRENCY,
     onError: (err, queue) => captureError(err, { queue }),
@@ -101,6 +112,8 @@ async function main() {
       commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
       agent: agent === stubAgent ? "stub" : env.LLM_PRIMARY,
       speech: speech ? `${speech.provider}:${env.DEEPGRAM_LANGUAGE}` : "off",
+      vision: vision ? vision.provider : "off",
+      store: store ? `${store.provider}:${env.STORAGE_BUCKET}` : "off",
     },
     "worker listo",
   );

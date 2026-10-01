@@ -1,6 +1,7 @@
 import type { Tx } from "@caja/db";
 import type { IsoDate } from "../domain/dates";
 import type { Outbound } from "../render/outbound";
+import type { ReceiptExtraction } from "../vision/receipt";
 
 export type AgentContext = {
   tenantId: string;
@@ -14,6 +15,8 @@ export type AgentContext = {
   /** Id de fila en `message` del mensaje entrante (para `movement.source_message_id`). */
   sourceMessageDbId: string | null;
   sourceChannel: "text" | "voice" | "image";
+  /** Foto de factura ya guardada (provisional) que el borrador de gasto debe llevar. */
+  attachmentId: string | null;
   /** Enlace al dashboard para cierres y resúmenes. */
   dashboardUrl: string;
 };
@@ -22,7 +25,8 @@ export type AgentInput =
   | { kind: "text"; text: string }
   /** Transcripción de una nota de voz: se trata como texto, pero el movimiento lleva canal `voice`. */
   | { kind: "voice"; text: string }
-  | { kind: "receipt"; extracted: Record<string, unknown> };
+  /** Lectura estructurada de una foto de factura: el loop la convierte en texto para el modelo. */
+  | { kind: "receipt"; extracted: ReceiptExtraction };
 
 export type AgentResult = {
   outbound: Outbound[];

@@ -147,6 +147,23 @@ Prueba: nota de voz "anota veinte dólares de la comida de los muchachos" → re
 instante y, en unos segundos, un mensaje con la transcripción entre comillas y el borrador.
 Costo: 0,0043 USD por minuto de audio.
 
+**Activar las fotos de facturas (10 min).** La lectura la hace el mismo modelo del agente, así
+que funciona en cuanto se despliega; lo que necesita configuración es el respaldo de la foto:
+
+1. `pnpm db:migrate` desde tu máquina (migración 0004: función para que el housekeeping recorra
+   los negocios). Sin ella el worker registra "¿falta la migración 0004?" cada 5 minutos.
+2. Supabase → Storage → **New bucket** → nombre `receipts`, **privado** (Public bucket apagado),
+   límite de tamaño 5 MB, tipos `image/jpeg, image/png, image/webp`.
+3. Supabase → Project Settings → API → copia la clave **service_role** (nunca la anon).
+4. Railway → worker → Variables: `SUPABASE_URL` (la misma URL del proyecto) y
+   `SUPABASE_SERVICE_ROLE_KEY`. En "worker listo" debe salir `store: supabase:receipts`.
+5. Vercel → proyecto web → `SUPABASE_SERVICE_ROLE_KEY` (Sensitive) → Redeploy. Con eso el
+   dashboard muestra "ver foto" en cada gasto con factura (URL firmada de 10 minutos).
+
+Prueba: foto de un recibo real → reacción 🧾 → en unos segundos "🧾 Leí la factura: …" con el
+borrador. Guardar vincula la foto; Cancelar la borra del bucket. Una foto que no es factura
+responde "Solo proceso fotos de facturas y recibos".
+
 **"max clients reached in session mode" en Railway.** El pooler de Supabase admite 15 clientes por
 rol y en cada deploy conviven dos workers. Si se repite, sube el Pool Size a 30 en Supabase →
 Project Settings → Database → Connection pooling.
@@ -171,8 +188,8 @@ Ordenada por lo que más duele en el piloto:
    agente con el historial.
 4. ~~Tasa manual como corrección~~ Hecho en S2 día 2 (migración 0003).
 5. **Historia de tasas automática**: hoy es CSV manual; evaluar el Excel del BCV por script. S2.
-6. **Voz**: hecha en S2 día 4 (Deepgram Nova-3, `DEEPGRAM_API_KEY` en Railway; sin clave responde
-   "llegan pronto"). **Foto**: responde "todavía no". S4.
+6. ~~Voz y foto~~ Hechas en S2 día 4. Pendiente: reprocesar la imagen con `sharp` (1.000 px,
+   sin metadatos GPS) antes de guardarla; hoy se guarda tal cual, con tope de 5 MB.
 7. **Dashboard**: solo lectura; sin edición, borrado, exportación, categorías ni números. S5.
 8. **Términos de servicio**: la URL en Meta apunta a la política de privacidad. Antes del primer cobro.
 9. **Portafolio de Meta**: la app vive en "Just Travel"; mover la WABA al portafolio de la empresa

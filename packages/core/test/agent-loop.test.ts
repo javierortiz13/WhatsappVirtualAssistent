@@ -101,6 +101,7 @@ describe("agent loop", () => {
       categories: rows.cats,
       today: asIsoDate("2026-09-29"),
       sourceMessageDbId: null,
+      attachmentId: null,
       sourceChannel: "text",
       dashboardUrl: "https://caja.test",
     };

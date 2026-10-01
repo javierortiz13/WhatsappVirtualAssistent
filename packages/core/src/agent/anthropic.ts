@@ -113,7 +113,26 @@ function toMessages(turns: LlmTurn[]): Anthropic.Beta.BetaMessageParam[] {
   const out: Anthropic.Beta.BetaMessageParam[] = [];
   for (const t of turns) {
     if (t.role === "user") {
-      out.push({ role: "user", content: t.text });
+      if (t.image) {
+        out.push({
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: t.image.mimeType as
+                  | "image/jpeg"
+                  | "image/png"
+                  | "image/webp"
+                  | "image/gif",
+                data: Buffer.from(t.image.data).toString("base64"),
+              },
+            },
+            { type: "text", text: t.text },
+          ],
+        });
+      } else out.push({ role: "user", content: t.text });
     } else if (t.role === "assistant") {
       const content: Anthropic.Beta.BetaContentBlockParam[] = [];
       if (t.text) content.push({ type: "text", text: t.text });

@@ -208,6 +208,43 @@ export function audioUnclear(): Outbound {
   return { type: "text", body: "No pude escuchar bien la nota de voz. ¿Me lo escribes?" };
 }
 
+// ---------------------------------------------------------------- fotos de facturas (US-B6)
+
+export function imageAck(inboundId: string): Outbound {
+  return { type: "reaction", body: "🧾", waMessageId: inboundId };
+}
+
+/** Qué leyó el sistema en la foto; va en el mismo envío que el borrador. */
+export function receiptRead(r: {
+  vendor: string;
+  date: string;
+  total: string;
+  currency: string;
+}): Outbound {
+  const parts = [r.vendor || "proveedor no legible"];
+  if (r.total) parts.push(`${r.total} ${r.currency === "unknown" ? "" : r.currency}`.trim());
+  if (r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date)) parts.push(formatShortDate(asIsoDate(r.date)));
+  return { type: "text", body: `🧾 Leí la factura: ${parts.join(" · ")}` };
+}
+
+export function receiptUnclear(): Outbound {
+  return { type: "text", body: "No pude leer bien la factura. ¿Cuánto fue y en qué moneda?" };
+}
+
+export function notAReceipt(): Outbound {
+  return {
+    type: "text",
+    body: "Solo proceso fotos de facturas y recibos. Si es un gasto, escríbemelo: _gasté 15$ en champú_",
+  };
+}
+
+export function imageTooBig(): Outbound {
+  return {
+    type: "text",
+    body: "La foto es muy pesada (más de 5 MB). Mándala de nuevo con menos resolución.",
+  };
+}
+
 export function unsupported(): Outbound {
   return { type: "text", body: "Solo entiendo texto, notas de voz y fotos de facturas." };
 }

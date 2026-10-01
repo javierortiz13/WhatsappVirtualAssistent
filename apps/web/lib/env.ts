@@ -10,6 +10,9 @@ const Env = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
   DASHBOARD_URL: z.string().url().default("http://localhost:3000"),
   /** Número de WhatsApp de la plataforma (E.164 sin '+') para el enlace wa.me del onboarding. */
+  /** Solo servidor: firma URLs de las fotos de facturas en el bucket privado. */
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  STORAGE_BUCKET: z.string().default("receipts"),
   PLATFORM_WA_NUMBER: z
     .string()
     .regex(/^\d{8,15}$/)

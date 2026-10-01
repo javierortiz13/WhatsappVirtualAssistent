@@ -6,6 +6,7 @@ import type { AgentInput, AgentRunner } from "../agent/types";
 import { asIsoDate, businessDateOf, formatShortDate } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import { allowUnknownReply, canUse, type ResolvedSender, resolveSender } from "../identity/resolve";
+import { createAttachment, discardAttachment } from "../ledger/attachments";
 import {
   amendMovement,
   createExpense,
@@ -29,6 +30,8 @@ import { activatePhone, CODE_RE, verifyCode } from "../onboarding/register";
 import { getRateInfo } from "../rates/current";
 import { es, mergeOutbound, type Outbound, parseReplyId } from "../render/index";
 import type { SpeechClient } from "../speech/client";
+import type { ObjectStore } from "../storage/store";
+import { RECEIPT_MIN_CONFIDENCE, type ReceiptReader } from "../vision/receipt";
 import { LimitError, MetaApiError, type MetaClient } from "../whatsapp/client";
 import type { InboundMessage } from "../whatsapp/types";
 
@@ -47,6 +50,10 @@ export type ProcessDeps = {
   agent: AgentRunner;
   /** Voz a texto (US-B5). Sin cliente, las notas de voz responden "llegan pronto". */
   speech?: SpeechClient | null;
+  /** Lectura de facturas (US-B6). Sin lector, las fotos responden "llegan pronto". */
+  vision?: ReceiptReader | null;
+  /** Bucket privado para las fotos. Sin bucket, la foto se lee pero no se guarda como respaldo. */
+  store?: ObjectStore | null;
   log?: Logger;
   now?: () => Date;
   config: {
@@ -417,7 +424,7 @@ async function routeMessage(
     case "audio":
       return handleAudio(tx, deps, ctx, msg);
     case "image":
-      return none([es.mediaNotYet("image")]);
+      return handleImage(tx, deps, ctx, msg);
     default:
       return none([es.unsupported()]);
   }
@@ -475,6 +482,110 @@ async function handleAudio(
   };
 }
 
+/** Foto de factura: 5 MB como máximo; JPEG, PNG o WebP. */
+export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+/**
+ * Foto de factura (US-B6): acuse 🧾, descarga, lectura con el modelo de visión, foto al bucket
+ * como adjunto provisional, y la lectura al agente para que arme el borrador de gasto. Si no es
+ * factura o la confianza es baja, pregunta; el adjunto se vincula al confirmar y se borra si se
+ * cancela o vence.
+ */
+async function handleImage(
+  tx: Tx,
+  deps: ProcessDeps,
+  ctx: RouteCtx,
+  msg: Extract<InboundMessage, { kind: "image" }>,
+): Promise<RouteResult> {
+  const log = deps.log ?? silentLogger;
+  const meta = deps.metaFor(msg.phoneNumberId);
+  if (!deps.vision || !meta) return none([es.mediaNotYet("image")]);
+  await ctx.ack(es.imageAck(msg.waMessageId));
+  let bytes: Uint8Array;
+  let mimeType: string;
+  try {
+    const info = await meta.getMediaInfo(msg.media.id);
+    const media = await meta.downloadMedia(info.url, IMAGE_MAX_BYTES);
+    bytes = media.bytes;
+    mimeType =
+      (media.mimeType ?? msg.media.mimeType ?? "image/jpeg").split(";")[0]?.trim() ?? "image/jpeg";
+  } catch (err) {
+    if (err instanceof LimitError) return none([es.imageTooBig()]);
+    log.warn({ err: errMsg(err) }, "foto: descarga falló");
+    return none([es.receiptUnclear()]);
+  }
+  if (!IMAGE_MIMES.has(mimeType)) return none([es.notAReceipt()]);
+
+  let read: Awaited<ReturnType<ReceiptReader["read"]>>;
+  try {
+    read = await deps.vision.read(bytes, mimeType);
+  } catch (err) {
+    log.warn({ err: errMsg(err) }, "foto: lectura falló");
+    return none([es.receiptUnclear()]);
+  }
+  const e = read.extraction;
+  log.info(
+    {
+      isReceipt: e.is_receipt,
+      confidence: e.confidence,
+      currency: e.currency,
+      costUsd: read.costUsd,
+    },
+    "factura leída",
+  );
+  if (!e.is_receipt) return none([es.notAReceipt()]);
+  if (e.confidence < RECEIPT_MIN_CONFIDENCE || !e.total) return none([es.receiptUnclear()]);
+
+  // Respaldo en el bucket (provisional hasta Guardar). Sin bucket, el gasto se registra igual.
+  let attachmentId: string | null = null;
+  if (deps.store) {
+    const ext = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
+    const key = `${ctx.tenantId}/${ctx.today.slice(0, 7)}/${crypto.randomUUID()}.${ext}`;
+    try {
+      await deps.store.put(key, bytes, mimeType);
+      attachmentId = await createAttachment(tx, {
+        tenantId: ctx.tenantId,
+        kind: "receipt",
+        storageKey: key,
+        mimeType,
+        sizeBytes: bytes.byteLength,
+        sha256: msg.media.sha256,
+      });
+    } catch (err) {
+      log.warn({ err: errMsg(err) }, "foto: no se pudo guardar el respaldo");
+    }
+  }
+  const summary = `[foto de factura] ${e.vendor || "proveedor no legible"} · ${e.total} ${e.currency}${e.date ? ` · ${e.date}` : ""}`;
+  await tx
+    .update(schema.message)
+    .set({ body: summary })
+    .where(eq(schema.message.waMessageId, msg.waMessageId));
+  const result = await runAgent(
+    tx,
+    deps,
+    ctx,
+    msg.waMessageId,
+    { kind: "receipt", extracted: e },
+    attachmentId,
+  );
+  const first = result.outbound[0];
+  return {
+    ...result,
+    costUsd: sumCost(result.costUsd, read.costUsd),
+    tokensIn: result.tokensIn + read.usage.inputTokens,
+    tokensOut: result.tokensOut + read.usage.outputTokens,
+    outbound: first
+      ? [...mergeOutbound(es.receiptRead(e), first), ...result.outbound.slice(1)]
+      : result.outbound,
+  };
+}
+
+function sumCost(a: string | null, b: string | null): string | null {
+  if (!a && !b) return null;
+  return new Decimal(a ?? 0).plus(b ?? 0).toFixed(6);
+}
+
 async function routeInteractive(
   tx: Tx,
   deps: ProcessDeps,
@@ -511,6 +622,10 @@ async function routeInteractive(
           .update(schema.pendingAction)
           .set({ status: "cancelled", resolvedAt: nowTs })
           .where(eq(schema.pendingAction.id, pending.id));
+        // La foto provisional de un gasto cancelado se borra (US-B6).
+        const att = (pending.payload as { attachmentId?: string | null }).attachmentId;
+        if (pending.kind === "create_expense" && att)
+          await discardAttachment(tx, deps.store ?? null, ctx.tenantId, att, nowTs, deps.log);
         // Cancelar se confirma con una reacción sobre el toque del botón: gratis (ADR-014).
         return none([es.cancelled(ctx.inboundId)]);
       }
@@ -599,6 +714,7 @@ async function deleteLast(
       categories: [],
       today: ctx.today,
       sourceMessageDbId: null,
+      attachmentId: null,
       sourceChannel: "text",
       dashboardUrl: deps.config.dashboardUrl,
     },
@@ -630,6 +746,7 @@ async function runAgent(
   ctx: RouteCtx,
   waMessageId: string | null,
   input: AgentInput,
+  attachmentId: string | null = null,
 ): Promise<RouteResult> {
   const log = deps.log ?? silentLogger;
   const categories = await tx
@@ -662,6 +779,7 @@ async function runAgent(
         categories,
         today: ctx.today,
         sourceMessageDbId: current?.id ?? null,
+        attachmentId,
         sourceChannel: input.kind === "text" ? "text" : input.kind === "voice" ? "voice" : "image",
         dashboardUrl: deps.config.dashboardUrl,
       },

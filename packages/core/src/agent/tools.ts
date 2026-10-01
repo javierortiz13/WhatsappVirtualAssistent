@@ -303,7 +303,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
           businessDate: when.date,
           sourceChannel: run.ctx.sourceChannel,
           sourceMessageId: run.ctx.sourceMessageDbId,
-          attachmentId: null,
+          attachmentId: run.ctx.attachmentId,
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
           manualRate: mr,
         },

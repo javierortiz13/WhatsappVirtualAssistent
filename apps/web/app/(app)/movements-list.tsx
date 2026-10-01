@@ -32,6 +32,14 @@ export function MovementsList({ rows, today }: { rows: MovementRow[]; today: str
                 </span>
                 <span className="meta">
                   {m.categoryName ?? "Otros"} · {CHANNEL[m.sourceChannel] ?? m.sourceChannel}
+                  {m.attachmentId ? (
+                    <>
+                      {" · "}
+                      <a href={`/adjuntos/${m.attachmentId}`} target="_blank" rel="noreferrer">
+                        ver foto
+                      </a>
+                    </>
+                  ) : null}
                 </span>
                 <span className="amt2">
                   {m.currency === "USD"

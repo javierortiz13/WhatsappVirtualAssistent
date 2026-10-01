@@ -8,4 +8,6 @@ export * from "./onboarding/index";
 export * from "./rates/index";
 export * from "./render/index";
 export * from "./speech/index";
+export * from "./storage/index";
+export * from "./vision/index";
 export * as whatsapp from "./whatsapp/index";

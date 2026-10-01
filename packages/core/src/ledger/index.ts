@@ -1,3 +1,4 @@
+export * from "./attachments";
 export * from "./drafts";
 export * from "./expenses";
 export * from "./income";

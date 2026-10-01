@@ -11,6 +11,7 @@ const PRIVATE_PREFIXES = [
   "/cierres",
   "/ajustes",
   "/registro",
+  "/adjuntos",
   "/sin-negocio",
 ];
 

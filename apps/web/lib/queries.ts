@@ -19,6 +19,7 @@ export type MovementRow = {
   description: string | null;
   categoryName: string | null;
   sourceChannel: string;
+  attachmentId: string | null;
   createdAt: Date;
 };
 
@@ -50,6 +51,7 @@ export async function movementsBetween(
         description: schema.movement.description,
         categoryName: schema.category.name,
         sourceChannel: schema.movement.sourceChannel,
+        attachmentId: schema.movement.attachmentId,
         createdAt: schema.movement.createdAt,
       })
       .from(schema.movement)

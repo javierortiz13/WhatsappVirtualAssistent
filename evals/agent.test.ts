@@ -82,6 +82,7 @@ describe.skipIf(!enabled)("evals v0 del agente", () => {
       categories: cats,
       today,
       sourceMessageDbId: null,
+      attachmentId: null,
       sourceChannel: "text",
       dashboardUrl: "https://caja.test",
     };

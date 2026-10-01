@@ -4,11 +4,13 @@ import {
   expirePendingActions,
   type Logger,
   markWebhookEvent,
+  type ObjectStore,
   type ProcessDeps,
   processInbound,
   refreshRates,
+  sweepOrphanAttachments,
 } from "@caja/core";
-import type { Db } from "@caja/db";
+import { allTenantIds, type Db, withTenant } from "@caja/db";
 import {
   cancelFailedFifoJobs,
   type PgBoss,
@@ -32,6 +34,7 @@ export async function registerJobs(opts: {
   boss: PgBoss;
   db: Db;
   deps: ProcessDeps;
+  store?: ObjectStore | null;
   log: Logger;
   concurrency: number;
   /** Se llama con cada error de un handler antes de relanzarlo (Sentry en producción). */
@@ -91,8 +94,34 @@ export async function registerJobs(opts: {
     QUEUES.housekeeping,
     { batchSize: 1, pollingIntervalSeconds: 5 },
     guarded(QUEUES.housekeeping, async () => {
-      const expired = await expirePendingActions(db, new Date());
+      // Las tablas de negocio tienen RLS: el mantenimiento recorre los tenants uno a uno.
+      const now = new Date();
+      let expired = 0;
+      let swept = 0;
+      let tenants: string[] = [];
+      try {
+        tenants = await allTenantIds(db);
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : String(err) },
+          "housekeeping: ¿falta la migración 0004?",
+        );
+      }
+      for (const tenantId of tenants) {
+        await withTenant(db, tenantId, async (tx) => {
+          expired += await expirePendingActions(tx, now);
+          swept += await sweepOrphanAttachments(
+            tx,
+            opts.store ?? null,
+            tenantId,
+            now,
+            undefined,
+            log,
+          );
+        });
+      }
       if (expired > 0) log.info({ expired }, "borradores vencidos");
+      if (swept > 0) log.info({ swept }, "fotos provisionales borradas");
       // Jobs vencidos por tiempo que quedaron en `failed`: desbloquear el teléfono.
       const stuck = await cancelFailedFifoJobs(db);
       for (const s of stuck) {
