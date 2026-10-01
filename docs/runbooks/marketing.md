@@ -7,8 +7,9 @@ Vive en `https://caja.jpsoftwaredev.com/` (`apps/web/app/page.tsx` + `(marketing
 hace la parte de la caja que hoy hace una persona, por una fracción del sueldo (300 USD de
 referencia, en `ADMIN_SALARY` dentro de `landing.tsx`).
 
-La página es una conversación. Tras la portada, el teléfono queda fijo y, al bajar, el visitante
-"le escribe" al asistente (hola, qué haces, un gasto, Guardar, cierre, cuánto cuestas, mis datos,
+La página es una conversación. Tras la portada, en escritorio el teléfono queda fijo y el scroll
+envía los mensajes; en el móvil el visitante toca el botón de enviar de un iPhone dibujado en CSS
+(sin imágenes ni librerías) y así "le escribe" al asistente (hola, qué haces, un gasto, Guardar, cierre, cuánto cuestas, mis datos,
 quiero empezar) y las respuestas son el servicio. Las escenas están en `scenes()` dentro de
 `landing.tsx`: cada una tiene el mensaje del usuario, la respuesta y el titular lateral. Agregar
 una escena es agregar un objeto a esa lista. Debajo: planes, preguntas y cierre.

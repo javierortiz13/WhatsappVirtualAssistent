@@ -1,12 +1,13 @@
 "use client";
 
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Conversación guiada por el scroll: el teléfono queda fijo y, a medida que la persona baja,
- * "envía" un mensaje y recibe la respuesta. Cada escena es un paso; el progreso sale del scroll
- * (sin librería), con un indicador de "escribiendo" entre el mensaje y la respuesta. Con
- * "reducir movimiento" se muestra la conversación completa, sin fijar nada.
+ * Conversación guiada. Dos modos según el ancho:
+ * - escritorio (≥ 900 px): el teléfono queda fijo y el scroll "envía" cada mensaje;
+ * - teléfono: sin fijar nada ni secuestrar el scroll (en iOS se traba). La persona toca el botón
+ *   de enviar con el próximo mensaje ya escrito y la conversación avanza, como en WhatsApp.
+ * Con "reducir movimiento" se muestra la conversación completa.
  */
 export type Scene = {
   user: string;
@@ -17,20 +18,42 @@ export type Scene = {
 const USER_AT = 0.06;
 const TYPING_AT = 0.22;
 const BOT_AT = 0.52;
+type Phase = "idle" | "user" | "typing" | "bot";
+const PHASE_FRAC: Record<Phase, number> = {
+  idle: 0,
+  user: USER_AT,
+  typing: TYPING_AT,
+  bot: BOT_AT,
+};
+
+function useMode(): "scroll" | "tap" | "static" | null {
+  const [mode, setMode] = useState<"scroll" | "tap" | "static" | null>(null);
+  useEffect(() => {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const wide = window.matchMedia("(min-width: 900px)");
+    const pick = () => setMode(reduce.matches ? "static" : wide.matches ? "scroll" : "tap");
+    pick();
+    wide.addEventListener("change", pick);
+    reduce.addEventListener("change", pick);
+    return () => {
+      wide.removeEventListener("change", pick);
+      reduce.removeEventListener("change", pick);
+    };
+  }, []);
+  return mode;
+}
 
 export function Story({ scenes, children }: { scenes: Scene[]; children?: ReactNode }) {
+  const mode = useMode();
   const ref = useRef<HTMLDivElement>(null);
   const chatRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState(0);
-  const [reduce, setReduce] = useState(false);
+  const [tap, setTap] = useState<{ step: number; phase: Phase }>({ step: 0, phase: "idle" });
+  const timers = useRef<number[]>([]);
 
+  // Modo scroll: el progreso dentro del contenedor alto marca la escena.
   useEffect(() => {
-    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    if (mq.matches) {
-      setReduce(true);
-      setPos(scenes.length);
-      return;
-    }
+    if (mode !== "scroll") return;
     let raf = 0;
     const update = () => {
       raf = 0;
@@ -52,33 +75,65 @@ export function Story({ scenes, children }: { scenes: Scene[]; children?: ReactN
       window.removeEventListener("resize", onScroll);
       if (raf) cancelAnimationFrame(raf);
     };
+  }, [mode, scenes.length]);
+
+  useEffect(
+    () => () => {
+      for (const t of timers.current) window.clearTimeout(t);
+    },
+    [],
+  );
+
+  // Modo tap: enviar el próximo mensaje y dejar que el bot "escriba".
+  const send = useCallback(() => {
+    setTap((t) => {
+      if (t.phase !== "idle" || t.step >= scenes.length) return t;
+      const step = t.step;
+      timers.current.push(
+        window.setTimeout(() => setTap({ step, phase: "typing" }), 350),
+        window.setTimeout(() => setTap({ step, phase: "bot" }), 1250),
+        window.setTimeout(() => setTap({ step: step + 1, phase: "idle" }), 1300),
+      );
+      return { step, phase: "user" };
+    });
   }, [scenes.length]);
 
-  // El chat baja solo cuando aparece un mensaje nuevo, como WhatsApp.
-  const step = Math.min(scenes.length - 1, Math.floor(pos));
-  const frac = pos - Math.floor(pos);
-  const showUser = (i: number) => i < step || (i === step && frac >= USER_AT);
-  const showTyping = (i: number) => i === step && frac >= TYPING_AT && frac < BOT_AT;
-  const showBot = (i: number) => i < step || (i === step && frac >= BOT_AT) || pos >= scenes.length;
+  const done =
+    mode === "static" || (mode === "tap" ? tap.step >= scenes.length : pos >= scenes.length);
+  const step =
+    mode === "tap"
+      ? Math.min(scenes.length - 1, tap.step)
+      : Math.min(scenes.length - 1, Math.floor(pos));
+  const frac = mode === "tap" ? PHASE_FRAC[tap.phase] : pos - Math.floor(pos);
+  const showUser = (i: number) => done || i < step || (i === step && frac >= USER_AT);
+  const showTyping = (i: number) => !done && i === step && frac >= TYPING_AT && frac < BOT_AT;
+  const showBot = (i: number) => done || i < step || (i === step && frac >= BOT_AT);
   const visibleCount = scenes.reduce(
     (n, _, i) => n + (showUser(i) ? 1 : 0) + (showBot(i) ? 1 : 0) + (showTyping(i) ? 1 : 0),
     0,
   );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: el scroll depende de cuántas burbujas hay.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: el chat baja cuando cambia el número de burbujas.
   useEffect(() => {
     const c = chatRef.current;
     if (!c) return;
-    c.scrollTo({ top: c.scrollHeight, behavior: reduce ? "auto" : "smooth" });
-  }, [visibleCount, reduce]);
+    const toBottom = () =>
+      c.scrollTo({ top: c.scrollHeight, behavior: mode === "static" ? "auto" : "smooth" });
+    toBottom();
+    // La burbuja termina de aparecer unos milisegundos después: segundo empujón.
+    const t = window.setTimeout(toBottom, 380);
+    return () => window.clearTimeout(t);
+  }, [visibleCount, mode]);
 
-  const captionIndex = Math.min(scenes.length - 1, pos >= scenes.length ? scenes.length - 1 : step);
+  const captionIndex = done ? scenes.length - 1 : step;
   const caption = scenes[captionIndex]?.caption;
+  const next = done ? null : scenes[mode === "tap" ? tap.step : step]?.user;
+  const pending = mode === "tap" ? tap.phase === "idle" : frac < USER_AT;
 
   return (
     <div
-      className={`story${reduce ? " static" : ""}`}
+      className={`story ${mode ?? "tap"}`}
       ref={ref}
-      style={reduce ? undefined : { height: `${(scenes.length + 1) * 100}vh` }}
+      style={mode === "scroll" ? { height: `${(scenes.length + 1) * 100}vh` } : undefined}
     >
       <div className="stage">
         <div className="caption" key={captionIndex}>
@@ -88,21 +143,58 @@ export function Story({ scenes, children }: { scenes: Scene[]; children?: ReactN
           <h2>{caption?.title}</h2>
           <p className="lead">{caption?.text}</p>
         </div>
-        <div
-          className="phone play"
-          role="img"
-          aria-label="Conversación de ejemplo con el asistente"
-        >
-          <div className="notch" />
+
+        <div className="iphone" role="img" aria-label="Conversación de ejemplo con el asistente">
+          <span className="side power" />
+          <span className="side vol1" />
+          <span className="side vol2" />
+          <span className="side mute" />
           <div className="screen">
+            <div className="island" />
+            <div className="status">
+              <span>9:41</span>
+              <span className="icons">
+                <svg viewBox="0 0 18 12" width="17" height="11" aria-hidden="true">
+                  <rect x="0" y="8" width="3" height="4" rx="0.8" fill="#fff" />
+                  <rect x="5" y="5.5" width="3" height="6.5" rx="0.8" fill="#fff" />
+                  <rect x="10" y="3" width="3" height="9" rx="0.8" fill="#fff" />
+                  <rect x="15" y="0" width="3" height="12" rx="0.8" fill="#fff" />
+                </svg>
+                <svg viewBox="0 0 16 12" width="16" height="12" aria-hidden="true">
+                  <path d="M8 11.2 10.3 8.5a3.3 3.3 0 0 0-4.6 0z" fill="#fff" />
+                  <path d="M3.4 6.2a6.6 6.6 0 0 1 9.2 0l1.6-1.8a9 9 0 0 0-12.4 0z" fill="#fff" />
+                  <path d="M5.7 8.3a3.4 3.4 0 0 1 4.6 0l1.6-1.8a5.8 5.8 0 0 0-7.8 0z" fill="#fff" />
+                </svg>
+                <svg viewBox="0 0 27 12" width="27" height="12" aria-hidden="true">
+                  <rect
+                    x="0.5"
+                    y="0.5"
+                    width="22"
+                    height="11"
+                    rx="3"
+                    fill="none"
+                    stroke="#fff"
+                    strokeOpacity="0.45"
+                  />
+                  <rect x="2" y="2" width="19" height="8" rx="1.8" fill="#fff" />
+                  <path d="M24.5 4v4a2 2 0 0 0 0-4z" fill="#fff" fillOpacity="0.45" />
+                </svg>
+              </span>
+            </div>
             <div className="chat-head">
+              <span className="back">‹</span>
               <span className="av">C</span>
-              <div>
+              <div className="who">
                 Asistente de Caja
                 <small>en línea</small>
               </div>
+              <span className="acts">
+                <i />
+                <i />
+              </span>
             </div>
             <div className="chat" ref={chatRef}>
+              <div className="daychip">Hoy</div>
               {scenes.map((s, i) => (
                 <StoryScene
                   key={s.user}
@@ -114,16 +206,34 @@ export function Story({ scenes, children }: { scenes: Scene[]; children?: ReactN
               ))}
             </div>
             <div className="chat-foot">
-              <span>{step < scenes.length && frac < USER_AT ? scenes[step]?.user : ""}</span>
-              <i />
+              <span className={`input${pending && next ? " ready" : ""}`}>
+                {pending ? next : ""}
+              </span>
+              {mode === "tap" ? (
+                <button
+                  type="button"
+                  className={`send${pending && next ? " ready" : ""}`}
+                  onClick={send}
+                  disabled={!pending || !next}
+                  aria-label="Enviar el siguiente mensaje"
+                >
+                  <SendIcon />
+                </button>
+              ) : (
+                <i className="send-static" />
+              )}
             </div>
+            <div className="homebar" />
           </div>
         </div>
-        {captionIndex === scenes.length - 1 && pos >= scenes.length - 0.5 ? (
+
+        {done ? (
           <div className="stage-cta">{children}</div>
         ) : (
           <div className="hint" aria-hidden="true">
-            Desliza para seguir la conversación
+            {mode === "tap"
+              ? "Toca enviar para seguir la conversación"
+              : "Desliza para seguir la conversación"}
           </div>
         )}
       </div>
@@ -144,7 +254,14 @@ function StoryScene({
 }) {
   return (
     <>
-      {user ? <div className="msg in live">{scene.user}</div> : null}
+      {user ? (
+        <div className="msg in live">
+          {scene.user}
+          <span className="meta">
+            9:41 <i className="ticks" />
+          </span>
+        </div>
+      ) : null}
       {typing ? (
         <div className="msg out live typing">
           <i />
@@ -152,7 +269,20 @@ function StoryScene({
           <i />
         </div>
       ) : null}
-      {bot ? <div className="msg out live">{scene.bot}</div> : null}
+      {bot ? (
+        <div className="msg out live">
+          {scene.bot}
+          <span className="meta">9:41</span>
+        </div>
+      ) : null}
     </>
+  );
+}
+
+function SendIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+      <path d="M3.4 20.4l17.4-7.5c.8-.4.8-1.5 0-1.8L3.4 3.6c-.7-.3-1.4.3-1.3 1l1.6 6.3c.1.4.4.6.8.7l9.5.9-9.5.9c-.4 0-.7.3-.8.7L2.1 19.4c-.1.7.6 1.3 1.3 1z" />
+    </svg>
   );
 }

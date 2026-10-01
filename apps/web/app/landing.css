@@ -191,56 +191,129 @@
   }
 }
 
-/* ------------------------------------------------------------ teléfono */
-.phone {
-  width: min(340px, 100%);
-  margin: 0 auto;
-  aspect-ratio: 9 / 18.5;
-  border-radius: 44px;
-  padding: 12px;
-  background: linear-gradient(160deg, #262d38, #0e1218);
-  box-shadow:
-    0 40px 80px rgba(0, 0, 0, 0.6),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+/* ------------------------------------------------------------ iPhone (CSS, sin imagen) */
+.iphone {
+  --ph-h: min(78svh, 760px);
+  --ph-w: calc(var(--ph-h) * 9 / 19.5);
   position: relative;
-  transform: perspective(1200px) rotateY(-8deg) rotateX(4deg);
-  transform-style: preserve-3d;
-  transition: transform 0.6s ease;
+  height: var(--ph-h);
+  width: var(--ph-w);
+  border-radius: calc(var(--ph-w) * 0.17);
+  padding: calc(var(--ph-w) * 0.035);
+  background: linear-gradient(
+    135deg,
+    #3a3f47 0%,
+    #15181d 30%,
+    #0f1216 50%,
+    #1b1f25 70%,
+    #3a3f47 100%
+  );
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.06),
+    inset 0 0 0 4px #0a0c10,
+    0 50px 100px rgba(0, 0, 0, 0.7),
+    0 20px 40px rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
 }
-.phone:hover {
-  transform: perspective(1200px) rotateY(0) rotateX(0);
-}
-.phone .screen {
+.iphone .side {
   position: absolute;
-  inset: 12px;
-  border-radius: 34px;
+  background: linear-gradient(90deg, #2b3038, #4a5059, #2b3038);
+  border-radius: 2px;
+}
+.iphone .side.power {
+  right: -3px;
+  top: 24%;
+  width: 3px;
+  height: 13%;
+}
+.iphone .side.mute {
+  left: -3px;
+  top: 16%;
+  width: 3px;
+  height: 4%;
+}
+.iphone .side.vol1 {
+  left: -3px;
+  top: 23%;
+  width: 3px;
+  height: 8%;
+}
+.iphone .side.vol2 {
+  left: -3px;
+  top: 33%;
+  width: 3px;
+  height: 8%;
+}
+.iphone .screen {
+  position: relative;
+  height: 100%;
+  border-radius: calc(var(--ph-w) * 0.135);
   background: #0b141a;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
-.phone .notch {
+.iphone .screen::after {
+  content: "";
   position: absolute;
-  top: 10px;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    transparent 28%,
+    transparent 72%,
+    rgba(255, 255, 255, 0.03) 100%
+  );
+}
+.iphone .island {
+  position: absolute;
+  top: 11px;
   left: 50%;
-  width: 96px;
-  height: 26px;
   transform: translateX(-50%);
+  width: 25%;
+  height: 24px;
   border-radius: 999px;
-  background: #0e1218;
-  z-index: 2;
+  background: #000;
+  z-index: 3;
+}
+.iphone .status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px 0 24px;
+  height: 46px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #fff;
+  background: #1f2c34;
+}
+.iphone .status .icons {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
 }
 .chat-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 46px 14px 10px;
+  gap: 8px;
+  padding: 6px 10px 10px;
   background: #1f2c34;
   font-size: 13px;
+  color: #fff;
+}
+.chat-head .back {
+  color: #53bdeb;
+  font-size: 26px;
+  line-height: 1;
+  margin-right: 2px;
 }
 .chat-head .av {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--mint), #6d5bff);
   display: grid;
@@ -248,77 +321,120 @@
   font-weight: 700;
   color: #06120e;
   font-size: 13px;
+  flex-shrink: 0;
+}
+.chat-head .who {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  font-size: 12.5px;
 }
 .chat-head small {
   display: block;
   color: #8696a0;
   font-size: 11px;
+  font-weight: 400;
+}
+.chat-head .acts {
+  display: inline-flex;
+  gap: 14px;
+}
+.chat-head .acts i {
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  border: 2px solid #53bdeb;
+}
+.chat-head .acts i:last-child {
+  border-radius: 50%;
 }
 .chat {
   flex: 1;
-  padding: 12px 10px;
+  padding: 8px 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   background:
-    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.03) 0 2px, transparent 3px), #0b141a;
+    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.035) 0 2px, transparent 3px), #0b141a;
   background-size:
     28px 28px,
     auto;
   font-size: 13px;
-  overflow: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  scroll-behavior: smooth;
+}
+.chat::-webkit-scrollbar {
+  display: none;
+}
+.chat .daychip {
+  align-self: center;
+  font-size: 11px;
+  color: #8696a0;
+  background: #182229;
+  padding: 4px 10px;
+  border-radius: 8px;
+  margin-bottom: 4px;
 }
 .msg {
-  max-width: 86%;
-  padding: 8px 10px;
-  border-radius: 12px;
+  position: relative;
+  max-width: 84%;
+  padding: 7px 10px 16px;
+  border-radius: 10px;
   line-height: 1.35;
   opacity: 0;
   transform: translateY(8px) scale(0.98);
-  animation: lp-msg 0.35s ease forwards;
-  animation-play-state: paused;
+  animation: lp-msg 0.3s ease forwards;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
 }
-.phone.play .msg {
-  animation-play-state: running;
+.msg .meta {
+  position: absolute;
+  right: 8px;
+  bottom: 3px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.msg .meta .ticks {
+  width: 12px;
+  height: 7px;
+  display: inline-block;
+  color: #53bdeb;
+  background: currentColor;
+  clip-path: polygon(0 55%, 12% 42%, 32% 62%, 62% 25%, 74% 38%, 32% 85%, 0 55%);
 }
 .msg.in {
   align-self: flex-end;
   background: #005c4b;
-  border-bottom-right-radius: 4px;
+  border-top-right-radius: 2px;
 }
 .msg.out {
   align-self: flex-start;
   background: #202c33;
-  border-bottom-left-radius: 4px;
+  border-top-left-radius: 2px;
 }
 .msg.out .btns {
   display: grid;
   gap: 4px;
-  margin-top: 8px;
+  margin: 8px -4px 2px;
 }
 .msg.out .btns span {
   text-align: center;
-  padding: 6px;
+  padding: 7px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.06);
   color: #53bdeb;
   font-weight: 600;
 }
-.msg.react {
-  align-self: flex-end;
-  background: none;
-  padding: 0 4px;
-  font-size: 18px;
-  margin-top: -6px;
-}
-.msg.live {
-  animation: lp-msg 0.3s ease forwards;
-  animation-play-state: running;
-}
 .msg.typing {
   display: flex;
   gap: 4px;
-  padding: 10px 12px;
+  padding: 11px 12px;
 }
 .msg.typing i {
   width: 6px;
@@ -345,61 +461,103 @@
     opacity: 1;
   }
 }
-.msg .planline b {
-  color: var(--mint);
-}
-.chat {
-  scroll-behavior: smooth;
-}
-.chat-foot span {
-  display: flex;
-  align-items: center;
-  padding: 0 14px;
-  font-size: 12px;
-  color: #8696a0;
-  overflow: hidden;
-  white-space: nowrap;
-}
 @keyframes lp-msg {
   to {
     opacity: 1;
     transform: none;
   }
 }
+.msg .planline b {
+  color: var(--mint);
+}
 .chat-foot {
   display: flex;
   gap: 8px;
-  padding: 8px 10px 14px;
-  background: #0b141a;
+  align-items: center;
+  padding: 8px 10px 6px;
+  background: #1f2c34;
 }
-.chat-foot span {
+.chat-foot .input {
   flex: 1;
-  height: 32px;
+  min-width: 0;
+  height: 36px;
   border-radius: 999px;
   background: #2a3942;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 13px;
+  color: #8696a0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
-.chat-foot i {
-  width: 32px;
-  height: 32px;
+.chat-foot .input.ready {
+  color: #e9edef;
+}
+.chat-foot .send,
+.chat-foot .send-static {
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: #00a884;
+  border: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    opacity 0.2s ease;
 }
-
-/* ------------------------------------------------------------ historia (teléfono fijo) */
-.story {
+.chat-foot .send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.chat-foot .send.ready {
+  animation: lp-ring 1.6s infinite;
+}
+@keyframes lp-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 168, 132, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(0, 168, 132, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 168, 132, 0);
+  }
+}
+.iphone .homebar {
+  height: 18px;
+  background: #1f2c34;
   position: relative;
 }
+.iphone .homebar::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 36%;
+  height: 4px;
+  border-radius: 2px;
+  background: #fff;
+  transform: translateX(-50%);
+  opacity: 0.9;
+}
+
+/* ------------------------------------------------------------ historia: escritorio (scroll) y teléfono (tocar) */
+.story {
+  position: relative;
+  scroll-margin-top: 72px;
+}
 .stage {
-  position: sticky;
-  top: 0;
-  height: 100svh;
   display: grid;
-  grid-template-rows: auto 1fr auto;
-  align-items: center;
   justify-items: center;
-  gap: 8px;
-  padding: 76px var(--lp-gutter) 12px;
-  overflow: hidden;
+  align-items: center;
+  gap: 12px;
+  padding: 24px var(--lp-gutter) 24px;
 }
 .stage .caption {
   text-align: center;
@@ -413,23 +571,6 @@
 .stage .caption .lead {
   font-size: 14px;
   margin: 0 auto;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.stage-cta {
-  grid-row: 3;
-  min-height: 18px;
-}
-.stage-cta .ctas {
-  justify-content: center;
-  margin: 0;
-}
-.stage-cta .btn.lg {
-  height: 44px;
-  font-size: 14px;
-  padding: 0 18px;
 }
 @keyframes lp-cap {
   from {
@@ -440,20 +581,6 @@
     opacity: 1;
     transform: none;
   }
-}
-.stage .phone {
-  height: min(58svh, 640px);
-  width: calc(min(58svh, 640px) * 9 / 18.5);
-  aspect-ratio: auto;
-  transform: none;
-  margin: 0;
-}
-.stage .phone .chat {
-  overflow-y: auto;
-  scrollbar-width: none;
-}
-.stage .phone .chat::-webkit-scrollbar {
-  display: none;
 }
 .stage .hint {
   font-size: 12px;
@@ -466,89 +593,69 @@
     opacity: 0.4;
   }
 }
-@media (max-width: 899px) {
-  .stage .phone .chat {
-    font-size: 12px;
-    padding: 10px 8px;
-  }
-  .stage .phone .chat-head {
-    padding: 34px 12px 8px;
-    font-size: 12px;
-  }
-  .stage .phone .chat-head .av {
-    width: 26px;
-    height: 26px;
-    font-size: 11px;
-  }
-  .stage .phone .notch {
-    height: 20px;
-    width: 80px;
-  }
-  .stage .phone {
-    border-radius: 36px;
-    padding: 9px;
-  }
-  .stage .phone .screen {
-    inset: 9px;
-    border-radius: 28px;
-  }
-  .stage-cta .ctas {
-    flex-direction: column;
-    align-items: stretch;
-    width: 100%;
-  }
+.stage-cta {
+  min-height: 18px;
+  width: 100%;
+  max-width: 420px;
 }
-.story.static .stage {
-  position: static;
-  height: auto;
-  overflow: visible;
-  padding-top: 40px;
+.stage-cta .ctas {
+  justify-content: center;
+  margin: 0;
+  flex-direction: column;
+  align-items: stretch;
 }
-.story.static .stage .phone {
-  height: 720px;
-  width: 350px;
+/* teléfono: el iPhone grande, sin fijar */
+.story.tap .iphone,
+.story.static .iphone {
+  --ph-h: min(76svh, 720px);
+  --ph-w: min(calc(var(--ph-h) * 9 / 19.5), calc(100vw - 48px));
+  --ph-h-real: calc(var(--ph-w) * 19.5 / 9);
+  height: var(--ph-h-real);
 }
+.story.tap .caption {
+  min-height: 92px;
+}
+/* escritorio: fijo y guiado por scroll */
 @media (min-width: 900px) {
-  .stage {
+  .story.scroll .stage {
+    position: sticky;
+    top: 0;
+    height: 100svh;
     grid-template-columns: 1fr auto;
     grid-template-rows: 1fr auto;
     column-gap: 56px;
     max-width: var(--lp-max);
     margin: 0 auto;
+    padding: 76px var(--lp-gutter) 12px;
+    overflow: hidden;
   }
-  .stage .caption {
+  .story.scroll .caption {
     text-align: left;
     justify-self: end;
     max-width: 480px;
   }
-  .stage .caption .lead {
+  .story.scroll .caption .lead {
     margin: 0;
     font-size: 18px;
   }
-  .stage-cta {
+  .story.scroll .iphone {
+    grid-row: 1;
+    grid-column: 2;
+  }
+  .story.scroll .hint {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .story.scroll .stage-cta {
     grid-column: 1;
     grid-row: 2;
     justify-self: end;
     width: 480px;
     max-width: 100%;
   }
-  .stage-cta .ctas {
+  .story.scroll .stage-cta .ctas {
+    flex-direction: row;
     justify-content: flex-start;
-  }
-  .stage-cta .btn.lg {
-    height: 52px;
-    font-size: 16px;
-    padding: 0 26px;
-  }
-  .stage .phone {
-    height: min(78svh, 720px);
-    width: calc(min(78svh, 720px) * 9 / 18.5);
-    grid-row: 1;
-    grid-column: 2;
-  }
-  .stage .hint {
-    grid-column: 1 / -1;
-    grid-row: 3;
   }
 }
 
@@ -645,7 +752,8 @@
   .scroll-hint span,
   .stage .hint,
   .stage .caption,
-  .phone {
+  .chat-foot .send,
+  .iphone {
     animation: none !important;
     transition: none !important;
     opacity: 1 !important;

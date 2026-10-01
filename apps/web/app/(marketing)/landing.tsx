@@ -89,7 +89,7 @@ export function Landing({ waUrl }: { waUrl: string | null }) {
         </div>
       </section>
 
-      <div id="historia">
+      <div id="historia" style={{ scrollMarginTop: 72 }}>
         <Story scenes={scenes(waUrl)}>
           <div className="ctas">
             <a className="btn lg" href="/registro">
