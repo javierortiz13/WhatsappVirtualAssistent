@@ -76,8 +76,8 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
               <img
                 src={heroPhoto}
                 alt="Dueño de un negocio registrando un gasto por WhatsApp desde su mostrador"
-                width={1200}
-                height={1500}
+                width={920}
+                height={1150}
               />
               <Compare />
             </figure>
@@ -194,12 +194,12 @@ function Compare() {
   return (
     <div className="hero-compare reveal d1" aria-hidden="true">
       <div className="card cmp">
-        <span className="label">Administradora de caja</span>
+        <span className="label">Administradora</span>
         <p className="big num amber">${ADMIN_SALARY}</p>
         <p className="sub">al mes · un turno · se enferma, se va de vacaciones</p>
       </div>
       <div className="card cmp hi">
-        <span className="label">Asistente de Caja · plan Negocio</span>
+        <span className="label">Asistente · plan Negocio</span>
         <p className="big num mint">{money(NEGOCIO?.priceUsd)}</p>
         <p className="sub">al mes · 24 horas · nunca se le olvida la tasa</p>
       </div>
