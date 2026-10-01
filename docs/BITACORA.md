@@ -322,3 +322,11 @@ Javier pidió seguir la guía `skills.sentry.dev/instrument`; el entorno bloque�
 **Segunda corrida (Javier, 01/10): 50/51.** Los dos arreglos del prompt funcionaron. El fallo nuevo es ruido del modelo: "anota un gasto de 0$ en nómina" eligió `draft_expense` con 0 (en la corrida anterior había elegido preguntar). Da igual: `draft_expense` rechaza el 0 en el backend ("No entendí el monto. ¿Cuánto fue?") y no queda borrador. Los dos casos de monto cero ahora comprueban el resultado (`no_draft: true`, cero borradores) y no la herramienta elegida.
 
 **Tercera corrida (Javier, 01/10): 51/51.** Evals v1 cerradas en 0,17 USD por corrida con Sonnet 5.5. Regla que queda: cada fallo del piloto entra como caso antes de tocar el prompt, y el prompt no cambia sin volver a correr la suite.
+
+### S2 · 01/10/2026 · Modelo de negocio v0 y landing
+
+**Terminado**
+- `docs/MODELO-NEGOCIO.md`: borrador con mercado (92 % usa WhatsApp con empresas; e-commerce +125 % en 2025), competencia (bots personales 3,99 a 9,99 USD; POS venezolanos 10 a 35 USD), costos unitarios (Meta 0,0113 USD por mensaje de servicio desde el 1/10 tras 1.000 gratis por número de plataforma; IA 0,0032 USD por turno medido en evals; Deepgram 0,0077 USD/min), planes Personal 4,99 / Negocio 19,99 / Negocio Plus 39,99 (hipótesis), márgenes ~46 % y punto de equilibrio en 5 negocios. Hallazgo clave: Meta es el 70 % del costo variable y los 1.000 gratis son por número de plataforma, lo que reabre ADR-002 para el plan Negocio. Lista de lo que el piloto debe medir para reemplazar cada hipótesis.
+- `apps/web/lib/plans.ts`: única fuente de planes y límites; la landing la lee. `pnpm metrics` usa 0,0113 por defecto.
+- Landing en `/` (antes redirigía a login): portada con teléfono animado que reproduce una conversación real, tres hábitos, funciones, maqueta del dashboard, planes, preguntas y cierre. Efectos de scroll con `animation-timeline: view()` y respaldo por IntersectionObserver; respeta "reducir movimiento". Probada a 390 y 1280 px sin scroll horizontal ni errores.
+- Enlaces de campaña `/ir/<slug>` con UTM (`app/ir/links.ts`) y `docs/runbooks/marketing.md` con la convención, textos de anuncios y requisitos de Meta Ads.

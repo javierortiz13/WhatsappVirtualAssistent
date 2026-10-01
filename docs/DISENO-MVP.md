@@ -80,6 +80,8 @@ Registras un gasto o la venta del día como le escribirías a tu cajera: texto, 
 
 ### Modelo de negocio (hipótesis)
 
+Borrador detallado con mercado, competencia, costos y planes: `docs/MODELO-NEGOCIO.md` (01/10/2026).
+
 - Suscripción mensual por negocio: 20 USD (hipótesis del fundador, sin análisis de mercado todavía).
 - Restricción derivada: costo total por tenant (LLM + Meta + infra) por debajo de 5 USD al mes.
 - Odoo como servicio premium: implementación y entrenamiento con cobro único, más la suscripción.

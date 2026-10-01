@@ -20,8 +20,8 @@ const q = async (label: string, query: ReturnType<typeof sql>) => {
   console.table(rows<Row>(await db.execute(query)));
 };
 
-/** Tarifa por mensaje de servicio (Meta, "Rest of Latin America"). Ajustable: META_MSG_RATE_USD. */
-const rate = Number(process.env.META_MSG_RATE_USD ?? "0.013");
+/** Tarifa por mensaje de servicio (Meta, "Rest of Latin America", desde el 1/10/2026). Ajustable: META_MSG_RATE_USD. */
+const rate = Number(process.env.META_MSG_RATE_USD ?? "0.0113");
 const FREE_TIER = 1000;
 
 (async () => {
