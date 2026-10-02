@@ -49,7 +49,11 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
   const rows: Row[] = [];
   let spent = new Decimal(0);
   const today = todayInCaracas();
-  const llm = new AnthropicLlmClient({ model: process.env.EVALS_MODEL ?? "claude-sonnet-5-5" });
+  // Las evals mandan turnos seguidos: el caché de 5 minutos basta y escribe más barato.
+  const llm = new AnthropicLlmClient({
+    model: process.env.EVALS_MODEL ?? "claude-sonnet-5-5",
+    cacheTtl: "5m",
+  });
   const agent = createAgent({ llm });
 
   beforeAll(async () => {

@@ -19,25 +19,35 @@ import { costFor } from "./pricing";
  * - `fallbacks: "default"` (beta) para que una negativa por política reintente en un modelo
  *   sustituto dentro de la misma llamada.
  * - Caché de prompt: herramientas y bloques de sistema estables primero, breakpoint por bloque.
+ *   TTL de 1 hora por defecto (02/10): con pocos mensajes, separados de 5 a 60 minutos, el caché
+ *   de 5 minutos vencía entre uno y otro y casi cada turno pagaba la escritura. Todos los
+ *   breakpoints llevan el mismo TTL (la API exige los de 1 hora antes que los de 5 minutos).
  */
 export type AnthropicClientOptions = {
   apiKey?: string;
   model?: string;
   effort?: "low" | "medium" | "high";
   maxRetries?: number;
+  /** TTL del caché del prompt; "1h" por defecto. */
+  cacheTtl?: "5m" | "1h";
+  /** Solo para pruebas: intercepta las llamadas HTTP. */
+  fetch?: typeof fetch;
 };
 
 export class AnthropicLlmClient implements LlmClient {
   readonly model: string;
   readonly #client: Anthropic;
   readonly #effort: "low" | "medium" | "high";
+  readonly cacheTtl: "5m" | "1h";
 
   constructor(opts: AnthropicClientOptions = {}) {
     this.model = opts.model ?? "claude-sonnet-5-5";
     this.#effort = opts.effort ?? "low";
+    this.cacheTtl = opts.cacheTtl ?? "1h";
     this.#client = new Anthropic({
       ...(opts.apiKey ? { apiKey: opts.apiKey } : {}),
       maxRetries: opts.maxRetries ?? 1,
+      ...(opts.fetch ? { fetch: opts.fetch } : {}),
     });
   }
 
@@ -55,7 +65,14 @@ export class AnthropicLlmClient implements LlmClient {
     const system = req.system.map((b) => ({
       type: "text" as const,
       text: b.text,
-      ...(b.cache ? { cache_control: { type: "ephemeral" as const } } : {}),
+      ...(b.cache
+        ? {
+            cache_control:
+              this.cacheTtl === "1h"
+                ? { type: "ephemeral" as const, ttl: "1h" as const }
+                : { type: "ephemeral" as const },
+          }
+        : {}),
     }));
     let response: Anthropic.Beta.BetaMessage;
     try {
@@ -103,6 +120,7 @@ export class AnthropicLlmClient implements LlmClient {
         outputTokens: response.usage.output_tokens,
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
         cacheWriteTokens: response.usage.cache_creation_input_tokens ?? 0,
+        cacheWrite1hTokens: response.usage.cache_creation?.ephemeral_1h_input_tokens ?? 0,
       },
       model: response.model,
     };

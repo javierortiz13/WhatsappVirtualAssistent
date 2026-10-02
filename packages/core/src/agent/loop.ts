@@ -71,7 +71,13 @@ export function createAgent(opts: AgentOptions): AgentRunner {
         ...history,
         { role: "user", text: userTurn(userText, ctx.today, pendingDraft, waiting) },
       ];
-      const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+      const usage = {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        cacheWrite1hTokens: 0,
+      };
       const toolCalls: AgentResult["toolCalls"] = [];
       let invalidRetries = 0;
 
@@ -102,6 +108,7 @@ export function createAgent(opts: AgentOptions): AgentRunner {
         usage.outputTokens += res.usage.outputTokens;
         usage.cacheReadTokens += res.usage.cacheReadTokens;
         usage.cacheWriteTokens += res.usage.cacheWriteTokens;
+        usage.cacheWrite1hTokens += res.usage.cacheWrite1hTokens ?? 0;
 
         if (res.stopReason === "refusal") {
           log.warn({ phone: ctx.phoneId }, "el modelo rechazó la solicitud");

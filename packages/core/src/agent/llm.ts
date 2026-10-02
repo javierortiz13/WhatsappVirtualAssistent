@@ -32,7 +32,10 @@ export type LlmUsage = {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  /** Tokens escritos al caché, de cualquier TTL (incluye los de 1 hora). */
   cacheWriteTokens: number;
+  /** Parte de `cacheWriteTokens` escrita con TTL de 1 hora (se cobra al doble del precio base). */
+  cacheWrite1hTokens?: number;
 };
 
 export type LlmResponse = {

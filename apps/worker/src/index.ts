@@ -43,7 +43,11 @@ async function main() {
   const [provider, model] = env.LLM_PRIMARY.split(":");
   const llm =
     env.ANTHROPIC_API_KEY && provider === "anthropic"
-      ? new AnthropicLlmClient({ apiKey: env.ANTHROPIC_API_KEY, ...(model ? { model } : {}) })
+      ? new AnthropicLlmClient({
+          apiKey: env.ANTHROPIC_API_KEY,
+          cacheTtl: env.LLM_CACHE_TTL,
+          ...(model ? { model } : {}),
+        })
       : null;
   const agent = llm ? createAgent({ llm, log }) : stubAgent;
   // Fotos de facturas: el mismo modelo lee la imagen (ADR-007); el bucket guarda el respaldo.

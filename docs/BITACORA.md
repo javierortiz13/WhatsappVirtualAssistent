@@ -399,3 +399,15 @@ Javier pidió seguir la guía `skills.sentry.dev/instrument`; el entorno bloque�
 - **Latencia del agente:** p50 4,5 s, p95 23 s. Los cuatro turnos de texto lentos (15 a 28 s) son del 29 y 30/09; desde el 01/10 el texto más lento tardó 5,4 s. Las fotos de facturas tienen p50 9,7 s y máximo 35 s: es lo que dejó la factura detrás del gasto de la arepa y motivó la cola de borradores.
 - **Rechazos (8):** dos correctos (un chiste, "cuáles son tus capacidades"); cinco ventas del 29/09 antes de que existieran las herramientas de ventas; uno es el borrado de varios ("eliminar los cuatro gastos"), ya arreglado y agregado como caso de eval (68 casos).
 - **Webhook:** 91 eventos `done`, 3 `ignored`, 1 `failed` del 29/09 (el incidente de `key_strict_fifo` ya resuelto).
+
+### S2 · 02/10/2026 · Caché del prompt de 1 hora
+
+**Por qué:** las métricas de los primeros 4 días dieron 0,0088 USD por turno, 2,7 veces lo previsto. Con mensajes separados de 5 a 60 minutos el caché de 5 minutos vencía entre uno y otro y casi cada turno pagaba la escritura (0,0168 USD) en vez de la lectura (0,0035 USD).
+
+**Cambio**
+- `AnthropicLlmClient` marca los dos bloques de sistema con `cache_control: { type: "ephemeral", ttl: "1h" }`. Las herramientas van antes en el prefijo y quedan dentro del caché. Los dos breakpoints llevan el mismo TTL, como exige la API.
+- Precio: la escritura de 1 hora cuesta 2 veces la entrada (Sonnet 5.5: 4 USD/M) contra 1,25 veces la de 5 minutos. El cliente lee `usage.cache_creation.ephemeral_1h_input_tokens` y `costFor` cobra cada parte a su tarifa, así `message.cost_usd` sigue siendo exacto.
+- Variable `LLM_CACHE_TTL` en el worker (`1h` por defecto; `5m` vuelve al caché corto sin tocar código). Las evals usan `5m`: mandan turnos seguidos y ahí la escritura corta es más barata.
+- Se paga solo si el mismo prefijo se reutiliza 3 o más veces por hora. Con el piloto de un negocio debería cumplirse en horas de trabajo.
+
+**Cómo medirlo:** en una semana, `pnpm metrics 7` y comparar el costo promedio por turno con los 0,0088 USD de la línea base. Si no baja, volver a `LLM_CACHE_TTL=5m` en Railway.
