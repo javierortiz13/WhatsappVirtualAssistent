@@ -1,4 +1,5 @@
 export * from "./agent/index";
+export * from "./billing/index";
 export * from "./domain/index";
 export * from "./identity/index";
 export * from "./inbox/index";

@@ -13,7 +13,7 @@ import { createBoss, ensureQueues } from "@caja/db/queue";
 import { loadEnv } from "./env";
 import { registerJobs } from "./jobs";
 import { createLogger } from "./logger";
-import { captureError, initSentry } from "./sentry";
+import { captureError, initSentry, Sentry } from "./sentry";
 
 /**
  * Proceso worker: pg-boss toma los jobs de `process-message` (uno a la vez por teléfono, en
@@ -105,6 +105,14 @@ async function main() {
     log,
     concurrency: env.WORKER_CONCURRENCY,
     onError: (err, queue) => captureError(err, { queue }),
+    // Aviso al administrador por Sentry (sin números ni mensajes): el bot sigue funcionando.
+    onOverCap: (items) => {
+      for (const i of items)
+        Sentry.captureMessage(`Negocio sobre el límite del plan ${i.plan}: ${i.used}/${i.cap}`, {
+          level: "warning",
+          tags: { tenant: i.tenantId, plan: i.plan },
+        });
+    },
   });
 
   log.info(

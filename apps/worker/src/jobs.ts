@@ -1,10 +1,12 @@
 import {
   bcvSource,
   dolarApiSource,
+  enforceBilling,
   expirePendingActions,
   type Logger,
   markWebhookEvent,
   type ObjectStore,
+  type OverCap,
   type ProcessDeps,
   processInbound,
   refreshRates,
@@ -39,6 +41,8 @@ export async function registerJobs(opts: {
   concurrency: number;
   /** Se llama con cada error de un handler antes de relanzarlo (Sentry en producción). */
   onError?: (err: unknown, queue: string) => void;
+  /** Negocios que pasaron el límite de mensajes del plan este mes (una vez por mes cada uno). */
+  onOverCap?: (items: OverCap[]) => void;
 }) {
   const { boss, db, deps, log } = opts;
   const guarded =
@@ -134,6 +138,21 @@ export async function registerJobs(opts: {
           );
       }
       if (stuck.length > 0) log.warn({ jobs: stuck.map((s) => s.jobId) }, "jobs FIFO cancelados");
+      // Cobros: suspender vencidos (prueba o pago + 3 días de gracia) y avisar límites pasados.
+      try {
+        const billing = await enforceBilling(db, now);
+        if (billing.suspended.length)
+          log.warn({ tenants: billing.suspended }, "negocios suspendidos por plan vencido");
+        if (billing.overCap.length) {
+          log.warn({ overCap: billing.overCap }, "negocios sobre el límite de mensajes del plan");
+          opts.onOverCap?.(billing.overCap);
+        }
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : String(err) },
+          "cobros: ¿falta la migración 0007?",
+        );
+      }
     }),
   );
 

@@ -18,6 +18,10 @@ const Env = z.object({
     .regex(/^\d{8,15}$/)
     .optional(),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  /** Correos con acceso al panel /admin, separados por coma. Sin esto, nadie entra. */
+  PLATFORM_ADMIN_EMAILS: z.string().optional(),
+  /** Tarifa de Meta por mensaje de servicio fuera del cupo gratis (ADR-014). */
+  META_MSG_RATE_USD: z.coerce.number().default(0.0113),
 });
 
 export type WebEnv = z.infer<typeof Env>;

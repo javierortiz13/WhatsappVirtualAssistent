@@ -987,3 +987,67 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
   color: var(--muted);
   font-size: 13px;
 }
+
+/* ---------------------------------------------------------------- panel de administración */
+.content.wide {
+  max-width: 880px;
+}
+/* Las filas del panel no llevan ícono: sin la columna de 36px del dashboard. */
+.content.wide .row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.content.wide .row .what strong {
+  white-space: normal;
+}
+.admin-top h1 a {
+  color: inherit;
+  text-decoration: none;
+}
+.admin-tiles {
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.admin-list {
+  margin-top: var(--space-2);
+}
+.admin-pad {
+  padding: 0 var(--space-3) var(--space-3);
+  margin: 0;
+}
+.admin-tenant {
+  color: inherit;
+  text-decoration: none;
+}
+.admin-pay .amts form {
+  display: inline-flex;
+}
+.admin-grid {
+  gap: var(--space-2);
+}
+.admin-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+}
+.admin-inline {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.admin-inline .input {
+  flex: 1;
+  min-width: 0;
+}
+.admin-inline .btn {
+  flex: none;
+}
+@media (max-width: 560px) {
+  .admin-top .sub {
+    display: none;
+  }
+  .admin-grid.grid-3,
+  .admin-grid.grid-2 {
+    grid-template-columns: 1fr;
+  }
+}

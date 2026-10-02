@@ -17,4 +17,4 @@ export * from "./client";
 export { loadNearestEnvFile } from "./env-file";
 export { runMigrations } from "./migrate";
 export * as schema from "./schema/index";
-export { allTenantIds } from "./tenants";
+export { allTenantIds, everyTenantId } from "./tenants";

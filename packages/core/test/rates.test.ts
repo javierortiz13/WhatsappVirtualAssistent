@@ -31,7 +31,12 @@ describe("fuente BCV", () => {
   it("parsea tasa con coma y 8 decimales y la fecha valor", () => {
     const r = parseBcvHtml(BCV_HTML);
     expect(r.rate.toFixed(8)).toBe("858.12345678");
+    expect(r.rateEur?.toFixed(8)).toBe("1001.23456789");
     expect(r.effectiveDate).toBe("2026-09-30");
+    // Sin bloque del euro la tasa del dólar sigue saliendo.
+    expect(
+      parseBcvHtml(BCV_HTML.replace(/<div id="euro">.*?<\/div><\/div>/s, "")).rateEur,
+    ).toBeNull();
   });
   it("lanza si la página cambió", () => {
     expect(() => parseBcvHtml("<html></html>")).toThrow(/bloque del dólar/);
@@ -68,6 +73,30 @@ describe("fuente DolarAPI", () => {
     await expect(
       dolarApiSource(fakeFetch(200, "{}", "application/json")).fetch(new Date()),
     ).rejects.toThrow(/promedio/);
+  });
+  it("trae el euro oficial si rige el mismo día; si falla o es de otro día, null", async () => {
+    const at = "2026-09-29T20:30:00.000Z";
+    const byUrl = (euro: { status: number; body: unknown }) =>
+      (async (url: string | URL | Request) => {
+        const isEuro = String(url).includes("/euros/");
+        const r = isEuro
+          ? euro
+          : { status: 200, body: { promedio: 858.5, fechaActualizacion: at } };
+        return new Response(JSON.stringify(r.body), {
+          status: r.status,
+          headers: { "content-type": "application/json" },
+        });
+      }) as typeof fetch;
+    const [ok] = await dolarApiSource(
+      byUrl({ status: 200, body: { promedio: 976.84, fechaActualizacion: at } }),
+    ).fetch(new Date());
+    expect(ok?.rateEur?.toFixed(2)).toBe("976.84");
+    const [down] = await dolarApiSource(byUrl({ status: 503, body: {} })).fetch(new Date());
+    expect(down?.rateEur).toBeNull();
+    const [stale] = await dolarApiSource(
+      byUrl({ status: 200, body: { promedio: 970, fechaActualizacion: "2026-09-28T14:00:00Z" } }),
+    ).fetch(new Date());
+    expect(stale?.rateEur).toBeNull();
   });
 });
 
@@ -115,6 +144,19 @@ describe("storeRate, refreshRates y rateFor", () => {
     const [row] = await t.db.select().from(schema.bcvRate);
     expect(row?.source).toBe("bcv");
     expect(row?.rate).toBe("858.10000000");
+    expect(row?.rateEur).toBeNull();
+    // El respaldo completa el euro que le falta a la fila del BCV, sin tocar el dólar.
+    expect(
+      await storeRate(t.db, {
+        rate: new Decimal("900"),
+        rateEur: new Decimal("976.84"),
+        effectiveDate: d,
+        publishedAt: null,
+        source: "dolarapi",
+      }),
+    ).toBe("kept_bcv");
+    const [filled] = await t.db.select().from(schema.bcvRate);
+    expect(filled).toMatchObject({ rate: "858.10000000", rateEur: "976.84000000" });
   });
 
   it("refreshRates usa el respaldo cuando el BCV falla y reporta si todo falla", async () => {

@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./domain": "./src/domain/index.ts",
+    "./plans": "./src/billing/plans.ts",
     "./whatsapp": "./src/whatsapp/index.ts",
     "./inbox": "./src/inbox/index.ts"
   },

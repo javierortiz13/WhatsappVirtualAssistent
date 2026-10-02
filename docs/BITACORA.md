@@ -411,3 +411,17 @@ Javier pidió seguir la guía `skills.sentry.dev/instrument`; el entorno bloque�
 - Se paga solo si el mismo prefijo se reutiliza 3 o más veces por hora. Con el piloto de un negocio debería cumplirse en horas de trabajo.
 
 **Cómo medirlo:** en una semana, `pnpm metrics 7` y comparar el costo promedio por turno con los 0,0088 USD de la línea base. Si no baja, volver a `LLM_CACHE_TTL=5m` en Railway.
+
+### S2 · 02/10/2026 · Cobros fase 1: planes, pagos, tasa euro y panel de administración
+
+**Decisiones de Javier:** pago móvil, Zelle y Binance; 14 días de prueba; 3 de gracia; al pasar el límite de mensajes el bot sigue y avisa. Javier planteó la brecha cambiaria: los servicios se pagan en dólares y un pago móvil a tasa BCV pierde ~90 Bs por dólar al comprar USDT. Datos del 01/10: dólar BCV 860,17, euro BCV 976,84, USDT Binance 957,66. Se cobra el pago móvil a tasa euro del BCV (ADR-015).
+
+**Terminado**
+- Migración 0007 (aditiva e idempotente): plan y vigencia en `tenant` (los existentes arrancan su prueba desde su alta; los nuevos, desde el registro), tabla `payment` con RLS, `bcv_rate.rate_eur` y `every_tenant_id()` para recorrer también los suspendidos.
+- Tasa euro: el BCV la publica en el bloque `id="euro"` y DolarAPI en `/v1/euros/oficial` (solo si rige el mismo día). El respaldo completa el euro sin pisar el dólar del BCV.
+- `packages/core/src/billing`: catálogo de planes (movido desde la web), estado calculado de la suscripción (prueba, activo, gracia, vencido, suspendido), monto a cobrar por método, registrar/aprobar/rechazar pagos con auditoría, uso del mes y la vuelta de cobros del housekeeping (suspende vencidos y avisa límites una vez por mes vía Sentry).
+- El bot le responde a un negocio suspendido "Tu plan del asistente venció…" con el contacto de soporte, en vez del enlace de registro de un desconocido.
+- Panel `/admin` (solo `PLATFORM_ADMIN_EMAILS`; los demás reciben 404): ingreso mensual, costos de IA y Meta por negocio y margen, cuánto cobrar por pago móvil hoy, pagos por verificar con Aprobar/Rechazar, ficha de cada negocio con números, registro de pagos, cambio de plan, extender días, suspender o reactivar e historial.
+- QA en Postgres real con datos: la migración aplica sobre datos existentes; con el rol de la app solo se ven los pagos del propio negocio e insertar uno ajeno lo rechaza RLS; flujo de aprobar, registrar y monto ilegible probado con navegador a 390 y 1280 px sin desbordes. 238 tests.
+
+**Pendiente (fase 2):** página "Mi plan" para que el cliente vea su vigencia y reporte el pago; recordatorio por WhatsApp 3 días antes (plantilla de utilidad aprobada por Meta); límite de números por plan al dar de alta empleados.

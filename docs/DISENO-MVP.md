@@ -1184,6 +1184,17 @@ El texto final se escribe en la Fase 4 junto con los guiones, y se versiona en e
   3. **Medir antes de decidir sobre el número.** `pnpm metrics` reporta el cupo del mes (enviados, reacciones, sobre cupo, costo estimado, proyección) y el reparto por negocio. Si la proyección supera el cupo con pocos negocios, se revisa ADR-002: un número por negocio devuelve 1.000 gratis a cada uno y para un negocio pequeño (menos de 500 movimientos al mes) el costo de Meta vuelve a cero; el precio es el alta de números (registro, verificación por SMS, nombre visible) que ya está en el plan de la Fase 7.
 - Consecuencias: el número de prueba sigue con mensajes gratis a sus 5 destinatarios, así que el piloto no paga; al pasar al número real hay que tener tarjeta en el Billing Hub del portafolio o el bot "queda mudo" sin factura. El indicador de "escribiendo" y el acuse de lectura van por el mismo endpoint pero no son mensajes. El tope diario por tenant (Fase 6) se define contando mensajes de Meta además de tokens.
 
+**ADR-015. Cobro manual verificado por el administrador y pago móvil a tasa euro del BCV** (02/10/2026)
+- Contexto: no hay pasarela para cobrar automático a comercios venezolanos (Stripe no opera en Venezuela). Los costos (Anthropic, Meta, Railway, Vercel, Supabase) se pagan en dólares. Un pago móvil en bolívares convertido a la tasa del dólar BCV pierde la brecha al comprar USDT: el 01/10/2026 el dólar BCV estaba en Bs 860,17, el USDT en Binance en Bs 957,66 (11,3 % de brecha) y el euro BCV en Bs 976,84.
+- Decisión (Javier, 02/10):
+  1. **Métodos:** pago móvil (Bs), Zelle (USD) y Binance (USDT). Zelle y Binance al precio del plan.
+  2. **Pago móvil a tasa euro del BCV:** es una tasa oficial, muchos comercios ya la usan y hoy cubre la brecha (19,99 × 976,84 = Bs 19.527,03, unos 20,39 USDT). Si el euro no está publicado se cae a la tasa del dólar y el panel lo muestra.
+  3. **Suscripción:** 14 días de prueba, períodos de 30 días por mes pagado, 3 días de gracia y luego suspensión automática. Los datos nunca se borran; el bot responde "tu plan venció" con el contacto de soporte.
+  4. **Límite de mensajes:** el bot sigue funcionando al pasarlo; el administrador recibe un aviso por Sentry una vez por mes y por negocio, y el panel lo marca.
+  5. **Verificación manual (fase 1):** el cliente paga y avisa; el administrador registra el pago en `/admin` y lo aprueba. Fase 2: página "Mi plan" para que el cliente reporte el pago y recordatorios por WhatsApp (requiere plantilla aprobada de Meta). Fase 3: automatizar con la API de Binance Pay cuando el volumen lo justifique.
+- Implementación: migración 0007 (`tenant.plan`, `trial_ends_at`, `paid_until`, `cap_notified_month`; tabla `payment` con RLS; `bcv_rate.rate_eur`; función `every_tenant_id`). Panel `/admin` solo para `PLATFORM_ADMIN_EMAILS`, que recorre los negocios uno a uno bajo RLS y deja cada acción en `audit_log` (canal `admin`). La vuelta de cobros corre en el housekeeping del worker.
+- Consecuencias: el margen del pago móvil depende de que la brecha no supere la prima del euro sobre el dólar (13,6 % el 02/10). El panel muestra esa prima cada día; si la brecha la pasa, subir el precio en bolívares o cobrar a una tasa manual.
+
 ### Decisiones tomadas en la Fase 3
 
 - Monolito modular, procesos web y worker, cola en Postgres, serialización por teléfono.

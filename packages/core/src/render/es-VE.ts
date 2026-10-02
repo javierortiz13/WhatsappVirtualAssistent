@@ -107,6 +107,17 @@ export function tooFast(): Outbound {
 }
 
 /** Número del dueño todavía sin verificar: solo acepta el código del dashboard. */
+/** Negocio suspendido por plan vencido: sin LLM, con el contacto para renovar. Los datos siguen. */
+export function planExpired(supportHint: string | null): Outbound {
+  const contact = supportHint
+    ? `Para renovarlo escríbenos: ${supportHint}`
+    : "Para renovarlo escríbele a quien te dio de alta.";
+  return {
+    type: "text",
+    body: `Tu plan del asistente venció y por ahora no puedo registrar nada. Tus datos siguen guardados. ${contact}`,
+  };
+}
+
 export function askCode(registerUrl: string): Outbound {
   return {
     type: "text",

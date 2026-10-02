@@ -8,6 +8,8 @@ import { Decimal, parseVenezuelanAmount } from "../domain/money";
  */
 export type FetchedRate = {
   rate: Decimal;
+  /** Euro oficial (Bs por euro) con la misma fecha valor; null si la fuente no lo dio. */
+  rateEur?: Decimal | null;
   effectiveDate: IsoDate;
   publishedAt: Date | null;
   source: "bcv" | "dolarapi" | "import";
@@ -36,14 +38,25 @@ const BCV_URL = "https://www.bcv.org.ve/";
  * con la fecha valor. Si la página cambia, `parseBcvHtml` lanza y el respaldo entra.
  * Verificar contra la página real al desplegar (y el certificado TLS: NODE_EXTRA_CA_CERTS).
  */
-export function parseBcvHtml(html: string): { rate: Decimal; effectiveDate: IsoDate } {
+export function parseBcvHtml(html: string): {
+  rate: Decimal;
+  rateEur: Decimal | null;
+  effectiveDate: IsoDate;
+} {
   const dolarBlock = html.match(/id="dolar"[\s\S]{0,2000}?<strong>\s*([\d.,]+)\s*<\/strong>/i);
   if (!dolarBlock?.[1]) throw new RateSourceError("bcv", "no se encontró el bloque del dólar");
   const rate = parseVenezuelanAmount(dolarBlock[1]);
   if (!rate || rate.lte(0)) throw new RateSourceError("bcv", `tasa ilegible: ${dolarBlock[1]}`);
   const date = html.match(/date-display-single[^>]*content="(\d{4}-\d{2}-\d{2})/i)?.[1];
   if (!date) throw new RateSourceError("bcv", "no se encontró la fecha valor");
-  return { rate: rate.toDecimalPlaces(8), effectiveDate: asIsoDate(date) };
+  // El euro va en un bloque hermano `id="euro"`. Es opcional: sin él, la tasa del dólar basta.
+  const euroRaw = html.match(/id="euro"[\s\S]{0,2000}?<strong>\s*([\d.,]+)\s*<\/strong>/i)?.[1];
+  const euro = euroRaw ? parseVenezuelanAmount(euroRaw) : null;
+  return {
+    rate: rate.toDecimalPlaces(8),
+    rateEur: euro?.gt(0) ? euro.toDecimalPlaces(8) : null,
+    effectiveDate: asIsoDate(date),
+  };
 }
 
 export function bcvSource(fetchImpl: typeof fetch = fetch, url = BCV_URL): RateSource {
@@ -58,13 +71,20 @@ export function bcvSource(fetchImpl: typeof fetch = fetch, url = BCV_URL): RateS
         signal: AbortSignal.timeout(20_000),
       });
       if (!res.ok) throw new RateSourceError("bcv", `HTTP ${res.status}`);
-      const { rate, effectiveDate } = parseBcvHtml(await res.text());
-      return [{ rate, effectiveDate, publishedAt: now, source: "bcv" }];
+      const { rate, rateEur, effectiveDate } = parseBcvHtml(await res.text());
+      return [{ rate, rateEur, effectiveDate, publishedAt: now, source: "bcv" }];
     },
   };
 }
 
 const DOLARAPI_URL = "https://ve.dolarapi.com/v1/dolares/oficial";
+const DOLARAPI_EURO_URL = "https://ve.dolarapi.com/v1/euros/oficial";
+
+type DolarApiBody = {
+  promedio?: number | string;
+  venta?: number | string;
+  fechaActualizacion?: string;
+};
 
 /**
  * DolarAPI devuelve `promedio` y `fechaActualizacion` (hora de actualización, no fecha valor).
@@ -91,7 +111,11 @@ export function nextBusinessDay(d: IsoDate): IsoDate {
   return n;
 }
 
-export function dolarApiSource(fetchImpl: typeof fetch = fetch, url = DOLARAPI_URL): RateSource {
+export function dolarApiSource(
+  fetchImpl: typeof fetch = fetch,
+  url = DOLARAPI_URL,
+  euroUrl = DOLARAPI_EURO_URL,
+): RateSource {
   return {
     name: "dolarapi",
     async fetch() {
@@ -100,11 +124,7 @@ export function dolarApiSource(fetchImpl: typeof fetch = fetch, url = DOLARAPI_U
         signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) throw new RateSourceError("dolarapi", `HTTP ${res.status}`);
-      const j = (await res.json()) as {
-        promedio?: number | string;
-        venta?: number | string;
-        fechaActualizacion?: string;
-      };
+      const j = (await res.json()) as DolarApiBody;
       const raw = j.promedio ?? j.venta;
       if (raw === undefined || raw === null) throw new RateSourceError("dolarapi", "sin promedio");
       const rate = new Decimal(raw);
@@ -113,14 +133,41 @@ export function dolarApiSource(fetchImpl: typeof fetch = fetch, url = DOLARAPI_U
       const updatedAt = j.fechaActualizacion ? new Date(j.fechaActualizacion) : null;
       if (!updatedAt || Number.isNaN(updatedAt.getTime()))
         throw new RateSourceError("dolarapi", "sin fechaActualizacion");
+      const effectiveDate = inferEffectiveDateFromUpdate(updatedAt);
       return [
         {
           rate: rate.toDecimalPlaces(8),
-          effectiveDate: inferEffectiveDateFromUpdate(updatedAt),
+          rateEur: await euroFor(fetchImpl, euroUrl, effectiveDate),
+          effectiveDate,
           publishedAt: updatedAt,
           source: "dolarapi",
         },
       ];
     },
   };
+}
+
+/** Euro oficial de DolarAPI, solo si rige el mismo día que el dólar. Cualquier fallo: null. */
+async function euroFor(
+  fetchImpl: typeof fetch,
+  url: string,
+  effectiveDate: IsoDate,
+): Promise<Decimal | null> {
+  try {
+    const res = await fetchImpl(url, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return null;
+    const j = (await res.json()) as DolarApiBody;
+    const raw = j.promedio ?? j.venta;
+    const updatedAt = j.fechaActualizacion ? new Date(j.fechaActualizacion) : null;
+    if (raw === undefined || raw === null || !updatedAt || Number.isNaN(updatedAt.getTime()))
+      return null;
+    if (inferEffectiveDateFromUpdate(updatedAt) !== effectiveDate) return null;
+    const v = new Decimal(raw);
+    return v.isFinite() && v.gt(0) ? v.toDecimalPlaces(8) : null;
+  } catch {
+    return null;
+  }
 }

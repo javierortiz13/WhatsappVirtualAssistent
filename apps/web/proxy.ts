@@ -6,6 +6,7 @@ import { type NextRequest, NextResponse } from "next/server";
  * quien entre sin sesión a una ruta privada. El webhook de Meta no pasa por aquí.
  */
 const PRIVATE_PREFIXES = [
+  "/admin",
   "/inicio",
   "/movimientos",
   "/cierres",

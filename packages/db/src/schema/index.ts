@@ -33,6 +33,11 @@ export const CURRENCIES = ["USD", "VES"] as const;
 export const PHONE_ROLES = ["owner", "employee"] as const;
 export const PHONE_STATUSES = ["pending", "active", "disabled"] as const;
 export const TENANT_STATUSES = ["trial", "active", "suspended"] as const;
+export const PLAN_IDS = ["personal", "negocio", "negocio_plus"] as const;
+export const PAYMENT_METHODS_BILLING = ["pago_movil", "zelle", "binance"] as const;
+export const PAYMENT_CURRENCIES = ["VES", "USD", "USDT"] as const;
+export const PAYMENT_STATUSES = ["pending", "approved", "rejected"] as const;
+export const BILLING_RATE_KINDS = ["bcv_usd", "bcv_eur", "manual"] as const;
 export const MOVEMENT_TYPES = ["expense", "income"] as const;
 export const MOVEMENT_ORIGINS = ["single", "day_total"] as const;
 export const RATE_SOURCES = ["bcv", "manual"] as const;
@@ -74,10 +79,17 @@ export const tenant = app.table(
     waPhoneNumberId: text("wa_phone_number_id"),
     closeReminderTime: time("close_reminder_time").notNull().default("18:00"),
     status: text("status").notNull().default("trial"),
+    plan: text("plan").notNull().default("negocio"),
+    trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }).default(
+      sql`now() + interval '14 days'`,
+    ),
+    paidUntil: timestamp("paid_until", { withTimezone: true }),
+    capNotifiedMonth: text("cap_notified_month"),
     ...timestamps,
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   () => [
+    check("tenant_plan_check", inList("plan", PLAN_IDS)),
     check("tenant_business_type_check", inList("business_type", BUSINESS_TYPES)),
     check(
       "tenant_default_expense_currency_check",
@@ -173,6 +185,8 @@ export const bcvRate = app.table("bcv_rate", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   effectiveDate: date("effective_date").notNull().unique(),
   rate: numeric("rate", { precision: 18, scale: 8 }).notNull(),
+  /** Euro oficial del BCV, misma fecha valor (0007). Null en filas viejas o si la fuente no lo dio. */
+  rateEur: numeric("rate_eur", { precision: 18, scale: 8 }),
   publishedAt: timestamp("published_at", { withTimezone: true }),
   source: text("source").notNull(),
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
@@ -362,3 +376,34 @@ export type NewMovement = typeof movement.$inferInsert;
 export type PendingAction = typeof pendingAction.$inferSelect;
 export type Message = typeof message.$inferSelect;
 export type WebhookEvent = typeof webhookEvent.$inferSelect;
+
+export const payment = app.table(
+  "payment",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id),
+    plan: text("plan").notNull(),
+    months: integer("months").notNull().default(1),
+    method: text("method").notNull(),
+    amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    currency: text("currency").notNull(),
+    rateKind: text("rate_kind"),
+    rateValue: numeric("rate_value", { precision: 18, scale: 8 }),
+    amountUsd: numeric("amount_usd", { precision: 18, scale: 2 }).notNull(),
+    reference: text("reference"),
+    status: text("status").notNull().default("pending"),
+    notes: text("notes"),
+    reviewedBy: text("reviewed_by"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index("payment_tenant_idx").on(t.tenantId, t.createdAt),
+    check("payment_plan_check", inList("plan", PLAN_IDS)),
+    check("payment_method_check", inList("method", PAYMENT_METHODS_BILLING)),
+    check("payment_currency_check", inList("currency", PAYMENT_CURRENCIES)),
+    check("payment_status_check", inList("status", PAYMENT_STATUSES)),
+  ],
+);

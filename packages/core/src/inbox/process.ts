@@ -142,11 +142,15 @@ export async function processInbound(
       windowMs: deps.config.unknownReplyWindowMs,
       now: now(),
     });
+    // Número activo de un negocio suspendido (plan vencido): no es un desconocido.
+    const suspended = resolved?.phoneStatus === "active" && resolved.tenantStatus === "suspended";
     if (reply && msg.sender.e164) {
       try {
         await meta.sendText(
           msg.sender.e164,
-          es.unknownNumber(`${deps.config.dashboardUrl}/registro`).body,
+          suspended
+            ? es.planExpired(deps.config.supportHint).body
+            : es.unknownNumber(`${deps.config.dashboardUrl}/registro`).body,
         );
       } catch (err) {
         log.warn(
@@ -159,7 +163,11 @@ export async function processInbound(
       deps.db,
       event.id,
       "ignored",
-      resolved ? `número ${resolved.phoneStatus}` : "número desconocido",
+      suspended
+        ? "negocio suspendido"
+        : resolved
+          ? `número ${resolved.phoneStatus}`
+          : "número desconocido",
     );
     log.info(
       { from: maskPhone(msg.sender.e164), replied: reply },

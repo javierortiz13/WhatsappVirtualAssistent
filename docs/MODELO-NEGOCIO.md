@@ -154,10 +154,18 @@ de fijar precios. Si el número propio por negocio resulta viable, el variable d
 
 ## 7. Cobro y operación
 
-- Sin Stripe ni tarjetas en Venezuela: Pago Móvil en Bs a la tasa BCV del día, Zelle o USDT.
-  Cobro manual y marcado en el dashboard los primeros meses; automatizar cuando pase de 20 clientes.
-- Prueba gratis: el piloto y los primeros clientes entran sin cobro; después, 14 días gratis con
-  los límites del plan Negocio.
+- Sin Stripe ni tarjetas en Venezuela: pago móvil en Bs, Zelle en USD o Binance en USDT (ADR-015).
+- **Pago móvil a la tasa euro del BCV**, no a la del dólar. Pagamos los servicios en dólares y, al
+  cambiar bolívares por USDT, la brecha se come el margen: el 01/10/2026 el dólar BCV estaba en
+  Bs 860,17, el USDT en Binance en Bs 957,66 (+11,3 %) y el euro BCV en Bs 976,84 (+13,6 %).
+  El plan Negocio por pago móvil es Bs 19.527,03, unos 20,39 USDT: la tasa euro cubre la brecha y
+  sigue siendo oficial. Vigilar que la brecha no supere la prima del euro; el panel la muestra.
+- Cobro verificado a mano en el panel `/admin` los primeros meses; automatizar (Binance Pay)
+  cuando pase de 20 clientes.
+- Prueba gratis: 14 días con los límites del plan. Períodos de 30 días por mes pagado, 3 días de
+  gracia y luego suspensión (los datos se conservan).
+- Límite de mensajes: el bot sigue funcionando al pasarlo y el administrador recibe un aviso para
+  ofrecer el plan superior.
 - Factura: recibo simple por correo; la facturación fiscal queda para cuando haya empresa.
 
 ## 8. Qué tiene que responder el piloto

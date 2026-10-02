@@ -347,6 +347,27 @@ describe("processInbound", () => {
     await withTenant(t.db, tenantId, (tx) => tx.delete(schema.pendingAction));
   });
 
+  it("negocio suspendido por plan vencido: responde que venció, sin LLM, y no guarda nada", async () => {
+    const { sent, client } = fakeMeta();
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.update(schema.tenant).set({ status: "suspended" }).where(eq(schema.tenant.id, tenantId)),
+    );
+    try {
+      const job = await ingest(message("wamid.SUSP1", "584121234567", "gasté 15$ en champú"));
+      expect(await processInbound(deps(client), job)).toBe("ignored");
+      expect(textOf(sent[0])).toContain("Tu plan del asistente venció");
+      const [ev] = await t.db
+        .select()
+        .from(schema.webhookEvent)
+        .where(eq(schema.webhookEvent.id, job.webhookEventId));
+      expect(ev?.error).toBe("negocio suspendido");
+    } finally {
+      await withTenant(t.db, tenantId, (tx) =>
+        tx.update(schema.tenant).set({ status: "trial" }).where(eq(schema.tenant.id, tenantId)),
+      );
+    }
+  });
+
   it("nota de voz y sticker reciben respuestas fijas por ahora", async () => {
     const { sent, client } = fakeMeta();
     await processInbound(deps(client), await ingest(fx.audioMessage));
