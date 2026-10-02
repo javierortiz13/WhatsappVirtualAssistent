@@ -93,3 +93,15 @@
   expect:
     tool: draft_expense
     args: { amount: "15", currency: USD }
+
+- name: autocorrección por texto es un solo gasto con el monto final
+  input: "registrar champú. No, no fueron 20, fueron 15 dólares"
+  expect:
+    tool: draft_expense
+    args: { amount: "15", currency: USD }
+
+- name: autocorrección con "digo"
+  input: "gasté 20, digo 15, en champú"
+  expect:
+    tool: draft_expense
+    args: { amount: "15" }

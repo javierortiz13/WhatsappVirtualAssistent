@@ -34,3 +34,19 @@
   expect:
     tool: draft_expense
     args: { amount: "450000", currency: VES }
+
+# Autocorrección en el mismo mensaje (pregunta de Javier, 01/10): un solo gasto con el monto
+# que afirma, aunque el bueno vaya de último. Antes la regla decía "el primero es el correcto".
+- name: gasto nuevo con autocorrección dictada (el bueno va de último)
+  input: "registrar champú no no fueron veinte fueron quince dólares"
+  kind: voice
+  expect:
+    tool: draft_expense
+    args: { amount: "15", currency: USD }
+
+- name: corrección del último guardado con el bueno de último
+  input: "no fueron veinte fueron quince"
+  kind: voice
+  expect:
+    tool: amend_last_movement
+    args: { amount: "15" }
