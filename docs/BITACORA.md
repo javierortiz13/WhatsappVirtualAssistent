@@ -456,7 +456,7 @@ Javier pidió seguir la guía `skills.sentry.dev/instrument`; el entorno bloque�
 **Síntoma (Javier, WhatsApp real):** "Necesito pagar en nómina 225.6$ a la tasa euro del día" quedó a tasa dólar (866,56), y al corregir con "Usa la tasa € del día de hoy" el bot respondió "No manejo la tasa del euro". La tasa euro que se agregó en la mañana solo se usaba para cobrar los planes, no en los movimientos.
 
 **Arreglo**
-- El campo `rate` de las herramientas acepta "euro" ("a tasa euro", "tasa €", "al euro del día"). `rateOverride` lo resuelve con `euroRateFor`: el euro BCV publicado en o antes de la fecha del movimiento. El monto sigue en su moneda: 225,60 $ a tasa euro 973,93 = Bs 219.722,18.
+- El campo `rate` de las herramientas acepta "euro" ("a tasa euro", "tasa €", "al euro del día"). `rateOverride` lo resuelve con `euroRateFor`: el euro BCV publicado en o antes de la fecha del movimiento. El monto sigue en su moneda: 225,60 $ a tasa euro 973,93 = Bs 219.718,19.
 - Nuevo origen de tasa `bcv_eur` (migración 0008, aplicada en producción antes del deploy): el movimiento guarda la tasa euro y la fila de `bcv_rate` de donde salió. Los mensajes dicen "a tasa euro 973,93" y el detalle del dashboard "tasa euro".
 - Funciona en gastos, varios gastos, ventas del día, ingresos sueltos y correcciones de lo guardado. Al corregir un borrador, el modelo ve la tasa que tenía ("euro" o el número) para no perderla.
 - Antes del 02/10 no se guardaba el euro: para esas fechas el bot pide la tasa en vez de inventarla.
