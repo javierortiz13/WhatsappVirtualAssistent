@@ -14,6 +14,7 @@ import {
   IconLogout,
   IconMenu,
   IconPhone,
+  IconShield,
   IconTags,
 } from "./icons";
 
@@ -23,6 +24,8 @@ export type SidebarProps = {
   rateLine: string | null;
   pendingPhones: number;
   assistantUrl: string | null;
+  /** Solo los correos de PLATFORM_ADMIN_EMAILS ven el acceso a la consola. */
+  isAdmin?: boolean;
 };
 
 const TITLES: [string, string][] = [
@@ -108,6 +111,12 @@ export function Shell({ children, ...p }: SidebarProps & { children: ReactNode }
         )}
         {item("/ajustes/exportar", "Exportar a Excel", <IconDownload />)}
         {item("/ajustes", "Ajustes", <IconGear />)}
+        {p.isAdmin ? (
+          <>
+            <span className="sect">Plataforma</span>
+            {item("/admin", "Consola de administración", <IconShield />)}
+          </>
+        ) : null}
         <div className="bottom">
           {p.assistantUrl ? (
             <a className="menu-item" href={p.assistantUrl} target="_blank" rel="noreferrer">

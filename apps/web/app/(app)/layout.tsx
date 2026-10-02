@@ -2,6 +2,7 @@ import { getRateInfo, tenantPhones } from "@caja/core";
 import { formatMoney } from "@caja/core/domain";
 import { withTenant } from "@caja/db";
 import type { ReactNode } from "react";
+import { adminEmails } from "@/lib/admin";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { todayInCaracas } from "@/lib/queries";
@@ -26,6 +27,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       }
       pendingPhones={phones.filter((p) => p.status === "pending").length}
       assistantUrl={wa ? `https://wa.me/${wa}` : null}
+      isAdmin={adminEmails().includes(session.user.email.toLowerCase())}
     >
       {children}
     </Shell>

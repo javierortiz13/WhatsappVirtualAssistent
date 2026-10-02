@@ -435,3 +435,5 @@ Javier pidió seguir la guía `skills.sentry.dev/instrument`; el entorno bloque�
 **Mitigación en código:** la web usa 2 conexiones por instancia y las suelta a los 20 s de inactividad (`createDb(..., { max: 2, idleTimeoutSec: 20 })`). El worker no cambia. pg-boss ya suelta las suyas a los 10 s (valor por defecto de `pg`).
 
 **Arreglo de fondo (Javier):** Supabase → Project Settings → Database → Connection pooling → Pool Size 30. Más adelante, evaluar el transaction pooler solo para la web.
+
+**Pool Size a 30 (Javier, 02/10)** en Supabase. Además, el menú lateral muestra una sección "Plataforma" con "Consola de administración" solo a los correos de `PLATFORM_ADMIN_EMAILS`; los demás no ven el enlace y `/admin` les responde 404.
