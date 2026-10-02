@@ -70,3 +70,9 @@
   expect:
     tool: delete_last_movement
     args: { scope: matching }
+
+- name: eliminar los cuatro gastos (mensaje real rechazado el 02/10)
+  input: "Puedes eliminar los cuatro gastos que registramos ya los había registrado disculpa"
+  expect:
+    tool: delete_last_movement
+    args: { scope: last_n, count: 4 }

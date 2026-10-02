@@ -389,3 +389,13 @@ Javier pidió seguir la guía `skills.sentry.dev/instrument`; el entorno bloque�
 - Varios se confirman en un solo mensaje ("Elimino 2 gastos: 1. … 2. …", botones Eliminar / Cancelar) y se borran con auditoría, uno por uno, en la misma transacción. Sin migración: reutiliza el tipo `delete_last` con la lista en `items`.
 - Prompt (regla 7b) y descripción de `reject_out_of_scope`: borrar varios sí se hace por chat.
 - Tests de punta a punta (por nombre, los del último Guardar, los N últimos, nombre no encontrado) y cuatro casos de eval, entre ellos la frase del piloto (67 casos).
+
+**Evals (Javier, 02/10): 67/67, 0,26 USD.** El borrado de varios pasa en los cuatro casos.
+
+### S2 · 02/10/2026 · Lectura de `pnpm metrics` (primeros 4 días)
+
+- **Meta:** 19 mensajes de servicio en octubre, proyección de 295 en el mes, todo dentro de los 1.000 gratis. 0,95 salientes por entrante: las reacciones como acuse funcionan (ADR-014).
+- **IA:** 46 turnos, 0,40 USD, 0,0088 USD por turno, 2,7 veces lo que asume el modelo de negocio (0,0032). La causa es el caché del prompt: dos turnos casi iguales del 30/09 con dos minutos de diferencia costaron 0,0168 (escribe el caché) y 0,0035 (lo lee). Con pocos mensajes el caché de 5 minutos vence entre uno y otro. Opción a medir en el piloto: caché de 1 hora, que escribe más caro pero se reutiliza en mensajes espaciados.
+- **Latencia del agente:** p50 4,5 s, p95 23 s. Los cuatro turnos de texto lentos (15 a 28 s) son del 29 y 30/09; desde el 01/10 el texto más lento tardó 5,4 s. Las fotos de facturas tienen p50 9,7 s y máximo 35 s: es lo que dejó la factura detrás del gasto de la arepa y motivó la cola de borradores.
+- **Rechazos (8):** dos correctos (un chiste, "cuáles son tus capacidades"); cinco ventas del 29/09 antes de que existieran las herramientas de ventas; uno es el borrado de varios ("eliminar los cuatro gastos"), ya arreglado y agregado como caso de eval (68 casos).
+- **Webhook:** 91 eventos `done`, 3 `ignored`, 1 `failed` del 29/09 (el incidente de `key_strict_fifo` ya resuelto).
