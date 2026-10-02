@@ -487,3 +487,11 @@ La aclaración de la moneda pasa a una nota al final. Las correcciones muestran 
 - Distinto de "a tasa euro" (monto en $ o Bs con la tasa euro). El prompt explica la diferencia y que en una lista cada ítem lleva su moneda.
 - Sin euro BCV para esa fecha (antes del 02/10) el bot pide el monto en dólares o en bolívares.
 - Test de punta a punta con el mensaje real y tres casos de eval (75 casos); el eval compara la moneda de cada ítem con `item_currencies`. Sin migración.
+
+### S2 · 02/10/2026 · Entrar con Google
+
+- Botón "Continuar con Google" en /login, encima del magic link ("o con tu correo"). Usa el OAuth de Supabase con PKCE: la acción `signInWithGoogle` arma la URL y deja el verificador en una cookie; `/auth/callback` lo canjea por la sesión y manda a /inicio (sin negocio, a /registro, igual que el magic link).
+- Misma cuenta con los dos métodos: Supabase vincula la identidad de Google al usuario que ya tenía ese correo, y `claim_account` cubre el caso de un id nuevo con el mismo correo.
+- Cancelar en Google vuelve a /login con "No se completó la entrada con Google".
+- Detrás de `GOOGLE_AUTH_ENABLED=1` (Vercel): sin el proveedor activo en Supabase el botón llevaría a un error, así que no se muestra hasta configurarlo.
+- **Configuración (Javier):** cliente OAuth "Web" en Google Cloud con la redirección `https://daomgsvvhvuhiccttrlg.supabase.co/auth/v1/callback`; client ID y secret en Supabase → Authentication → Providers → Google; `https://caja.jpsoftwaredev.com/auth/callback` en Authentication → URL Configuration → Redirect URLs.

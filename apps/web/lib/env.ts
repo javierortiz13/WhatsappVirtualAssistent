@@ -29,6 +29,14 @@ const Env = z.object({
   PAYMENT_BINANCE: z.string().optional(),
   /** Contacto de soporte para el cliente (mismo valor que SUPPORT_HINT del worker). */
   SUPPORT_HINT: z.string().optional(),
+  /**
+   * "1" muestra "Continuar con Google" en /login. Solo cuando el proveedor Google ya está activo en
+   * Supabase (Authentication → Providers); antes, el botón llevaría a un error.
+   */
+  GOOGLE_AUTH_ENABLED: z
+    .enum(["0", "1"])
+    .default("0")
+    .transform((v) => v === "1"),
   /** Tarifa de Meta por mensaje de servicio fuera del cupo gratis (ADR-014). */
   META_MSG_RATE_USD: z.coerce.number().default(0.0113),
 });

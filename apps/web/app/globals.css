@@ -898,6 +898,28 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
 .btn.block {
   width: 100%;
 }
+/* Botón de Google: fondo blanco y texto oscuro, como piden sus pautas de marca. */
+.btn.google {
+  background: #ffffff;
+  color: #1f1f1f;
+  border: 1px solid #dadce0;
+  box-shadow: none;
+}
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-2);
+}
 .center-text {
   text-align: center;
 }
