@@ -374,3 +374,5 @@ Javier pidió seguir la guía `skills.sentry.dev/instrument`; el entorno bloque�
 - Tests: cola, corrección y tope en el ledger; agente con factura esperando + gasto nuevo y con corrección del más reciente. Las evals ahora admiten `pending` (borradores sembrados) y `pending_after`; cinco casos nuevos en `cola.yaml`, entre ellos el mensaje real (63 casos).
 
 **Para desplegar:** `pnpm db:migrate` (aplica la 0005 y la 0006) antes o junto con el deploy del worker, y `pnpm evals`.
+
+**Evals y despliegue (Javier, 02/10): 63/63, 0,24 USD, Sonnet 5.5.** Pasan los cinco casos de la cola, los de varios gastos y los de autocorrección; el caso viejo "no eran cincuenta no treinta" sigue dando 50 con la regla 7c. Producción verificada: 0005 y 0006 aplicadas (05:42 UTC) y el worker corre el commit de la cola. El worker se desplegó unas tres horas antes de la migración; en ese intervalo los 8 eventos de webhook quedaron `done`, sin fallos. Regla para la próxima migración: correr `pnpm db:migrate` antes de subir el código que la necesita.
