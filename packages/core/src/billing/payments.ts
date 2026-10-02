@@ -58,6 +58,53 @@ export async function recordPayment(
   return { paymentId: row.id, paidUntil };
 }
 
+/**
+ * El cliente reporta desde "Mi plan" un pago que hizo (fase 2 adelantada, 02/10/2026). Queda
+ * pendiente: solo el administrador lo aprueba después de verificarlo en su banco o billetera.
+ */
+export async function reportPayment(
+  tx: Tx,
+  p: NewPayment,
+  user: Reviewer,
+  now: Date,
+): Promise<{ paymentId: string }> {
+  if (!p.amount.isFinite() || p.amount.lte(0)) throw new Error("monto inválido");
+  if (!Number.isInteger(p.months) || p.months < 1 || p.months > 12)
+    throw new Error("meses inválidos");
+  const open = await tx
+    .select({ id: schema.payment.id })
+    .from(schema.payment)
+    .where(and(eq(schema.payment.tenantId, p.tenantId), eq(schema.payment.status, "pending")));
+  if (open.length >= 3) throw new TooManyPendingError();
+  const [row] = await tx
+    .insert(schema.payment)
+    .values({
+      tenantId: p.tenantId,
+      plan: p.plan,
+      months: p.months,
+      method: p.method,
+      amount: toDbAmount(p.amount),
+      currency: p.currency,
+      rateKind: p.rateKind,
+      rateValue: p.rateValue ? toDbRate(p.rateValue) : null,
+      amountUsd: toDbAmount(p.amountUsd),
+      reference: p.reference,
+      notes: p.notes,
+    })
+    .returning({ id: schema.payment.id });
+  if (!row) throw new Error("no se pudo registrar el pago");
+  await audit(tx, p.tenantId, user, "report", "payment", row.id, null, { ...p }, now, "dashboard");
+  return { paymentId: row.id };
+}
+
+/** Tope de pagos por verificar por negocio, para que un error de la página no llene la cola. */
+export class TooManyPendingError extends Error {
+  constructor() {
+    super("ya hay 3 pagos por verificar");
+    this.name = "TooManyPendingError";
+  }
+}
+
 export async function approvePayment(
   tx: Tx,
   tenantId: string,
@@ -158,6 +205,7 @@ async function audit(
   before: unknown,
   after: unknown,
   now: Date,
+  channel: "admin" | "dashboard" = "admin",
 ): Promise<void> {
   await tx.insert(schema.auditLog).values({
     tenantId,
@@ -168,7 +216,7 @@ async function audit(
     entityId,
     before: before === null ? null : JSON.parse(JSON.stringify(before)),
     after: after === null ? null : JSON.parse(JSON.stringify(after)),
-    channel: actor ? "admin" : "system",
+    channel: actor ? channel : "system",
     createdAt: now,
   });
 }

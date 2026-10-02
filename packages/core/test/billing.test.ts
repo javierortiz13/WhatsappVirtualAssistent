@@ -12,7 +12,9 @@ import {
   quote,
   recordPayment,
   rejectPayment,
+  reportPayment,
   subscriptionState,
+  TooManyPendingError,
 } from "../src/billing/index";
 import { Decimal } from "../src/domain/money";
 
@@ -176,6 +178,49 @@ describe("pagos, suspensión y límite (base de prueba)", () => {
       "create",
       "reject",
     ]);
+  });
+
+  it("el cliente reporta un pago: queda por verificar, no activa nada y hay tope de 3 pendientes", async () => {
+    const before = await tenant();
+    const user = { userId: "44444444-4444-4444-8444-444444444444", email: "dueno@test" };
+    const report = (ref: string) =>
+      withTenant(t.db, tenantId, (tx) =>
+        reportPayment(
+          tx,
+          {
+            tenantId,
+            plan: "negocio_plus",
+            months: 1,
+            method: "binance",
+            amount: new Decimal("39.99"),
+            currency: "USDT",
+            rateKind: null,
+            rateValue: null,
+            amountUsd: new Decimal("39.99"),
+            reference: ref,
+            notes: null,
+          },
+          user,
+          now,
+        ),
+      );
+    await report("BN-1");
+    await report("BN-2");
+    await report("BN-3");
+    await expect(report("BN-4")).rejects.toBeInstanceOf(TooManyPendingError);
+    const after = await tenant();
+    expect(after).toMatchObject({ status: before?.status, plan: before?.plan });
+    const rows = await withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.auditLog).where(eq(schema.auditLog.action, "report")),
+    );
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.channel === "dashboard" && r.actorType === "user")).toBe(true);
+    await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .update(schema.payment)
+        .set({ status: "rejected" })
+        .where(eq(schema.payment.status, "pending")),
+    );
   });
 
   it("vencido más 3 días de gracia: se suspende; sobre el límite: avisa una sola vez por mes", async () => {

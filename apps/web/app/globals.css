@@ -21,6 +21,13 @@
   --amber-soft: rgba(245, 176, 76, 0.14);
   --green: #168a66;
   --danger: #f56b6b;
+  /* Colores de los planes: Personal azul, Negocio menta, Negocio Plus violeta. */
+  --plan-personal: #6cb6ff;
+  --plan-personal-soft: rgba(108, 182, 255, 0.14);
+  --plan-negocio: var(--mint);
+  --plan-negocio-soft: var(--mint-soft);
+  --plan-plus: #b79cff;
+  --plan-plus-soft: rgba(183, 156, 255, 0.15);
   --danger-border: rgba(245, 93, 93, 0.5);
   --radius: 20px;
   --radius-2: 14px;
@@ -1050,4 +1057,103 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
   .admin-grid.grid-2 {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---------------------------------------------------------------- planes (consola y "Mi plan") */
+.plan-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--plan-c);
+  background: var(--plan-soft);
+}
+.plan-chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--plan-c);
+}
+.plan-personal {
+  --plan-c: var(--plan-personal);
+  --plan-soft: var(--plan-personal-soft);
+}
+.plan-negocio {
+  --plan-c: var(--plan-negocio);
+  --plan-soft: var(--plan-negocio-soft);
+}
+.plan-negocio_plus {
+  --plan-c: var(--plan-plus);
+  --plan-soft: var(--plan-plus-soft);
+}
+.plan-name {
+  color: var(--plan-c);
+}
+.due {
+  color: var(--amber);
+  font-weight: 500;
+}
+.due.late {
+  color: var(--danger);
+}
+.plan-card {
+  border-top: 3px solid var(--plan-c);
+}
+.plan-card.current {
+  box-shadow:
+    0 0 0 1px var(--plan-c),
+    0 10px 30px -18px var(--plan-c);
+}
+.plan-card ul {
+  margin: var(--space-2) 0 0;
+  padding-left: 18px;
+  color: var(--fg-2);
+  font-size: 14px;
+}
+.plan-card li + li {
+  margin-top: 4px;
+}
+.plan-price {
+  font-size: 26px;
+  font-weight: 700;
+  margin: var(--space-1) 0 0;
+  font-variant-numeric: tabular-nums;
+}
+.pay-method {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3);
+  border-radius: var(--radius-2);
+  background: rgba(255, 255, 255, 0.04);
+}
+.pay-method strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.admin-plan-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+.usage {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+  margin: var(--space-3) 0 var(--space-1);
+}
+.usage > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--plan-c, var(--mint));
+}
+.usage > span.warn {
+  background: var(--amber);
 }

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { type ReactNode, useEffect, useState } from "react";
 import {
   IconBars,
+  IconCard,
   IconChat,
   IconClose,
   IconDownload,
@@ -26,9 +27,17 @@ export type SidebarProps = {
   assistantUrl: string | null;
   /** Solo los correos de PLATFORM_ADMIN_EMAILS ven el acceso a la consola. */
   isAdmin?: boolean;
+  /** Contenido más ancho (la consola de administración tiene tablas). */
+  wide?: boolean;
+  /** Etiqueta corta del plan ("prueba · 11 días") junto a "Mi plan"; null si no aplica. */
+  planBadge?: { text: string; warn: boolean } | null;
 };
 
 const TITLES: [string, string][] = [
+  ["/admin/negocios/", "Negocio"],
+  ["/admin", "Administración"],
+  ["/ajustes/plan", "Mi plan"],
+  ["/ajustes/perfil", "Perfil"],
   ["/inicio", "Inicio"],
   ["/movimientos/", "Movimiento"],
   ["/movimientos", "Movimientos"],
@@ -110,6 +119,14 @@ export function Shell({ children, ...p }: SidebarProps & { children: ReactNode }
           p.pendingPhones > 0 ? <span className="badge warn">{p.pendingPhones}</span> : undefined,
         )}
         {item("/ajustes/exportar", "Exportar a Excel", <IconDownload />)}
+        {item(
+          "/ajustes/plan",
+          "Mi plan",
+          <IconCard />,
+          p.planBadge ? (
+            <span className={`badge ${p.planBadge.warn ? "warn" : ""}`}>{p.planBadge.text}</span>
+          ) : undefined,
+        )}
         {item("/ajustes", "Ajustes", <IconGear />)}
         {p.isAdmin ? (
           <>
@@ -133,7 +150,7 @@ export function Shell({ children, ...p }: SidebarProps & { children: ReactNode }
           <span className="foot">{p.email}</span>
         </div>
       </nav>
-      <main className="content">
+      <main className={`content${p.wide ? " wide" : ""}`}>
         <div className="topbar">
           <button
             className="iconbtn menu"

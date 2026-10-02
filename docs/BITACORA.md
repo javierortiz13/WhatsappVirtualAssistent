@@ -437,3 +437,16 @@ Javier pidió seguir la guía `skills.sentry.dev/instrument`; el entorno bloque�
 **Arreglo de fondo (Javier):** Supabase → Project Settings → Database → Connection pooling → Pool Size 30. Más adelante, evaluar el transaction pooler solo para la web.
 
 **Pool Size a 30 (Javier, 02/10)** en Supabase. Además, el menú lateral muestra una sección "Plataforma" con "Consola de administración" solo a los correos de `PLATFORM_ADMIN_EMAILS`; los demás no ven el enlace y `/admin` les responde 404.
+
+### S2 · 02/10/2026 · Consola con menú, colores de planes, Perfil y Mi plan
+
+**Pedido de Javier** (captura del iPhone): la consola no tenía el menú lateral; colores distintos por plan y vencimientos en ámbar; una página de ajustes para que el usuario cambie su perfil y gestione su plan.
+
+**Terminado**
+- La consola usa el mismo menú lateral del dashboard (`lib/shell.ts` arma sus datos para los dos layouts), con contenido más ancho. El menú suma "Mi plan" con una etiqueta cuando hay algo que mirar ("prueba · 2 d", "vence en 4 d", "vencido").
+- Colores de los planes: Personal azul, Negocio menta, Negocio Plus violeta (fichas, nombres y borde de las tarjetas). Vencimientos en ámbar; vencidos y suspendidos en rojo. El margen negativo se ve "−$0,12" en vez de "$-0,12".
+- Ajustes → Perfil: nombre de la cuenta, que también es como el asistente llama al dueño por WhatsApp; correo y número de solo lectura; cerrar sesión.
+- Ajustes → Mi plan: plan, estado, vencimiento y uso del mes; los tres planes con precio en dólares y en bolívares a tasa euro; cómo pagar por pago móvil, Zelle y Binance con los datos de `PAYMENT_PAGO_MOVIL`, `PAYMENT_ZELLE` y `PAYMENT_BINANCE`; formulario "Ya pagué" que deja el pago por verificar en la consola (`reportPayment`, auditado con canal `dashboard`, tope de 3 pendientes) e historial de pagos.
+- QA con navegador a 390 px: menú en las cuatro pantallas, reporte que llega a la cola de la consola, nombre guardado, sin desbordes. 239 tests.
+
+**Pendiente de Javier:** poner en Vercel `PAYMENT_PAGO_MOVIL`, `PAYMENT_ZELLE`, `PAYMENT_BINANCE` y `SUPPORT_HINT` (este último también en Railway). Sin ellos, "Mi plan" le pide al cliente escribir a soporte para recibir los datos.

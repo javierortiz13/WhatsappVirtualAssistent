@@ -1,25 +1,21 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { requireAdmin } from "@/lib/admin";
+import { currentSession } from "@/lib/session";
+import { shellProps } from "@/lib/shell";
+import { Shell } from "../(app)/sidebar";
 
 export const metadata: Metadata = { title: "Administración", robots: { index: false } };
 export const dynamic = "force-dynamic";
 
-/** Panel de la plataforma: fuera del menú de los negocios y solo para PLATFORM_ADMIN_EMAILS. */
+/** Consola de la plataforma con el mismo menú lateral del dashboard, más ancha. Solo admins. */
 export default async function AdminLayout({ children }: { children: ReactNode }) {
-  const admin = await requireAdmin();
+  await requireAdmin();
+  const session = await currentSession();
+  if (!session) return null;
   return (
-    <div className="content wide">
-      <header className="topbar admin-top">
-        <h1>
-          <a href="/admin">Administración</a>
-        </h1>
-        <span className="sub">{admin.email}</span>
-        <a className="linkbtn" href="/inicio">
-          Mi negocio
-        </a>
-      </header>
+    <Shell {...(await shellProps(session))} wide>
       {children}
-    </div>
+    </Shell>
   );
 }

@@ -9,7 +9,7 @@ import {
   recordPaymentAction,
   rejectPaymentAction,
 } from "../../actions";
-import { dueText, METHOD_LABEL, STATE, usd, ves } from "../../format";
+import { dueClass, dueText, METHOD_LABEL, planClass, STATE, usd, ves } from "../../format";
 
 const OK: Record<string, string> = {
   pago_aprobado: "Pago aprobado. El negocio quedó activo con la nueva fecha.",
@@ -75,13 +75,12 @@ export default async function AdminTenant({
       {sp.error ? <div className="notice err">{ERR[sp.error] ?? sp.error}</div> : null}
 
       <section className="card hero">
-        <span className="label">
-          {t.name} · {d.plan.name}
-        </span>
-        <p className="kpi">
-          <span className={`badge ${STATE[d.state.kind].cls}`}>{STATE[d.state.kind].label}</span>{" "}
-          {dueText(d.state)}
+        <span className="label">{t.name}</span>
+        <p className="admin-plan-line" style={{ margin: "var(--space-2) 0" }}>
+          <span className={`plan-chip ${planClass(t.plan)}`}>{d.plan.name}</span>
+          <span className={`badge ${STATE[d.state.kind].cls}`}>{STATE[d.state.kind].label}</span>
         </p>
+        <p className={`kpi ${dueClass(d.state)}`}>{dueText(d.state)}</p>
         <p className="sub num">
           Este mes: {d.usage.inbound}/{d.plan.messagesPerMonth} registros · {d.usage.outbound}{" "}
           respuestas · IA {usd(d.usage.aiCostUsd)} en {d.usage.aiTurns} turnos

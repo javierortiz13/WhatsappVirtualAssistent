@@ -2,7 +2,7 @@ import { Decimal, PLANS, premiumOverUsd, quote } from "@caja/core";
 import { formatShortDate } from "@caja/core/domain";
 import { loadPendingPayments, loadRates, loadTenants } from "@/lib/admin";
 import { approvePaymentAction, rejectPaymentAction } from "./actions";
-import { dueText, METHOD_LABEL, STATE, usd, ves } from "./format";
+import { dueClass, dueText, METHOD_LABEL, planClass, STATE, usd, ves } from "./format";
 
 const OK: Record<string, string> = {
   pago_aprobado: "Pago aprobado. El negocio quedó activo.",
@@ -77,9 +77,9 @@ export default async function AdminHome({
               {PLANS.map((p) => {
                 const q = quote(p, "pago_movil", 1, rates);
                 return (
-                  <div className="row" key={p.id}>
+                  <div className={`row ${planClass(p.id)}`} key={p.id}>
                     <span className="what">
-                      <strong>{p.name}</strong>
+                      <strong className="plan-name">{p.name}</strong>
                       <span className="sub">{usd(p.priceUsd)} por Zelle o Binance</span>
                     </span>
                     <span className="amts num">
@@ -151,8 +151,11 @@ export default async function AdminHome({
           <a className="row admin-tenant" key={t.id} href={`/admin/negocios/${t.id}`}>
             <span className="what">
               <strong>{t.name}</strong>
-              <span className="sub">
-                {PLANS.find((p) => p.id === t.plan)?.name ?? t.plan} · {dueText(t.state)}
+              <span className="sub admin-plan-line">
+                <span className={`plan-chip ${planClass(t.plan)}`}>
+                  {PLANS.find((p) => p.id === t.plan)?.name ?? t.plan}
+                </span>
+                <span className={dueClass(t.state)}>{dueText(t.state)}</span>
               </span>
               <span className="sub num">
                 {t.usage.inbound}/{t.cap} registros · IA {usd(t.usage.aiCostUsd)} · Meta{" "}
@@ -165,7 +168,7 @@ export default async function AdminHome({
                 {STATE[t.state.kind].label}
               </span>
               <span
-                className={`num sub ${t.marginUsd.isNegative() ? "amber" : ""}`}
+                className={`num sub ${t.marginUsd.isNegative() ? "due late" : ""}`}
                 title="Margen del mes"
               >
                 {usd(t.marginUsd)}

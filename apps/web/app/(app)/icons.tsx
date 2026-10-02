@@ -138,3 +138,9 @@ export const IconShield = (p: P) => (
     <path d="M9 12l2 2 4-4" />
   </Svg>
 );
+export const IconCard = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M3 10h18M7 15h4" />
+  </Svg>
+);
