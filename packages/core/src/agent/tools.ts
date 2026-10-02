@@ -27,9 +27,13 @@ import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "../ledger/income";
 import {
   type AmendChanges,
   createDeleteLastDraft,
+  createDeleteManyDraft,
   createEditLastDraft,
+  DELETE_MANY_MAX,
   isTooOld,
   lastMovementByPhone,
+  type Movement,
+  recentMovementsByPhone,
 } from "../ledger/last-movement";
 import { NoRateError } from "../ledger/rate-for";
 import { renderSummary } from "../ledger/summary";
@@ -195,7 +199,23 @@ export const AmendLastInput = z.object({
   rate: z.string().describe('Nueva tasa Bs por dólar si la dice explícitamente, o "".'),
 });
 
-export const DeleteLastInput = z.object({});
+export const DeleteLastInput = z.object({
+  scope: z
+    .enum(["last", "last_batch", "last_n", "matching"])
+    .describe(
+      "last: solo el último ('bórralo', 'quita eso'). last_batch: los que se guardaron juntos con el último Guardar, como un borrador de varios gastos ('bórralos', 'elimina esos gastos', 'borra lo que acabo de guardar'). last_n: los N últimos cuando dice cuántos ('borra los 3 últimos', 'elimina esos dos gastos') o cuando los guardó con varios Guardar. matching: los que coinciden con lo que nombra ('borra el de la arepa').",
+    ),
+  count: z
+    .number()
+    .int()
+    .describe("Solo con last_n: cuántos movimientos (2 a 10). 0 con los demás scopes."),
+  description: z
+    .string()
+    .describe(
+      "Solo con matching: qué se compró o vendió, en 1 a 3 palabras ('arepa', 'pádel'). \"\" con los demás scopes.",
+    ),
+});
+export type DeleteLastInput = z.infer<typeof DeleteLastInput>;
 
 export const DraftIncomeDayTotalInput = z.object({
   total_amount: z
@@ -821,40 +841,116 @@ const amendLast: ToolSpec<typeof AmendLastInput> = {
 const deleteLast: ToolSpec<typeof DeleteLastInput> = {
   name: "delete_last_movement",
   description:
-    "Borra el ÚLTIMO movimiento ya guardado cuando el usuario dice 'bórralo', 'elimina eso', 'quita el último', 'ese no va'. Pide confirmación con botones.",
+    "Borra movimientos YA GUARDADOS en los últimos 30 minutos: el último ('bórralo', 'elimina eso', 'quita el último', 'ese no va'), varios ('bórralos', 'borra los 3 últimos', 'elimina esos gastos') o uno que nombra ('borra el de la arepa'). Pide confirmación con botones.",
   schema: DeleteLastInput,
   roles: ["owner", "employee"],
-  async run(_input, run) {
-    return deleteLastFlow(run);
+  async run(input, run) {
+    return deleteLastFlow(run, input);
   },
 };
 
-/** Compartido con la palabra clave "bórralo" (sin LLM). */
-export async function deleteLastFlow(run: ToolRunCtx): Promise<ToolOutcome> {
-  const m = await lastMovementByPhone(run.tx, run.ctx.tenantId, run.ctx.phoneId);
-  if (!m) return { kind: "terminal", status: "ok", outbound: [es.nothingToAmend()] };
-  if (isTooOld(m, run.now))
+const DELETE_ONE: DeleteLastInput = { scope: "last", count: 0, description: "" };
+
+/** Compartido con la palabra clave "bórralo" (sin LLM), que borra solo el último. */
+export async function deleteLastFlow(
+  run: ToolRunCtx,
+  input: DeleteLastInput = DELETE_ONE,
+): Promise<ToolOutcome> {
+  const recent = await recentMovementsByPhone(run.tx, run.ctx.tenantId, run.ctx.phoneId);
+  if (!recent.length) return { kind: "terminal", status: "ok", outbound: [es.nothingToAmend()] };
+  const fresh = recent.filter((m) => !isTooOld(m, run.now));
+  const newest = fresh[0];
+  if (!newest)
     return { kind: "terminal", status: "ok", outbound: [es.tooOld(run.ctx.dashboardUrl)] };
-  const r = await createDeleteLastDraft(
+  const wanted = Math.min(Math.max(Math.trunc(input.count) || 1, 1), DELETE_MANY_MAX);
+  let chosen: Movement[];
+  switch (input.scope) {
+    case "last_batch":
+      // Un Guardar escribe todos sus movimientos en una transacción: comparten created_at.
+      chosen = fresh.filter((m) => m.createdAt.getTime() === newest.createdAt.getTime());
+      break;
+    case "last_n":
+      chosen = fresh.slice(0, wanted);
+      break;
+    case "matching": {
+      const words = norm(input.description)
+        .split(/\s+/)
+        .filter((w) => w.length > 2);
+      const named = async (m: Movement) =>
+        norm(`${m.description ?? ""} ${(await categoryNameOf(run, m.categoryId)) ?? ""}`);
+      chosen = [];
+      for (const m of fresh) {
+        const text = await named(m);
+        if (words.length && words.some((w) => text.includes(w))) chosen.push(m);
+      }
+      if (!chosen.length)
+        return {
+          kind: "terminal",
+          status: "ok",
+          outbound: [
+            es.clarification(
+              `No encontré "${input.description.trim()}" entre lo que guardaste en los últimos 30 minutos. ¿Cuál quieres borrar?`,
+              [],
+            ),
+          ],
+        };
+      break;
+    }
+    default:
+      chosen = [newest];
+  }
+  const methodLabel = (x: string) => PAYMENT_METHOD_LABELS[x as PaymentMethod] ?? x;
+  const first = chosen[0] ?? newest;
+  if (chosen.length === 1) {
+    const r = await createDeleteLastDraft(
+      run.tx,
+      {
+        tenantId: run.ctx.tenantId,
+        phoneId: run.ctx.phoneId,
+        movement: first,
+        categoryName: await categoryNameOf(run, first.categoryId),
+      },
+      run.now,
+    );
+    return {
+      kind: "terminal",
+      status: "ok",
+      outbound: [
+        es.deleteDraft({
+          pendingId: r.pendingId,
+          type: r.draft.type,
+          snapshot: r.draft.snapshot,
+          today: run.ctx.today,
+          methodLabel,
+          // Los de un mismo Guardar comparten hora: ninguno es "el último" por sí solo.
+          latest:
+            first.id === newest.id &&
+            fresh.filter((m) => m.createdAt.getTime() === newest.createdAt.getTime()).length === 1,
+        }),
+      ],
+    };
+  }
+  const movements = [];
+  for (const m of chosen)
+    movements.push({ movement: m, categoryName: await categoryNameOf(run, m.categoryId) });
+  const r = await createDeleteManyDraft(
     run.tx,
-    {
-      tenantId: run.ctx.tenantId,
-      phoneId: run.ctx.phoneId,
-      movement: m,
-      categoryName: await categoryNameOf(run, m.categoryId),
-    },
+    { tenantId: run.ctx.tenantId, phoneId: run.ctx.phoneId, movements },
     run.now,
   );
+  // Pidió más de los que caben en la ventana de 30 minutos: los viejos van por el dashboard.
+  const olderLeft =
+    input.scope === "last_n" && wanted > chosen.length && recent.length > fresh.length;
   return {
     kind: "terminal",
     status: "ok",
     outbound: [
-      es.deleteDraft({
+      es.deleteManyDraft({
         pendingId: r.pendingId,
-        type: r.draft.type,
-        snapshot: r.draft.snapshot,
+        items: r.draft.items,
         today: run.ctx.today,
-        methodLabel: (x) => PAYMENT_METHOD_LABELS[x as PaymentMethod] ?? x,
+        methodLabel,
+        dashboardUrl: olderLeft ? run.ctx.dashboardUrl : null,
       }),
     ],
   };
@@ -901,7 +997,7 @@ const askClarification: ToolSpec<typeof AskClarificationInput> = {
 const rejectOutOfScope: ToolSpec<typeof RejectOutOfScopeInput> = {
   name: "reject_out_of_scope",
   description:
-    "El mensaje no es un gasto, una venta, un ingreso, una corrección, un cierre o consulta, ni la tasa: saludos largos, preguntas generales, pedir que redactes algo, chistes, cualquier otra tarea (general_chat). También si pide algo de caja que no existe: inventario, deudas, clientes, presupuestos, corregir algo que no sea el último movimiento (other_business_task).",
+    "El mensaje no es un gasto, una venta, un ingreso, una corrección, un cierre o consulta, ni la tasa: saludos largos, preguntas generales, pedir que redactes algo, chistes, cualquier otra tarea (general_chat). También si pide algo de caja que no existe: inventario, deudas, clientes, presupuestos, corregir un movimiento que no sea el último (other_business_task). Borrar uno o varios de los últimos 30 minutos SÍ se puede: usa delete_last_movement.",
   schema: RejectOutOfScopeInput,
   roles: ["owner", "employee"],
   async run(input) {

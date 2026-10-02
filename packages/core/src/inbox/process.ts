@@ -19,6 +19,7 @@ import {
   createIncomeDayTotal,
   createIncomeSingle,
   DeleteLastDraft,
+  DeleteManyDraft,
   dayTotals,
   deleteMovement,
   EditLastDraft,
@@ -1020,6 +1021,38 @@ async function executePending(
       ]);
     }
     case "delete_last": {
+      const many = DeleteManyDraft.safeParse(pending.payload);
+      if (many.success) {
+        const items = many.data.items;
+        let removed = 0;
+        let lastGone: { businessDate: string } | null = null;
+        for (const item of items) {
+          const gone = await deleteMovement(tx, {
+            tenantId: ctx.tenantId,
+            movementId: item.movementId,
+            actor: { phoneId: ctx.phoneId },
+            now: nowTs,
+          });
+          if (gone) {
+            removed += 1;
+            lastGone = gone;
+          }
+        }
+        await tx
+          .update(schema.pendingAction)
+          .set({ status: "confirmed", resolvedAt: nowTs })
+          .where(eq(schema.pendingAction.id, pending.id));
+        if (!removed || !lastGone) return none([es.alreadyGone()]);
+        const type = items.every((i) => i.type === items[0]?.type)
+          ? (items[0]?.type ?? null)
+          : null;
+        const sameDay = items.every(
+          (i) => i.snapshot.businessDate === items[0]?.snapshot.businessDate,
+        );
+        const totals =
+          type && sameDay ? await totalsFor(tx, ctx, type, asIsoDate(lastGone.businessDate)) : null;
+        return none([es.deletedMany(removed, items.length, type, totals)]);
+      }
       const draft = DeleteLastDraft.parse(pending.payload);
       const gone = await deleteMovement(tx, {
         tenantId: ctx.tenantId,

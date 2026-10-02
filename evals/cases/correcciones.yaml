@@ -39,3 +39,34 @@
   input: "borra lo último que anoté"
   expect:
     tool: delete_last_movement
+
+# Borrar varios (02/10, piloto): "eso no lo hago por chat" al querer borrar varios gastos.
+- name: bórralos tras guardar varios juntos
+  input: "bórralos"
+  history:
+    - { role: in, body: "gasté 7$ en arepa y 7,5$ en pádel" }
+    - { role: out, body: "✅ Guardados 2 gastos. Gastos de hoy: *$14,50* (2 registros)." }
+  expect:
+    tool: delete_last_movement
+    args: { scope: last_batch }
+
+- name: elimina esos gastos (frase del piloto)
+  input: "quiero eliminar esos gastos que registré por equivocación"
+  history:
+    - { role: in, body: "gasté 7$ en arepa y 7,5$ en pádel" }
+    - { role: out, body: "✅ Guardados 2 gastos. Gastos de hoy: *$14,50* (2 registros)." }
+  expect:
+    tool: delete_last_movement
+    tool_not: reject_out_of_scope
+
+- name: borrar los N últimos
+  input: "borra los 3 últimos"
+  expect:
+    tool: delete_last_movement
+    args: { scope: last_n, count: 3 }
+
+- name: borrar uno por nombre
+  input: "borra el de la arepa"
+  expect:
+    tool: delete_last_movement
+    args: { scope: matching }

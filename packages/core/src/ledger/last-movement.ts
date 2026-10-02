@@ -17,7 +17,8 @@ import { rateFor } from "./rate-for";
 
 /**
  * Corregir o borrar el último movimiento por chat (US-B8). Solo el último movimiento vivo
- * creado por el mismo teléfono y con menos de 30 minutos; después, el dashboard. Ambas acciones
+ * creado por el mismo teléfono y con menos de 30 minutos; después, el dashboard. Borrar admite
+ * varios a la vez (02/10), con la misma ventana de 30 minutos. Ambas acciones
  * pasan por `pending_action` y se ejecutan al confirmar, con auditoría de antes y después.
  */
 export const LAST_MOVEMENT_WINDOW_MS = 30 * 60 * 1000;
@@ -42,6 +43,30 @@ export async function lastMovementByPhone(
     .orderBy(desc(schema.movement.createdAt))
     .limit(1);
   return row ?? null;
+}
+
+/** Tope de movimientos que se pueden borrar de una vez por chat. */
+export const DELETE_MANY_MAX = 10;
+
+/** Movimientos vivos más recientes creados por el teléfono, el más nuevo primero. */
+export async function recentMovementsByPhone(
+  tx: Tx,
+  tenantId: string,
+  phoneId: string,
+  limit = DELETE_MANY_MAX,
+): Promise<Movement[]> {
+  return tx
+    .select()
+    .from(schema.movement)
+    .where(
+      and(
+        eq(schema.movement.tenantId, tenantId),
+        eq(schema.movement.createdByPhoneId, phoneId),
+        isNull(schema.movement.deletedAt),
+      ),
+    )
+    .orderBy(desc(schema.movement.createdAt), desc(schema.movement.id))
+    .limit(limit);
 }
 
 export function isTooOld(m: Movement, now: Date): boolean {
@@ -186,6 +211,40 @@ export async function createEditLastDraft(
   const r = await insertDraft(
     tx,
     { tenantId: input.tenantId, phoneId: input.phoneId, kind: "edit_last", payload: draft },
+    now,
+  );
+  return { ...r, draft };
+}
+
+/**
+ * Borrar varios de una vez ("bórralos", "borra los 3 últimos"): mismo `pending_action` de tipo
+ * `delete_last`, con la lista en `items`. Así no hace falta migración para el nuevo caso.
+ */
+export const DeleteManyDraft = z.object({
+  items: z.array(DeleteLastDraft).min(2),
+});
+export type DeleteManyDraft = z.infer<typeof DeleteManyDraft>;
+
+export async function createDeleteManyDraft(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    phoneId: string;
+    movements: { movement: Movement; categoryName: string | null }[];
+  },
+  now: Date,
+): Promise<{ pendingId: string; draft: DeleteManyDraft; replacedPrevious: boolean }> {
+  const draft: DeleteManyDraft = {
+    items: input.movements.map(({ movement, categoryName }) => ({
+      movementId: movement.id,
+      type: movement.type as "expense" | "income",
+      origin: movement.origin as "single" | "day_total",
+      snapshot: snapshot(movement, categoryName),
+    })),
+  };
+  const r = await insertDraft(
+    tx,
+    { tenantId: input.tenantId, phoneId: input.phoneId, kind: "delete_last", payload: draft },
     now,
   );
   return { ...r, draft };

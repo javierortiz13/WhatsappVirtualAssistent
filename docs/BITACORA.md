@@ -376,3 +376,16 @@ Javier pidió seguir la guía `skills.sentry.dev/instrument`; el entorno bloque�
 **Para desplegar:** `pnpm db:migrate` (aplica la 0005 y la 0006) antes o junto con el deploy del worker, y `pnpm evals`.
 
 **Evals y despliegue (Javier, 02/10): 63/63, 0,24 USD, Sonnet 5.5.** Pasan los cinco casos de la cola, los de varios gastos y los de autocorrección; el caso viejo "no eran cincuenta no treinta" sigue dando 50 con la regla 7c. Producción verificada: 0005 y 0006 aplicadas (05:42 UTC) y el worker corre el commit de la cola. El worker se desplegó unas tres horas antes de la migración; en ese intervalo los 8 eventos de webhook quedaron `done`, sin fallos. Regla para la próxima migración: correr `pnpm db:migrate` antes de subir el código que la necesita.
+
+### S2 · 02/10/2026 · Borrar varios movimientos por chat
+
+**Síntoma (Javier, WhatsApp real):** guardó varios gastos por equivocación y al pedir que los eliminara recibió "Eso todavía no lo hago por chat".
+
+**Causa:** `delete_last_movement` solo borraba el último movimiento, y la descripción de `reject_out_of_scope` mandaba fuera de alcance "corregir algo que no sea el último movimiento". El modelo hizo lo que decían las instrucciones.
+
+**Arreglo**
+- `delete_last_movement` recibe `scope`: `last` (el último, como antes y como la palabra clave "bórralo"), `last_batch` (los que se guardaron con el último Guardar, que comparten `created_at` por ir en una transacción), `last_n` con `count` (2 a 10) y `matching` con `description` ("borra el de la arepa"). Sin uniones nuevas en el modo estricto.
+- Misma ventana que antes: solo movimientos del mismo teléfono de los últimos 30 minutos. Si pide más de los que caben, el borrador lo dice y da el enlace del dashboard para los viejos. Si no encuentra lo que nombra, pregunta.
+- Varios se confirman en un solo mensaje ("Elimino 2 gastos: 1. … 2. …", botones Eliminar / Cancelar) y se borran con auditoría, uno por uno, en la misma transacción. Sin migración: reutiliza el tipo `delete_last` con la lista en `items`.
+- Prompt (regla 7b) y descripción de `reject_out_of_scope`: borrar varios sí se hace por chat.
+- Tests de punta a punta (por nombre, los del último Guardar, los N últimos, nombre no encontrado) y cuatro casos de eval, entre ellos la frase del piloto (67 casos).

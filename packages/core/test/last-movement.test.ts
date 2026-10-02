@@ -54,6 +54,11 @@ const expense = (id: string, over: Record<string, unknown> = {}) => [
     },
   },
 ];
+const del = (id: string, scope: string, count = 0, description = "") => ({
+  id,
+  name: "delete_last_movement",
+  input: { scope, count, description },
+});
 const amend = (id: string, over: Record<string, unknown>) => [
   {
     id,
@@ -130,7 +135,25 @@ describe("corregir y borrar el último movimiento", () => {
       rate: "900",
     }),
     "eran 35": expense("e3", { amount: "35", description: "Cera", rate: "900" }),
-    "quita eso": [{ id: "d1", name: "delete_last_movement", input: {} }],
+    "quita eso": [del("d1", "last")],
+    "gasté 7$ en arepa y 7,5$ en pádel": [
+      {
+        id: "m1",
+        name: "draft_expenses",
+        input: {
+          items: [
+            { amount: "7", currency: "USD", description: "Arepa", category_name: "", when: "" },
+            { amount: "7.5", currency: "USD", description: "Pádel", category_name: "", when: "" },
+          ],
+          rate: "",
+          corrects_draft: false,
+        },
+      },
+    ],
+    "borra el de la arepa": [del("d2", "matching", 0, "arepa")],
+    "borra el del helado": [del("d3", "matching", 0, "helado")],
+    bórralos: [del("d4", "last_batch")],
+    "borra los 2 últimos": [del("d5", "last_n", 2)],
   });
 
   function deps(client: MetaClient): ProcessDeps {
@@ -239,6 +262,44 @@ describe("corregir y borrar el último movimiento", () => {
     const after = await live();
     expect(after[1]?.deletedAt).not.toBeNull();
     expect(await audits("delete")).toHaveLength(1);
+  });
+
+  it("borrar varios: por nombre, los del último Guardar y los N últimos, con confirmación", async () => {
+    const { sent, client } = fakeMeta();
+    await send(client, "gasté 7$ en arepa y 7,5$ en pádel");
+    await tap(client, buttonsOf(sent[0])[0]?.id as string, "Guardar");
+    expect(textOf(sent[1])).toContain("Guardados 2 gastos");
+
+    await send(client, "borra el de la arepa");
+    expect(textOf(sent[2])).toBe("Elimino este gasto: Arepa · $7,00 · hoy, mar 29/09.");
+    await tap(client, buttonsOf(sent[2])[1]?.id as string, "Cancelar");
+
+    await send(client, "borra el del helado");
+    expect(textOf(sent[4])).toContain('No encontré "helado"');
+
+    await send(client, "bórralos");
+    expect(textOf(sent[5])).toContain("Elimino 2 gastos:");
+    expect(textOf(sent[5])).toContain("Arepa · $7,00");
+    expect(textOf(sent[5])).toContain("Pádel · $7,50");
+    expect(textOf(sent[5])).not.toContain("Champú");
+    expect(buttonsOf(sent[5]).map((b) => b.title)).toEqual(["Eliminar", "Cancelar"]);
+    await tap(client, buttonsOf(sent[5])[0]?.id as string, "Eliminar");
+    expect(textOf(sent[6])).toContain("✅ Eliminados 2 movimientos.");
+    const rows = await live();
+    const byDesc = (d: string) => rows.find((r) => r.description === d);
+    expect(byDesc("Arepa")?.deletedAt).not.toBeNull();
+    expect(byDesc("Pádel")?.deletedAt).not.toBeNull();
+    expect(byDesc("Champú")?.deletedAt).toBeNull();
+
+    // Guardados con dos Guardar distintos: "los 2 últimos" los toma a los dos.
+    await send(client, "gasté 15$ en champú");
+    await tap(client, buttonsOf(sent[7])[0]?.id as string, "Guardar");
+    await send(client, "borra los 2 últimos");
+    expect(textOf(sent[9])).toBe(
+      "Elimino 2 gastos:\n1. Champú · $15,00 · hoy, mar 29/09\n2. Champú · $20,00 · ayer, lun 28/09",
+    );
+    await tap(client, buttonsOf(sent[9])[1]?.id as string, "Cancelar");
+    expect((await live()).filter((r) => !r.deletedAt)).toHaveLength(2);
   });
 
   it("después de 30 minutos remite al dashboard; sin movimientos, lo dice", async () => {

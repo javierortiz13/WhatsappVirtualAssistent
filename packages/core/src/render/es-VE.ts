@@ -812,11 +812,41 @@ export function deleteDraft(v: {
   snapshot: Snapshot;
   today: string;
   methodLabel: (m: string) => string;
+  /** false cuando se eligió por nombre ("borra el de la arepa") y no es el último. */
+  latest?: boolean;
 }): Outbound {
   const kind = v.type === "expense" ? "gasto" : "ingreso";
   return {
     type: "buttons",
-    body: `Elimino el último ${kind}: ${shortMovement(v.snapshot, v.type, v.methodLabel)} · ${relativeDay(v.snapshot.businessDate, asIsoDate(v.today)).toLowerCase()}.`,
+    body: `Elimino ${v.latest === false ? "este" : "el último"} ${kind}: ${shortMovement(v.snapshot, v.type, v.methodLabel)} · ${relativeDay(v.snapshot.businessDate, asIsoDate(v.today)).toLowerCase()}.`,
+    buttons: [
+      { id: IDS.confirm(v.pendingId), title: "Eliminar" },
+      { id: IDS.cancel(v.pendingId), title: "Cancelar" },
+    ],
+  };
+}
+
+export function deleteManyDraft(v: {
+  pendingId: string;
+  items: { type: "expense" | "income"; snapshot: Snapshot }[];
+  today: string;
+  methodLabel: (m: string) => string;
+  /** Si pidió más de los que caben en 30 minutos, el enlace para borrar los demás. */
+  dashboardUrl: string | null;
+}): Outbound {
+  const sameType = v.items.every((i) => i.type === v.items[0]?.type);
+  const noun = !sameType ? "movimientos" : v.items[0]?.type === "expense" ? "gastos" : "ingresos";
+  const lines = [`Elimino ${v.items.length} ${noun}:`];
+  v.items.forEach((i, n) => {
+    const kind = sameType ? "" : i.type === "expense" ? "Gasto · " : "Ingreso · ";
+    const day = relativeDay(i.snapshot.businessDate, asIsoDate(v.today)).toLowerCase();
+    lines.push(`${n + 1}. ${kind}${shortMovement(i.snapshot, i.type, v.methodLabel)} · ${day}`);
+  });
+  if (v.dashboardUrl)
+    lines.push(`Los anteriores tienen más de 30 minutos: esos se borran en ${v.dashboardUrl}`);
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
     buttons: [
       { id: IDS.confirm(v.pendingId), title: "Eliminar" },
       { id: IDS.cancel(v.pendingId), title: "Cancelar" },
@@ -855,6 +885,23 @@ export function deleted(
     type: "text",
     body: `✅ Eliminado. ${label} de ese día: *${formatMoney(totals.usd, "USD")}* (${totals.count === 1 ? "1 registro" : `${totals.count} registros`}).`,
   };
+}
+
+export function deletedMany(
+  removed: number,
+  requested: number,
+  type: "expense" | "income" | null,
+  totals: { usd: Decimal.Value; count: number } | null,
+): Outbound {
+  const head =
+    removed === requested
+      ? `✅ Eliminados ${removed} movimientos.`
+      : `✅ Eliminados ${removed} de ${requested}; los demás ya no existían.`;
+  const tail =
+    type && totals
+      ? ` ${type === "expense" ? "Gastos" : "Ventas"} de ese día: *${formatMoney(totals.usd, "USD")}* (${totals.count === 1 ? "1 registro" : `${totals.count} registros`}).`
+      : "";
+  return { type: "text", body: `${head}${tail}` };
 }
 
 export function alreadyGone(): Outbound {
