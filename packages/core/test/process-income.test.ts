@@ -174,10 +174,11 @@ describe("ventas por WhatsApp", () => {
     const { sent, client } = fakeMeta();
     await send(client, "hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto");
     const draft = sent[0];
-    expect(textOf(draft)).toContain("Venta del día por confirmar (hoy, mar 29/09):");
-    expect(textOf(draft)).toContain("Efectivo USD · *$200,00* (Bs 171.600,00)");
-    expect(textOf(draft)).toContain("Pago Móvil · *$100,00* (Bs 85.800,00)");
-    expect(textOf(draft)).toContain("Total *$350,00*");
+    expect(textOf(draft)).toContain("*Venta del día por confirmar*");
+    expect(textOf(draft)).toContain("Fecha: hoy, mar 29/09");
+    expect(textOf(draft)).toContain("Efectivo USD: *$200,00*");
+    expect(textOf(draft)).toContain("Pago Móvil: *$100,00*");
+    expect(textOf(draft)).toContain("Total: *$350,00* · Bs 300.300,00 · tasa BCV 858,00");
     const [save] = buttonsOf(draft);
     expect(save?.title).toBe("Guardar");
     await tap(client, save?.id as string, "Guardar");
@@ -213,7 +214,7 @@ describe("ventas por WhatsApp", () => {
     const btns = buttonsOf(sent[0]);
     expect(btns.map((b) => b.title)).toEqual(["Total $350", "Total $300", "Corregir"]);
     await tap(client, btns[0]?.id as string, "Total $350");
-    expect(textOf(sent[1])).toContain("Sin especificar · *$50,00*");
+    expect(textOf(sent[1])).toContain("Sin especificar: *$50,00*");
     expect(textOf(sent[1])).toContain(
       "Ya tienes una venta del día registrada ese día por *$400,00*",
     );
@@ -226,9 +227,10 @@ describe("ventas por WhatsApp", () => {
   it("ingreso suelto: Guardar crea un ingreso 'single' con método y descripción", async () => {
     const { sent, client } = fakeMeta();
     await send(client, "me pagaron 30$ por zelle del carro del abogado");
-    expect(textOf(sent[0])).toContain("Ingreso por confirmar:");
-    expect(textOf(sent[0])).toContain("*$30,00* (Bs 25.740,00 a tasa 858,00) · Zelle");
-    expect(textOf(sent[0])).toContain('"Carro del abogado"');
+    expect(textOf(sent[0])).toContain("*Ingreso por confirmar*");
+    expect(textOf(sent[0])).toContain(
+      "Carro del abogado: *$30,00* por Zelle\nBs 25.740,00 · tasa BCV 858,00",
+    );
     await tap(client, buttonsOf(sent[0])[0]?.id as string, "Guardar");
     expect(textOf(sent[1])).toContain("vendiste *$780,00*");
     const single = (await movements()).find((m) => m.origin === "single" && m.type === "income");

@@ -130,7 +130,8 @@ describe("agent loop", () => {
     if (out?.type !== "buttons") throw new Error("esperaba botones");
     expect(out.body).toContain("*$15,00*");
     expect(out.body).toContain("Bs 12.870,00");
-    expect(out.body).toContain("Champú · Insumos de lavado");
+    expect(out.body).toContain("Champú: *$15,00*");
+    expect(out.body).toContain("Categoría: Insumos de lavado");
     expect(out.buttons.map((b) => b.title)).toEqual(["Guardar", "Corregir", "Cancelar"]);
     const pending = await withTenant(t.db, tenantId, (tx) =>
       tx.select().from(schema.pendingAction).where(eq(schema.pendingAction.phoneId, phoneId)),
@@ -255,9 +256,9 @@ describe("agent loop", () => {
     );
     const body = (res.outbound[0] as { body: string }).body;
     expect(body).toContain("*Bs 450.000,00*");
-    expect(body).toContain("($524,78 a tasa 857,50)");
-    expect(body).toContain("entendí bolívares");
-    expect(body).toContain("Ayer, lun 28/09");
+    expect(body).toContain("$524,78 · tasa BCV 857,50");
+    expect(body).toContain("lo tomé en bolívares");
+    expect(body).toContain("Fecha: ayer, lun 28/09");
   });
 
   it("historial reciente entra como turnos alternos y excluye el mensaje actual", async () => {

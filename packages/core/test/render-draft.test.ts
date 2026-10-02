@@ -25,7 +25,7 @@ describe("borrador de gasto", () => {
     const m = es.expenseDraft(base);
     expect(m.type).toBe("buttons");
     expect(m.body).toBe(
-      "Gasto por confirmar:\n*$15,00* (Bs 12.870,00 a tasa 858,00)\nChampú · Insumos de lavado\nHoy, mar 29/09",
+      "*Gasto por confirmar*\nChampú: *$15,00*\nBs 12.870,00 · tasa BCV 858,00\nCategoría: Insumos de lavado\nFecha: hoy, mar 29/09",
     );
     if (m.type === "buttons") {
       expect(m.buttons.map((b) => b.id)).toEqual([
@@ -53,10 +53,9 @@ describe("borrador de gasto", () => {
     });
     expect(m.body).toContain("Descarté el borrador anterior sin guardar.");
     expect(m.body).toContain('Entendí: _"anota cuatrocientos cincuenta mil de gasolina de ayer"_');
-    expect(m.body).toContain(
-      "*Bs 450.000,00* ($524,48 a tasa 858,00 del vie 25/09) · entendí bolívares",
-    );
-    expect(m.body).toContain("Ayer, lun 28/09");
+    expect(m.body).toContain("Gasolina: *Bs 450.000,00*\n$524,48 · tasa BCV 858,00 del vie 25/09");
+    expect(m.body).toContain("Fecha: ayer, lun 28/09");
+    expect(m.body).toContain("_No dijiste la moneda: lo tomé en bolívares._");
     expect(m.body.length).toBeLessThanOrEqual(LIMITS.interactiveBody);
   });
   it("guardado con total del día", () => {
@@ -99,7 +98,7 @@ describe("borrador de varios gastos", () => {
       replacedPrevious: false,
     });
     expect(m.body).toBe(
-      "2 gastos por confirmar:\n1. *$7,00* (Bs 6.006,00) · Arepa y malta · Comida del personal\n2. *$7,50* (Bs 6.435,00) · Partida de pádel · Otros\nTotal: *$14,50* (Bs 12.441,00 · a tasa 858,00)\nHoy, mar 29/09",
+      "*2 gastos por confirmar*\n1. Arepa y malta: *$7,00* · Comida del personal\n2. Partida de pádel: *$7,50* · Otros\nTotal: *$14,50* · Bs 12.441,00 · tasa BCV 858,00\nFecha: hoy, mar 29/09",
     );
     if (m.type === "buttons")
       expect(m.buttons.map((b) => b.title)).toEqual(["Guardar", "Corregir", "Cancelar"]);

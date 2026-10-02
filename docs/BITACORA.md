@@ -461,3 +461,18 @@ Javier pidió seguir la guía `skills.sentry.dev/instrument`; el entorno bloque�
 - Funciona en gastos, varios gastos, ventas del día, ingresos sueltos y correcciones de lo guardado. Al corregir un borrador, el modelo ve la tasa que tenía ("euro" o el número) para no perderla.
 - Antes del 02/10 no se guardaba el euro: para esas fechas el bot pide la tasa en vez de inventarla.
 - Tests de punta a punta (borrador, guardado, corrección de un guardado, día sin euro) y cuatro casos de eval con los mensajes reales (72 casos).
+
+### S2 · 02/10/2026 · Redacción de los borradores
+
+Javier marcó que el borrador se leía mal: `*$10,00* (Bs 9.739,28 a tasa euro 973,93) · entendí dólares` en una sola línea. Ahora gastos, varios gastos, ventas del día e ingresos sueltos llevan un dato por línea y la tasa siempre nombrada (BCV, euro o manual):
+
+```
+*Gasto por confirmar*
+Productos de limpieza: *$10,00*
+Bs 9.739,28 · tasa euro 973,93
+Categoría: Insumos
+Fecha: hoy, vie 02/10
+_No dijiste la moneda: lo tomé en dólares._
+```
+
+La aclaración de la moneda pasa a una nota al final. Las correcciones muestran "(tasa manual 850,00)" o "(tasa euro 973,93)". Tests de render y de punta a punta actualizados.

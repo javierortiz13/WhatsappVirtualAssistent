@@ -245,7 +245,7 @@ describe("corregir y borrar el último movimiento", () => {
     });
 
     await send(client, "a tasa 850");
-    expect(textOf(sent[2])).toContain("$20,00 → *$20,00* (a tasa 850,00 manual)");
+    expect(textOf(sent[2])).toContain("$20,00 → *$20,00* (tasa manual 850,00)");
     await tap(client, buttonsOf(sent[2])[0]?.id as string, "Guardar");
     [m] = await live();
     expect(m).toMatchObject({
@@ -259,12 +259,12 @@ describe("corregir y borrar el último movimiento", () => {
   it("tasa manual en un borrador nuevo y en su corrección; 'bórralo' sin LLM borra con confirmación", async () => {
     const { sent, client } = fakeMeta();
     await send(client, "gasté 30$ en cera a tasa 900");
-    expect(textOf(sent[0])).toContain("*$30,00* (Bs 27.000,00 a tasa 900,00 (manual))");
+    expect(textOf(sent[0])).toContain("Cera: *$30,00*\nBs 27.000,00 · tasa manual 900,00");
     // Corregir el borrador: el modelo vuelve a llamar draft_expense con la tasa.
     await tap(client, buttonsOf(sent[0])[1]?.id as string, "Corregir");
     expect(textOf(sent[1])).toContain("Dime qué cambio");
     await send(client, "eran 35");
-    expect(textOf(sent[2])).toContain("*$35,00* (Bs 31.500,00 a tasa 900,00 (manual))");
+    expect(textOf(sent[2])).toContain("Cera: *$35,00*\nBs 31.500,00 · tasa manual 900,00");
     await tap(client, buttonsOf(sent[2])[0]?.id as string, "Guardar");
     const rows = await live();
     expect(rows[1]).toMatchObject({ amount: "35.00", rateSource: "manual", rateId: null });
@@ -324,7 +324,9 @@ describe("corregir y borrar el último movimiento", () => {
       .set({ rateEur: "976.84000000" })
       .where(eq(schema.bcvRate.effectiveDate, "2026-09-29"));
     await send(client, "nómina 225.6$ a la tasa euro del día");
-    expect(textOf(sent[0])).toContain("*$225,60* (Bs 220.375,10 a tasa euro 976,84)");
+    expect(textOf(sent[0])).toContain(
+      "Pago de nómina: *$225,60*\nBs 220.375,10 · tasa euro 976,84",
+    );
     await tap(client, buttonsOf(sent[0])[0]?.id as string, "Guardar");
     const saved = (await live()).find((m) => m.description === "Pago de nómina");
     expect(saved).toMatchObject({
@@ -339,7 +341,7 @@ describe("corregir y borrar el último movimiento", () => {
     await send(client, "gasté 15$ en champú");
     await tap(client, buttonsOf(sent[2])[0]?.id as string, "Guardar");
     await send(client, "corrige a la tasa euro");
-    expect(textOf(sent[4])).toContain("(a tasa euro 976,84)");
+    expect(textOf(sent[4])).toContain("(tasa euro 976,84)");
     await tap(client, buttonsOf(sent[4])[0]?.id as string, "Guardar");
     const fixed = (await live()).filter((m) => m.description === "Champú").pop();
     expect(fixed).toMatchObject({ rateSource: "bcv_eur", amountVes: "14652.60" });
