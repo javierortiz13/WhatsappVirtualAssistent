@@ -1,5 +1,5 @@
 import { asIsoDate, formatShortDate, type IsoDate, monthNameEs } from "../domain/dates";
-import { Decimal, formatMoney } from "../domain/money";
+import { Decimal, formatMoney, type RateOrigin } from "../domain/money";
 import { IDS, type Outbound } from "./outbound";
 
 /**
@@ -282,7 +282,7 @@ export type ExpenseDraftView = {
   amountVes: Decimal.Value;
   rateValue: Decimal.Value;
   rateEffectiveDate: string;
-  rateSource?: "bcv" | "manual";
+  rateSource?: RateOrigin;
   businessDate: string;
   today: IsoDate;
   categoryName: string | null;
@@ -290,6 +290,14 @@ export type ExpenseDraftView = {
   transcript: string | null;
   replacedPrevious: boolean;
 };
+
+/** "tasa 866,56", "tasa euro 973,93" o "tasa 850,00 (manual)". */
+export function rateLabel(value: Decimal.Value, source?: RateOrigin): string {
+  const n = formatMoney(value, "VES").replace("Bs ", "");
+  if (source === "bcv_eur") return `tasa euro ${n}`;
+  if (source === "manual") return `tasa ${n} (manual)`;
+  return `tasa ${n}`;
+}
 
 function relativeDay(businessDate: string, today: IsoDate): string {
   const d = asIsoDate(businessDate);
@@ -310,11 +318,9 @@ export function expenseDraft(d: ExpenseDraftView): Outbound {
     ? ` · entendí ${d.currency === "USD" ? "dólares" : "bolívares"}`
     : "";
   const rateNote =
-    d.rateSource === "manual"
-      ? `a tasa ${formatMoney(d.rateValue, "VES").replace("Bs ", "")} (manual)`
-      : d.rateEffectiveDate === d.businessDate
-        ? `a tasa ${formatMoney(d.rateValue, "VES").replace("Bs ", "")}`
-        : `a tasa ${formatMoney(d.rateValue, "VES").replace("Bs ", "")} del ${formatShortDate(asIsoDate(d.rateEffectiveDate))}`;
+    d.rateSource === "manual" || d.rateEffectiveDate === d.businessDate
+      ? `a ${rateLabel(d.rateValue, d.rateSource)}`
+      : `a ${rateLabel(d.rateValue, d.rateSource)} del ${formatShortDate(asIsoDate(d.rateEffectiveDate))}`;
   const lines: string[] = [];
   if (d.replacedPrevious) lines.push("Descarté el borrador anterior sin guardar.");
   if (d.transcript) lines.push(`Entendí: _"${d.transcript}"_`);
@@ -362,11 +368,7 @@ export function expensesDraft(v: ExpensesDraftView): Outbound {
     );
   });
   const first = v.items[0];
-  const rateNote = first
-    ? first.rateSource === "manual"
-      ? ` · a tasa ${formatMoney(first.rateValue, "VES").replace("Bs ", "")} (manual)`
-      : ` · a tasa ${formatMoney(first.rateValue, "VES").replace("Bs ", "")}`
-    : "";
+  const rateNote = first ? ` · a ${rateLabel(first.rateValue, first.rateSource)}` : "";
   const inferred = v.items.some((i) => i.currencyInferred)
     ? ` · entendí ${first?.currency === "USD" ? "dólares" : "bolívares"}`
     : "";
@@ -430,6 +432,7 @@ export type IncomeLineView = {
 
 export type IncomeDayTotalView = {
   pendingId: string;
+  rateSource?: RateOrigin;
   businessDate: string;
   today: string;
   lines: IncomeLineView[];
@@ -483,7 +486,7 @@ export function incomeDayTotalDraft(v: IncomeDayTotalView): Outbound {
   );
   for (const l of v.lines) lines.push(lineText(l, v.methodLabel(l.method)));
   lines.push(
-    `Total *${formatMoney(v.totalUsd, "USD")}* (${formatMoney(v.totalVes, "VES")} a tasa ${formatMoney(v.rateValue, "VES").replace("Bs ", "")})`,
+    `Total *${formatMoney(v.totalUsd, "USD")}* (${formatMoney(v.totalVes, "VES")} a ${rateLabel(v.rateValue, v.rateSource)})`,
   );
   if (v.lines.length === 1 && v.lines[0]?.method === "unspecified")
     lines.push("Si quieres, dime el desglose: _200 efectivo, 80 pago móvil_");
@@ -525,6 +528,7 @@ function shortTotal(usd: Decimal.Value): string {
 
 export type IncomeSingleView = {
   pendingId: string;
+  rateSource?: RateOrigin;
   amount: Decimal.Value;
   currency: "USD" | "VES";
   currencyInferred: boolean;
@@ -552,7 +556,7 @@ export function incomeSingleDraft(v: IncomeSingleView): Outbound {
   if (v.transcript) lines.push(`Entendí: _"${v.transcript}"_`);
   lines.push("Ingreso por confirmar:");
   lines.push(
-    `*${main}* (${other} a tasa ${formatMoney(v.rateValue, "VES").replace("Bs ", "")}) · ${v.methodLabel}${inferred}`,
+    `*${main}* (${other} a ${rateLabel(v.rateValue, v.rateSource)}) · ${v.methodLabel}${inferred}`,
   );
   if (v.description) lines.push(`"${v.description}"`);
   lines.push(relativeDay(v.businessDate, asIsoDate(v.today)));
@@ -756,7 +760,7 @@ export type Snapshot = {
   amountUsd: Decimal.Value;
   amountVes: Decimal.Value;
   rateValue: Decimal.Value;
-  rateSource: "bcv" | "manual";
+  rateSource: RateOrigin;
   businessDate: string;
   categoryName: string | null;
   description: string | null;
@@ -794,7 +798,7 @@ export function amendDraft(v: {
       : (b.description ?? v.methodLabel(b.paymentMethod));
   if (has("amount") || has("currency") || has("rateValue"))
     lines.push(
-      `${what} · ${formatMoney(b.amount, b.currency)} → *${formatMoney(a.amount, a.currency)}*${a.rateSource === "manual" ? ` (a tasa ${formatMoney(a.rateValue, "VES").replace("Bs ", "")} manual)` : ""}`,
+      `${what} · ${formatMoney(b.amount, b.currency)} → *${formatMoney(a.amount, a.currency)}*${a.rateSource === "manual" ? ` (a tasa ${formatMoney(a.rateValue, "VES").replace("Bs ", "")} manual)` : a.rateSource === "bcv_eur" ? ` (a ${rateLabel(a.rateValue, a.rateSource)})` : ""}`,
     );
   else lines.push(`${what} · ${formatMoney(b.amount, b.currency)}`);
   if (has("description"))

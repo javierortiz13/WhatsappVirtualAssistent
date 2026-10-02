@@ -40,7 +40,7 @@ export const PAYMENT_STATUSES = ["pending", "approved", "rejected"] as const;
 export const BILLING_RATE_KINDS = ["bcv_usd", "bcv_eur", "manual"] as const;
 export const MOVEMENT_TYPES = ["expense", "income"] as const;
 export const MOVEMENT_ORIGINS = ["single", "day_total"] as const;
-export const RATE_SOURCES = ["bcv", "manual"] as const;
+export const RATE_SOURCES = ["bcv", "bcv_eur", "manual"] as const;
 export const SOURCE_CHANNELS = ["text", "voice", "image", "dashboard"] as const;
 export const PAYMENT_METHODS = [
   "cash_usd",

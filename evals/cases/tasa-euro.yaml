@@ -1,0 +1,28 @@
+# Tasa euro (02/10, prueba de Javier): "a la tasa euro del día" registraba a tasa dólar y, en
+# corrección, el bot respondía "No manejo la tasa del euro". El campo rate acepta "euro".
+- name: gasto a tasa euro (mensaje real)
+  input: "Necesito pagar en nómina 225.6$ a la tasa euro del día"
+  expect:
+    tool: draft_expense
+    args: { amount: "225.6", currency: USD, rate: euro }
+
+- name: corrección del borrador a tasa euro con el símbolo (mensaje real)
+  input: "Usa La tasa € del día de hoy"
+  pending:
+    - { amount: "225.60", description: "Pago de nómina", category: "Nómina", fixing: true }
+  expect:
+    tool: draft_expense
+    tool_not: ask_clarification
+    args: { amount: "225.60", rate: euro, corrects_draft: true }
+
+- name: corregir un guardado a tasa euro
+  input: "eso era a tasa euro"
+  expect:
+    tool: amend_last_movement
+    args: { rate: euro }
+
+- name: venta del día a tasa euro
+  input: "hoy vendí 300$ a tasa euro"
+  expect:
+    tool: draft_income_day_total
+    args: { rate: euro }

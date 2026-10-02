@@ -6,6 +6,7 @@ import {
   Decimal,
   rate as makeRate,
   money,
+  type RateOrigin,
   toDbAmount,
   toDbRate,
 } from "../domain/money";
@@ -31,7 +32,7 @@ export type CreateExpenseInput = {
   sourceMessageId?: string | null;
   attachmentId?: string | null;
   /** Tasa congelada en el borrador; si no viene, se resuelve la vigente para la fecha. */
-  rate?: { id: string | null; value: string; effectiveDate: IsoDate; source?: "bcv" | "manual" };
+  rate?: { id: string | null; value: string; effectiveDate: IsoDate; source?: RateOrigin };
 };
 
 export type CreatedExpense = {

@@ -83,7 +83,8 @@ export default async function Movimiento({
         </p>
         <p className="sub num">
           {m.currency === "USD" ? formatMoney(m.amountVes, "VES") : formatMoney(m.amountUsd, "USD")}{" "}
-          · tasa {formatMoney(m.rateValue, "VES").replace("Bs ", "")}
+          · tasa {m.rateSource === "bcv_eur" ? "euro " : ""}
+          {formatMoney(m.rateValue, "VES").replace("Bs ", "")}
           {m.rateSource === "manual" ? " (manual)" : ""}
         </p>
       </section>

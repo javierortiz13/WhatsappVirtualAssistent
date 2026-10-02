@@ -36,3 +36,36 @@ export async function rateFor(
   const effectiveDate = asIsoDate(r.effective_date);
   return { rate: rate(r.rate, effectiveDate, r.id), usedPriorDay: effectiveDate !== businessDate };
 }
+
+/** No hay tasa euro del BCV guardada para esa fecha ni antes. */
+export class NoEurRateError extends Error {
+  constructor(readonly businessDate: IsoDate) {
+    super(`sin tasa euro BCV para ${businessDate}`);
+    this.name = "NoEurRateError";
+  }
+}
+
+/**
+ * Tasa euro del BCV vigente en la fecha (la última publicada con euro en o antes de ese día). Se
+ * usa cuando el negocio cobra o paga "a tasa euro": Bs = monto en $ × euro BCV. Las filas de
+ * antes del 02/10/2026 no tienen euro: para esas fechas lanza y el agente pide la tasa.
+ */
+export async function euroRateFor(
+  db: Queryable,
+  businessDate: IsoDate,
+): Promise<{ rate: Rate; usedPriorDay: boolean }> {
+  const found = rows<{ id: string; effective_date: string; rate_eur: string }>(
+    await db.execute(sql`
+      select id, effective_date::text, rate_eur::text from ${schema.bcvRate}
+      where rate_eur is not null and effective_date <= ${businessDate}::date
+      order by effective_date desc limit 1
+    `),
+  );
+  const r = found[0];
+  if (!r) throw new NoEurRateError(businessDate);
+  const effectiveDate = asIsoDate(r.effective_date);
+  return {
+    rate: rate(r.rate_eur, effectiveDate, r.id, "bcv_eur"),
+    usedPriorDay: effectiveDate !== businessDate,
+  };
+}

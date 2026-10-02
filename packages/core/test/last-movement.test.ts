@@ -136,6 +136,19 @@ describe("corregir y borrar el último movimiento", () => {
     }),
     "eran 35": expense("e3", { amount: "35", description: "Cera", rate: "900" }),
     "quita eso": [del("d1", "last")],
+    "nómina 225.6$ a la tasa euro del día": expense("eu1", {
+      amount: "225.6",
+      description: "Pago de nómina",
+      category_name: "",
+      rate: "euro",
+    }),
+    "corrige a la tasa euro": amend("eu2", { rate: "euro" }),
+    "nómina vieja a tasa euro": expense("eu3", {
+      amount: "100",
+      description: "Nómina",
+      when: "2026-09-02",
+      rate: "euro",
+    }),
     "gasté 7$ en arepa y 7,5$ en pádel": [
       {
         id: "m1",
@@ -170,6 +183,8 @@ describe("corregir y borrar el último movimiento", () => {
         unknownReplyWindowMs: 3_600_000,
         maxEventAgeMs: 12 * 3_600_000,
         maxTextLength: 500,
+        // Este archivo manda muchos mensajes seguidos desde el mismo número.
+        knownMax: 1000,
       },
     };
   }
@@ -300,6 +315,38 @@ describe("corregir y borrar el último movimiento", () => {
     );
     await tap(client, buttonsOf(sent[9])[1]?.id as string, "Cancelar");
     expect((await live()).filter((r) => !r.deletedAt)).toHaveLength(2);
+  });
+
+  it("tasa euro: borrador y guardado a euro BCV, corrección de un guardado y día sin euro", async () => {
+    const { sent, client } = fakeMeta();
+    await t.db
+      .update(schema.bcvRate)
+      .set({ rateEur: "976.84000000" })
+      .where(eq(schema.bcvRate.effectiveDate, "2026-09-29"));
+    await send(client, "nómina 225.6$ a la tasa euro del día");
+    expect(textOf(sent[0])).toContain("*$225,60* (Bs 220.375,10 a tasa euro 976,84)");
+    await tap(client, buttonsOf(sent[0])[0]?.id as string, "Guardar");
+    const saved = (await live()).find((m) => m.description === "Pago de nómina");
+    expect(saved).toMatchObject({
+      rateSource: "bcv_eur",
+      rateValue: "976.84000000",
+      amountUsd: "225.60",
+      amountVes: "220375.10",
+    });
+    expect(saved?.rateId).not.toBeNull();
+
+    // Un gasto guardado a tasa BCV se corrige a tasa euro.
+    await send(client, "gasté 15$ en champú");
+    await tap(client, buttonsOf(sent[2])[0]?.id as string, "Guardar");
+    await send(client, "corrige a la tasa euro");
+    expect(textOf(sent[4])).toContain("(a tasa euro 976,84)");
+    await tap(client, buttonsOf(sent[4])[0]?.id as string, "Guardar");
+    const fixed = (await live()).filter((m) => m.description === "Champú").pop();
+    expect(fixed).toMatchObject({ rateSource: "bcv_eur", amountVes: "14652.60" });
+
+    // Antes del 02/10 no se guardaba el euro: pide la tasa en vez de inventarla.
+    await send(client, "nómina vieja a tasa euro");
+    expect(textOf(sent[6])).toContain("Todavía no tengo la tasa euro del BCV de ese día");
   });
 
   it("después de 30 minutos remite al dashboard; sin movimientos, lo dice", async () => {

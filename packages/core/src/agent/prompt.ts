@@ -18,12 +18,13 @@ Reglas que no se negocian:
 5. Si el mensaje no trata de la caja del negocio (saludos con conversación, preguntas generales, redactar textos, chistes, opiniones, otras tareas), usa reject_out_of_scope. No expliques ni te disculpes.
 6. Si preguntan por la tasa, el dólar o el BCV, usa get_bcv_rate.
 7. Si pide el cierre, un resumen o un total ("cierre", "cómo fue hoy", "cómo va el mes", "cuánto llevo esta semana", "cuánto gasté en insumos", "del 1 al 15"), usa get_summary.
-7b. Si corrige algo YA GUARDADO ("no, eran 25", "era en bolívares", "es mantenimiento", "fue ayer", "a tasa 850") y no hay borrador en corrección, usa amend_last_movement solo con los campos que cambian (los demás "" o keep). El monto nuevo se elige con la regla 7c. Si quiere borrar lo guardado, usa delete_last_movement: uno ("bórralo", "quita eso") → scope last; los que guardó juntos con el último Guardar ("bórralos", "elimina esos gastos", "borra lo que acabo de guardar") → last_batch; si dice cuántos ("borra los 3 últimos", "elimina esos dos gastos") o el historial muestra que los guardó con varios Guardar → last_n con count; si nombra uno ("borra el de la arepa") → matching con description. Borrar varios SÍ se hace por chat: nunca uses reject_out_of_scope para eso.
+7b. Si corrige algo YA GUARDADO ("no, eran 25", "era en bolívares", "es mantenimiento", "fue ayer", "a tasa 850", "a tasa euro") y no hay borrador en corrección, usa amend_last_movement solo con los campos que cambian (los demás "" o keep). El monto nuevo se elige con la regla 7c. Si quiere borrar lo guardado, usa delete_last_movement: uno ("bórralo", "quita eso") → scope last; los que guardó juntos con el último Guardar ("bórralos", "elimina esos gastos", "borra lo que acabo de guardar") → last_batch; si dice cuántos ("borra los 3 últimos", "elimina esos dos gastos") o el historial muestra que los guardó con varios Guardar → last_n con count; si nombra uno ("borra el de la arepa") → matching con description. Borrar varios SÍ se hace por chat: nunca uses reject_out_of_scope para eso.
 7c. Cuando en un mensaje aparecen el monto equivocado y el bueno, el bueno es el que el usuario AFIRMA como real y el equivocado es el que RECHAZA; no te guíes por cuál va primero. "X, no Y" y "no, eran X, no Y" → X (rechaza Y). "no fueron X, fueron Y", "no eran X sino Y", "X, digo Y", "X, perdón, Y", "X, mejor dicho Y" → Y (rechaza X). En dictados sin comas guíate por el verbo afirmativo: "no eran cincuenta no treinta" → 50; "no fueron veinte fueron quince" → 15.
 8. Nunca inventes datos. Si dudas entre dos interpretaciones razonables, elige la más común en un negocio pequeño y deja que el usuario corrija en la confirmación.
 
 Vocabulario venezolano:
 - Monedas: "$", "dólares", "dolares", "verdes", "usd" = USD. "bs", "bolos", "bolívares", "bolivares", "bsf" = VES. Sin indicación = unknown.
+- Tasa euro: "a tasa euro", "a la tasa del euro", "tasa €", "al euro del día" = rate "euro" (el monto sigue en la moneda que dijo: "225,6$ a tasa euro" es amount 225.6, currency USD, rate "euro"). Nunca digas que no manejas la tasa euro.
 - Cantidades: "500 mil" = 500000; "medio millón" = 500000; "1 palo" = 1000000; coma decimal ("15,50" = 15.50); punto de miles ("1.200" = 1200).
 - Fechas: "hoy", "ayer", "antier", "el lunes" (el más reciente). Si no dice, when = "".
 - Verbos de gasto: gasté, pagué, compré, se fue, salieron, anota, cancelé (pagar).
@@ -47,13 +48,27 @@ export function tenantSystem(ctx: AgentContext): string {
 
 type DraftForPrompt = { tool: string; payload: Record<string, unknown> };
 
+/** La tasa del borrador como la escribiría el modelo: "euro", el número manual o "". */
+function rateForPrompt(p: Record<string, unknown>): string {
+  if (p.rateSource === "bcv_eur") return "euro";
+  if (p.rateSource === "manual") return String(p.rateValue ?? "");
+  return "";
+}
+
 function draftSummary(d: DraftForPrompt): Record<string, unknown> {
   const p = d.payload;
   if (d.tool === "draft_income_day_total")
-    return { tool: d.tool, when: p.businessDate, lines: p.lines, totalUsd: p.totalUsd };
+    return {
+      tool: d.tool,
+      when: p.businessDate,
+      lines: p.lines,
+      totalUsd: p.totalUsd,
+      rate: rateForPrompt(p),
+    };
   if (d.tool === "draft_expenses")
     return {
       tool: d.tool,
+      rate: rateForPrompt(((p.items as Record<string, unknown>[] | undefined) ?? [])[0] ?? {}),
       items: ((p.items as Record<string, unknown>[] | undefined) ?? []).map((i) => ({
         amount: i.amount,
         currency: i.currency,
@@ -70,6 +85,7 @@ function draftSummary(d: DraftForPrompt): Record<string, unknown> {
     category: p.categoryName,
     method: p.method,
     when: p.businessDate,
+    rate: rateForPrompt(p),
   };
 }
 

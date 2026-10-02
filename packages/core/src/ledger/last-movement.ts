@@ -6,7 +6,9 @@ import {
   convert,
   Decimal,
   money,
+  RATE_ORIGINS,
   type Rate,
+  type RateOrigin,
   toDbAmount,
   toDbRate,
 } from "../domain/money";
@@ -93,7 +95,7 @@ export const MovementSnapshot = z.object({
   amountVes: z.string(),
   rateId: z.string().uuid().nullable(),
   rateValue: z.string(),
-  rateSource: z.enum(["bcv", "manual"]),
+  rateSource: z.enum(RATE_ORIGINS),
   businessDate: z.string(),
   categoryId: z.string().uuid().nullable(),
   categoryName: z.string().nullable(),
@@ -138,7 +140,7 @@ function snapshot(m: Movement, categoryName: string | null): MovementSnapshot {
     amountVes: m.amountVes,
     rateId: m.rateId,
     rateValue: m.rateValue,
-    rateSource: m.rateSource as "bcv" | "manual",
+    rateSource: m.rateSource as RateOrigin,
     businessDate: m.businessDate,
     categoryId: m.categoryId,
     categoryName,
@@ -168,7 +170,7 @@ export async function computeAmend(
       value: new Decimal(m.rateValue),
       effectiveDate: m.businessDate,
       id: m.rateId,
-      source: m.rateSource as "bcv" | "manual",
+      source: m.rateSource as RateOrigin,
     };
   const amount = input.changes.amount ?? new Decimal(m.amount);
   const currency = input.changes.currency ?? (m.currency as Currency);

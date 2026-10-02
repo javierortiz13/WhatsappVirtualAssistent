@@ -35,7 +35,7 @@ import {
   type Movement,
   recentMovementsByPhone,
 } from "../ledger/last-movement";
-import { NoRateError } from "../ledger/rate-for";
+import { euroRateFor, NoEurRateError, NoRateError } from "../ledger/rate-for";
 import { renderSummary } from "../ledger/summary";
 import { getRateInfo } from "../rates/current";
 import { es, type Outbound } from "../render/index";
@@ -93,7 +93,7 @@ const cur = (c: "USD" | "VES" | "unknown" | "keep"): "USD" | "VES" | null =>
 const RATE_FIELD = z
   .string()
   .describe(
-    'Tasa en bolívares por dólar SOLO si el usuario la dice explícitamente ("a tasa 850", "tasa 857,89"), normalizada a dígitos con punto. "" si no la dijo.',
+    'Tasa SOLO si el usuario la dice explícitamente. Un número ("a tasa 850", "tasa 857,89") normalizado a dígitos con punto, o "euro" si pide la tasa euro del BCV ("a tasa euro", "a la tasa del euro", "tasa €", "al euro del día"). "" si no la dijo.',
   );
 
 const CORRECTS_FIELD = z
@@ -348,9 +348,8 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
     if (inferred.kind === "ask") {
       return { kind: "terminal", outbound: [es.currencyQuestion(input.amount)], status: "ok" };
     }
-    const mr = manualRateFrom(nz(input.rate), when.date);
-    if (mr === "invalid")
-      return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
+    const mr = await rateOverride(run.tx, nz(input.rate), when.date);
+    if (mr === "invalid" || mr === "no_eur") return rateError(mr);
     // Corrección de un borrador de factura ("no, eran 50" por texto o voz): el borrador nuevo
     // reemplaza al pendiente y hereda su foto; si no, el respaldo se perdía (bug del 01/10).
     const target = draftTarget(run, input.corrects_draft);
@@ -422,13 +421,11 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
   schema: DraftExpensesInput,
   roles: ["owner", "employee"],
   async run(input, run) {
-    if (manualRateFrom(nz(input.rate), run.ctx.today) === "invalid")
-      return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
-    // Una sola tasa manual para todos los renglones, fechada en el día de cada gasto.
-    const rateFor = (date: IsoDate): Rate | null => {
-      const r = manualRateFrom(nz(input.rate), date);
-      return r === "invalid" ? null : r;
-    };
+    // Una sola tasa pedida (manual o euro) para todos los renglones, del día de cada gasto.
+    const rateFor = async (date: IsoDate): Promise<RateOverride> =>
+      rateOverride(run.tx, nz(input.rate), date);
+    const first = await rateFor(run.ctx.today);
+    if (first === "invalid") return rateError(first);
     const inputs: DraftInput[] = [];
     const ambiguous: string[] = [];
     for (const item of input.items) {
@@ -461,6 +458,8 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
         ambiguous.push(item.amount);
         continue;
       }
+      const itemRate = await rateFor(when.date);
+      if (itemRate === "invalid" || itemRate === "no_eur") return rateError(itemRate);
       const category = matchCategory(run.ctx.categories, nz(item.category_name));
       const categoryId = category?.id ?? defaultCategoryId(run.ctx.categories);
       const categoryName =
@@ -479,7 +478,7 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
         sourceMessageId: run.ctx.sourceMessageDbId,
         attachmentId: null,
         transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
-        manualRate: rateFor(when.date),
+        manualRate: itemRate,
       });
     }
     // Con moneda ambigua en algún renglón se pregunta una sola vez por todos (los botones vuelven
@@ -517,6 +516,42 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
     }
   },
 };
+
+/**
+ * Tasa pedida por el usuario: "euro" → euro BCV del día del movimiento (02/10/2026); un número →
+ * tasa manual (ADR-013). "invalid" si no se entiende; "no_eur" si no hay euro guardado para ese día.
+ */
+type RateOverride = Rate | null | "invalid" | "no_eur";
+const EURO_RATE =
+  /^(?:tasa\s+)?(?:del\s+)?(?:bcv\s*)?(?:euro|euros|eur|€)(?:\s+bcv)?(?:\s+del\s+d[ií]a)?$/i;
+
+async function rateOverride(
+  tx: Tx,
+  raw: string | null,
+  businessDate: IsoDate,
+): Promise<RateOverride> {
+  if (!raw) return null;
+  if (EURO_RATE.test(raw.trim())) {
+    try {
+      return (await euroRateFor(tx, businessDate)).rate;
+    } catch (err) {
+      if (err instanceof NoEurRateError) return "no_eur";
+      throw err;
+    }
+  }
+  return manualRateFrom(raw, businessDate);
+}
+
+const NO_EUR =
+  "Todavía no tengo la tasa euro del BCV de ese día. Dime la tasa (por ejemplo _tasa 973,93_) y la aplico.";
+
+function rateError(r: "invalid" | "no_eur"): ToolOutcome {
+  return {
+    kind: "terminal",
+    status: "ok",
+    outbound: [es.clarification(r === "no_eur" ? NO_EUR : BAD_RATE, [])],
+  };
+}
 
 /** "a tasa 850" → tasa manual; texto ilegible → "invalid" para pedir aclaración. */
 function manualRateFrom(raw: string | null, businessDate: IsoDate): Rate | null | "invalid" {
@@ -577,9 +612,8 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
     const statedCurrency = statedAmount
       ? currencyFor(cur(input.total_currency), statedAmount, run.ctx)
       : null;
-    const mr = manualRateFrom(nz(input.rate), when.date);
-    if (mr === "invalid")
-      return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
+    const mr = await rateOverride(run.tx, nz(input.rate), when.date);
+    if (mr === "invalid" || mr === "no_eur") return rateError(mr);
     const lines: { method: PaymentMethod; amount: Decimal; currency: "USD" | "VES" }[] = [];
     for (const l of input.lines) {
       const amount = parseAmount(l.amount);
@@ -662,9 +696,8 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
         status: "ok",
         outbound: [es.clarification(whenQuestion(when.error, input.when), [])],
       };
-    const mr = manualRateFrom(nz(input.rate), when.date);
-    if (mr === "invalid")
-      return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
+    const mr = await rateOverride(run.tx, nz(input.rate), when.date);
+    if (mr === "invalid" || mr === "no_eur") return rateError(mr);
     const method: PaymentMethod = input.method;
     const explicit = cur(input.currency) ?? METHOD_CURRENCY[method] ?? null;
     const currency = currencyFor(explicit, amount, run.ctx);
@@ -791,9 +824,13 @@ const amendLast: ToolSpec<typeof AmendLastInput> = {
     }
     if (input.method !== "keep" && m.type === "income") changes.paymentMethod = input.method;
     if (input.rate) {
-      const r = manualRateFrom(nz(input.rate), changes.businessDate ?? (m.businessDate as IsoDate));
-      if (r === "invalid" || !r)
-        return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
+      const r = await rateOverride(
+        run.tx,
+        nz(input.rate),
+        changes.businessDate ?? (m.businessDate as IsoDate),
+      );
+      if (r === "invalid" || r === "no_eur") return rateError(r);
+      if (!r) return rateError("invalid");
       changes.manualRate = r;
     }
     if (Object.keys(changes).length === 0)

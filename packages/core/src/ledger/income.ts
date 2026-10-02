@@ -7,6 +7,7 @@ import {
   rate as makeRate,
   money,
   type Rate,
+  type RateOrigin,
   toDbAmount,
   toDbRate,
 } from "../domain/money";
@@ -40,7 +41,7 @@ type Common = {
   actor: Actor;
   sourceChannel: "text" | "voice" | "image" | "dashboard";
   sourceMessageId?: string | null;
-  rate?: { id: string | null; value: string; effectiveDate: IsoDate; source?: "bcv" | "manual" };
+  rate?: { id: string | null; value: string; effectiveDate: IsoDate; source?: RateOrigin };
 };
 
 async function resolveRate(tx: Tx, input: Common): Promise<Rate> {

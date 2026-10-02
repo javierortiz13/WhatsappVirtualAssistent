@@ -1,9 +1,9 @@
-import { schema } from "@caja/db";
+import { eq, schema } from "@caja/db";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { asIsoDate } from "../src/domain/dates";
 import { Decimal } from "../src/domain/money";
-import { NoRateError, rateFor } from "../src/ledger/rate-for";
+import { euroRateFor, NoEurRateError, NoRateError, rateFor } from "../src/ledger/rate-for";
 import { refreshRates } from "../src/rates/refresh";
 import {
   bcvSource,
@@ -177,6 +177,23 @@ describe("storeRate, refreshRates y rateFor", () => {
     });
     expect(dead.source).toBeNull();
     expect(dead.errors).toHaveLength(2);
+  });
+
+  it("euroRateFor: el último euro publicado en o antes del día; sin euro, lanza", async () => {
+    // Las pruebas anteriores dejaron euro desde el 30/09; antes de esa fecha no hay.
+    await expect(euroRateFor(t.db, asIsoDate("2026-09-29"))).rejects.toBeInstanceOf(NoEurRateError);
+    await storeRate(t.db, {
+      rate: new Decimal("860.17"),
+      rateEur: new Decimal("976.84"),
+      effectiveDate: asIsoDate("2026-10-02"),
+      publishedAt: null,
+      source: "bcv",
+    });
+    const sat = await euroRateFor(t.db, asIsoDate("2026-10-03"));
+    expect(sat.rate).toMatchObject({ source: "bcv_eur", effectiveDate: "2026-10-02" });
+    expect(sat.rate.value.toFixed(2)).toBe("976.84");
+    expect(sat.usedPriorDay).toBe(true);
+    await t.db.delete(schema.bcvRate).where(eq(schema.bcvRate.effectiveDate, "2026-10-02"));
   });
 
   it("rateFor: fin de semana usa la última publicada; sin historia usa la más antigua posterior; sin nada lanza", async () => {
