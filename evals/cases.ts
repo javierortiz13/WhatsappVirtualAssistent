@@ -6,7 +6,8 @@ import { z } from "zod";
 /**
  * Formato de un caso de eval (Fase 8). Cada archivo YAML en `cases/` es una lista de casos.
  * `tool` es la herramienta esperada; `tool_not` la que NO debe elegirse. `args` compara un
- * subconjunto: `amount` como número, `when` como fecha resuelta, el resto exacto.
+ * subconjunto: `amount` como número, `when` como fecha resuelta, `item_currencies` como la lista
+ * de monedas de los ítems de draft_expenses, el resto exacto.
  */
 const Receipt = z.object({
   is_receipt: z.boolean().default(true),

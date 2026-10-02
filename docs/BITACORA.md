@@ -476,3 +476,14 @@ _No dijiste la moneda: lo tomé en dólares._
 ```
 
 La aclaración de la moneda pasa a una nota al final. Las correcciones muestran "(tasa manual 850,00)" o "(tasa euro 973,93)". Tests de render y de punta a punta actualizados.
+
+### S2 · 02/10/2026 · Montos en euros
+
+**Síntoma (Javier, WhatsApp real):** "Registrar clases de pilates 15 euros , Gatorade 3$ y taxi 1900bs" registró las clases como $15,00 a tasa BCV ("No dijiste la moneda: lo tomé en dólares"). La moneda de las herramientas solo admitía USD y VES.
+
+**Arreglo**
+- La moneda de un monto acepta `EUR` ("15 euros", "15 €", "15 eur") en gastos, varios gastos, ventas del día e ingresos sueltos. No hay cuentas en euros: el monto se pasa a bolívares con el euro BCV de la fecha del movimiento y se guarda en Bs (su equivalente en $ sale a tasa BCV, como cualquier gasto en Bs).
+- La descripción guarda de dónde salió: "Clases de pilates (15,00 € a tasa euro 976,84)". El borrador lo muestra igual: `1. Clases de pilates (15,00 € a tasa euro 976,84): *Bs 14.652,60* · Otros`.
+- Distinto de "a tasa euro" (monto en $ o Bs con la tasa euro). El prompt explica la diferencia y que en una lista cada ítem lleva su moneda.
+- Sin euro BCV para esa fecha (antes del 02/10) el bot pide el monto en dólares o en bolívares.
+- Test de punta a punta con el mensaje real y tres casos de eval (75 casos); el eval compara la moneda de cada ítem con `item_currencies`. Sin migración.

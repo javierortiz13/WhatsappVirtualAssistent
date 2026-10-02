@@ -236,6 +236,13 @@ function check(
         const got = resolveWhen((args.when as string | null) ?? null, ctx.today);
         const want = resolveWhen((v as string | null) ?? null, ctx.today);
         expect(got, `when ${args.when}`).toEqual(want);
+      } else if (k === "item_currencies") {
+        // draft_expenses: la moneda de cada ítem, en orden (las descripciones varían entre corridas).
+        const items = (args.items ?? []) as { currency?: string }[];
+        expect(
+          items.map((i) => i.currency),
+          "monedas de los ítems",
+        ).toEqual(v);
       } else {
         expect(args[k], `arg ${k}`).toEqual(v);
       }

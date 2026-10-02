@@ -10,6 +10,7 @@ import {
 } from "../domain/dates";
 import {
   Decimal,
+  formatMoney,
   isPositiveAmount,
   manualRate,
   parseVenezuelanAmount,
@@ -85,9 +86,9 @@ export type ToolSpec<S extends z.ZodType> = {
  * y con `unknown` / `keep` / `unspecified` en las listas, nunca con null. El backend normaliza
  * con `nz` y `cur`.
  */
-const CurrencyOrUnknown = z.enum(["USD", "VES", "unknown"]);
+const CurrencyOrUnknown = z.enum(["USD", "VES", "EUR", "unknown"]);
 const nz = (s: string): string | null => (s.trim() ? s.trim() : null);
-const cur = (c: "USD" | "VES" | "unknown" | "keep"): "USD" | "VES" | null =>
+const cur = (c: "USD" | "VES" | "EUR" | "unknown" | "keep"): "USD" | "VES" | null =>
   c === "USD" || c === "VES" ? c : null;
 
 const RATE_FIELD = z
@@ -109,7 +110,7 @@ export const DraftExpenseInput = z.object({
       'Monto tal como lo dijo el usuario, normalizado a dígitos con punto decimal. "15,50" → "15.50"; "450 mil" → "450000"; "medio millón" → "500000".',
     ),
   currency: CurrencyOrUnknown.describe(
-    "USD si dijo $, dólares, verdes, usd. VES si dijo bs, bolos, bolívares. unknown si no lo dijo.",
+    "USD si dijo $, dólares, verdes, usd. VES si dijo bs, bolos, bolívares. EUR si el monto está en euros (€, euros). unknown si no lo dijo.",
   ),
   description: z
     .string()
@@ -319,10 +320,10 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
   schema: DraftExpenseInput,
   roles: ["owner", "employee"],
   async run(input, run) {
-    const amount =
+    const parsedAmount =
       parseVenezuelanAmount(input.amount) ??
       (/^\d+(\.\d+)?$/.test(input.amount) ? new Decimal(input.amount) : null);
-    if (!amount || !isPositiveAmount(amount)) {
+    if (!parsedAmount || !isPositiveAmount(parsedAmount)) {
       return {
         kind: "terminal",
         outbound: [es.clarification("No entendí el monto. ¿Cuánto fue?", [])],
@@ -339,8 +340,17 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
             : "No entendí la fecha. ¿Fue hoy, ayer o qué día?";
       return { kind: "terminal", outbound: [es.clarification(q, [])], status: "ok" };
     }
+    let amount = parsedAmount;
+    let eurNote: string | null = null;
+    if (input.currency === "EUR") {
+      const e = await euroToBs(run.tx, parsedAmount, when.date);
+      if (e === "no_eur")
+        return { kind: "terminal", status: "ok", outbound: [es.clarification(NO_EUR_AMOUNT, [])] };
+      amount = e.ves;
+      eurNote = e.note;
+    }
     const inferred = inferCurrency({
-      explicit: cur(input.currency),
+      explicit: eurNote ? "VES" : cur(input.currency),
       amount,
       threshold: new Decimal(run.ctx.vesThreshold),
       tenantDefault: run.ctx.defaultCurrency,
@@ -372,7 +382,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
           currencyInferred: inferred.kind === "inferred",
           categoryId,
           categoryName,
-          description: input.description.trim() || null,
+          description: withNote(input.description, eurNote),
           businessDate: when.date,
           sourceChannel: inherited ? "image" : run.ctx.sourceChannel,
           sourceMessageId: run.ctx.sourceMessageDbId,
@@ -429,9 +439,9 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
     const inputs: DraftInput[] = [];
     const ambiguous: string[] = [];
     for (const item of input.items) {
-      const amount = parseAmount(item.amount);
+      const parsedAmount = parseAmount(item.amount);
       const label = item.description.trim() || item.amount;
-      if (!amount) {
+      if (!parsedAmount) {
         return {
           kind: "terminal",
           outbound: [es.clarification(`No entendí el monto de ${label}. ¿Cuánto fue?`, [])],
@@ -448,8 +458,21 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
               : `No entendí la fecha de ${label}. ¿Fue hoy, ayer o qué día?`;
         return { kind: "terminal", outbound: [es.clarification(q, [])], status: "ok" };
       }
+      let amount = parsedAmount;
+      let eurNote: string | null = null;
+      if (item.currency === "EUR") {
+        const e = await euroToBs(run.tx, parsedAmount, when.date);
+        if (e === "no_eur")
+          return {
+            kind: "terminal",
+            status: "ok",
+            outbound: [es.clarification(NO_EUR_AMOUNT, [])],
+          };
+        amount = e.ves;
+        eurNote = e.note;
+      }
       const inferred = inferCurrency({
-        explicit: cur(item.currency),
+        explicit: eurNote ? "VES" : cur(item.currency),
         amount,
         threshold: new Decimal(run.ctx.vesThreshold),
         tenantDefault: run.ctx.defaultCurrency,
@@ -472,7 +495,7 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
         currencyInferred: inferred.kind === "inferred",
         categoryId,
         categoryName,
-        description: item.description.trim() || null,
+        description: withNote(item.description, eurNote),
         businessDate: when.date,
         sourceChannel: run.ctx.sourceChannel,
         sourceMessageId: run.ctx.sourceMessageDbId,
@@ -553,6 +576,38 @@ function rateError(r: "invalid" | "no_eur"): ToolOutcome {
   };
 }
 
+/**
+ * Monto en euros ("15 euros", "15 €", 02/10/2026): no hay cuentas en euros, así que se pasa a
+ * bolívares con el euro BCV del día y se guarda en Bs (su equivalente en $ sale a tasa BCV). La
+ * nota "15,00 € a tasa euro 973,93" va en la descripción para que se vea de dónde salió.
+ */
+async function euroToBs(
+  tx: Tx,
+  amount: Decimal,
+  businessDate: IsoDate,
+): Promise<{ ves: Decimal; note: string } | "no_eur"> {
+  try {
+    const { rate } = await euroRateFor(tx, businessDate);
+    const n = (v: Decimal) => formatMoney(v, "VES").replace("Bs ", "");
+    return {
+      ves: amount.mul(rate.value).toDecimalPlaces(2, Decimal.ROUND_HALF_UP),
+      note: `${n(amount)} € a tasa euro ${n(rate.value)}`,
+    };
+  } catch (err) {
+    if (err instanceof NoEurRateError) return "no_eur";
+    throw err;
+  }
+}
+
+const NO_EUR_AMOUNT =
+  "Todavía no tengo la tasa euro del BCV de ese día. Dime el monto en dólares o en bolívares.";
+
+const withNote = (description: string, note: string | null): string | null => {
+  const d = description.trim();
+  if (!note) return d || null;
+  return d ? `${d} (${note})` : note;
+};
+
 /** "a tasa 850" → tasa manual; texto ilegible → "invalid" para pedir aclaración. */
 function manualRateFrom(raw: string | null, businessDate: IsoDate): Rate | null | "invalid" {
   if (!raw) return null;
@@ -590,7 +645,7 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
         status: "ok",
         outbound: [es.clarification(whenQuestion(when.error, input.when), [])],
       };
-    const statedAmount = input.total_amount ? parseAmount(input.total_amount) : null;
+    let statedAmount = input.total_amount ? parseAmount(input.total_amount) : null;
     if (input.total_amount && !statedAmount)
       return {
         kind: "terminal",
@@ -608,15 +663,24 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
           ),
         ],
       };
+    // Total en euros: se pasa a Bs con el euro BCV del día (no hay cuentas en euros).
+    if (statedAmount && input.total_currency === "EUR") {
+      const e = await euroToBs(run.tx, statedAmount, when.date);
+      if (e === "no_eur")
+        return { kind: "terminal", status: "ok", outbound: [es.clarification(NO_EUR_AMOUNT, [])] };
+      statedAmount = e.ves;
+    }
     // Moneda del total: explícita, por magnitud, o por defecto del negocio; sin nada, USD para ventas.
     const statedCurrency = statedAmount
-      ? currencyFor(cur(input.total_currency), statedAmount, run.ctx)
+      ? input.total_currency === "EUR"
+        ? "VES"
+        : currencyFor(cur(input.total_currency), statedAmount, run.ctx)
       : null;
     const mr = await rateOverride(run.tx, nz(input.rate), when.date);
     if (mr === "invalid" || mr === "no_eur") return rateError(mr);
     const lines: { method: PaymentMethod; amount: Decimal; currency: "USD" | "VES" }[] = [];
     for (const l of input.lines) {
-      const amount = parseAmount(l.amount);
+      let amount = parseAmount(l.amount);
       if (!amount)
         return {
           kind: "terminal",
@@ -628,8 +692,18 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
             ),
           ],
         };
+      if (l.currency === "EUR") {
+        const e = await euroToBs(run.tx, amount, when.date);
+        if (e === "no_eur")
+          return {
+            kind: "terminal",
+            status: "ok",
+            outbound: [es.clarification(NO_EUR_AMOUNT, [])],
+          };
+        amount = e.ves;
+      }
       const currency =
-        cur(l.currency) ??
+        (l.currency === "EUR" ? "VES" : cur(l.currency)) ??
         statedCurrency ??
         currencyFor(null, amount, run.ctx, METHOD_CURRENCY[l.method]);
       lines.push({ method: l.method, amount, currency });
@@ -682,8 +756,8 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
   schema: DraftIncomeSingleInput,
   roles: ["owner", "employee"],
   async run(input, run) {
-    const amount = parseAmount(input.amount);
-    if (!amount)
+    const parsedAmount = parseAmount(input.amount);
+    if (!parsedAmount)
       return {
         kind: "terminal",
         status: "ok",
@@ -699,7 +773,16 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
     const mr = await rateOverride(run.tx, nz(input.rate), when.date);
     if (mr === "invalid" || mr === "no_eur") return rateError(mr);
     const method: PaymentMethod = input.method;
-    const explicit = cur(input.currency) ?? METHOD_CURRENCY[method] ?? null;
+    let amount = parsedAmount;
+    let eurNote: string | null = null;
+    if (input.currency === "EUR") {
+      const e = await euroToBs(run.tx, parsedAmount, when.date);
+      if (e === "no_eur")
+        return { kind: "terminal", status: "ok", outbound: [es.clarification(NO_EUR_AMOUNT, [])] };
+      amount = e.ves;
+      eurNote = e.note;
+    }
+    const explicit = eurNote ? "VES" : (cur(input.currency) ?? METHOD_CURRENCY[method] ?? null);
     const currency = currencyFor(explicit, amount, run.ctx);
     try {
       const r = await createIncomeSingleDraft(
@@ -711,7 +794,7 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
           currency,
           currencyInferred: !explicit,
           method,
-          description: input.description.trim() || null,
+          description: withNote(input.description, eurNote),
           businessDate: when.date,
           sourceChannel: run.ctx.sourceChannel,
           sourceMessageId: run.ctx.sourceMessageDbId,

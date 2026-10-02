@@ -26,3 +26,22 @@
   expect:
     tool: draft_income_day_total
     args: { rate: euro }
+
+# Montos EN euros (02/10, prueba de Javier): "15 euros" se tomaba como 15$ a tasa BCV.
+- name: lista con un monto en euros (mensaje real)
+  input: "Registrar clases de pilates 15 euros , Gatorade 3$ y taxi 1900bs"
+  expect:
+    tool: draft_expenses
+    args: { item_currencies: [EUR, USD, VES] }
+
+- name: un gasto en euros con el símbolo
+  input: "pagué 20 € de gimnasio"
+  expect:
+    tool: draft_expense
+    args: { amount: "20", currency: EUR, rate: "" }
+
+- name: monto en dólares a tasa euro no es un monto en euros
+  input: "pagué 50$ de alquiler a tasa euro"
+  expect:
+    tool: draft_expense
+    args: { amount: "50", currency: USD, rate: euro }

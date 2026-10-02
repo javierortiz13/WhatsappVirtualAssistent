@@ -163,6 +163,33 @@ describe("corregir y borrar el último movimiento", () => {
         },
       },
     ],
+    "Registrar clases de pilates 15 euros , Gatorade 3$ y taxi 1900bs": [
+      {
+        id: "eur1",
+        name: "draft_expenses",
+        input: {
+          items: [
+            {
+              amount: "15",
+              currency: "EUR",
+              description: "Clases de pilates",
+              category_name: "",
+              when: "",
+            },
+            { amount: "3", currency: "USD", description: "Gatorade", category_name: "", when: "" },
+            { amount: "1900", currency: "VES", description: "Taxi", category_name: "", when: "" },
+          ],
+          rate: "",
+          corrects_draft: false,
+        },
+      },
+    ],
+    "pilates del 2/9, 15 euros": expense("eur2", {
+      amount: "15",
+      currency: "EUR",
+      description: "Clases de pilates",
+      when: "2026-09-02",
+    }),
     "borra el de la arepa": [del("d2", "matching", 0, "arepa")],
     "borra el del helado": [del("d3", "matching", 0, "helado")],
     bórralos: [del("d4", "last_batch")],
@@ -349,6 +376,32 @@ describe("corregir y borrar el último movimiento", () => {
     // Antes del 02/10 no se guardaba el euro: pide la tasa en vez de inventarla.
     await send(client, "nómina vieja a tasa euro");
     expect(textOf(sent[6])).toContain("Todavía no tengo la tasa euro del BCV de ese día");
+
+    // Montos EN euros: se pasan a Bs con el euro BCV del día; cada ítem conserva su moneda.
+    await send(client, "Registrar clases de pilates 15 euros , Gatorade 3$ y taxi 1900bs");
+    expect(textOf(sent[7])).toContain(
+      "1. Clases de pilates (15,00 € a tasa euro 976,84): *Bs 14.652,60* · Otros\n2. Gatorade: *$3,00* · Otros\n3. Taxi: *Bs 1.900,00* · Otros",
+    );
+    await tap(client, buttonsOf(sent[7])[0]?.id as string, "Guardar");
+    const rows = await live();
+    expect(rows.find((m) => m.description?.startsWith("Clases de pilates"))).toMatchObject({
+      description: "Clases de pilates (15,00 € a tasa euro 976,84)",
+      currency: "VES",
+      amountVes: "14652.60",
+      rateSource: "bcv",
+    });
+    expect(rows.find((m) => m.description === "Gatorade")).toMatchObject({
+      currency: "USD",
+      amountUsd: "3.00",
+    });
+    expect(rows.find((m) => m.description === "Taxi")).toMatchObject({
+      currency: "VES",
+      amountVes: "1900.00",
+    });
+    await send(client, "pilates del 2/9, 15 euros");
+    expect(textOf(sent[9])).toBe(
+      "Todavía no tengo la tasa euro del BCV de ese día. Dime el monto en dólares o en bolívares.",
+    );
   });
 
   it("después de 30 minutos remite al dashboard; sin movimientos, lo dice", async () => {
