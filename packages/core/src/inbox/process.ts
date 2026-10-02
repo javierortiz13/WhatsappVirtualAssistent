@@ -675,6 +675,16 @@ async function routeInteractive(
         return none([es.cancelled(ctx.inboundId)]);
       }
       if (parsed.kind === "fix") {
+        // Con varios borradores en cola, solo uno queda en corrección: el del botón tocado.
+        await tx
+          .update(schema.pendingAction)
+          .set({ payload: sql`${schema.pendingAction.payload} - 'fixing'` })
+          .where(
+            and(
+              eq(schema.pendingAction.phoneId, ctx.phoneId),
+              eq(schema.pendingAction.status, "pending"),
+            ),
+          );
         await tx
           .update(schema.pendingAction)
           .set({ payload: sql`${schema.pendingAction.payload} || '{"fixing": true}'::jsonb` })
@@ -765,7 +775,7 @@ async function deleteLast(
     },
     userText: msg.kind === "text" ? msg.text : "",
     now: (deps.now ?? (() => new Date()))(),
-    prior: null,
+    drafts: { fixing: null, latest: null },
   });
   return outcome.kind === "terminal" ? none(outcome.outbound) : none([es.outOfScope()]);
 }

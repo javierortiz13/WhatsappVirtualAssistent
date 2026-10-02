@@ -62,6 +62,7 @@ const expense = (over: Record<string, unknown> = {}) => ({
   category_name: "Insumos de lavado",
   when: "",
   rate: "",
+  corrects_draft: false,
   ...over,
 });
 
@@ -297,6 +298,47 @@ describe("agent loop", () => {
     expect(textOf(requests[0], 0)).toContain('"hola"');
     expect(textOf(requests[0], 1)).toContain("Menú enviado");
     expect(textOf(requests[0], 2)).toContain("Mensaje del usuario:");
+  });
+
+  it("cola: un gasto nuevo no descarta el borrador de la factura y avisa que hay otro esperando", async () => {
+    const first = fakeLlm([
+      call("draft_expense", expense({ amount: "7", description: "Factura" })),
+    ]);
+    await run(first.client, "[foto de factura]");
+    const second = fakeLlm([call("draft_expense", expense({ amount: "5", description: "Arepa" }))]);
+    const res = await run(second.client, "Registrar compra de arepa 5$");
+    expect(textOf(second.requests[0], 0)).toContain("Borradores SIN GUARDAR esperando");
+    const body = (res.outbound[0] as { body: string }).body;
+    expect(body).not.toContain("Descarté");
+    expect(body).toContain("Tienes 1 borrador más sin guardar arriba.");
+    const pending = await withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.pendingAction).where(eq(schema.pendingAction.status, "pending")),
+    );
+    expect(pending.map((p) => (p.payload as { description: string }).description).sort()).toEqual([
+      "Arepa",
+      "Factura",
+    ]);
+  });
+
+  it("cola: corrects_draft reemplaza solo el borrador más reciente", async () => {
+    await run(fakeLlm([call("draft_expense", expense({ description: "Factura" }))]).client, "x");
+    await run(fakeLlm([call("draft_expense", expense({ description: "Arepa" }))]).client, "y");
+    const fix = fakeLlm([
+      call("draft_expense", expense({ amount: "6", description: "Arepa", corrects_draft: true })),
+    ]);
+    const res = await run(fix.client, "no, eran 6");
+    expect((res.outbound[0] as { body: string }).body).toContain("Descarté el borrador anterior");
+    const pending = await withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.pendingAction).where(eq(schema.pendingAction.status, "pending")),
+    );
+    expect(
+      pending
+        .map((p) => {
+          const d = p.payload as { description: string; amount: string };
+          return `${d.description} ${d.amount}`;
+        })
+        .sort(),
+    ).toEqual(["Arepa 6.00", "Factura 15.00"]);
   });
 
   it("borrador en corrección: el turno lleva el borrador y el nuevo draft lo reemplaza", async () => {

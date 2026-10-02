@@ -11,7 +11,7 @@ import {
   resolveWhen,
   todayInCaracas,
 } from "@caja/core";
-import { loadNearestEnvFile, schema, withTenant } from "@caja/db";
+import { eq, loadNearestEnvFile, schema, withTenant } from "@caja/db";
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -138,13 +138,32 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
               createdAt: new Date(t0 + i * 60_000),
             });
           }
+          for (const [i, d] of c.pending.entries()) {
+            await tx.insert(schema.pendingAction).values({
+              tenantId,
+              phoneId: ctx.phoneId,
+              kind: "create_expense",
+              payload: {
+                amount: d.amount,
+                currency: d.currency,
+                description: d.description,
+                categoryName: d.category,
+                businessDate: ctx.today,
+                attachmentId: null,
+                ...(d.fixing ? { fixing: true } : {}),
+              },
+              expiresAt: new Date(Date.now() + 10 * 60_000),
+              createdAt: new Date(Date.now() - 60_000 * (c.pending.length - i)),
+            });
+          }
           const input: AgentInput = c.receipt
             ? { kind: "receipt", extracted: c.receipt }
             : { kind: c.kind, text: c.input };
           const r = await agent.run(tx, ctx, input);
           const drafts = await tx
             .select({ id: schema.pendingAction.id })
-            .from(schema.pendingAction);
+            .from(schema.pendingAction)
+            .where(eq(schema.pendingAction.status, "pending"));
           return { ...r, drafts: drafts.length };
         });
       } catch (err) {
@@ -196,6 +215,8 @@ function check(
   drafts: number,
 ) {
   if (c.expect.no_draft) expect(drafts, `borradores tras "${c.input}"`).toBe(0);
+  if (c.expect.pending_after !== undefined)
+    expect(drafts, `borradores pendientes tras "${c.input}"`).toBe(c.expect.pending_after);
   if (c.expect.tool) expect(last?.name, `herramienta para "${c.input}"`).toBe(c.expect.tool);
   if (c.expect.tool_not) expect(last?.name).not.toBe(c.expect.tool_not);
   if (c.expect.args) {

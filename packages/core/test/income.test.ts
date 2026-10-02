@@ -235,7 +235,8 @@ describe("ledger de ingresos", () => {
       ),
     );
     expect(second.draft.existingUsd).toBe("350.00");
-    expect(second.replacedPrevious).toBe(true);
+    // Cola de borradores: uno nuevo no reemplaza al anterior salvo que sea una corrección.
+    expect(second.replacedPrevious).toBe(false);
   });
 
   it("borrador de ingreso suelto congela la tasa y convierte", async () => {

@@ -76,6 +76,7 @@ const llm: LlmClient = {
           category_name: "",
           when: "",
           rate: "",
+          corrects_draft: false,
         }
       : null;
     return {

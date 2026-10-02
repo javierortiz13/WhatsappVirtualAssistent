@@ -745,7 +745,7 @@ CREATE TABLE pending_action (
   created_at         timestamptz NOT NULL DEFAULT now()
 );
 -- Solo una acción pendiente por teléfono
-CREATE UNIQUE INDEX pending_action_one_active ON pending_action (phone_id) WHERE status = 'pending';
+CREATE INDEX pending_action_phone_pending ON pending_action (phone_id, created_at) WHERE status = 'pending';  -- 0006: cola de borradores (antes índice único: uno por teléfono)
 
 CREATE TABLE webhook_event (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1139,7 +1139,7 @@ El texto final se escribe en la Fase 4 junto con los guiones, y se versiona en e
 **ADR-006. Toda escritura pasa por `pending_action` y confirmación con botón, procesada sin LLM**
 - Contexto: decisión 9 del brief; los botones son inequívocos.
 - Decisión: las herramientas de escritura crean un borrador; la confirmación es un handler determinista.
-- Consecuencias: cero escrituras accidentales; una escritura cuesta un mensaje extra; un solo borrador activo por teléfono, lo que simplifica el estado.
+- Consecuencias: cero escrituras accidentales; una escritura cuesta un mensaje extra; varios borradores pueden esperar a la vez en un teléfono (cola, hasta 5; revisado el 02/10/2026 tras el piloto: una factura lenta se perdía si el dueño mandaba otro gasto). Uno nuevo solo reemplaza a otro cuando es una corrección: el que está en Corregir, o el más reciente si el modelo marca `corrects_draft`.
 
 **ADR-007. Visión multimodal del LLM para facturas, no OCR dedicado**
 - Contexto: las facturas venezolanas son heterogéneas (térmicas, manuscritas, fotos torcidas). Un OCR clásico devuelve texto que igual habría que interpretar.
@@ -1615,7 +1615,7 @@ Sin disculpas largas, sin explicar la política de Meta, sin ofrecer alternativa
 |---|---|
 | LLM caído | "Ahora mismo no puedo procesar esto. Inténtalo en unos minutos." |
 | Borrador vencido y el dueño toca Guardar | "Esa confirmación ya venció. Mándame el gasto de nuevo." |
-| Dos borradores (manda otro gasto sin confirmar el anterior) | El nuevo reemplaza al anterior: "Descarté el gasto anterior sin guardar. Nuevo gasto por confirmar: …" |
+| Dos borradores (manda otro gasto sin confirmar el anterior) | Los dos quedan en cola, cada uno con sus botones; el nuevo avisa "Tienes 1 borrador más sin guardar arriba." Solo una corrección ("no, eran 50") reemplaza al más reciente, con "Descarté el borrador anterior sin guardar." |
 | Número desconocido | "Este número no está registrado. Crea tu cuenta aquí: {enlace}" (sin más) |
 | Número desactivado | Igual que desconocido |
 | Audio de más de 2 minutos | "Solo proceso notas de voz cortas (hasta 2 minutos). ¿Me lo resumes?" |
@@ -1664,7 +1664,7 @@ Métodos de pago (fijos, para ventas): Efectivo USD, Efectivo Bs, Pago Móvil, P
 - El agente sugiere categoría; solo pregunta (con lista) cuando no tiene confianza.
 - Desglose que no cuadra: el dueño decide entre dos totales o corregir. El bot no rellena solo.
 - Un mensaje con varios gastos se procesa uno por uno, máximo 3.
-- Un nuevo borrador reemplaza al anterior sin guardar, con aviso.
+- Un borrador nuevo se suma a la cola (máximo 5 por teléfono); solo una corrección reemplaza al anterior, con aviso.
 - El cierre siempre termina con "Efectivo en caja" por moneda y el enlace al dashboard.
 - Categorías por defecto definidas para los 5 tipos, máximo 10 por tipo.
 

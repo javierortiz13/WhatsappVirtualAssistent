@@ -1,11 +1,13 @@
 import { and, desc, eq, gt, schema, type Tx } from "@caja/db";
 import type { z } from "zod";
+import { pendingDrafts } from "../ledger/drafts";
 import { type Logger, silentLogger } from "../log";
+import type { Outbound } from "../render/index";
 import { es } from "../render/index";
 import { receiptUserText } from "../vision/receipt";
 import { type LlmClient, type LlmTurn, LlmUnavailableError } from "./llm";
 import { GLOBAL_SYSTEM, tenantSystem, userTurn } from "./prompt";
-import { pendingDraftFor, type ToolSpec, toLlmToolDef, toolsForRole } from "./tools";
+import { type DraftRef, type ToolSpec, toLlmToolDef, toolsForRole } from "./tools";
 import type { AgentContext, AgentInput, AgentResult, AgentRunner } from "./types";
 
 /**
@@ -43,20 +45,21 @@ export function createAgent(opts: AgentOptions): AgentRunner {
           ? input.text
           : receiptUserText(input.extracted);
 
-      const pending = await pendingDraftFor(tx, ctx.phoneId);
-      const FIXABLE: Record<string, string> = {
-        create_expense: "draft_expense",
-        create_expenses: "draft_expenses",
-        create_income_day_total: "draft_income_day_total",
-        create_income_single: "draft_income_single",
+      // Cola de borradores (ADR-006 revisado el 02/10): pueden esperar varios a la vez.
+      const queue = (await pendingDrafts(tx, ctx.phoneId)).filter((d) => FIXABLE[d.kind]);
+      const ref = (d: (typeof queue)[number]): DraftRef => ({
+        id: d.id,
+        kind: d.kind,
+        payload: d.payload as Record<string, unknown>,
+      });
+      const fixingRow = queue.find((d) => (d.payload as { fixing?: boolean }).fixing) ?? null;
+      const drafts = {
+        fixing: fixingRow ? ref(fixingRow) : null,
+        latest: queue[0] ? ref(queue[0]) : null,
       };
-      const pendingDraft =
-        pending && FIXABLE[pending.kind] && (pending.payload as { fixing?: boolean }).fixing
-          ? {
-              tool: FIXABLE[pending.kind] as string,
-              payload: pending.payload as Record<string, unknown>,
-            }
-          : null;
+      const asPrompt = (d: DraftRef) => ({ tool: FIXABLE[d.kind] as string, payload: d.payload });
+      const pendingDraft = drafts.fixing ? asPrompt(drafts.fixing) : null;
+      const waiting = drafts.fixing ? [] : queue.map((d) => asPrompt(ref(d)));
       const history = await recentHistory(
         tx,
         ctx.phoneId,
@@ -66,7 +69,7 @@ export function createAgent(opts: AgentOptions): AgentRunner {
 
       const turns: LlmTurn[] = [
         ...history,
-        { role: "user", text: userTurn(userText, ctx.today, pendingDraft) },
+        { role: "user", text: userTurn(userText, ctx.today, pendingDraft, waiting) },
       ];
       const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
       const toolCalls: AgentResult["toolCalls"] = [];
@@ -136,9 +139,7 @@ export function createAgent(opts: AgentOptions): AgentRunner {
           ctx,
           userText,
           now: started,
-          prior: pending
-            ? { kind: pending.kind, payload: pending.payload as Record<string, unknown> }
-            : null,
+          drafts,
         });
         if (outcome.kind === "terminal") {
           log.info(
@@ -150,7 +151,7 @@ export function createAgent(opts: AgentOptions): AgentRunner {
             },
             "agente terminó",
           );
-          return finish(outcome.outbound, outcome.status);
+          return finish(await withQueueNote(tx, ctx.phoneId, outcome.outbound), outcome.status);
         }
         turns.push({ role: "assistant", text: res.text, toolCalls: [call] });
         turns.push({ role: "tool_result", toolUseId: call.id, content: outcome.resultForModel });
@@ -159,6 +160,30 @@ export function createAgent(opts: AgentOptions): AgentRunner {
       return finish([es.outOfScope()], "rejected_out_of_scope");
     },
   };
+}
+
+const FIXABLE: Record<string, string> = {
+  create_expense: "draft_expense",
+  create_expenses: "draft_expenses",
+  create_income_day_total: "draft_income_day_total",
+  create_income_single: "draft_income_single",
+};
+
+/**
+ * Si el turno dejó un borrador nuevo y hay otros esperando, el mensaje lo dice: así el dueño sabe
+ * que la factura de arriba sigue viva y se guarda con sus propios botones.
+ */
+async function withQueueNote(tx: Tx, phoneId: string, outbound: Outbound[]): Promise<Outbound[]> {
+  const last = outbound[outbound.length - 1];
+  if (last?.type !== "buttons" || !last.buttons.some((b) => b.id.startsWith("confirm:")))
+    return outbound;
+  const others = (await pendingDrafts(tx, phoneId)).length - 1;
+  if (others < 1) return outbound;
+  const note =
+    others === 1
+      ? "_Tienes 1 borrador más sin guardar arriba._"
+      : `_Tienes ${others} borradores más sin guardar arriba._`;
+  return [...outbound.slice(0, -1), { ...last, body: `${last.body}\n${note}` }];
 }
 
 /** Últimos mensajes de texto del teléfono, como turnos alternos. Sin cuerpos de medios. */

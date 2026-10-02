@@ -78,6 +78,7 @@ const dayTotal = (
       lines: lines.map((l) => ({ ...l, currency: "unknown" })),
       when: "",
       rate: "",
+      corrects_draft: false,
     },
   },
 ];
@@ -124,6 +125,7 @@ describe("ventas por WhatsApp", () => {
           description: "Carro del abogado",
           when: "",
           rate: "",
+          corrects_draft: false,
         },
       },
     ],

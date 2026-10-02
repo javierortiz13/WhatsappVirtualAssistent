@@ -358,3 +358,19 @@ Javier pidió seguir la guía `skills.sentry.dev/instrument`; el entorno bloque�
 **Para desplegar:** correr `pnpm db:migrate` (aplica la 0005) antes o junto con el deploy del worker. Sin la migración, un mensaje con varios gastos falla al guardar el borrador.
 
 **Autocorrección en el mismo mensaje (02/10).** Javier preguntó qué pasa con una nota de voz como "registrar champú, no, no fueron 20, fueron 15 dólares". Dos riesgos: que la regla nueva de varios gastos la partiera en dos, y que la regla 7b ("en 'no, eran X, no Y' el correcto es el primero") eligiera 20, justo el monto rechazado. Arreglo en el prompt: la regla 3 aclara que corregirse sobre la misma cosa es un solo gasto con `draft_expense`, y la nueva 7c elige el monto por sentido y no por posición (el que el usuario afirma es el bueno, el que rechaza es el equivocado), con ejemplos en los dos órdenes y dictados sin comas. Cuatro casos de eval nuevos (58 en total): voz y texto para gasto nuevo, "digo" y corrección de un guardado con el bueno de último. Pendiente: correr `pnpm evals` en la máquina de Javier.
+
+### S2 · 02/10/2026 · Cola de borradores
+
+**Síntoma (Javier, WhatsApp real):** mandó la foto de una factura y, mientras se leía, "Registrar compra de arepa 5$". Llegó el borrador de la factura y enseguida el de la arepa con "Descarté el borrador anterior sin guardar". La factura se perdía.
+
+**Causa:** ADR-006 decía un solo borrador activo por teléfono (índice único en `pending_action`), así que cualquier borrador nuevo cancelaba al anterior. El orden de procesamiento ya era correcto (`key_strict_fifo` por teléfono).
+
+**Arreglo**
+- Migración `0006_draft_queue.sql`: se quita el índice único y queda uno normal. Hasta 5 borradores pueden esperar a la vez por teléfono, cada uno con sus botones; si se pasa del tope, se cancelan los más viejos.
+- Un borrador nuevo solo reemplaza a otro cuando es una corrección: el que está en Corregir (al tocar Corregir en uno, los demás salen de corrección) o el más reciente si el modelo marca `corrects_draft: true` ("no, eran 50", "era en bolívares"). Campo nuevo en las cuatro herramientas de borrador; es booleano, así que no suma uniones al tope del modo estricto.
+- El modelo ve la lista de borradores que esperan y la regla: registro nuevo → `corrects_draft: false`, no los toca; corrección → `true`.
+- Cuando quedan otros esperando, el borrador nuevo lo dice: "Tienes 1 borrador más sin guardar arriba."
+- ADR-006 y la tabla de casos borde de DISENO-MVP actualizados.
+- Tests: cola, corrección y tope en el ledger; agente con factura esperando + gasto nuevo y con corrección del más reciente. Las evals ahora admiten `pending` (borradores sembrados) y `pending_after`; cinco casos nuevos en `cola.yaml`, entre ellos el mensaje real (63 casos).
+
+**Para desplegar:** `pnpm db:migrate` (aplica la 0005 y la 0006) antes o junto con el deploy del worker, y `pnpm evals`.

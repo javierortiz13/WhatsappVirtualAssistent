@@ -45,37 +45,48 @@ export function tenantSystem(ctx: AgentContext): string {
   return `Negocio: ${ctx.tenantName}.\n${currency}\n${role}\nCategorías de gasto (usa el nombre exacto):\n${cats}`;
 }
 
+type DraftForPrompt = { tool: string; payload: Record<string, unknown> };
+
+function draftSummary(d: DraftForPrompt): Record<string, unknown> {
+  const p = d.payload;
+  if (d.tool === "draft_income_day_total")
+    return { tool: d.tool, when: p.businessDate, lines: p.lines, totalUsd: p.totalUsd };
+  if (d.tool === "draft_expenses")
+    return {
+      tool: d.tool,
+      items: ((p.items as Record<string, unknown>[] | undefined) ?? []).map((i) => ({
+        amount: i.amount,
+        currency: i.currency,
+        description: i.description,
+        category: i.categoryName,
+        when: i.businessDate,
+      })),
+    };
+  return {
+    tool: d.tool,
+    amount: p.amount,
+    currency: p.currency,
+    description: p.description,
+    category: p.categoryName,
+    method: p.method,
+    when: p.businessDate,
+  };
+}
+
 export function userTurn(
   text: string,
   today: IsoDate,
-  pendingDraft: { tool: string; payload: Record<string, unknown> } | null,
+  pendingDraft: DraftForPrompt | null,
+  waiting: DraftForPrompt[] = [],
 ): string {
   const lines = [`Fecha de hoy en Caracas: ${today} (${formatShortDate(today)}).`];
   if (pendingDraft) {
-    const p = pendingDraft.payload;
-    const summary =
-      pendingDraft.tool === "draft_income_day_total"
-        ? { when: p.businessDate, lines: p.lines, totalUsd: p.totalUsd }
-        : pendingDraft.tool === "draft_expenses"
-          ? {
-              items: ((p.items as Record<string, unknown>[] | undefined) ?? []).map((i) => ({
-                amount: i.amount,
-                currency: i.currency,
-                description: i.description,
-                category: i.categoryName,
-                when: i.businessDate,
-              })),
-            }
-          : {
-              amount: p.amount,
-              currency: p.currency,
-              description: p.description,
-              category: p.categoryName,
-              method: p.method,
-              when: p.businessDate,
-            };
     lines.push(
-      `Hay un borrador SIN GUARDAR en corrección: ${JSON.stringify(summary)}. El mensaje del usuario corrige uno o más campos de ese borrador (monto, moneda, descripción, categoría, fecha, método o tasa): llama ${pendingDraft.tool} con TODOS los campos (y todos los renglones, si es una lista), tomando del borrador los que no cambian. No uses amend_last_movement para esto.`,
+      `Hay un borrador SIN GUARDAR en corrección: ${JSON.stringify(draftSummary(pendingDraft))}. El mensaje del usuario corrige uno o más campos de ese borrador (monto, moneda, descripción, categoría, fecha, método o tasa): llama ${pendingDraft.tool} con TODOS los campos (y todos los renglones, si es una lista), tomando del borrador los que no cambian, y corrects_draft=true. No uses amend_last_movement para esto.`,
+    );
+  } else if (waiting.length) {
+    lines.push(
+      `Borradores SIN GUARDAR esperando que el usuario toque Guardar (el más reciente primero): ${JSON.stringify(waiting.map(draftSummary))}. Si el mensaje registra algo NUEVO, usa la herramienta que corresponda con corrects_draft=false: los borradores que esperan no se tocan. Si el mensaje corrige el más reciente ("no, eran 50", "era en bolívares", "es de ayer"), llama su herramienta con TODOS los campos, tomando del borrador los que no cambian, y corrects_draft=true; no uses amend_last_movement para esto.`,
     );
   }
   lines.push(`Mensaje del usuario: ${JSON.stringify(text)}`);

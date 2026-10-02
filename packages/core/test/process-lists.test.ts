@@ -49,6 +49,7 @@ const expense = (over: Record<string, unknown>) => ({
   category_name: "",
   when: "",
   rate: "",
+  corrects_draft: false,
   ...over,
 });
 

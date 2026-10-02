@@ -101,6 +101,7 @@ describe("definiciones de herramientas", () => {
       "category_name",
       "when",
       "rate",
+      "corrects_draft",
     ]);
   });
   it("quita las palabras clave que strict no admite (maxItems, maxLength) y deja la validación a Zod", () => {
@@ -128,6 +129,7 @@ describe("definiciones de herramientas", () => {
         category_name: "",
         when: "",
         rate: "",
+        corrects_draft: false,
       }).success,
     ).toBe(true);
   });

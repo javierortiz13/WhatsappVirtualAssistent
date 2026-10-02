@@ -1,10 +1,14 @@
-import { schema, withTenant } from "@caja/db";
+import { eq, schema, withTenant } from "@caja/db";
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { asIsoDate } from "../src/domain/dates";
 import { Decimal } from "../src/domain/money";
-import { createExpenseDraft, expirePendingActions } from "../src/ledger/drafts";
+import {
+  createExpenseDraft,
+  expirePendingActions,
+  MAX_PENDING_PER_PHONE,
+} from "../src/ledger/drafts";
 import { createExpense, expenseTotalForDay, findCategory } from "../src/ledger/expenses";
 
 describe("ledger de gastos", () => {
@@ -147,54 +151,52 @@ describe("ledger de gastos", () => {
     ]);
   });
 
-  it("un borrador nuevo reemplaza al anterior y expira a los 10 minutos", async () => {
-    const first = await withTenant(t.db, tenantId, (tx) =>
-      createExpenseDraft(
-        tx,
-        {
-          tenantId,
-          phoneId,
-          amount: new Decimal("20"),
-          currency: "USD",
-          currencyInferred: true,
-          categoryId: null,
-          categoryName: null,
-          description: "Hielo",
-          businessDate: asIsoDate("2026-09-29"),
-          sourceChannel: "text",
-          sourceMessageId: null,
-          attachmentId: null,
-          transcript: null,
-        },
-        now,
-      ),
-    );
+  it("cola de borradores: uno nuevo se suma, una corrección reemplaza, tope de 5 y vencen a los 10 minutos", async () => {
+    const draft = (amount: string, replaces: string | null = null) =>
+      withTenant(t.db, tenantId, (tx) =>
+        createExpenseDraft(
+          tx,
+          {
+            tenantId,
+            phoneId,
+            amount: new Decimal(amount),
+            currency: "USD",
+            currencyInferred: true,
+            categoryId: null,
+            categoryName: null,
+            description: "Hielo",
+            businessDate: asIsoDate("2026-09-29"),
+            sourceChannel: "text",
+            sourceMessageId: null,
+            attachmentId: null,
+            transcript: null,
+            replaces,
+          },
+          now,
+        ),
+      );
+    const statuses = async () =>
+      (await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.pendingAction)))
+        .map((r) => r.status)
+        .sort();
+    const first = await draft("20");
     expect(first.replacedPrevious).toBe(false);
     expect(first.draft.amountVes).toBe("17160.00");
-    const second = await withTenant(t.db, tenantId, (tx) =>
-      createExpenseDraft(
-        tx,
-        {
-          tenantId,
-          phoneId,
-          amount: new Decimal("2000"),
-          currency: "VES",
-          currencyInferred: true,
-          categoryId: null,
-          categoryName: null,
-          description: "Hielo",
-          businessDate: asIsoDate("2026-09-29"),
-          sourceChannel: "text",
-          sourceMessageId: null,
-          attachmentId: null,
-          transcript: null,
-        },
-        now,
-      ),
+    // La factura sigue viva cuando llega otro gasto: los dos esperan su Guardar.
+    const second = await draft("5");
+    expect(second.replacedPrevious).toBe(false);
+    expect(await statuses()).toEqual(["pending", "pending"]);
+    // "no, eran 6": la corrección reemplaza solo al borrador indicado.
+    const fixed = await draft("6", second.pendingId);
+    expect(fixed.replacedPrevious).toBe(true);
+    expect(await statuses()).toEqual(["cancelled", "pending", "pending"]);
+    for (const a of ["1", "2", "3", "4"]) await draft(a);
+    const pending = await withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.pendingAction).where(eq(schema.pendingAction.status, "pending")),
     );
-    expect(second.replacedPrevious).toBe(true);
-    const rows = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.pendingAction));
-    expect(rows.map((r) => r.status).sort()).toEqual(["cancelled", "pending"]);
-    expect(await expirePendingActions(t.db, new Date(now.getTime() + 11 * 60_000))).toBe(1);
+    expect(pending).toHaveLength(MAX_PENDING_PER_PHONE);
+    expect(await expirePendingActions(t.db, new Date(now.getTime() + 11 * 60_000))).toBe(
+      MAX_PENDING_PER_PHONE,
+    );
   });
 });

@@ -304,7 +304,8 @@ export const pendingAction = app.table(
     ...timestamps,
   },
   (t) => [
-    uniqueIndex("pending_action_one_active").on(t.phoneId).where(sql`status = 'pending'`),
+    // Cola de borradores (0006): varios pendientes por teléfono, sin índice único.
+    index("pending_action_phone_pending").on(t.phoneId, t.createdAt).where(sql`status = 'pending'`),
     check("pending_action_kind_check", inList("kind", PENDING_KINDS)),
     check("pending_action_status_check", inList("status", PENDING_STATUSES)),
   ],

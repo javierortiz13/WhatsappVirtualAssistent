@@ -98,6 +98,7 @@ const llm: LlmClient = {
               category_name: "",
               when: "",
               rate: "",
+              corrects_draft: true,
             },
           },
         ],
@@ -122,6 +123,7 @@ const llm: LlmClient = {
                 category_name: "",
                 when: date,
                 rate: "",
+                corrects_draft: false,
               },
             },
           ]

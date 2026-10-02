@@ -1,4 +1,4 @@
-import { and, eq, lt, type Queryable, schema, type Tx } from "@caja/db";
+import { and, desc, eq, inArray, lt, type Queryable, schema, type Tx } from "@caja/db";
 import { z } from "zod";
 import type { IsoDate } from "../domain/dates";
 import {
@@ -16,7 +16,7 @@ import { rateFor } from "./rate-for";
 /**
  * Borradores de escritura (ADR-006). Una herramienta de escritura nunca toca `movement`: crea
  * una `pending_action` con el payload ya validado y convertido; el botón Guardar la ejecuta.
- * Solo hay un borrador activo por teléfono: uno nuevo reemplaza al anterior, con aviso.
+ * Pueden esperar varios por teléfono (cola, ver `insertDraft`); solo una corrección reemplaza a otro.
  */
 export const ExpenseDraft = z.object({
   amount: z.string(),
@@ -58,6 +58,8 @@ export type DraftInput = {
   transcript: string | null;
   /** Tasa dicha por el dueño al corregir (ADR-013); si viene, no se consulta bcv_rate. */
   manualRate?: Rate | null;
+  /** Borrador pendiente que este corrige y reemplaza; sin esto, se suma a la cola. */
+  replaces?: string | null;
 };
 
 /** Convierte un gasto dicho por el usuario al payload del borrador, con la tasa del día. */
@@ -104,7 +106,13 @@ export async function createExpenseDraft(
   const { draft, usedPriorDay } = await buildExpenseDraft(tx, input);
   const { pendingId, replacedPrevious } = await insertDraft(
     tx,
-    { tenantId: input.tenantId, phoneId: input.phoneId, kind: "create_expense", payload: draft },
+    {
+      tenantId: input.tenantId,
+      phoneId: input.phoneId,
+      kind: "create_expense",
+      payload: draft,
+      replaces: input.replaces ?? null,
+    },
     now,
   );
   return { pendingId, draft, replacedPrevious, usedPriorDayRate: usedPriorDay };
@@ -142,28 +150,50 @@ export async function createExpensesDraft(
   const draft: ExpensesDraft = { items };
   const { pendingId, replacedPrevious } = await insertDraft(
     tx,
-    { tenantId: first.tenantId, phoneId: first.phoneId, kind: "create_expenses", payload: draft },
+    {
+      tenantId: first.tenantId,
+      phoneId: first.phoneId,
+      kind: "create_expenses",
+      payload: draft,
+      replaces: first.replaces ?? null,
+    },
     now,
   );
   return { pendingId, draft, replacedPrevious, usedPriorDayRate };
 }
 
-/** Un solo borrador activo por teléfono: cancela el anterior e inserta el nuevo. */
+/** Borradores que pueden esperar confirmación a la vez en un mismo teléfono. */
+export const MAX_PENDING_PER_PHONE = 5;
+
+/**
+ * Cola de borradores: cada borrador nuevo se suma a los pendientes del teléfono y tiene sus
+ * propios botones. Solo reemplaza a otro cuando es una corrección (`replaces`). Si la cola pasa
+ * del tope, los más viejos se cancelan.
+ */
 export async function insertDraft(
   tx: Tx,
-  input: { tenantId: string; phoneId: string; kind: string; payload: unknown },
+  input: {
+    tenantId: string;
+    phoneId: string;
+    kind: string;
+    payload: unknown;
+    replaces?: string | null;
+  },
   now: Date,
 ): Promise<{ pendingId: string; replacedPrevious: boolean }> {
-  const replaced = await tx
-    .update(schema.pendingAction)
-    .set({ status: "cancelled", resolvedAt: now })
-    .where(
-      and(
-        eq(schema.pendingAction.phoneId, input.phoneId),
-        eq(schema.pendingAction.status, "pending"),
-      ),
-    )
-    .returning({ id: schema.pendingAction.id });
+  const replaced = input.replaces
+    ? await tx
+        .update(schema.pendingAction)
+        .set({ status: "cancelled", resolvedAt: now })
+        .where(
+          and(
+            eq(schema.pendingAction.id, input.replaces),
+            eq(schema.pendingAction.phoneId, input.phoneId),
+            eq(schema.pendingAction.status, "pending"),
+          ),
+        )
+        .returning({ id: schema.pendingAction.id })
+    : [];
   const [row] = await tx
     .insert(schema.pendingAction)
     .values({
@@ -175,7 +205,30 @@ export async function insertDraft(
     })
     .returning({ id: schema.pendingAction.id });
   if (!row) throw new Error("no se pudo crear el borrador");
+  const queue = await pendingDrafts(tx, input.phoneId);
+  const overflow = queue.slice(MAX_PENDING_PER_PHONE).filter((d) => d.id !== row.id);
+  if (overflow.length)
+    await tx
+      .update(schema.pendingAction)
+      .set({ status: "cancelled", resolvedAt: now })
+      .where(
+        inArray(
+          schema.pendingAction.id,
+          overflow.map((d) => d.id),
+        ),
+      );
   return { pendingId: row.id, replacedPrevious: replaced.length > 0 };
+}
+
+/** Borradores pendientes del teléfono, el más reciente primero. */
+export async function pendingDrafts(tx: Tx, phoneId: string) {
+  return tx
+    .select()
+    .from(schema.pendingAction)
+    .where(
+      and(eq(schema.pendingAction.phoneId, phoneId), eq(schema.pendingAction.status, "pending")),
+    )
+    .orderBy(desc(schema.pendingAction.createdAt), desc(schema.pendingAction.expiresAt));
 }
 
 // ---------------------------------------------------------------- ingresos (US-C1, C2, C3)
@@ -253,6 +306,7 @@ export type IncomeDayTotalInput = {
   sourceMessageId: string | null;
   transcript: string | null;
   manualRate?: Rate | null;
+  replaces?: string | null;
 };
 
 function toLine(l: IncomeDayTotalInput["lines"][number], rate: Rate): IncomeLineDraft {
@@ -329,6 +383,7 @@ export async function createIncomeDayTotalDraft(
       phoneId: input.phoneId,
       kind: "create_income_day_total",
       payload: draft,
+      replaces: input.replaces ?? null,
     },
     now,
   );
@@ -387,6 +442,7 @@ export type IncomeSingleInput = {
   sourceMessageId: string | null;
   transcript: string | null;
   manualRate?: Rate | null;
+  replaces?: string | null;
 };
 
 export async function createIncomeSingleDraft(
@@ -422,6 +478,7 @@ export async function createIncomeSingleDraft(
       phoneId: input.phoneId,
       kind: "create_income_single",
       payload: draft,
+      replaces: input.replaces ?? null,
     },
     now,
   );

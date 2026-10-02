@@ -1,4 +1,4 @@
-import { and, eq, schema, type Tx } from "@caja/db";
+import type { Tx } from "@caja/db";
 import { z } from "zod";
 import { inferCurrency } from "../domain/currency-rule";
 import {
@@ -49,9 +49,19 @@ export type ToolRunCtx = {
   /** Texto del usuario en este turno (para validar cifras en aclaraciones). */
   userText: string;
   now: Date;
-  /** Borrador pendiente del teléfono (en corrección o no): un borrador nuevo lo reemplaza y hereda su foto. */
-  prior: { kind: string; payload: Record<string, unknown> } | null;
+  /**
+   * Cola de borradores del teléfono: el que está en corrección (botón Corregir) y el más reciente.
+   * Un borrador nuevo solo reemplaza a uno de estos cuando es una corrección, y hereda su foto.
+   */
+  drafts: { fixing: DraftRef | null; latest: DraftRef | null };
 };
+
+export type DraftRef = { id: string; kind: string; payload: Record<string, unknown> };
+
+/** El borrador que corrige esta llamada: el que está en corrección, o el más reciente si el modelo lo indica. */
+export function draftTarget(run: ToolRunCtx, corrects: boolean): DraftRef | null {
+  return run.drafts.fixing ?? (corrects ? run.drafts.latest : null);
+}
 
 export type ToolOutcome =
   | { kind: "terminal"; outbound: Outbound[]; status: "ok" | "rejected_out_of_scope" }
@@ -82,6 +92,12 @@ const RATE_FIELD = z
     'Tasa en bolívares por dólar SOLO si el usuario la dice explícitamente ("a tasa 850", "tasa 857,89"), normalizada a dígitos con punto. "" si no la dijo.',
   );
 
+const CORRECTS_FIELD = z
+  .boolean()
+  .describe(
+    "true SOLO si el mensaje corrige el borrador SIN GUARDAR más reciente ('no, eran 50', 'era en bolívares', 'es de ayer') en vez de registrar algo nuevo. false si es un registro nuevo, aunque haya otros borradores esperando.",
+  );
+
 export const DraftExpenseInput = z.object({
   amount: z
     .string()
@@ -108,6 +124,7 @@ export const DraftExpenseInput = z.object({
       'Cuándo fue: "hoy", "ayer", "antier", un día de la semana ("lunes"), o una fecha ISO YYYY-MM-DD. "" si no lo dijo (se asume hoy).',
     ),
   rate: RATE_FIELD,
+  corrects_draft: CORRECTS_FIELD,
 });
 
 /**
@@ -131,6 +148,7 @@ export const DraftExpensesInput = z.object({
       "Un elemento por gasto, en el orden en que los dijo el usuario. Cada uno con su monto y su descripción.",
     ),
   rate: RATE_FIELD,
+  corrects_draft: CORRECTS_FIELD,
 });
 
 export const AskClarificationInput = z.object({
@@ -201,6 +219,7 @@ export const DraftIncomeDayTotalInput = z.object({
     .string()
     .describe('"hoy", "ayer", "antier", un día de la semana o fecha ISO. "" si no lo dijo.'),
   rate: RATE_FIELD,
+  corrects_draft: CORRECTS_FIELD,
 });
 
 export const GetSummaryInput = z.object({
@@ -230,6 +249,7 @@ export const DraftIncomeSingleInput = z.object({
     .describe("Por qué le pagaron, en 1 a 6 palabras, sin el monto. Ej: 'Carro del abogado'."),
   when: z.string().describe('"hoy", "ayer", día de la semana o fecha ISO. "" si no lo dijo.'),
   rate: RATE_FIELD,
+  corrects_draft: CORRECTS_FIELD,
 });
 
 export function defaultCategoryId(categories: AgentContext["categories"]): string | null {
@@ -313,9 +333,10 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
       return { kind: "terminal", status: "ok", outbound: [es.clarification(BAD_RATE, [])] };
     // Corrección de un borrador de factura ("no, eran 50" por texto o voz): el borrador nuevo
     // reemplaza al pendiente y hereda su foto; si no, el respaldo se perdía (bug del 01/10).
+    const target = draftTarget(run, input.corrects_draft);
     const inherited =
-      !run.ctx.attachmentId && run.prior?.kind === "create_expense"
-        ? ((run.prior.payload.attachmentId as string | null | undefined) ?? null)
+      !run.ctx.attachmentId && target?.kind === "create_expense"
+        ? ((target.payload.attachmentId as string | null | undefined) ?? null)
         : null;
     const category = matchCategory(run.ctx.categories, nz(input.category_name));
     const categoryId = category?.id ?? defaultCategoryId(run.ctx.categories);
@@ -339,6 +360,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
           attachmentId: run.ctx.attachmentId ?? inherited,
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
           manualRate: mr,
+          replaces: target?.id ?? null,
         },
         run.now,
       );
@@ -449,7 +471,12 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
         status: "ok",
       };
     try {
-      const draft = await createExpensesDraft(run.tx, inputs, run.now);
+      const target = draftTarget(run, input.corrects_draft);
+      const draft = await createExpensesDraft(
+        run.tx,
+        inputs.map((i) => ({ ...i, replaces: target?.id ?? null })),
+        run.now,
+      );
       return {
         kind: "terminal",
         status: "ok",
@@ -569,6 +596,7 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
           sourceMessageId: run.ctx.sourceMessageDbId,
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
           manualRate: mr,
+          replaces: draftTarget(run, input.corrects_draft)?.id ?? null,
         },
         run.now,
       );
@@ -636,6 +664,7 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
           sourceMessageId: run.ctx.sourceMessageDbId,
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
           manualRate: mr,
+          replaces: draftTarget(run, input.corrects_draft)?.id ?? null,
         },
         run.now,
       );
@@ -977,17 +1006,6 @@ export function toLlmToolDef(t: ToolSpec<z.ZodType>): LlmToolDef {
   json.additionalProperties = false;
   if (!("properties" in json)) json.properties = {};
   return { name: t.name, description: t.description, inputSchema: json };
-}
-
-/** Borrador pendiente en corrección, para el contexto del modelo. */
-export async function pendingDraftFor(tx: Tx, phoneId: string) {
-  const [row] = await tx
-    .select()
-    .from(schema.pendingAction)
-    .where(
-      and(eq(schema.pendingAction.phoneId, phoneId), eq(schema.pendingAction.status, "pending")),
-    );
-  return row ?? null;
 }
 
 export { addDays };

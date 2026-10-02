@@ -1,0 +1,49 @@
+# Cola de borradores (02/10, piloto): la factura tardó en leerse y el gasto que el dueño mandó
+# mientras tanto descartó su borrador. Un registro nuevo se suma a la cola; solo una corrección
+# reemplaza al borrador más reciente.
+- name: gasto nuevo con una factura esperando (mensaje real del piloto)
+  input: "Registrar compra de arepa 5$"
+  pending:
+    - { amount: "6021.26", currency: VES, description: "MYKONOS LECHERIA 2024, C.A" }
+  expect:
+    tool: draft_expense
+    args: { amount: "5", currency: USD, corrects_draft: false }
+    pending_after: 2
+
+- name: venta nueva con un gasto esperando
+  input: "hoy vendimos 120$ en efectivo"
+  pending:
+    - { amount: "15", description: "Champú", category: "Insumos de lavado" }
+  expect:
+    tool_not: amend_last_movement
+    args: { corrects_draft: false }
+    pending_after: 2
+
+- name: corrección del borrador más reciente sin tocar Corregir
+  input: "no, eran 50"
+  pending:
+    - { amount: "6021.26", currency: VES, description: "MYKONOS LECHERIA 2024, C.A" }
+    - { amount: "5", description: "Arepa" }
+  expect:
+    tool: draft_expense
+    args: { amount: "50", corrects_draft: true }
+    pending_after: 2
+
+- name: corrección de moneda del borrador más reciente
+  input: "era en bolívares"
+  pending:
+    - { amount: "500", description: "Hielo" }
+  expect:
+    tool: draft_expense
+    args: { currency: VES, corrects_draft: true }
+    pending_after: 1
+
+- name: corregir con el botón apunta al borrador marcado aunque no sea el último
+  input: "eran 6000 bs"
+  pending:
+    - { amount: "6021.26", currency: VES, description: "MYKONOS LECHERIA 2024, C.A", fixing: true }
+    - { amount: "5", description: "Arepa" }
+  expect:
+    tool: draft_expense
+    args: { amount: "6000", currency: VES }
+    pending_after: 2

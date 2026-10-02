@@ -30,6 +30,21 @@ export const EvalCase = z.object({
   kind: z.enum(["text", "voice"]).default("text"),
   receipt: Receipt.optional(),
   history: z.array(z.object({ role: z.enum(["in", "out"]), body: z.string() })).default([]),
+  /**
+   * Borradores de gasto que esperan su Guardar antes del mensaje (cola de borradores, 02/10), el
+   * más viejo primero. `fixing: true` simula que el usuario tocó Corregir en ese borrador.
+   */
+  pending: z
+    .array(
+      z.object({
+        amount: z.string(),
+        currency: z.enum(["USD", "VES"]).default("USD"),
+        description: z.string(),
+        category: z.string().default("Otros"),
+        fixing: z.boolean().default(false),
+      }),
+    )
+    .default([]),
   role: z.enum(["owner", "employee"]).default("owner"),
   default_currency: z.enum(["USD", "VES"]).nullable().default("USD"),
   expect: z.object({
@@ -39,6 +54,8 @@ export const EvalCase = z.object({
     reply_contains: z.array(z.string()).optional(),
     /** Lo que importa es el resultado: no debe quedar ningún borrador, elija lo que elija el modelo. */
     no_draft: z.boolean().optional(),
+    /** Borradores pendientes que deben quedar después del turno (cola de borradores). */
+    pending_after: z.number().int().optional(),
   }),
 });
 export type EvalCase = z.infer<typeof EvalCase>;
