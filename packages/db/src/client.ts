@@ -23,10 +23,14 @@ export function rows<T>(result: unknown): T[] {
  * Crea la conexión de la aplicación. `max` bajo a propósito: web y worker son procesos
  * pequeños y Supabase limita conexiones directas.
  */
-export function createDb(url: string, opts: { max?: number } = {}) {
+export function createDb(url: string, opts: { max?: number; idleTimeoutSec?: number } = {}) {
   const ssl = sslFromEnv();
   const client = postgres(url, {
     max: opts.max ?? 5,
+    // Sin esto postgres.js nunca suelta una conexión inactiva. En Vercel cada instancia caliente
+    // o congelada retenía sus lugares en el pooler de sesión (15 por rol) y, con dos workers
+    // conviviendo durante un deploy, la siguiente instancia no conseguía conexión (02/10).
+    ...(opts.idleTimeoutSec ? { idle_timeout: opts.idleTimeoutSec } : {}),
     prepare: false,
     onnotice: () => {},
     ...(ssl ? { ssl } : {}),

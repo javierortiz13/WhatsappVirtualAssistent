@@ -6,6 +6,7 @@ import { env } from "./env";
 const g = globalThis as unknown as { __cajaDb?: ReturnType<typeof createDb> };
 
 export function db(): Db {
-  if (!g.__cajaDb) g.__cajaDb = createDb(env().DATABASE_URL, { max: 3 });
+  // Serverless: pocas conexiones por instancia y que se suelten rápido (pooler de 15 por rol).
+  if (!g.__cajaDb) g.__cajaDb = createDb(env().DATABASE_URL, { max: 2, idleTimeoutSec: 20 });
   return g.__cajaDb.db;
 }

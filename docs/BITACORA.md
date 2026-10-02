@@ -425,3 +425,13 @@ Javier pidió seguir la guía `skills.sentry.dev/instrument`; el entorno bloque�
 - QA en Postgres real con datos: la migración aplica sobre datos existentes; con el rol de la app solo se ven los pagos del propio negocio e insertar uno ajeno lo rechaza RLS; flujo de aprobar, registrar y monto ilegible probado con navegador a 390 y 1280 px sin desbordes. 238 tests.
 
 **Pendiente (fase 2):** página "Mi plan" para que el cliente vea su vigencia y reporte el pago; recordatorio por WhatsApp 3 días antes (plantilla de utilidad aprobada por Meta); límite de números por plan al dar de alta empleados.
+
+### S2 · 02/10/2026 · Alerta del monitor: `/api/health` en 503 con `db: false`
+
+**Síntoma:** a las 07:34 UTC, unos minutos después del deploy de cobros, el monitor externo recibió 503 con `db: false` (la web no pudo consultar la base). El worker sí: terminó su housekeeping a las 07:35 UTC con el código nuevo, y la base respondía con 30 de 60 conexiones.
+
+**Causa probable:** el pooler de sesión de Supabase admite 15 clientes por rol (ya anotado en `semana-1.md`) y había 15 conexiones de `caja_app` abiertas. En cada deploy conviven dos workers (hasta 6 conexiones cada uno) y la web abría hasta 3 por instancia sin soltarlas nunca: postgres.js no cierra conexiones inactivas por defecto, y una instancia de Vercel caliente o congelada retiene sus lugares. La consulta del health no toca las tablas migradas. No se pudo confirmar con los registros: Vercel no da acceso a los logs desde esta sesión y la API de logs de Supabase respondió con error.
+
+**Mitigación en código:** la web usa 2 conexiones por instancia y las suelta a los 20 s de inactividad (`createDb(..., { max: 2, idleTimeoutSec: 20 })`). El worker no cambia. pg-boss ya suelta las suyas a los 10 s (valor por defecto de `pg`).
+
+**Arreglo de fondo (Javier):** Supabase → Project Settings → Database → Connection pooling → Pool Size 30. Más adelante, evaluar el transaction pooler solo para la web.

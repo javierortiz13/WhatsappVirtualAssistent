@@ -151,9 +151,7 @@ export async function loadTenantDetail(tenantId: string, now: Date) {
       tx
         .select()
         .from(schema.auditLog)
-        .where(
-          and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.channel, "admin")),
-        )
+        .where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.channel, "admin")))
         .orderBy(desc(schema.auditLog.createdAt))
         .limit(20),
     ]);
