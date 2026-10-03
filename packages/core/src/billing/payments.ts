@@ -125,19 +125,28 @@ export async function approvePayment(
   reviewer: Reviewer,
   now: Date,
 ): Promise<{ paidUntil: Date }> {
+  // El negocio se bloquea primero: dos aprobaciones a la vez calcularían la vigencia desde el
+  // mismo paid_until y se perdería un pago; y un rechazo simultáneo pisaría la aprobación.
+  const [t] = await tx
+    .select()
+    .from(schema.tenant)
+    .where(eq(schema.tenant.id, tenantId))
+    .for("update");
+  if (!t) throw new Error("negocio no encontrado");
   const [pay] = await tx
     .select()
     .from(schema.payment)
-    .where(and(eq(schema.payment.id, paymentId), eq(schema.payment.tenantId, tenantId)));
+    .where(and(eq(schema.payment.id, paymentId), eq(schema.payment.tenantId, tenantId)))
+    .for("update");
   if (!pay) throw new Error("pago no encontrado");
   if (pay.status !== "pending") throw new Error(`el pago ya está ${pay.status}`);
-  const [t] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId));
-  if (!t) throw new Error("negocio no encontrado");
   const paidUntil = extendPaidUntil(t, pay.months, now, PERIOD_DAYS);
-  await tx
+  const done = await tx
     .update(schema.payment)
     .set({ status: "approved", reviewedBy: reviewer.email, reviewedAt: now })
-    .where(eq(schema.payment.id, pay.id));
+    .where(and(eq(schema.payment.id, pay.id), eq(schema.payment.status, "pending")))
+    .returning({ id: schema.payment.id });
+  if (done.length === 0) throw new Error("el pago ya fue revisado");
   await setTenantBilling(
     tx,
     t,
@@ -163,10 +172,13 @@ export async function rejectPayment(
     .where(and(eq(schema.payment.id, paymentId), eq(schema.payment.tenantId, tenantId)));
   if (!pay) throw new Error("pago no encontrado");
   if (pay.status !== "pending") throw new Error(`el pago ya está ${pay.status}`);
-  await tx
+  // Solo si sigue pendiente: si otra pestaña lo aprobó, el rechazo no pisa la aprobación.
+  const done = await tx
     .update(schema.payment)
     .set({ status: "rejected", reviewedBy: reviewer.email, reviewedAt: now, notes: reason })
-    .where(eq(schema.payment.id, pay.id));
+    .where(and(eq(schema.payment.id, pay.id), eq(schema.payment.status, "pending")))
+    .returning({ id: schema.payment.id });
+  if (done.length === 0) throw new Error("el pago ya fue revisado");
   await audit(tx, tenantId, reviewer, "reject", "payment", pay.id, null, { reason }, now);
 }
 

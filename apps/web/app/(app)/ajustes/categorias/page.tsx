@@ -169,6 +169,7 @@ export default async function Categorias({
             name="name"
             maxLength={40}
             placeholder="Ej. Publicidad"
+            aria-label="Nombre de la nueva categoría"
             required
           />
           <div className="center">

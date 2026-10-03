@@ -146,6 +146,8 @@ export async function registerJobs(opts: {
         const billing = await enforceBilling(db, now);
         if (billing.suspended.length)
           log.warn({ tenants: billing.suspended }, "negocios suspendidos por plan vencido");
+        if (billing.errors.length)
+          log.error({ errors: billing.errors }, "cobros: negocios con error");
         if (billing.overCap.length) {
           log.warn({ overCap: billing.overCap }, "negocios sobre el límite de mensajes del plan");
           opts.onOverCap?.(billing.overCap);

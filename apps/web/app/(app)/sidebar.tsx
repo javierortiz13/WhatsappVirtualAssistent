@@ -68,7 +68,10 @@ export function Shell({ children, ...p }: SidebarProps & { children: ReactNode }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
-  const is = (href: string) => path === href || path.startsWith(`${href}/`);
+  // "Mi plan" vive bajo /ajustes: no marcar los dos a la vez.
+  const is = (href: string) =>
+    path === href ||
+    (path.startsWith(`${href}/`) && !(href === "/ajustes" && path.startsWith("/ajustes/plan")));
   const item = (href: string, label: string, icon: ReactNode, badge?: ReactNode) => (
     <Link
       className="menu-item"

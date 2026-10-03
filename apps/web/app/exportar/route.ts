@@ -15,12 +15,12 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const from = url.searchParams.get("desde") ?? "";
   const to = url.searchParams.get("hasta") ?? "";
-  if (!isIsoDate(from) || !isIsoDate(to) || from > to)
-    return new NextResponse("Rango inválido. Usa desde=YYYY-MM-DD&hasta=YYYY-MM-DD.", {
-      status: 400,
-    });
+  // Desde el formulario, un rango malo vuelve a la página con el aviso en vez de una página en blanco.
+  const back = (error: string) =>
+    NextResponse.redirect(new URL(`/ajustes/exportar?error=${error}`, req.url), 303);
+  if (!isIsoDate(from) || !isIsoDate(to) || from > to) return back("rango");
   const days = (Date.parse(to) - Date.parse(from)) / 86_400_000;
-  if (days > MAX_DAYS) return new NextResponse("Máximo 12 meses por archivo.", { status: 400 });
+  if (days > MAX_DAYS) return back("largo");
   const rows = await exportRows(tenant.id, from, to);
   const buf = await buildWorkbook(rows, { tenantName: tenant.name, from, to });
   return new NextResponse(new Uint8Array(buf), {

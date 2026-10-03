@@ -76,7 +76,11 @@ export default async function MiPlan({
         <span className="sub">Ajustes</span>
       </div>
       {sp.ok && OK[sp.ok] ? <div className="notice ok">{OK[sp.ok]}</div> : null}
-      {sp.error ? <div className="notice err">{ERRORS[sp.error] ?? sp.error}</div> : null}
+      {sp.error ? (
+        <div className="notice err">
+          {ERRORS[sp.error] ?? "No pudimos guardar el cambio. Inténtalo de nuevo."}
+        </div>
+      ) : null}
 
       <section className={`card hero plan-card ${planClass(plan.id)}`}>
         <span className="label">Tu plan</span>

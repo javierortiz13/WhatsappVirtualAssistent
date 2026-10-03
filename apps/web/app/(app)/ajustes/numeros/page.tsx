@@ -43,7 +43,11 @@ export default async function Numeros({
         </a>
         <span className="sub">Ajustes</span>
       </div>
-      {sp.error ? <div className="notice err">{ERRORS[sp.error] ?? sp.error}</div> : null}
+      {sp.error ? (
+        <div className="notice err">
+          {ERRORS[sp.error] ?? "No pudimos guardar el cambio. Inténtalo de nuevo."}
+        </div>
+      ) : null}
       {sp.ok === "alta" ? (
         <div className="notice ok">
           Listo. Cuando ese número le escriba al asistente por primera vez, recibe la bienvenida y
@@ -113,7 +117,13 @@ export default async function Numeros({
               aria-label="Número"
             />
           </div>
-          <input className="input" name="name" maxLength={60} placeholder="Nombre (opcional)" />
+          <input
+            className="input"
+            name="name"
+            maxLength={60}
+            placeholder="Nombre (opcional)"
+            aria-label="Nombre del empleado (opcional)"
+          />
           <p className="sub">
             El empleado registra gastos y ventas; los cierres los ves solo tú. No necesita código:
             con escribirle al asistente queda activo.

@@ -20,8 +20,13 @@ export async function sendPaymentNotices(
   let sent = 0;
   let skipped = 0;
   for (const tenantId of await everyTenantId(db)) {
-    await withTenant(db, tenantId, async (tx) => {
-      for (const n of await takePaymentNotices(tx, tenantId, opts.now)) {
+    try {
+      // 1) Se marcan y se confirma en la base; 2) se envía fuera de la transacción. Así un fallo
+      // al confirmar no repite el aviso cada 5 minutos (antes se enviaba dentro de la transacción).
+      const notices = await withTenant(db, tenantId, (tx) =>
+        takePaymentNotices(tx, tenantId, opts.now),
+      );
+      for (const n of notices) {
         if (!n.to || !meta) {
           skipped += 1;
           continue;
@@ -36,15 +41,18 @@ export async function sendPaymentNotices(
               });
         try {
           const r = await sendOutbound(meta, n.to.e164, out);
-          await tx.insert(schema.message).values({
-            tenantId,
-            phoneId: n.to.phoneId,
-            direction: "out",
-            kind: out.type,
-            body: out.body,
-            status: "ok",
-            waMessageId: r.waMessageId,
-          });
+          const to = n.to;
+          await withTenant(db, tenantId, (tx) =>
+            tx.insert(schema.message).values({
+              tenantId,
+              phoneId: to.phoneId,
+              direction: "out",
+              kind: out.type,
+              body: out.body,
+              status: "ok",
+              waMessageId: r.waMessageId,
+            }),
+          );
           sent += 1;
         } catch (err) {
           // Ya quedó marcado: no se reintenta en bucle; el dueño lo ve en "Mi plan".
@@ -55,7 +63,10 @@ export async function sendPaymentNotices(
           );
         }
       }
-    });
+    } catch (err) {
+      // Un negocio con error no frena los avisos de los demás.
+      log.error({ err: err instanceof Error ? err.message : String(err) }, "avisos de pago");
+    }
   }
   return { sent, skipped };
 }

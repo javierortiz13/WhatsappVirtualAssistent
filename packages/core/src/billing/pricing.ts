@@ -42,12 +42,19 @@ export async function latestRates(db: Queryable): Promise<LatestRates | null> {
         .where(isNotNull(schema.bcvRate.rateEur))
         .orderBy(desc(schema.bcvRate.effectiveDate))
         .limit(1);
+  // Un euro de hace semanas, con el bolívar devaluándose, cobraría de menos: más de 7 días de
+  // diferencia con la tasa del dólar y se cobra a la tasa del dólar (el panel lo marca).
+  const fresh =
+    eur?.rateEur &&
+    Date.parse(usd.effectiveDate) - Date.parse(eur.effectiveDate) <= EUR_MAX_AGE_DAYS * 86_400_000;
   return {
     effectiveDate: usd.effectiveDate,
     usd: new Decimal(usd.rate),
-    eur: eur?.rateEur ? new Decimal(eur.rateEur) : null,
+    eur: fresh && eur?.rateEur ? new Decimal(eur.rateEur) : null,
   };
 }
+
+export const EUR_MAX_AGE_DAYS = 7;
 
 export function quote(
   plan: Plan,

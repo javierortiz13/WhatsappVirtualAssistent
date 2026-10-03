@@ -34,7 +34,11 @@ export default async function Negocio({
         <span className="sub">Ajustes</span>
       </div>
       {sp.ok === "negocio" ? <div className="notice ok">Datos del negocio guardados.</div> : null}
-      {sp.error ? <div className="notice err">{ERRORS[sp.error] ?? sp.error}</div> : null}
+      {sp.error ? (
+        <div className="notice err">
+          {ERRORS[sp.error] ?? "No pudimos guardar el cambio. Inténtalo de nuevo."}
+        </div>
+      ) : null}
       <form action={updateSettingsAction} className="card stack">
         <label className="field">
           <span>Nombre</span>

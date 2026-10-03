@@ -60,6 +60,8 @@ export type TenantRow = {
 const FREE_TIER = 1000;
 
 export async function loadTenants(now: Date): Promise<TenantRow[]> {
+  // Defensa en profundidad: el layout no se vuelve a renderizar en cada navegación.
+  await requireAdmin();
   const conn = db();
   const ids = await everyTenantId(conn);
   const base = [];
@@ -112,6 +114,8 @@ export async function loadTenants(now: Date): Promise<TenantRow[]> {
 export type PendingPayment = typeof schema.payment.$inferSelect & { tenantName: string };
 
 export async function loadPendingPayments(): Promise<PendingPayment[]> {
+  // Defensa en profundidad: el layout no se vuelve a renderizar en cada navegación.
+  await requireAdmin();
   const conn = db();
   const out: PendingPayment[] = [];
   for (const id of await everyTenantId(conn)) {
@@ -135,6 +139,8 @@ export async function loadPendingPayments(): Promise<PendingPayment[]> {
 }
 
 export async function loadTenantDetail(tenantId: string, now: Date) {
+  // Defensa en profundidad: el layout no se vuelve a renderizar en cada navegación.
+  await requireAdmin();
   const conn = db();
   if (!(await everyTenantId(conn)).includes(tenantId)) notFound();
   return withTenant(conn, tenantId, async (tx) => {
@@ -178,5 +184,7 @@ export async function loadTenantDetail(tenantId: string, now: Date) {
 }
 
 export async function loadRates() {
+  // Defensa en profundidad: el layout no se vuelve a renderizar en cada navegación.
+  await requireAdmin();
   return latestRates(db());
 }

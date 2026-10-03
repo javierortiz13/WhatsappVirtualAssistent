@@ -117,6 +117,8 @@ export function parseVenezuelanAmount(input: string): Decimal | null {
   } else {
     normalized = s;
   }
+  // "1,200.50", "." o "," dejaban un texto que Decimal no acepta y lanzaba (500 en formularios).
+  if (!/^(\d+\.?\d*|\.\d+)$/.test(normalized)) return null;
   const d = new MoneyDecimal(normalized);
   return d.isFinite() ? d : null;
 }
@@ -124,12 +126,15 @@ export function parseVenezuelanAmount(input: string): Decimal | null {
 /** Formato para WhatsApp y dashboard: $15,00 · Bs 12.870,00 · Bs 1,85 MM sobre 999.999.999. */
 export function formatMoney(amount: Decimal.Value, currency: Currency): string {
   const d = new MoneyDecimal(amount);
-  if (currency === "VES" && d.abs().gte(1_000_000_000)) {
-    const mm = d.div(1_000_000).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
-    return `Bs ${formatNumber(mm)} MM`;
+  // El signo va antes del símbolo: "−$5,00", no "$−5,00".
+  const sign = d.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).isNegative() ? "−" : "";
+  const abs = d.abs();
+  if (currency === "VES" && abs.gte(1_000_000_000)) {
+    const mm = abs.div(1_000_000).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    return `${sign}Bs ${formatNumber(mm)} MM`;
   }
-  const body = formatNumber(d.toDecimalPlaces(2, Decimal.ROUND_HALF_UP));
-  return currency === "USD" ? `$${body}` : `Bs ${body}`;
+  const body = formatNumber(abs.toDecimalPlaces(2, Decimal.ROUND_HALF_UP));
+  return currency === "USD" ? `${sign}$${body}` : `${sign}Bs ${body}`;
 }
 
 function formatNumber(d: Decimal): string {

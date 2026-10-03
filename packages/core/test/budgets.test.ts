@@ -332,7 +332,8 @@ describe("presupuestos de punta a punta", () => {
     // El empleado guarda sin ver presupuestos: es información del dueño.
     await send(client, "gasté 10$ en arepas", EMPLOYEE);
     await tap(client, saveId(sent[4]), EMPLOYEE);
-    expect(textOf(sent[5])).toBe("✅ Guardado. Gastos de hoy: *$180,00* (3 registros).");
+    // Los totales del día son del dueño: el empleado solo recibe la confirmación.
+    expect(textOf(sent[5])).toBe("✅ Guardado.");
     await send(client, "gasté 10$ en arepas");
     await tap(client, saveId(sent[6]));
     expect(textOf(sent[7])).toContain(

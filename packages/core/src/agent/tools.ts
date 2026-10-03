@@ -39,7 +39,12 @@ import {
   type Movement,
   recentMovementsByPhone,
 } from "../ledger/last-movement";
-import { euroRateFor, NoEurRateError, NoRateError } from "../ledger/rate-for";
+import {
+  rateFor as bcvRateFor,
+  euroRateFor,
+  NoEurRateError,
+  NoRateError,
+} from "../ledger/rate-for";
 import { matchCategoryName } from "../ledger/reports";
 import { renderSummary } from "../ledger/summary";
 import { getRateInfo } from "../rates/current";
@@ -392,7 +397,10 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
     if (inferred.kind === "ask") {
       return { kind: "terminal", outbound: [es.currencyQuestion(input.amount)], status: "ok" };
     }
-    const mr = await rateOverride(run.tx, nz(input.rate), when.date);
+    // Un monto en euros ya se pasó a Bs con el euro del día: otra "tasa euro" lo convertiría
+    // dos veces. El equivalente en $ sale a la tasa BCV como cualquier monto en Bs.
+    const mr =
+      input.currency === "EUR" ? null : await rateOverride(run.tx, nz(input.rate), when.date);
     if (mr === "invalid" || mr === "no_eur") return rateError(mr);
     // Corrección de un borrador de factura ("no, eran 50" por texto o voz): el borrador nuevo
     // reemplaza al pendiente y hereda su foto; si no, el respaldo se perdía (bug del 01/10).
@@ -593,7 +601,10 @@ async function rateOverride(
       throw err;
     }
   }
-  return manualRateFrom(raw, businessDate);
+  const manual = manualRateFrom(raw, businessDate);
+  if (manual && manual !== "invalid" && !(await plausibleRate(tx, manual, businessDate)))
+    return "invalid";
+  return manual;
 }
 
 const NO_EUR =
@@ -642,9 +653,23 @@ const withNote = (description: string, note: string | null): string | null => {
 /** "a tasa 850" → tasa manual; texto ilegible → "invalid" para pedir aclaración. */
 function manualRateFrom(raw: string | null, businessDate: IsoDate): Rate | null | "invalid" {
   if (!raw) return null;
-  const v = parseVenezuelanAmount(raw) ?? (/^\d+(\.\d+)?$/.test(raw) ? new Decimal(raw) : null);
+  // El modelo normaliza la tasa a punto decimal ("189,385" → "189.385"): un decimal con punto se
+  // lee primero como decimal. Con la regla venezolana daba 189385, mil veces la tasa.
+  const t = raw.trim();
+  const v = /^\d+(\.\d+)?$/.test(t) ? new Decimal(t) : parseVenezuelanAmount(t);
   const r = v ? manualRate(v, businessDate) : null;
   return r ?? "invalid";
+}
+
+/** Una tasa manual entre la mitad y el doble de la BCV del día; fuera de eso es un error de tipeo. */
+async function plausibleRate(tx: Tx, rate: Rate, businessDate: IsoDate): Promise<boolean> {
+  try {
+    const { rate: bcv } = await bcvRateFor(tx, businessDate);
+    return rate.value.gte(bcv.value.div(2)) && rate.value.lte(bcv.value.mul(2));
+  } catch (err) {
+    if (err instanceof NoRateError) return true;
+    throw err;
+  }
 }
 
 const BAD_RATE = "No entendí la tasa. Escríbela como _tasa 857,89_.";
@@ -822,7 +847,10 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
         status: "ok",
         outbound: [es.clarification(whenQuestion(when.error, input.when), [])],
       };
-    const mr = await rateOverride(run.tx, nz(input.rate), when.date);
+    // Un monto en euros ya se pasó a Bs con el euro del día: otra "tasa euro" lo convertiría
+    // dos veces. El equivalente en $ sale a la tasa BCV como cualquier monto en Bs.
+    const mr =
+      input.currency === "EUR" ? null : await rateOverride(run.tx, nz(input.rate), when.date);
     if (mr === "invalid" || mr === "no_eur") return rateError(mr);
     const method: PaymentMethod = input.method;
     let amount = parsedAmount;

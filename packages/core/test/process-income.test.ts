@@ -114,6 +114,20 @@ describe("ventas por WhatsApp", () => {
       { method: "pago_movil", amount: "100" },
     ]),
     "hoy vendí 400$": dayTotal("t3", "400", []),
+    "el sábado vendí 120$": [
+      {
+        id: "t5",
+        name: "draft_income_day_total",
+        input: {
+          total_amount: "120",
+          total_currency: "USD",
+          lines: [],
+          when: "2026-09-26",
+          rate: "",
+          corrects_draft: false,
+        },
+      },
+    ],
     "me pagaron 30$ por zelle del carro del abogado": [
       {
         id: "t4",
@@ -235,5 +249,21 @@ describe("ventas por WhatsApp", () => {
     expect(textOf(sent[1])).toContain("vendiste *$780,00*");
     const single = (await movements()).find((m) => m.origin === "single" && m.type === "income");
     expect(single).toMatchObject({ paymentMethod: "zelle", description: "Carro del abogado" });
+  });
+
+  it("dos borradores del mismo día: el segundo Guardar ya no suma, pregunta Reemplazar o Agregar", async () => {
+    const { sent, client } = fakeMeta();
+    // Los dos se arman sin venta registrada ese día (cola de borradores).
+    await send(client, "el sábado vendí 120$");
+    await send(client, "el sábado vendí 120$");
+    await tap(client, buttonsOf(sent[0])[0]?.id as string, "Guardar");
+    expect(textOf(sent[2])).toContain("✅ Venta guardada.");
+    await tap(client, buttonsOf(sent[1])[0]?.id as string, "Guardar");
+    expect(textOf(sent[3])).toContain(
+      "Ya tienes una venta del día registrada ese día por *$120,00*",
+    );
+    expect(buttonsOf(sent[3]).map((b) => b.title)).toEqual(["Reemplazar", "Agregar", "Cancelar"]);
+    const sat = (await movements()).filter((m) => m.businessDate === "2026-09-26" && !m.deletedAt);
+    expect(sat).toHaveLength(1);
   });
 });

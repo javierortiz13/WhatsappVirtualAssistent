@@ -420,14 +420,18 @@ export function resolveMismatch(
     };
     const diffUsd = new Decimal(draft.mismatch.statedUsd).minus(draft.mismatch.breakdownUsd);
     if (diffUsd.gt(0)) {
+      // Total dicho en Bs: la diferencia se saca en Bs (pasar por $ y volver dejaba céntimos de
+      // menos: Bs 10.000 terminaba en 9.999,82).
+      const linesVes = lines.reduce((acc, l) => acc.plus(l.amountVes), new Decimal(0));
       const amount =
         draft.mismatch.statedCurrency === "USD"
           ? diffUsd
-          : diffUsd.mul(rate.value).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
-      lines = [
-        ...lines,
-        toLine({ method: "unspecified", amount, currency: draft.mismatch.statedCurrency }, rate),
-      ];
+          : new Decimal(draft.mismatch.statedAmount).minus(linesVes);
+      if (amount.gt(0))
+        lines = [
+          ...lines,
+          toLine({ method: "unspecified", amount, currency: draft.mismatch.statedCurrency }, rate),
+        ];
     }
   }
   const totals = sumLines(lines);

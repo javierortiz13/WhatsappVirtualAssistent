@@ -46,7 +46,11 @@ describe("plantillas es-VE", () => {
     expect(parseReplyId("menu:expense")).toEqual({ kind: "menu", action: "expense" });
     expect(parseReplyId("confirm:abc-1")).toEqual({ kind: "confirm", pendingId: "abc-1" });
     expect(parseReplyId("currency:VES")).toEqual({ kind: "currency", currency: "VES" });
-    expect(parseReplyId("cat:x:y")).toEqual({ kind: "category", categoryId: "x:y" });
+    expect(parseReplyId("cat:x:y")).toEqual({ kind: "unknown", raw: "cat:x:y" });
+    expect(parseReplyId("cat:00000000-0000-4000-8000-000000000000")).toEqual({
+      kind: "category",
+      categoryId: "00000000-0000-4000-8000-000000000000",
+    });
     expect(parseReplyId("whatever")).toEqual({ kind: "unknown", raw: "whatever" });
     expect(parseReplyId("menu:nope").kind).toBe("unknown");
   });

@@ -15,7 +15,7 @@ import {
 import { insertDraft } from "./drafts";
 import type { Actor } from "./expenses";
 import type { PaymentMethod } from "./income";
-import { rateFor } from "./rate-for";
+import { euroRateFor, NoEurRateError, rateFor } from "./rate-for";
 
 /**
  * Corregir o borrar el último movimiento por chat (US-B8). Solo el último movimiento vivo
@@ -164,6 +164,23 @@ export async function computeAmend(
   const dateChanged = businessDate !== m.businessDate;
   let rate: Rate;
   if (input.changes.manualRate) rate = input.changes.manualRate;
+  else if (dateChanged && m.rateSource === "manual")
+    // Una tasa manual la dijo el usuario: cambiar la fecha no la reemplaza por la BCV.
+    rate = {
+      value: new Decimal(m.rateValue),
+      effectiveDate: businessDate,
+      id: null,
+      source: "manual",
+    };
+  else if (dateChanged && m.rateSource === "bcv_eur")
+    // A tasa euro sigue a tasa euro, la del día nuevo (antes pasaba en silencio a la del dólar).
+    // Sin euro publicado para esa fecha (antes del 02/10) queda la del dólar, como antes.
+    rate = await euroRateFor(tx, businessDate)
+      .then((r) => r.rate)
+      .catch(async (err) => {
+        if (err instanceof NoEurRateError) return (await rateFor(tx, businessDate)).rate;
+        throw err;
+      });
   else if (dateChanged) rate = (await rateFor(tx, businessDate)).rate;
   else
     rate = {

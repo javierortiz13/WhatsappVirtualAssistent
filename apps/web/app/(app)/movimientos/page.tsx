@@ -20,16 +20,28 @@ const OK: Record<string, string> = {
   eliminado: "Movimiento eliminado. Lo puedes ver con el filtro Eliminados.",
 };
 
+const ERRORS: Record<string, string> = {
+  datos: "Revisa los datos: falta algo o hay un campo que no se ve bien.",
+  noexiste: "Ese movimiento ya no existe.",
+};
+
 /** Lista del mes con filtros por tipo y "Eliminados"; mes anterior y siguiente (US-E2). */
 export default async function Movimientos({
   searchParams,
 }: {
-  searchParams: Promise<{ mes?: string; tipo?: string; eliminados?: string; ok?: string }>;
+  searchParams: Promise<{
+    mes?: string;
+    tipo?: string;
+    eliminados?: string;
+    ok?: string;
+    error?: string;
+  }>;
 }) {
   const { tenant } = await requireTenant();
   const sp = await searchParams;
   const today = todayInCaracas();
-  const ym = /^\d{4}-\d{2}$/.test(sp.mes ?? "") ? (sp.mes as string) : today.slice(0, 7);
+  // Mes 01–12: "?mes=2026-13" armaba una fecha que Postgres rechaza (500).
+  const ym = /^\d{4}-(0[1-9]|1[0-2])$/.test(sp.mes ?? "") ? (sp.mes as string) : today.slice(0, 7);
   const month = monthOf(ym);
   const filter: MovementFilter = {
     ...(sp.tipo === "expense" || sp.tipo === "income" ? { type: sp.tipo } : {}),
@@ -54,6 +66,11 @@ export default async function Movimientos({
   return (
     <div className="stack">
       {sp.ok && OK[sp.ok] ? <div className="notice ok">{OK[sp.ok]}</div> : null}
+      {sp.error ? (
+        <div className="notice err">
+          {ERRORS[sp.error] ?? "No pudimos guardar el cambio. Inténtalo de nuevo."}
+        </div>
+      ) : null}
       <div className="rate">
         <a className="iconbtn" href={link({ mes: shiftMonth(ym, -1) })} aria-label="Mes anterior">
           <IconChevronLeft />

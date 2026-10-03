@@ -65,6 +65,7 @@ export function createAgent(opts: AgentOptions): AgentRunner {
         ctx.phoneId,
         opts.historyLimit ?? 10,
         new Date(started.getTime() - (opts.historyWindowMs ?? 30 * 60_000)),
+        ctx.sourceMessageDbId,
       );
 
       const turns: LlmTurn[] = [
@@ -116,7 +117,8 @@ export function createAgent(opts: AgentOptions): AgentRunner {
         }
         const call = res.toolCalls[0];
         if (!call) {
-          log.info({ text: res.text?.slice(0, 80) ?? null }, "sin tool_call: fuera de alcance");
+          // Sin el texto del modelo en el log: puede repetir lo que escribió el usuario.
+          log.info({ chars: res.text?.length ?? 0 }, "sin tool_call: fuera de alcance");
           return finish([es.outOfScope()], "rejected_out_of_scope");
         }
         const spec = byName.get(call.name);
@@ -199,9 +201,11 @@ async function recentHistory(
   phoneId: string,
   limit: number,
   since: Date,
+  currentId: string | null,
 ): Promise<LlmTurn[]> {
   const rows = await tx
     .select({
+      id: schema.message.id,
       direction: schema.message.direction,
       body: schema.message.body,
       kind: schema.message.kind,
@@ -212,11 +216,13 @@ async function recentHistory(
     // empate, `direction` desc ("out" > "in") deja la respuesta después del mensaje al invertir.
     .orderBy(desc(schema.message.createdAt), desc(schema.message.direction))
     .limit(limit + 1);
-  // El último `in` es el mensaje actual (ya insertado antes de llamar al agente): se excluye.
-  const ordered = rows.reverse();
-  const current =
-    ordered.length && ordered[ordered.length - 1]?.direction === "in" ? ordered.pop() : null;
-  void current;
+  // El mensaje actual ya está insertado: se excluye por id. Con voz o foto, el acuse (🎧/🧾) se
+  // escribe en la misma transacción y quedaba después, así que "sacar el último" no lo quitaba
+  // y el modelo veía el mensaje dos veces. Las reacciones tampoco son parte de la conversación.
+  const ordered = rows.reverse().filter((r) => r.id !== currentId && r.kind !== "reaction");
+  // Sin id del mensaje actual (respuesta a un botón), el último entrante es el actual.
+  if (!currentId && ordered[ordered.length - 1]?.direction === "in") ordered.pop();
+  if (ordered.length > limit) ordered.splice(0, ordered.length - limit);
   const turns: LlmTurn[] = [];
   for (const r of ordered) {
     if (!r.body) continue;

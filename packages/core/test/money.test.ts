@@ -50,16 +50,20 @@ describe("parseVenezuelanAmount", () => {
   ])("%s → %s", (input, expected) => {
     expect(parseVenezuelanAmount(input)?.toString()).toBe(expected);
   });
-  it.each([["1,2,3"], ["abc"], ["1.23.4"], [""]])("rechaza %s", (input) => {
-    expect(parseVenezuelanAmount(input)).toBeNull();
-  });
+  // "1,200.50", "." y "," lanzaban DecimalError (500 en los formularios); ahora son null.
+  it.each([["1,2,3"], ["abc"], ["1.23.4"], [""], ["1,200.50"], ["."], [","]])(
+    "rechaza %s",
+    (input) => {
+      expect(parseVenezuelanAmount(input)).toBeNull();
+    },
+  );
 });
 
 describe("formatMoney", () => {
   it("formatea con coma decimal y punto de miles", () => {
     expect(formatMoney("15", "USD")).toBe("$15,00");
     expect(formatMoney("12870", "VES")).toBe("Bs 12.870,00");
-    expect(formatMoney("-40", "USD")).toBe("$−40,00");
+    expect(formatMoney("-40", "USD")).toBe("−$40,00");
   });
   it("abrevia Bs por encima de 999.999.999", () => {
     expect(formatMoney("1850000000", "VES")).toBe("Bs 1.850,00 MM");

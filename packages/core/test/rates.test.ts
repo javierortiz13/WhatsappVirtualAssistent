@@ -59,6 +59,8 @@ describe("fuente DolarAPI", () => {
     expect(inferEffectiveDateFromUpdate(new Date("2026-09-29T14:00:00Z"))).toBe("2026-09-29");
     // viernes 02/10/2026 17:00 Caracas → lunes 05/10
     expect(inferEffectiveDateFromUpdate(new Date("2026-10-02T21:00:00Z"))).toBe("2026-10-05");
+    // Visto un sábado (aunque sea antes de las 15:00): es la tasa del viernes, rige el lunes.
+    expect(inferEffectiveDateFromUpdate(new Date("2026-10-03T14:00:00Z"))).toBe("2026-10-05");
     expect(nextBusinessDay(asIsoDate("2026-10-03"))).toBe("2026-10-05");
   });
   it("parsea promedio y fechaActualizacion", async () => {

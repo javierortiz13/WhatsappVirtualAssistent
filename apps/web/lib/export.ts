@@ -55,7 +55,8 @@ export async function buildWorkbook(
       CHANNEL[r.sourceChannel] ?? r.sourceChannel,
     ]);
     row.getCell(5).numFmt = "#,##0.00";
-    row.getCell(7).numFmt = "#,##0.00";
+    // La tasa lleva hasta 8 decimales: con 2, Monto × Tasa no daba la columna Bs.
+    row.getCell(7).numFmt = "#,##0.00######";
     row.getCell(8).numFmt = "#,##0.00";
     row.getCell(9).numFmt = "#,##0.00";
   }

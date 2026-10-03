@@ -253,6 +253,13 @@ export function renewTooMany(supportHint: string | null): Outbound {
   };
 }
 
+export function replaceOwnerOnly(): Outbound {
+  return {
+    type: "text",
+    body: "Reemplazar la venta del día lo hace el dueño. Puedes tocar *Agregar* o *Cancelar*.",
+  };
+}
+
 export function renewOwnerOnly(): Outbound {
   return { type: "text", body: "El plan lo renueva el dueño del negocio." };
 }
@@ -615,12 +622,13 @@ export function expensesSaved(
   dayTotalUsd: Decimal.Value,
   count: number,
   budgetLines: string[] = [],
+  day = "hoy",
 ): Outbound {
   const n = count === 1 ? "1 registro" : `${count} registros`;
   return {
     type: "text",
     body: [
-      `✅ Guardados ${saved} gastos. Gastos de hoy: *${formatMoney(dayTotalUsd, "USD")}* (${n}).`,
+      `✅ Guardados ${saved} gastos. Gastos ${day === "hoy" ? "de hoy" : day}: *${formatMoney(dayTotalUsd, "USD")}* (${n}).`,
       ...budgetLines,
     ].join("\n"),
   };
@@ -630,12 +638,13 @@ export function expenseSaved(
   dayTotalUsd: Decimal.Value,
   count: number,
   budgetLines: string[] = [],
+  day = "hoy",
 ): Outbound {
   const n = count === 1 ? "1 registro" : `${count} registros`;
   return {
     type: "text",
     body: [
-      `✅ Guardado. Gastos de hoy: *${formatMoney(dayTotalUsd, "USD")}* (${n}).`,
+      `✅ Guardado. Gastos ${day === "hoy" ? "de hoy" : day}: *${formatMoney(dayTotalUsd, "USD")}* (${n}).`,
       ...budgetLines,
     ].join("\n"),
   };

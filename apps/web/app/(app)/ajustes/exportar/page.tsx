@@ -7,9 +7,19 @@ import { IconCalendar, IconChevronLeft, IconDownload } from "../../icons";
 export const metadata: Metadata = { title: "Exportar" };
 export const dynamic = "force-dynamic";
 
+const ERRORS: Record<string, string> = {
+  rango: "Revisa las fechas: la de inicio debe ser anterior o igual a la de fin.",
+  largo: "Máximo 12 meses por archivo. Elige un rango más corto.",
+};
+
 /** Exportar a Excel (US-E3): un .xlsx por rango de fechas, máximo 12 meses. */
-export default async function Exportar() {
+export default async function Exportar({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
   await requireTenant();
+  const sp = await searchParams;
   const today = todayInCaracas();
   const month = monthBounds(today);
   const quick = [
@@ -25,6 +35,7 @@ export default async function Exportar() {
         </a>
         <span className="sub">Ajustes</span>
       </div>
+      {sp.error ? <div className="notice err">{ERRORS[sp.error] ?? ERRORS.rango}</div> : null}
       <form className="card stack" action="/exportar" method="get">
         <h2>Exportar a Excel</h2>
         <p className="sub">

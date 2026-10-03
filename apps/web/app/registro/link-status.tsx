@@ -5,15 +5,20 @@ import { useEffect, useState } from "react";
 /** Espera el mensaje del dueño: consulta el estado cada 3 s y muestra cuánto le queda al código. */
 export function LinkStatus({ expiresAt }: { expiresAt: number }) {
   const [status, setStatus] = useState<"waiting" | "active">("waiting");
-  const [left, setLeft] = useState(() => Math.max(0, expiresAt - Date.now()));
+  // null hasta montar: el servidor y el navegador no comparten reloj (evita el desajuste al hidratar).
+  const [left, setLeft] = useState<number | null>(null);
+  const expired = left === 0;
 
   useEffect(() => {
-    const tick = setInterval(() => setLeft(Math.max(0, expiresAt - Date.now())), 1000);
+    const update = () => setLeft(Math.max(0, expiresAt - Date.now()));
+    update();
+    const tick = setInterval(update, 1000);
     return () => clearInterval(tick);
   }, [expiresAt]);
 
   useEffect(() => {
-    if (status === "active") return;
+    // Con el código vencido no tiene sentido seguir consultando.
+    if (status === "active" || expired) return;
     let stop = false;
     const poll = async () => {
       try {
@@ -30,7 +35,7 @@ export function LinkStatus({ expiresAt }: { expiresAt: number }) {
       stop = true;
       clearInterval(id);
     };
-  }, [status]);
+  }, [status, expired]);
 
   if (status === "active") {
     return (
@@ -44,6 +49,12 @@ export function LinkStatus({ expiresAt }: { expiresAt: number }) {
       </div>
     );
   }
+  if (left === null)
+    return (
+      <p className="muted" style={{ margin: 0, fontSize: 14 }} aria-live="polite">
+        ◌ Esperando tu mensaje…
+      </p>
+    );
   const mm = String(Math.floor(left / 60000)).padStart(2, "0");
   const ss = String(Math.floor((left % 60000) / 1000)).padStart(2, "0");
   return (

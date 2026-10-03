@@ -1,5 +1,5 @@
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@caja/core";
-import { asIsoDate, formatMoney, formatShortDate } from "@caja/core/domain";
+import { businessDateOf, formatMoney, formatShortDate } from "@caja/core/domain";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { categoriesOf, movementById } from "@/lib/queries";
@@ -44,15 +44,16 @@ export default async function Movimiento({
   const { tenant } = await requireTenant();
   const { id } = await params;
   const sp = await searchParams;
-  if (!/^[0-9a-f-]{36}$/.test(id)) notFound();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) notFound();
   const [m, categories] = await Promise.all([movementById(tenant.id, id), categoriesOf(tenant.id)]);
   if (!m) notFound();
   const isExpense = m.type === "expense";
   const locked = !!m.deletedAt;
   const notice = sp.ok ? MSG[sp.ok] : sp.error ? MSG[sp.error] : null;
   const amountText = `${isExpense ? "−" : "+"}${formatMoney(m.amount, m.currency as "USD" | "VES")}`;
+  // Fecha y hora en Caracas: la fecha UTC daba "mañana" a todo lo hecho después de las 20:00.
   const fmt = (d: Date) =>
-    `${formatShortDate(asIsoDate(d.toISOString().slice(0, 10)))} ${d.toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit", timeZone: "America/Caracas" })}`;
+    `${formatShortDate(businessDateOf(d))} ${d.toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit", timeZone: "America/Caracas" })}`;
   return (
     <div className="stack">
       <div className="rate">
@@ -151,6 +152,10 @@ export default async function Movimiento({
                     {c.name}
                   </option>
                 ))}
+                {/* Categoría desactivada: sigue como opción para que editar otro campo no la borre. */}
+                {m.categoryId && !categories.some((c) => c.id === m.categoryId) ? (
+                  <option value={m.categoryId}>{m.categoryName ?? "Categoría desactivada"}</option>
+                ) : null}
               </select>
               <IconChevronDown size={16} />
             </span>

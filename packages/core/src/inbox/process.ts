@@ -38,6 +38,7 @@ import {
   EditLastDraft,
   ExpenseDraft,
   ExpensesDraft,
+  existingDayTotal,
   expenseTotalForDay,
   IncomeDayTotalDraft,
   IncomeSingleDraft,
@@ -53,7 +54,7 @@ import { es, mergeOutbound, type Outbound, parseReplyId } from "../render/index"
 import type { SpeechClient } from "../speech/client";
 import type { ObjectStore } from "../storage/store";
 import { RECEIPT_MIN_CONFIDENCE, type ReceiptReader } from "../vision/receipt";
-import { LimitError, MetaApiError, type MetaClient } from "../whatsapp/client";
+import { LIMITS, LimitError, MetaApiError, type MetaClient } from "../whatsapp/client";
 import type { InboundMessage } from "../whatsapp/types";
 
 /**
@@ -358,8 +359,28 @@ export async function processInbound(
             );
             continue;
           }
+          // 429/5xx: no se entregó; deshacer y reintentar el turno es seguro.
+          throw err;
         }
-        throw err;
+        if (err instanceof LimitError) {
+          // No salió (se valida antes de enviar) y reintentar daría lo mismo: se registra y sigue.
+          await tx
+            .update(schema.message)
+            .set({ status: "failed" })
+            .where(eq(schema.message.id, row.id));
+          log.error(
+            { err: err.message, to: maskPhone(to) },
+            "mensaje fuera de los límites de Meta",
+          );
+          continue;
+        }
+        // Red o tiempo agotado: no se sabe si Meta lo entregó. Deshacer el turno y reintentarlo
+        // podía guardar dos veces lo confirmado y mandar dos "✅ Guardado"; se confirma lo hecho.
+        await tx
+          .update(schema.message)
+          .set({ status: "unknown" })
+          .where(eq(schema.message.id, row.id));
+        log.warn({ err: errMsg(err), to: maskPhone(to) }, "envío sin confirmación de Meta");
       }
     }
     return "done" as const;
@@ -587,11 +608,15 @@ async function handleAudio(
     .where(eq(schema.message.waMessageId, msg.waMessageId));
   const result = await runAgent(tx, deps, ctx, msg.waMessageId, { kind: "voice", text });
   const first = result.outbound[0];
+  // Los borradores ya traen "Entendí: …" con la transcripción: no repetirla arriba (y no pasar
+  // de los 1024 caracteres que admite un mensaje con botones).
+  const showsTranscript = first?.body.includes("Entendí:") ?? false;
   return {
     ...result,
-    outbound: first
-      ? [...mergeOutbound(es.transcript(text), first), ...result.outbound.slice(1)]
-      : result.outbound,
+    outbound:
+      first && !showsTranscript
+        ? [...mergeOutbound(es.transcript(text), first), ...result.outbound.slice(1)]
+        : result.outbound,
   };
 }
 
@@ -820,6 +845,8 @@ async function routeInteractive(
       }
       if (parsed.kind === "choice") {
         if (pending.kind !== "create_income_day_total") return none([es.confirmationExpired()]);
+        // Reemplazar da de baja la venta del día de todos (también la del dueño): solo el dueño.
+        if (parsed.key === "replace" && ctx.role !== "owner") return none([es.replaceOwnerOnly()]);
         const draft = IncomeDayTotalDraft.parse(pending.payload);
         if (parsed.key === "stated" || parsed.key === "breakdown") {
           const resolved = resolveMismatch(draft, parsed.key);
@@ -1067,7 +1094,13 @@ async function executePending(
         .where(eq(schema.pendingAction.id, pending.id));
       const total = await expenseTotalForDay(tx, ctx.tenantId, asIsoDate(draft.businessDate));
       const budgets = await budgetLinesFor(tx, ctx, [draft]);
-      return none([es.expenseSaved(total.usd, total.count, budgets)]);
+      return none([
+        ownerView(
+          ctx,
+          es.expenseSaved(total.usd, total.count, budgets, dayWord(ctx, draft.businessDate)),
+          "✅ Guardado.",
+        ),
+      ]);
     }
     case "create_expenses": {
       const draft = ExpensesDraft.parse(pending.payload);
@@ -1102,10 +1135,34 @@ async function executePending(
         asIsoDate(last?.businessDate ?? ctx.today),
       );
       const budgets = await budgetLinesFor(tx, ctx, draft.items);
-      return none([es.expensesSaved(draft.items.length, total.usd, total.count, budgets)]);
+      return none([
+        ownerView(
+          ctx,
+          es.expensesSaved(
+            draft.items.length,
+            total.usd,
+            total.count,
+            budgets,
+            dayWord(ctx, last?.businessDate ?? ctx.today),
+          ),
+          `✅ Guardados ${draft.items.length} gastos.`,
+        ),
+      ]);
     }
     case "create_income_day_total": {
-      const draft = IncomeDayTotalDraft.parse(pending.payload);
+      let draft = IncomeDayTotalDraft.parse(pending.payload);
+      // La venta del día se revisa de nuevo al Guardar: otro borrador o el empleado pudieron
+      // registrarla después de armar este. Sin esto, Guardar la sumaba dos veces.
+      if (!draft.mode && draft.existingUsd === null) {
+        const now = await existingDayTotal(tx, ctx.tenantId, asIsoDate(draft.businessDate));
+        if (now.count > 0) {
+          draft = { ...draft, existingUsd: now.usd.toFixed(2) };
+          await tx
+            .update(schema.pendingAction)
+            .set({ payload: draft })
+            .where(eq(schema.pendingAction.id, pending.id));
+        }
+      }
       // Un desglose sin cuadrar o un día ya cerrado no se guardan con "Guardar": piden decisión.
       if (draft.mismatch || (draft.existingUsd !== null && !draft.mode)) {
         return none([
@@ -1144,11 +1201,15 @@ async function executePending(
         .where(eq(schema.pendingAction.id, pending.id));
       const totals = await dayTotals(tx, ctx.tenantId, asIsoDate(draft.businessDate));
       return none([
-        es.incomeSaved(totals.salesUsd, totals.expensesUsd, {
-          replaced: created.replaced,
-          isToday: draft.businessDate === ctx.today,
-          dateLabel: formatShortDate(asIsoDate(draft.businessDate)),
-        }),
+        ownerView(
+          ctx,
+          es.incomeSaved(totals.salesUsd, totals.expensesUsd, {
+            replaced: created.replaced,
+            isToday: draft.businessDate === ctx.today,
+            dateLabel: formatShortDate(asIsoDate(draft.businessDate)),
+          }),
+          "✅ Venta guardada.",
+        ),
       ]);
     }
     case "create_income_single": {
@@ -1175,11 +1236,15 @@ async function executePending(
         .where(eq(schema.pendingAction.id, pending.id));
       const totals = await dayTotals(tx, ctx.tenantId, asIsoDate(draft.businessDate));
       return none([
-        es.incomeSaved(totals.salesUsd, totals.expensesUsd, {
-          replaced: 0,
-          isToday: draft.businessDate === ctx.today,
-          dateLabel: formatShortDate(asIsoDate(draft.businessDate)),
-        }),
+        ownerView(
+          ctx,
+          es.incomeSaved(totals.salesUsd, totals.expensesUsd, {
+            replaced: 0,
+            isToday: draft.businessDate === ctx.today,
+            dateLabel: formatShortDate(asIsoDate(draft.businessDate)),
+          }),
+          "✅ Venta guardada.",
+        ),
       ]);
     }
     case "edit_last": {
@@ -1196,7 +1261,14 @@ async function executePending(
         .where(eq(schema.pendingAction.id, pending.id));
       if (!after) return none([es.alreadyGone()]);
       return none([
-        es.amended(draft.type, await totalsFor(tx, ctx, draft.type, asIsoDate(after.businessDate))),
+        ownerView(
+          ctx,
+          es.amended(
+            draft.type,
+            await totalsFor(tx, ctx, draft.type, asIsoDate(after.businessDate)),
+          ),
+          "✅ Corregido.",
+        ),
       ]);
     }
     case "delete_last": {
@@ -1230,7 +1302,9 @@ async function executePending(
         );
         const totals =
           type && sameDay ? await totalsFor(tx, ctx, type, asIsoDate(lastGone.businessDate)) : null;
-        return none([es.deletedMany(removed, items.length, type, totals)]);
+        return none([
+          es.deletedMany(removed, items.length, type, ctx.role === "owner" ? totals : null),
+        ]);
       }
       const draft = DeleteLastDraft.parse(pending.payload);
       const gone = await deleteMovement(tx, {
@@ -1245,12 +1319,32 @@ async function executePending(
         .where(eq(schema.pendingAction.id, pending.id));
       if (!gone) return none([es.alreadyGone()]);
       return none([
-        es.deleted(draft.type, await totalsFor(tx, ctx, draft.type, asIsoDate(gone.businessDate))),
+        ownerView(
+          ctx,
+          es.deleted(
+            draft.type,
+            await totalsFor(tx, ctx, draft.type, asIsoDate(gone.businessDate)),
+          ),
+          "✅ Eliminado.",
+        ),
       ]);
     }
     default:
       return none([es.confirmationExpired()]);
   }
+}
+
+/**
+ * Los totales del día son del dueño (DISENO-MVP: el empleado registra, no ve cierres). Al
+ * empleado se le confirma sin cifras del negocio.
+ */
+function ownerView(ctx: RouteCtx, out: Outbound, employeeText: string): Outbound {
+  return ctx.role === "owner" ? out : { type: "text", body: employeeText };
+}
+
+/** "hoy" o "del lun 29/09": el total que acompaña al guardado es el del día del gasto. */
+function dayWord(ctx: RouteCtx, date: string): string {
+  return date === ctx.today ? "hoy" : `del ${formatShortDate(asIsoDate(date))}`;
 }
 
 async function totalsFor(
@@ -1324,11 +1418,22 @@ export function classifyKeyword(text: string): Keyword {
   return null;
 }
 
+/** Cuerpo dentro del límite de Meta para botones y listas (1024): se recorta en vez de fallar. */
+function clip(body: string, max: number): string {
+  return body.length <= max ? body : `${body.slice(0, max - 1)}…`;
+}
+
 export async function sendOutbound(
   meta: MetaClient,
   to: string,
-  out: Outbound,
+  original: Outbound,
 ): Promise<{ waMessageId: string }> {
+  const out =
+    original.type === "buttons" || original.type === "list"
+      ? { ...original, body: clip(original.body, LIMITS.interactiveBody) }
+      : original.type === "text"
+        ? { ...original, body: clip(original.body, LIMITS.textBody) }
+        : original;
   switch (out.type) {
     case "text":
       return meta.sendText(to, out.body);

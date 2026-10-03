@@ -1,6 +1,6 @@
 import { latestRates, PLANS, quote } from "@caja/core";
 import { businessDateOf, formatShortDate } from "@caja/core/domain";
-import { loadTenantDetail } from "@/lib/admin";
+import { loadTenantDetail, requireAdmin } from "@/lib/admin";
 import { db } from "@/lib/db";
 import { formatE164 } from "@/lib/phone";
 import {
@@ -55,6 +55,7 @@ export default async function AdminTenant({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ ok?: string; error?: string }>;
 }) {
+  await requireAdmin();
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const now = new Date();
   const [d, rates] = await Promise.all([loadTenantDetail(id, now), latestRates(db())]);
@@ -72,7 +73,11 @@ export default async function AdminTenant({
         ← Todos los negocios
       </a>
       {sp.ok && OK[sp.ok] ? <div className="notice ok">{OK[sp.ok]}</div> : null}
-      {sp.error ? <div className="notice err">{ERR[sp.error] ?? sp.error}</div> : null}
+      {sp.error ? (
+        <div className="notice err">
+          {ERR[sp.error] ?? "No pudimos guardar el cambio. Inténtalo de nuevo."}
+        </div>
+      ) : null}
 
       <section className="card hero">
         <span className="label">{t.name}</span>
@@ -111,7 +116,7 @@ export default async function AdminTenant({
 
       <section className="card">
         <span className="label">Registrar pago</span>
-        <form action={recordPaymentAction} className="stack-sm admin-form">
+        <form action={recordPaymentAction} className="stack-sm">
           <input type="hidden" name="tenant_id" value={t.id} />
           <div className="grid-3 admin-grid">
             <label className="field">
@@ -229,7 +234,7 @@ export default async function AdminTenant({
           <form action={changeTenantAction} className="admin-inline">
             <input type="hidden" name="tenant_id" value={t.id} />
             <input type="hidden" name="op" value="plan" />
-            <select className="input" name="plan" defaultValue={t.plan}>
+            <select className="input" name="plan" defaultValue={t.plan} aria-label="Plan">
               {PLANS.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -243,7 +248,15 @@ export default async function AdminTenant({
           <form action={changeTenantAction} className="admin-inline">
             <input type="hidden" name="tenant_id" value={t.id} />
             <input type="hidden" name="op" value="extend" />
-            <input className="input" name="days" type="number" min={1} max={366} defaultValue={7} />
+            <input
+              className="input"
+              name="days"
+              type="number"
+              min={1}
+              max={366}
+              defaultValue={7}
+              aria-label="Días a extender"
+            />
             <button className="btn secondary small" type="submit">
               Extender días
             </button>

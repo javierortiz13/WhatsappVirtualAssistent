@@ -101,7 +101,10 @@ export function inferEffectiveDateFromUpdate(updatedAt: Date): IsoDate {
     }).format(updatedAt),
   );
   const day = businessDateOf(updatedAt);
-  if (caracasHour >= 15 && !isWeekend(day)) return nextBusinessDay(day);
+  // Lo que se ve un sábado o domingo es lo que el BCV publicó el viernes: rige el lunes. Guardarlo
+  // con la fecha del fin de semana daba la tasa del lunes a los gastos del sábado y el domingo.
+  if (isWeekend(day)) return nextBusinessDay(day);
+  if (caracasHour >= 15) return nextBusinessDay(day);
   return day;
 }
 

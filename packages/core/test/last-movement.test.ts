@@ -129,6 +129,10 @@ describe("corregir y borrar el último movimiento", () => {
       when: "ayer",
     }),
     "a tasa 850": amend("a3", { rate: "850" }),
+    // El modelo normaliza "857,385" a "857.385": es decimal, no 857.385 Bs (mil veces la tasa).
+    "a tasa 857,385": amend("a4", { rate: "857.385" }),
+    // "8.580" leído como decimal es 8,58: lejísimos de la BCV (858), se pide de nuevo.
+    "a tasa 8.580": amend("a5", { rate: "8.580" }),
     "gasté 30$ en cera a tasa 900": expense("e2", {
       amount: "30",
       description: "Cera",
@@ -271,9 +275,16 @@ describe("corregir y borrar el último movimiento", () => {
       rateValue: "857.00000000",
     });
 
+    await send(client, "a tasa 8.580");
+    expect(textOf(sent[2])).toBe("No entendí la tasa. Escríbela como _tasa 857,89_.");
+    await send(client, "a tasa 857,385");
+    expect(textOf(sent[3])).toContain("(tasa manual 857,39)");
+    const cancel = buttonsOf(sent[3]).find((b) => b.title === "Cancelar");
+    await tap(client, cancel?.id as string, "Cancelar");
     await send(client, "a tasa 850");
-    expect(textOf(sent[2])).toContain("$20,00 → *$20,00* (tasa manual 850,00)");
-    await tap(client, buttonsOf(sent[2])[0]?.id as string, "Guardar");
+    const fix = sent.at(-1);
+    expect(textOf(fix)).toContain("$20,00 → *$20,00* (tasa manual 850,00)");
+    await tap(client, buttonsOf(fix)[0]?.id as string, "Guardar");
     [m] = await live();
     expect(m).toMatchObject({
       rateSource: "manual",

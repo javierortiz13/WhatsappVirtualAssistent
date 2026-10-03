@@ -15,7 +15,8 @@ export const dynamic = "force-dynamic";
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { tenant } = await requireTenant();
   const { id } = await ctx.params;
-  if (!/^[0-9a-f-]{36}$/.test(id)) return new NextResponse("No encontrado", { status: 404 });
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+    return new NextResponse("No encontrado", { status: 404 });
   const e = env();
   if (!e.SUPABASE_SERVICE_ROLE_KEY)
     return new NextResponse("Las fotos no están configuradas en este servidor.", { status: 503 });

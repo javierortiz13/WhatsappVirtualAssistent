@@ -1,6 +1,6 @@
 import { Decimal, PLANS, premiumOverUsd, quote } from "@caja/core";
 import { formatShortDate } from "@caja/core/domain";
-import { loadPendingPayments, loadRates, loadTenants } from "@/lib/admin";
+import { loadPendingPayments, loadRates, loadTenants, requireAdmin } from "@/lib/admin";
 import { approvePaymentAction, rejectPaymentAction } from "./actions";
 import { dueClass, dueText, METHOD_LABEL, planClass, STATE, usd, ves } from "./format";
 
@@ -15,6 +15,7 @@ export default async function AdminHome({
 }: {
   searchParams: Promise<{ ok?: string; error?: string }>;
 }) {
+  await requireAdmin();
   const sp = await searchParams;
   const now = new Date();
   const [tenants, pending, rates] = await Promise.all([
@@ -34,7 +35,7 @@ export default async function AdminHome({
   return (
     <div className="stack">
       {sp.ok && OK[sp.ok] ? <div className="notice ok">{OK[sp.ok]}</div> : null}
-      {sp.error ? <div className="notice err">No se pudo guardar ({sp.error}).</div> : null}
+      {sp.error ? <div className="notice err">No se pudo guardar el cambio.</div> : null}
 
       <section className="card hero">
         <span className="label">Ingreso mensual recurrente</span>

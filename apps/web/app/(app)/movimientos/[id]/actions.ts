@@ -21,7 +21,7 @@ const UUID = z.string().uuid();
 
 const Form = z.object({
   id: UUID,
-  amount: z.string().trim().min(1),
+  amount: z.string().trim().min(1).max(30),
   currency: z.enum(["USD", "VES"]),
   business_date: z.string(),
   category_id: z.string().optional(),
@@ -36,11 +36,13 @@ export async function updateMovementAction(formData: FormData): Promise<void> {
   if (!parsed.success) redirect("/movimientos?error=datos");
   const f = parsed.data;
   const back = `/movimientos/${f.id}`;
-  const amount = new Decimal(f.amount.replace(",", "."));
-  if (!amount.isFinite() || amount.lte(0)) redirect(`${back}?error=monto`);
+  // El campo es type=number (punto decimal); un POST armado a mano no debe dar un 500.
+  const raw = f.amount.replace(",", ".");
+  const amount = /^\d+(\.\d{1,2})?$/.test(raw) ? new Decimal(raw) : null;
+  if (!amount || amount.lte(0)) redirect(`${back}?error=monto`);
   if (!isIsoDate(f.business_date)) redirect(`${back}?error=fecha`);
   const method = f.payment_method ?? "";
-  if (method && !(method in PAYMENT_METHOD_LABELS)) redirect(`${back}?error=datos`);
+  if (method && !Object.hasOwn(PAYMENT_METHOD_LABELS, method)) redirect(`${back}?error=datos`);
 
   const result = await withTenant(db(), tenant.id, async (tx) => {
     const [m] = await tx

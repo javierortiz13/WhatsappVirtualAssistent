@@ -158,9 +158,9 @@ describe("notas de voz", () => {
     expect(sent[0]?.body.reaction).toMatchObject({ emoji: "🎧" });
     expect(sent).toHaveLength(2);
     const body = textOf(sent[1]);
-    expect(body.startsWith('🎤 "anota ahí veinte dólares de la comida de los muchachos"')).toBe(
-      true,
-    );
+    // La transcripción sale una sola vez, dentro del borrador ("Entendí: …"), no también arriba.
+    expect(body).toContain('Entendí: _"anota ahí veinte dólares de la comida de los muchachos"_');
+    expect(body).not.toContain("🎤");
     expect(body).toContain("Gasto por confirmar");
     expect(body).toContain("*$20,00*");
     // La transcripción queda como cuerpo del mensaje entrante; el audio no se guarda.

@@ -41,7 +41,11 @@ export default async function Perfil({
         <span className="sub">Ajustes</span>
       </div>
       {sp.ok ? <div className="notice ok">Listo, guardamos tu nombre.</div> : null}
-      {sp.error ? <div className="notice err">{ERRORS[sp.error] ?? sp.error}</div> : null}
+      {sp.error ? (
+        <div className="notice err">
+          {ERRORS[sp.error] ?? "No pudimos guardar el cambio. Inténtalo de nuevo."}
+        </div>
+      ) : null}
 
       <section className="card rate">
         <span className="avatar lg">{(name || user.email).charAt(0).toUpperCase()}</span>

@@ -363,11 +363,19 @@ p.sub {
   box-shadow: 24px 0 60px rgba(0, 0, 0, 0.6);
   z-index: 50;
   transform: translateX(-104%);
-  transition: transform 0.22s ease;
+  /* Cerrado en móvil: además de fuera de pantalla, oculto para el teclado y los lectores. */
+  visibility: hidden;
+  transition:
+    transform 0.22s ease,
+    visibility 0s linear 0.22s;
   overflow-y: auto;
 }
 .drawer.open {
   transform: none;
+  visibility: visible;
+  transition:
+    transform 0.22s ease,
+    visibility 0s;
 }
 .drawer .who {
   display: flex;
@@ -468,6 +476,7 @@ p.sub {
     height: 100dvh;
     width: var(--sidebar-w);
     transform: none;
+    visibility: visible;
     box-shadow: none;
     padding-top: var(--space-6);
   }

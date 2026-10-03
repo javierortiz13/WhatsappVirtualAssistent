@@ -79,7 +79,9 @@ export function parseReplyId(raw: string): ParsedReplyId {
       if (value === "USD" || value === "VES") return { kind: "currency", currency: value };
       break;
     case "cat":
-      if (value) return { kind: "category", categoryId: value };
+      // Un id que no es UUID haría fallar la consulta en Postgres (y el job dos veces).
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))
+        return { kind: "category", categoryId: value };
       break;
     case "renew": {
       const [method, plan, months] = rest;
