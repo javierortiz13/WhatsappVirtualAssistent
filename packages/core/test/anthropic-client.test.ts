@@ -54,6 +54,28 @@ describe("cliente de Anthropic: caché del prompt", () => {
     expect(res.usage).toMatchObject({ cacheWriteTokens: 5000, cacheWrite1hTokens: 5000 });
   });
 
+  it("las herramientas van estrictas salvo las marcadas strict: false", async () => {
+    const { bodies, fetchImpl } = capture();
+    const llm = new AnthropicLlmClient({ apiKey: "test", fetch: fetchImpl });
+    await llm.complete({
+      ...request,
+      tools: [
+        { name: "draft_expense", description: "gasto", inputSchema: { type: "object" } },
+        {
+          name: "get_bcv_rate",
+          description: "tasa",
+          inputSchema: { type: "object" },
+          strict: false,
+        },
+      ],
+    });
+    const tools = bodies[0]?.tools as { name: string; strict: boolean }[];
+    expect(tools.map((t) => [t.name, t.strict])).toEqual([
+      ["draft_expense", true],
+      ["get_bcv_rate", false],
+    ]);
+  });
+
   it("con cacheTtl 5m vuelve al caché corto", async () => {
     const { bodies, fetchImpl } = capture();
     const llm = new AnthropicLlmClient({ apiKey: "test", fetch: fetchImpl, cacheTtl: "5m" });

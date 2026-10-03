@@ -9,6 +9,8 @@ export type LlmToolDef = {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /** false: sin modo estricto (la gramática compilada tiene un tope; ver `STRICT_TOOL_LIMIT`). */
+  strict?: boolean;
 };
 
 export type LlmToolCall = { id: string; name: string; input: unknown };

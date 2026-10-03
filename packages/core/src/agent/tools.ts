@@ -88,6 +88,12 @@ export type ToolSpec<S extends z.ZodType> = {
   description: string;
   schema: S;
   roles: ("owner" | "employee")[];
+  /**
+   * false: la herramienta va sin modo estricto. La API compila una gramática con todas las
+   * estrictas y la rechaza si crece demasiado (03/10: con 13 falló todo el agente con "compiled
+   * grammar is too large"). Las de esquema trivial van sin estricto; Zod las valida igual.
+   */
+  strict?: false;
   run: (input: z.infer<S>, run: ToolRunCtx) => Promise<ToolOutcome>;
 };
 
@@ -1289,6 +1295,7 @@ const rejectOutOfScope: ToolSpec<typeof RejectOutOfScopeInput> = {
     "El mensaje no es un gasto, una venta, un ingreso, una corrección, un cierre o consulta, ni la tasa: saludos largos, preguntas generales, pedir que redactes algo, chistes, cualquier otra tarea (general_chat). También si pide algo de caja que no existe: inventario, deudas, clientes, presupuestos, corregir un movimiento que no sea el último (other_business_task). Borrar uno o varios de los últimos 30 minutos SÍ se puede: usa delete_last_movement. Si pide el enlace o la página del dashboard, o dónde ver, corregir o exportar sus movimientos en la web, usa reason dashboard_link: el sistema le manda el enlace.",
   schema: RejectOutOfScopeInput,
   roles: ["owner", "employee"],
+  strict: false,
   async run(input, run) {
     if (input.reason === "dashboard_link")
       return {
@@ -1315,6 +1322,7 @@ const convertCurrency: ToolSpec<typeof ConvertCurrencyInput> = {
     "Calculadora de monedas: convierte un monto entre bolívares, dólares y euros sin registrar nada. Úsala cuando pregunte cuánto es, a cuánto sale o cuánto da un monto en otra moneda ('cuánto es 8000 bs en $', '17€ en bs', 'pásame 15$ a bolívares', '20$ a 220 cuánto es').",
   schema: ConvertCurrencyInput,
   roles: ["owner", "employee"],
+  strict: false,
   async run(input, run) {
     const amount = parseAmount(input.amount);
     if (!amount)
@@ -1393,6 +1401,7 @@ const getBcvRate: ToolSpec<typeof GetBcvRateInput> = {
     "Devuelve la tasa BCV vigente hoy y la próxima publicada. Úsala cuando pregunten por la tasa, el dólar o el BCV.",
   schema: GetBcvRateInput,
   roles: ["owner", "employee"],
+  strict: false,
   async run(_input, run) {
     return {
       kind: "terminal",
@@ -1482,7 +1491,19 @@ export function toLlmToolDef(t: ToolSpec<z.ZodType>): LlmToolDef {
   delete json.$schema;
   json.additionalProperties = false;
   if (!("properties" in json)) json.properties = {};
-  return { name: t.name, description: t.description, inputSchema: json };
+  return {
+    name: t.name,
+    description: t.description,
+    inputSchema: json,
+    ...(t.strict === false ? { strict: false } : {}),
+  };
 }
+
+/**
+ * Herramientas estrictas como máximo. 12 es el último conjunto que la API aceptó en producción
+ * (03/10); con 13 rechazó todas las llamadas. Una herramienta nueva entra sin estricto o reemplaza
+ * a otra.
+ */
+export const STRICT_TOOL_LIMIT = 12;
 
 export { addDays };

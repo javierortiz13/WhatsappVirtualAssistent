@@ -604,3 +604,11 @@ Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más cla
 **Tests:** conversiones (Bs→$ con €, €→Bs, $→Bs con BCV, tasa propia y euro, $→€, errores), normalización de bancos, teléfonos y cédulas, y los flujos de punta a punta (con monto y Guardar con la foto, en dólares, sin monto con la respuesta, ilegible). Ocho casos de eval nuevos (100). 317 tests. El límite de mensajes por teléfono se sube en el test de fotos (todos los casos comparten teléfono y reloj).
 
 **Sin probar con el modelo real:** que el lector distinga bien una foto de datos de pago móvil de un comprobante. Correr `pnpm evals` y probar con fotos reales.
+
+### S2 · 03/10/2026 · Incidente: el agente caído por la gramática de herramientas estrictas
+
+**Qué pasó:** después del despliegue de la calculadora (16:08 UTC) cada mensaje que pasaba por el agente respondía "Ahora mismo no puedo procesar esto". La API devolvía 400: "The compiled grammar is too large… reduce the number of strict tools". Con la herramienta 13 (`convert_currency`) el conjunto estricto pasó el tope de la API. El lector de facturas (una sola herramienta, otra llamada) siguió funcionando. Lo vio Javier a las 16:20 con un comprobante de Bancamiga.
+
+**Arreglo:** `ToolSpec.strict: false` para las herramientas de esquema trivial (`reject_out_of_scope`, `get_bcv_rate`, `convert_currency`); Zod las sigue validando y un argumento inválido tiene su reintento. Quedan 10 estrictas. `STRICT_TOOL_LIMIT = 12` (el último conjunto aceptado en producción) y un test que falla si se pasa, porque los tests con LLM falso no ven este error.
+
+**Lección:** un cambio en las herramientas del agente se prueba contra la API real antes de subir (`pnpm evals` o una llamada de humo), no solo con el LLM falso.

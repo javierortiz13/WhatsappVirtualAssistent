@@ -7,6 +7,7 @@ import {
   matchCategory,
   numbersAreGrounded,
   resolveWhen,
+  STRICT_TOOL_LIMIT,
   STRICT_UNION_LIMIT,
   toLlmToolDef,
   toolsForRole,
@@ -113,6 +114,16 @@ describe("definiciones de herramientas", () => {
     expect(
       AskClarificationInput.safeParse({ question: "x", options: ["a", "b", "c", "d"] }).success,
     ).toBe(false);
+  });
+
+  it("no pasa del tope de herramientas estrictas (la API rechazó 13 por gramática muy grande)", () => {
+    const strict = ALL_TOOLS.map(toLlmToolDef).filter((d) => d.strict !== false);
+    expect(strict.length).toBeLessThanOrEqual(STRICT_TOOL_LIMIT);
+    expect(
+      ALL_TOOLS.map(toLlmToolDef)
+        .filter((d) => d.strict === false)
+        .map((d) => d.name),
+    ).toEqual(["reject_out_of_scope", "get_bcv_rate", "convert_currency"]);
   });
 
   it("el conjunto de herramientas no supera el tope de uniones del modo estricto", () => {

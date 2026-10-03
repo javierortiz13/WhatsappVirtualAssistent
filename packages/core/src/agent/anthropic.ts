@@ -59,7 +59,7 @@ export class AnthropicLlmClient implements LlmClient {
     const tools = req.tools.map((t) => ({
       name: t.name,
       description: t.description,
-      strict: true,
+      strict: t.strict !== false,
       input_schema: t.inputSchema as Anthropic.Beta.BetaTool.InputSchema,
     }));
     const system = req.system.map((b) => ({
