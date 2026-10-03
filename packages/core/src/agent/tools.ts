@@ -188,6 +188,21 @@ export const RejectOutOfScopeInput = z.object({
 
 export const GetBcvRateInput = z.object({});
 
+export const ConvertCurrencyInput = z.object({
+  amount: z
+    .string()
+    .describe('El monto a convertir tal como lo dijo, con punto decimal ("8000", "17", "15.5").'),
+  from: z.enum(["USD", "VES", "EUR"]).describe("Moneda del monto."),
+  to: z
+    .enum(["USD", "VES", "EUR", "auto"])
+    .describe("Moneda a la que quiere pasarlo. auto si no lo dice: Bs → $, y $ o € → Bs."),
+  rate: z
+    .string()
+    .describe(
+      'Tasa Bs por dólar (o por euro si convierte euros) si la dice ("a 220" → "220"), "euro" si dice a tasa euro, o "" para la BCV del día.',
+    ),
+});
+
 const Method = z.enum([
   "cash_usd",
   "cash_ves",
@@ -1289,6 +1304,89 @@ const rejectOutOfScope: ToolSpec<typeof RejectOutOfScopeInput> = {
   },
 };
 
+/**
+ * Calculadora (03/10): "cuánto es 8000 Bs en $", "17 € en bolívares", "15$ a 220". Solo
+ * responde; no registra nada. Bs ↔ $ con la BCV del día (o la tasa que diga, o la euro), € con el
+ * euro BCV. $ ↔ € pasa por bolívares con las dos tasas oficiales.
+ */
+const convertCurrency: ToolSpec<typeof ConvertCurrencyInput> = {
+  name: "convert_currency",
+  description:
+    "Calculadora de monedas: convierte un monto entre bolívares, dólares y euros sin registrar nada. Úsala cuando pregunte cuánto es, a cuánto sale o cuánto da un monto en otra moneda ('cuánto es 8000 bs en $', '17€ en bs', 'pásame 15$ a bolívares', '20$ a 220 cuánto es').",
+  schema: ConvertCurrencyInput,
+  roles: ["owner", "employee"],
+  async run(input, run) {
+    const amount = parseAmount(input.amount);
+    if (!amount)
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [es.clarification("¿Qué monto quieres convertir?", [])],
+      };
+    const to = input.to === "auto" ? (input.from === "VES" ? "USD" : "VES") : input.to;
+    if (to === input.from)
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [es.clarification("¿A qué moneda lo paso: bolívares, dólares o euros?", [])],
+      };
+    const today = run.ctx.today;
+    let usd: Rate;
+    try {
+      usd = (await bcvRateFor(run.tx, today)).rate;
+    } catch (err) {
+      if (err instanceof NoRateError)
+        return { kind: "terminal", status: "ok", outbound: [es.noRate()] };
+      throw err;
+    }
+    let eur: Rate | null = null;
+    try {
+      eur = (await euroRateFor(run.tx, today)).rate;
+    } catch (err) {
+      if (!(err instanceof NoEurRateError)) throw err;
+    }
+    // La tasa que dijo aplica al lado en bolívares: Bs por la moneda extranjera de la cuenta.
+    const override = await rateOverride(run.tx, nz(input.rate), today);
+    if (override === "invalid" || override === "no_eur") return rateError(override);
+    const needsEur = input.from === "EUR" || to === "EUR";
+    if (needsEur && !eur && !(override && input.from !== "USD" && to !== "USD"))
+      return { kind: "terminal", status: "ok", outbound: [es.clarification(NO_EUR_CONVERT, [])] };
+    const usdRate = override && !needsEur ? override : usd;
+    const eurRate = override && needsEur && input.from !== "USD" && to !== "USD" ? override : eur;
+    const perUnit = (c: "USD" | "EUR") => (c === "USD" ? usdRate : (eurRate as Rate));
+    const ves = input.from === "VES" ? amount : amount.mul(perUnit(input.from).value);
+    const result = to === "VES" ? ves : ves.div(perUnit(to).value);
+    // Bs → $: también el equivalente en euros, si hay euro BCV y no usó una tasa propia.
+    const extra =
+      input.from === "VES" && to === "USD" && !override && eur
+        ? { amount: ves.div(eur.value), currency: "EUR" as const }
+        : null;
+    const used = [input.from, to].includes("USD") ? [usdRate] : [];
+    if (needsEur && eurRate) used.push(eurRate);
+    return {
+      kind: "terminal",
+      status: "ok",
+      outbound: [
+        es.conversion({
+          amount,
+          from: input.from,
+          result,
+          to,
+          extra,
+          rates: used.map((r) => ({
+            value: r.value,
+            kind: r.source === "manual" ? "manual" : r.source === "bcv_eur" ? "euro" : "bcv",
+            effectiveDate: r.effectiveDate,
+          })),
+        }),
+      ],
+    };
+  },
+};
+
+const NO_EUR_CONVERT =
+  "Todavía no tengo la tasa euro del BCV de hoy. Dime la tasa (por ejemplo _17€ a 980_) y lo calculo.";
+
 const getBcvRate: ToolSpec<typeof GetBcvRateInput> = {
   name: "get_bcv_rate",
   description:
@@ -1328,6 +1426,7 @@ export const ALL_TOOLS: ToolSpec<z.ZodType>[] = [
   askClarification,
   rejectOutOfScope,
   getBcvRate,
+  convertCurrency,
 ] as ToolSpec<z.ZodType>[];
 
 export function toolsForRole(role: "owner" | "employee"): ToolSpec<z.ZodType>[] {

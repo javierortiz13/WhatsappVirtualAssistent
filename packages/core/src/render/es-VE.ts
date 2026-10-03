@@ -1,5 +1,6 @@
 import { asIsoDate, formatShortDate, type IsoDate, monthNameEs } from "../domain/dates";
 import { Decimal, formatMoney, parseVenezuelanAmount, type RateOrigin } from "../domain/money";
+import type { PagoMovilData } from "../domain/pago-movil";
 import { IDS, type Outbound, type RenewMethod } from "./outbound";
 
 /**
@@ -85,6 +86,8 @@ export function help(dashboardUrl: string, supportHint: string | null): Outbound
     "• Registrar ventas: _hoy vendí 350$: 200 efectivo, 150 pago móvil_",
     "• Cierre: _cierre de hoy_, _cómo va el mes_, _cuánto gasté en insumos esta semana_",
     "• Tasa: _tasa_",
+    "• Calculadora: _cuánto es 8000 bs en $_, _17€ en bs_",
+    "• Pago móvil: mándame la foto de los datos y te los paso listos para copiar en el banco",
     `Para ver, corregir o exportar todo: ${dashboardUrl}`,
   ];
   if (supportHint) lines.push(`Si algo no funciona, escribe a una persona: ${supportHint}`);
@@ -430,7 +433,7 @@ export function receiptRead(r: {
   date: string;
   total: string;
   currency: string;
-  document_type?: "expense" | "sales" | "unknown";
+  document_type?: "expense" | "sales" | "pago_movil" | "unknown";
   isPdf?: boolean;
 }): Outbound {
   const parts = [r.vendor || "proveedor no legible"];
@@ -474,6 +477,55 @@ function parseLooseAmount(s: string): Decimal | null {
   const t = s.trim();
   const d = /^\d+(\.\d+)?$/.test(t) ? new Decimal(t) : parseVenezuelanAmount(t);
   return d?.gt(0) ? d : null;
+}
+
+/**
+ * Datos de pago móvil de una foto (03/10): un resumen y después cada dato solo en su mensaje,
+ * para copiarlo con un toque y pegarlo en el banco. El monto va en bolívares sin puntos de mil.
+ */
+export function pagoMovil(
+  d: PagoMovilData,
+  amount: { ves: Decimal; usd: Decimal | null; rate: Decimal | null } | null,
+): Outbound[] {
+  const lines = ["📲 *Pago móvil*"];
+  const bank = [d.bankCode, d.bankName].filter(Boolean).join(" · ");
+  if (bank) lines.push(`Banco: ${bank}`);
+  if (d.phone) lines.push(`Teléfono: ${d.phone.slice(0, 4)}-${d.phone.slice(4)}`);
+  if (d.idNumber) lines.push(`Cédula/RIF: ${d.idLetter ?? "V"}-${d.idNumber}`);
+  if (d.holder) lines.push(`Titular: ${d.holder}`);
+  if (amount) {
+    const usd =
+      amount.usd && amount.rate
+        ? ` (${formatMoney(amount.usd, "USD")} a tasa BCV ${formatMoney(amount.rate, "VES").replace("Bs ", "")})`
+        : "";
+    lines.push(`Monto: *${formatMoney(amount.ves, "VES")}*${usd}`);
+  }
+  lines.push("", "Abajo va cada dato solo para copiarlo y pegarlo en el banco 👇");
+  const copies: Outbound[] = [];
+  if (d.phone) copies.push({ type: "text", body: d.phone });
+  if (d.idNumber) copies.push({ type: "text", body: d.idNumber });
+  if (amount) copies.push({ type: "text", body: amount.ves.toFixed(2).replace(".", ",") });
+  return [{ type: "text", body: lines.join("\n") }, ...copies];
+}
+
+/** Va arriba del borrador de gasto que sigue a los datos de pago móvil. */
+export function pagoMovilDraftLead(): Outbound {
+  return { type: "text", body: "💸 ¿Es un gasto? Si lo es, toca *Guardar* cuando hagas el pago." };
+}
+
+/** Datos de pago móvil sin monto: la respuesta siguiente arma el gasto con la foto. */
+export function pagoMovilAskAmount(): Outbound {
+  return {
+    type: "text",
+    body: "💸 ¿Es un gasto? Escríbeme el *monto* y *en qué es* y te lo dejo listo para guardar.\nEjemplo: _1.250 Bs del gas_",
+  };
+}
+
+export function pagoMovilUnclear(): Outbound {
+  return {
+    type: "text",
+    body: "📲 Parecen datos de pago móvil, pero no pude leer bien el teléfono ni la cédula. Mándame una foto más clara o escríbemelos.",
+  };
 }
 
 export function notAReceipt(): Outbound {
@@ -1315,6 +1367,35 @@ export function alreadyGone(): Outbound {
     type: "text",
     body: "Ese movimiento ya no existe o ya fue corregido. Revisa el dashboard si tienes dudas.",
   };
+}
+
+type ConvCurrency = "USD" | "VES" | "EUR";
+
+/** Monto en cualquiera de las tres monedas: "$15,00", "Bs 12.870,00", "17,00 €". */
+function money3(v: Decimal, c: ConvCurrency): string {
+  return c === "EUR" ? `${formatMoney(v, "VES").replace("Bs ", "")} €` : formatMoney(v, c);
+}
+
+/** Calculadora (03/10): "🧮 8.000,00 Bs son *$9,32*" con la tasa usada debajo. */
+export function conversion(c: {
+  amount: Decimal;
+  from: ConvCurrency;
+  result: Decimal;
+  to: ConvCurrency;
+  extra: { amount: Decimal; currency: ConvCurrency } | null;
+  rates: { value: Decimal; kind: "bcv" | "euro" | "manual"; effectiveDate: string }[];
+}): Outbound {
+  const main = `🧮 ${money3(c.amount, c.from)} son *${money3(c.result, c.to)}*`;
+  const lines = [c.extra ? `${main} (≈ ${money3(c.extra.amount, c.extra.currency)})` : main];
+  for (const r of c.rates) {
+    const v = formatMoney(r.value, "VES");
+    if (r.kind === "manual") lines.push(`A tasa ${v.replace("Bs ", "")}.`);
+    else
+      lines.push(
+        `${r.kind === "euro" ? "Tasa euro BCV" : "Tasa BCV"}: ${v} (vigente ${formatShortDate(asIsoDate(r.effectiveDate))}).`,
+      );
+  }
+  return { type: "text", body: lines.join("\n") };
 }
 
 export function noRate(): Outbound {

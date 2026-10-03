@@ -17,7 +17,10 @@ const Receipt = z.object({
   vendor: z.string().default(""),
   line_items_count: z.number().int().default(0),
   confidence: z.number().default(0.9),
-  document_type: z.enum(["expense", "sales", "unknown"]).default("expense"),
+  document_type: z.enum(["expense", "sales", "pago_movil", "unknown"]).default("expense"),
+  payee: z
+    .object({ bank: z.string(), phone: z.string(), id_number: z.string(), holder: z.string() })
+    .optional(),
 });
 
 /**
@@ -41,6 +44,7 @@ export const EvalCase = z.object({
       currency: z.string().nullable().default(null),
       vendor: z.string().nullable().default(null),
       documentType: z.enum(["expense", "sales", "unknown"]).default("unknown"),
+      source: z.enum(["receipt", "pago_movil"]).default("receipt"),
     })
     .optional(),
   /**

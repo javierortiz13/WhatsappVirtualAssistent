@@ -17,7 +17,8 @@ import {
   renewReferenceReply,
 } from "../billing/index";
 import { asIsoDate, businessDateOf, formatShortDate } from "../domain/dates";
-import { Decimal } from "../domain/money";
+import { Decimal, parseVenezuelanAmount } from "../domain/money";
+import { isUsable, pagoMovilData } from "../domain/pago-movil";
 import {
   allowUnknownReply,
   canUse,
@@ -48,13 +49,19 @@ import {
   renderSummary,
   resolveMismatch,
 } from "../ledger/index";
+import { NoRateError, rateFor } from "../ledger/rate-for";
 import { type Logger, maskPhone, silentLogger } from "../log";
 import { activatePhone, CODE_RE, verifyCode } from "../onboarding/register";
 import { getRateInfo } from "../rates/current";
 import { es, mergeOutbound, type Outbound, parseReplyId } from "../render/index";
 import type { SpeechClient } from "../speech/client";
 import type { ObjectStore } from "../storage/store";
-import { RECEIPT_MIN_CONFIDENCE, type ReceiptReader } from "../vision/receipt";
+import {
+  pagoMovilDescription,
+  RECEIPT_MIN_CONFIDENCE,
+  type ReceiptExtraction,
+  type ReceiptReader,
+} from "../vision/receipt";
 import { LIMITS, LimitError, MetaApiError, type MetaClient } from "../whatsapp/client";
 import type { InboundMessage } from "../whatsapp/types";
 
@@ -723,7 +730,8 @@ async function handleImage(
     },
     "factura leída",
   );
-  if (!e.is_receipt) return none([es.notAReceipt()]);
+  const isPagoMovil = e.document_type === "pago_movil";
+  if (!e.is_receipt && !isPagoMovil) return none([es.notAReceipt()]);
 
   // Respaldo en el bucket (provisional hasta Guardar). Sin bucket, el gasto se registra igual.
   let attachmentId: string | null = null;
@@ -751,6 +759,14 @@ async function handleImage(
     }
   }
 
+  const readCost = {
+    costUsd: read.costUsd,
+    tokensIn: read.usage.inputTokens,
+    tokensOut: read.usage.outputTokens,
+  };
+  if (e.document_type === "pago_movil")
+    return handlePagoMovil(tx, deps, ctx, msg, e, attachmentId, readCost);
+
   if (e.confidence < RECEIPT_MIN_CONFIDENCE || !e.total) {
     // Una sola pregunta con todo lo que falta; la respuesta siguiente arma el borrador con la
     // foto (ver `unclearReceiptBefore`). El total dudoso se muestra para que lo confirme.
@@ -774,9 +790,7 @@ async function handleImage(
         }),
       ]),
       toolCalls: [{ name: UNCLEAR_RECEIPT, args: { ...unclear, attachmentId } }],
-      costUsd: read.costUsd,
-      tokensIn: read.usage.inputTokens,
-      tokensOut: read.usage.outputTokens,
+      ...readCost,
     };
   }
 
@@ -802,6 +816,89 @@ async function handleImage(
     outbound: first
       ? [...mergeOutbound(es.receiptRead({ ...e, isPdf }), first), ...result.outbound.slice(1)]
       : result.outbound,
+  };
+}
+
+/**
+ * Foto con datos de pago móvil (03/10): el resumen y cada dato en su mensaje para copiar y pegar
+ * en el banco. Con monto, abajo va el borrador de gasto con la foto (Guardar cuando pague); sin
+ * monto, se pregunta y la respuesta siguiente arma el borrador (como la factura ilegible).
+ */
+async function handlePagoMovil(
+  tx: Tx,
+  deps: ProcessDeps,
+  ctx: RouteCtx,
+  msg: Extract<InboundMessage, { kind: "image" }>,
+  e: ReceiptExtraction,
+  attachmentId: string | null,
+  readCost: { costUsd: string; tokensIn: number; tokensOut: number },
+): Promise<RouteResult> {
+  const data = pagoMovilData(e.payee ?? { bank: "", phone: "", id_number: "", holder: "" });
+  if (!isUsable(data)) return { ...none([es.pagoMovilUnclear()]), ...readCost };
+
+  const t = e.total.trim();
+  const raw = t ? (/^\d+(\.\d+)?$/.test(t) ? new Decimal(t) : parseVenezuelanAmount(t)) : null;
+  let amount: { ves: Decimal; usd: Decimal | null; rate: Decimal | null } | null = null;
+  if (raw?.gt(0)) {
+    if (e.currency === "USD") {
+      try {
+        const { rate } = await rateFor(tx, ctx.today);
+        amount = {
+          ves: raw.mul(rate.value).toDecimalPlaces(2, Decimal.ROUND_HALF_UP),
+          usd: raw,
+          rate: rate.value,
+        };
+      } catch (err) {
+        if (!(err instanceof NoRateError)) throw err;
+      }
+    } else amount = { ves: raw.toDecimalPlaces(2, Decimal.ROUND_HALF_UP), usd: null, rate: null };
+  }
+  const who = pagoMovilDescription(e);
+  await tx
+    .update(schema.message)
+    .set({
+      body: `[foto de datos de pago móvil] ${who}${amount ? ` · ${amount.ves.toFixed(2)} VES` : " · sin monto"}`,
+    })
+    .where(eq(schema.message.waMessageId, msg.waMessageId));
+  const info = es.pagoMovil(data, amount);
+
+  if (!amount) {
+    const follow: UnclearReceipt = {
+      total: null,
+      currency: "VES",
+      vendor: who,
+      documentType: "expense",
+      source: "pago_movil",
+    };
+    return {
+      ...none([...info, es.pagoMovilAskAmount()]),
+      toolCalls: [{ name: UNCLEAR_RECEIPT, args: { ...follow, attachmentId } }],
+      ...readCost,
+    };
+  }
+  const result = await runAgent(
+    tx,
+    deps,
+    ctx,
+    msg.waMessageId,
+    { kind: "receipt", extracted: e, caption: msg.caption },
+    attachmentId,
+  );
+  const first = result.outbound[0];
+  // "Toca Guardar" solo encima de un borrador; una aclaración del agente va tal cual.
+  const isDraft =
+    first?.type === "buttons" && first.buttons.some((b) => b.id.startsWith("confirm:"));
+  return {
+    ...result,
+    costUsd: sumCost(result.costUsd, readCost.costUsd),
+    tokensIn: result.tokensIn + readCost.tokensIn,
+    tokensOut: result.tokensOut + readCost.tokensOut,
+    outbound: [
+      ...info,
+      ...(first && isDraft
+        ? [...mergeOutbound(es.pagoMovilDraftLead(), first), ...result.outbound.slice(1)]
+        : result.outbound),
+    ],
   };
 }
 
@@ -1011,6 +1108,7 @@ const UnclearMark = z.object({
     currency: z.string().nullable(),
     vendor: z.string().nullable(),
     documentType: z.enum(["expense", "sales", "unknown"]),
+    source: z.enum(["receipt", "pago_movil"]).default("receipt"),
     attachmentId: z.string().uuid().nullable(),
   }),
 });

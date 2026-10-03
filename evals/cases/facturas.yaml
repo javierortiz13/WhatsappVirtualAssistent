@@ -63,3 +63,37 @@
   expect:
     tool_not: draft_expense
     pending_after: 1
+
+# Pago móvil desde foto (03/10, pedido de Javier): los datos se mandan para copiar y abajo queda el
+# gasto listo para Guardar cuando pague.
+- name: datos de pago móvil con monto quedan como gasto en bolívares
+  receipt:
+    total: "1250.00"
+    currency: VES
+    document_type: pago_movil
+    payee: { bank: "Banco Venezuela", phone: "04123020256", id_number: "V-25871244", holder: "Javier Ortiz" }
+  expect:
+    tool: draft_expense
+    args: { amount: "1250.00", currency: VES, description: "Pago móvil a Javier Ortiz" }
+
+- name: datos de pago móvil con leyenda usan la leyenda
+  receipt:
+    total: "800"
+    currency: VES
+    document_type: pago_movil
+    payee: { bank: "Banesco", phone: "04141234567", id_number: "V-12345678", holder: "Gas Oriente" }
+  caption: "el gas"
+  expect:
+    tool: draft_expense
+    args: { amount: "800", currency: VES }
+
+- name: monto tras datos de pago móvil sin monto
+  input: "1250"
+  after_unclear_receipt: { vendor: "Pago móvil a Javier Ortiz", currency: VES, documentType: expense, source: pago_movil }
+  history:
+    - { role: in, body: "[foto de datos de pago móvil] Pago móvil a Javier Ortiz · sin monto" }
+    - { role: out, body: "💸 ¿Es un gasto? Escríbeme el monto y en qué es y te lo dejo listo para guardar." }
+  expect:
+    tool: draft_expense
+    args: { currency: VES }
+

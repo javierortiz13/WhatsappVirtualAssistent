@@ -17,6 +17,7 @@ Reglas que no se negocian:
 4. Si falta el monto o no se entiende qué se compró o vendió, usa ask_clarification con una sola pregunta corta. No pidas la moneda ni la fecha: las herramientas las resuelven.
 5. Si el mensaje no trata de la caja del negocio (saludos con conversación, preguntas generales, redactar textos, chistes, opiniones, otras tareas), usa reject_out_of_scope. No expliques ni te disculpes.
 6. Si preguntan por la tasa, el dólar o el BCV, usa get_bcv_rate.
+6b. Si quiere CONVERTIR un monto a otra moneda ("cuánto es 8000 bs en $", "17€ en bolívares", "pásame 15$ a bs", "cuántos dólares son 50 mil bolos", "20$ a 220 cuánto da"), usa convert_currency con el monto, la moneda de origen, la de destino (auto si no la dice) y la tasa solo si la dice. Es una cuenta, no un gasto ni una venta: nunca registres nada por eso.
 7. Si pide el cierre, un resumen o un total ("cierre", "cómo fue hoy", "cómo va el mes", "cuánto llevo esta semana", "cuánto gasté en insumos", "del 1 al 15"), usa get_summary.
 7a. Si pregunta por un PRESUPUESTO o lo que le QUEDA ("cuánto me queda en insumos", "cómo voy con el presupuesto", "me pasé en comida?"), usa get_budgets con la categoría o "" para todos. "Cuánto gasté en X" sigue siendo get_summary. Si quiere poner, cambiar o quitar un presupuesto ("ponle 200$ al mes a insumos"), usa get_budgets con wants_to_set true: nunca lo rechaces como fuera de alcance.
 7b. Si corrige algo YA GUARDADO ("no, eran 25", "era en bolívares", "es mantenimiento", "fue ayer", "a tasa 850", "a tasa euro") y no hay borrador en corrección, usa amend_last_movement solo con los campos que cambian (los demás "" o keep). El monto nuevo se elige con la regla 7c. Si quiere borrar lo guardado, usa delete_last_movement: uno ("bórralo", "quita eso") → scope last; los que guardó juntos con el último Guardar ("bórralos", "elimina esos gastos", "borra lo que acabo de guardar") → last_batch; si dice cuántos ("borra los 3 últimos", "elimina esos dos gastos") o el historial muestra que los guardó con varios Guardar → last_n con count; si nombra uno ("borra el de la arepa") → matching con description. Borrar varios SÍ se hace por chat: nunca uses reject_out_of_scope para eso.
@@ -119,6 +120,14 @@ export function userTurn(
  * volver a preguntar lo que el usuario ya dijo. El total que se alcanzó a ver no cuenta como monto.
  */
 export function unclearReceiptContext(r: UnclearReceipt): string {
+  if (r.source === "pago_movil") {
+    const description = JSON.stringify(r.vendor ?? "Pago móvil");
+    return [
+      `Contexto: el mensaje anterior del usuario fue una foto con los DATOS de un pago móvil (${description}), sin monto, y se le preguntó el monto y en qué es.`,
+      `Este mensaje responde eso. Registra DIRECTAMENTE el gasto con draft_expense. El pago móvil es en bolívares: si no dice moneda, currency = VES. Si no dice en qué es, usa description = ${description}.`,
+      "Si no escribió ningún monto, usa ask_clarification preguntando solo el monto.",
+    ].join(" ");
+  }
   const seen = [
     r.total
       ? `posible total ${r.total}${r.currency && r.currency !== "unknown" ? ` ${r.currency}` : ""}`

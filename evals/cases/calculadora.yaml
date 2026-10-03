@@ -1,0 +1,33 @@
+# Calculadora de monedas (03/10, pedido de Javier): convierte sin registrar nada.
+- name: bolívares a dólares
+  input: "cuánto es 8000 bs en $"
+  expect:
+    tool: convert_currency
+    args: { amount: "8000", from: VES }
+    no_draft: true
+
+- name: euros a bolívares
+  input: "cuanto es 17€ en bs"
+  expect:
+    tool: convert_currency
+    args: { amount: "17", from: EUR, to: VES }
+    no_draft: true
+
+- name: dólares a bolívares
+  input: "15$ en bolívares"
+  expect:
+    tool: convert_currency
+    args: { amount: "15", from: USD, to: VES }
+    no_draft: true
+
+- name: con tasa propia
+  input: "20 dolares a 220 cuanto da"
+  expect:
+    tool: convert_currency
+    args: { amount: "20", from: USD, rate: "220" }
+
+- name: un gasto no es una conversión
+  input: "pagué 15$ de luz"
+  expect:
+    tool: draft_expense
+    tool_not: convert_currency

@@ -33,6 +33,8 @@ export type UnclearReceipt = {
   currency: string | null;
   vendor: string | null;
   documentType: "expense" | "sales" | "unknown";
+  /** `pago_movil`: la foto eran datos de pago móvil sin monto (03/10). */
+  source?: "receipt" | "pago_movil";
 };
 
 export type AgentInput =

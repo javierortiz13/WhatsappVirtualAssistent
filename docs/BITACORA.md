@@ -588,3 +588,19 @@ La aclaración de la moneda pasa a una nota al final. Las correcciones muestran 
 **Cambios:** palabra clave `dashboard` sin LLM para mensajes cortos sin cifras que nombran dashboard, panel, link, enlace, página o web ("link del dashboard", "pásame el enlace", "¿cuál es la página?"); "el link de pago" o "pagué 20$ de la página web" no cuentan. Las frases libres ("¿dónde veo mis gastos en la computadora?") van por el agente: `reject_out_of_scope` con `reason: dashboard_link` manda el enlace. Respuesta: "📊 Tu dashboard: …", qué se hace ahí y cómo entrar (correo con enlace). El empleado recibe "El dashboard lo ve el dueño del negocio".
 
 **Tests:** palabras clave (incluidos los que no deben contar), el mensaje de punta a punta, la razón del agente para dueño y empleado. Dos casos de eval nuevos (92). 286 tests.
+
+### S2 · 03/10/2026 · Calculadora de monedas y pago móvil desde foto
+
+**Pedido (Javier):** "cuánto es 8000 bs en $", "17€ en bs", "15$ en bolívares"; y mandar la foto de unos datos de pago móvil para recibirlos escritos, listos para pegar en el banco, y de una vez registrar el gasto.
+
+**Calculadora:** herramienta `convert_currency` (13 herramientas) con monto, moneda de origen, destino (`auto`: Bs → $, $ o € → Bs) y tasa opcional. Bs ↔ $ con la BCV del día, € con el euro BCV, "a 220" con esa tasa (entre la mitad y el doble de la BCV) y "a tasa euro". $ ↔ € pasa por bolívares con las dos tasas oficiales. Bs → $ muestra también el equivalente en euros. No registra nada. Ej.: "🧮 Bs 8.000,00 son *$9,32* (≈ 8,33 €)" y la tasa con su fecha debajo. Regla 6b del prompt.
+
+**Pago móvil:** el lector de facturas reconoce los DATOS para pagar (`document_type: pago_movil` con `payee`: banco, teléfono, cédula o RIF, titular); un comprobante de un pago ya hecho sigue siendo gasto. El backend normaliza (código de banco de la Sudeban por nombre o apodo, teléfono a 11 dígitos, cédula sin puntos, nunca inventa dígitos) y responde:
+1. Resumen: banco con código, teléfono, cédula/RIF, titular y monto (en $ se pasa a Bs a tasa BCV).
+2. Un mensaje por dato (teléfono, cédula, monto "1250,00") para copiar con un toque.
+3. Con monto: el borrador de gasto "Pago móvil a <titular>" (o la leyenda) con la foto, encabezado "💸 ¿Es un gasto? Si lo es, toca *Guardar* cuando hagas el pago". Sin monto: pregunta monto y en qué es, y la respuesta siguiente arma el gasto con la foto (el mismo mecanismo de la factura ilegible, con `source: pago_movil`).
+Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más clara. "Ayuda" menciona las dos funciones.
+
+**Tests:** conversiones (Bs→$ con €, €→Bs, $→Bs con BCV, tasa propia y euro, $→€, errores), normalización de bancos, teléfonos y cédulas, y los flujos de punta a punta (con monto y Guardar con la foto, en dólares, sin monto con la respuesta, ilegible). Ocho casos de eval nuevos (100). 317 tests. El límite de mensajes por teléfono se sube en el test de fotos (todos los casos comparten teléfono y reloj).
+
+**Sin probar con el modelo real:** que el lector distinga bien una foto de datos de pago móvil de un comprobante. Correr `pnpm evals` y probar con fotos reales.

@@ -158,6 +158,50 @@ const llm: LlmClient = {
         usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
         model: "fake",
       };
+    const pm =
+      /Datos de pago móvil leídos por el sistema: el usuario va a PAGAR ([\d.]+) (USD|VES)/.exec(
+        text,
+      );
+    if (pm)
+      return reply([
+        {
+          id: "p1",
+          name: "draft_expense",
+          input: {
+            amount: pm[1],
+            currency: pm[2],
+            description: /description = \\?"([^"\\]+)/.exec(text)?.[1] ?? "Pago móvil",
+            category_name: "",
+            when: "",
+            rate: "",
+            corrects_draft: false,
+          },
+        },
+      ]);
+    if (text.includes("DATOS de un pago móvil")) {
+      const said = /Mensaje del usuario: "([\d.]+) bs del (\w+)"/i.exec(text);
+      return reply([
+        said
+          ? {
+              id: "p2",
+              name: "draft_expense",
+              input: {
+                amount: said[1],
+                currency: "VES",
+                description: said[2],
+                category_name: "",
+                when: "",
+                rate: "",
+                corrects_draft: false,
+              },
+            }
+          : {
+              id: "p3",
+              name: "ask_clarification",
+              input: { question: "¿Cuánto es?", options: [] },
+            },
+      ]);
+    }
     if (text.includes("NO pudo leer bien")) {
       const said = /Mensaje del usuario: "(?:gasto )?([\d.]+) bs/i.exec(text);
       return reply([
@@ -255,14 +299,17 @@ describe("fotos de facturas", () => {
         unknownReplyWindowMs: 3_600_000,
         maxEventAgeMs: 12 * 3_600_000,
         maxTextLength: 500,
+        // Todos los casos usan el mismo teléfono y el mismo reloj: sin esto topan el límite.
+        knownMax: 1000,
       },
     };
   }
 
-  async function sendImage(client: MetaClient, vision: ReceiptReader | null) {
+  async function sendImage(client: MetaClient, vision: ReceiptReader | null, noCaption = false) {
     jobs.length = 0;
     const p = JSON.parse(JSON.stringify(fx.imageMessage));
     p.entry[0].changes[0].value.messages[0].id = `wamid.IMG${++seq}`;
+    if (noCaption) delete p.entry[0].changes[0].value.messages[0].image.caption;
     await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
     return processInbound(deps(client, vision), jobs[0] as ProcessMessageJob);
   }
@@ -572,5 +619,96 @@ describe("fotos de facturas", () => {
     await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, q);
     await processInbound(deps(client, vision), jobs[0] as ProcessMessageJob);
     expect(textOf(sent[sent.length - 1])).toBe("¿Cuánto fue?");
+  });
+  const PAGO_MOVIL: ReceiptExtraction = {
+    is_receipt: false,
+    total: "1250.00",
+    currency: "VES",
+    date: "",
+    vendor: "",
+    line_items_count: 0,
+    confidence: 0.9,
+    document_type: "pago_movil",
+    payee: {
+      bank: "Banco Venezuela",
+      phone: "0412-302.02.56",
+      id_number: "C.I 25.871.244",
+      holder: "Javier Ortiz",
+    },
+  };
+
+  it("pago móvil con monto: resumen, cada dato para copiar y el borrador de gasto con la foto", async () => {
+    const { sent, client } = fakeMeta();
+    const before = store.objects.size;
+    await sendImage(client, fakeVision(PAGO_MOVIL), true);
+    expect(store.objects.size).toBe(before + 1);
+    expect(textOf(sent[1])).toBe(
+      [
+        "📲 *Pago móvil*",
+        "Banco: 0102 · Banco de Venezuela",
+        "Teléfono: 0412-3020256",
+        "Cédula/RIF: V-25871244",
+        "Titular: Javier Ortiz",
+        "Monto: *Bs 1.250,00*",
+        "",
+        "Abajo va cada dato solo para copiarlo y pegarlo en el banco 👇",
+      ].join("\n"),
+    );
+    expect(textOf(sent[2])).toBe("04123020256");
+    expect(textOf(sent[3])).toBe("25871244");
+    expect(textOf(sent[4])).toBe("1250,00");
+    const draft = textOf(sent[5]);
+    expect(draft.startsWith("💸 ¿Es un gasto? Si lo es, toca *Guardar*")).toBe(true);
+    expect(draft).toContain("Pago móvil a Javier Ortiz");
+    const att = (await attachments()).at(-1);
+    await tap(client, fakeVision(PAGO_MOVIL), buttonsOf(sent[5])[0]?.id as string, "Guardar");
+    const [mv] = await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .select()
+        .from(schema.movement)
+        .where(eq(schema.movement.attachmentId, att?.id as string)),
+    );
+    expect(mv).toMatchObject({ amountVes: "1250.00", description: "Pago móvil a Javier Ortiz" });
+  });
+
+  it("pago móvil en dólares: el monto a pegar sale en bolívares a tasa BCV", async () => {
+    const { sent, client } = fakeMeta();
+    await sendImage(client, fakeVision({ ...PAGO_MOVIL, total: "10", currency: "USD" }), true);
+    expect(textOf(sent[1])).toContain("Monto: *Bs 8.580,00* ($10,00 a tasa BCV 858,00)");
+    expect(textOf(sent[4])).toBe("8580,00");
+    // Deja la cola limpia para los casos siguientes.
+    await tap(client, null, buttonsOf(sent[5])[2]?.id as string, "Cancelar");
+  });
+
+  it("pago móvil sin monto: pregunta, y la respuesta arma el gasto con la foto", async () => {
+    const { sent, client } = fakeMeta();
+    await sendImage(client, fakeVision({ ...PAGO_MOVIL, total: "" }), true);
+    expect(sent).toHaveLength(5);
+    expect(textOf(sent[3])).toBe("25871244");
+    expect(textOf(sent[4])).toContain("Escríbeme el *monto* y *en qué es*");
+    const att = (await attachments()).at(-1);
+    jobs.length = 0;
+    const p = fx.textMessage(`wamid.PM${++seq}`, "1250 bs del gas");
+    await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
+    await processInbound(deps(client, null), jobs[0] as ProcessMessageJob);
+    expect(textOf(sent[5])).toContain("Gasto por confirmar");
+    await tap(client, null, buttonsOf(sent[5])[0]?.id as string, "Guardar");
+    const [mv] = await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .select()
+        .from(schema.movement)
+        .where(eq(schema.movement.attachmentId, att?.id as string)),
+    );
+    expect(mv).toMatchObject({ amountVes: "1250.00", description: "gas" });
+  });
+
+  it("pago móvil ilegible: lo dice y no arma nada", async () => {
+    const { sent, client } = fakeMeta();
+    await sendImage(
+      client,
+      fakeVision({ ...PAGO_MOVIL, payee: { bank: "", phone: "04", id_number: "", holder: "" } }),
+    );
+    expect(sent).toHaveLength(2);
+    expect(textOf(sent[1])).toContain("no pude leer bien el teléfono ni la cédula");
   });
 });
