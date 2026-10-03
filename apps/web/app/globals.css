@@ -110,6 +110,9 @@ p.sub {
 .amber {
   color: var(--amber);
 }
+.danger {
+  color: var(--danger);
+}
 .kpi-label {
   color: var(--muted);
   font-size: 12px;
@@ -1178,4 +1181,69 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
 }
 .usage > span.warn {
   background: var(--amber);
+}
+.usage > span.over {
+  background: var(--danger);
+}
+/* Presupuesto por categoría: [$ monto][período][Guardar] y la barra de lo gastado. */
+.cat .edit.budget .money {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.cat .edit.budget .money > span {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 14px;
+  pointer-events: none;
+}
+.cat .edit.budget .money .input {
+  width: 100%;
+  padding-left: 26px;
+}
+.cat .edit.budget select.input {
+  flex: 0 0 auto;
+  width: 112px;
+  padding: 0 10px;
+}
+.budgets .day {
+  margin: 0;
+}
+.budget-row {
+  display: grid;
+  gap: 6px;
+}
+.budget-row .usage {
+  margin: 0;
+}
+.budget-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.budget-left {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.budget-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.budget-row .sub {
+  font-size: 12px;
+}
+.budget-status {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.budget-status .usage {
+  margin: 0;
 }

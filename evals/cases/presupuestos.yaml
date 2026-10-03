@@ -1,0 +1,31 @@
+# Presupuestos por categoría (03/10): consultar lo que queda es get_budgets; ponerlo por chat
+# también (wants_to_set), y el bot manda al dashboard. "Cuánto gasté" sigue siendo get_summary.
+- name: cuánto queda en una categoría
+  input: "cuánto me queda en insumos?"
+  expect:
+    tool: get_budgets
+    args: { wants_to_set: false }
+
+- name: cómo van todos los presupuestos
+  input: "cómo voy con los presupuestos este mes"
+  expect:
+    tool: get_budgets
+    args: { category_name: "", wants_to_set: false }
+
+- name: si se pasó del presupuesto
+  input: "me pasé del presupuesto de comida?"
+  expect:
+    tool: get_budgets
+    tool_not: get_summary
+
+- name: poner un presupuesto por chat no es fuera de alcance
+  input: "ponle un presupuesto de 200$ al mes a insumos"
+  expect:
+    tool: get_budgets
+    tool_not: reject_out_of_scope
+    args: { wants_to_set: true }
+
+- name: cuánto gasté sigue siendo resumen
+  input: "cuánto gasté en insumos este mes"
+  expect:
+    tool: get_summary

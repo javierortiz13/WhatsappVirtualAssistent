@@ -39,6 +39,7 @@ export const PAYMENT_CURRENCIES = ["VES", "USD", "USDT"] as const;
 export const PAYMENT_STATUSES = ["pending", "approved", "rejected"] as const;
 export const BILLING_RATE_KINDS = ["bcv_usd", "bcv_eur", "manual"] as const;
 export const MOVEMENT_TYPES = ["expense", "income"] as const;
+export const BUDGET_PERIODS = ["monthly", "biweekly"] as const;
 export const MOVEMENT_ORIGINS = ["single", "day_total"] as const;
 export const RATE_SOURCES = ["bcv", "bcv_eur", "manual"] as const;
 export const SOURCE_CHANNELS = ["text", "voice", "image", "dashboard"] as const;
@@ -405,5 +406,27 @@ export const payment = app.table(
     check("payment_method_check", inList("method", PAYMENT_METHODS_BILLING)),
     check("payment_currency_check", inList("currency", PAYMENT_CURRENCIES)),
     check("payment_status_check", inList("status", PAYMENT_STATUSES)),
+  ],
+);
+
+/** Tope de gasto por categoría (0009): mensual o quincenal, en dólares. Uno por categoría. */
+export const budget = app.table(
+  "budget",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => category.id),
+    period: text("period").notNull(),
+    amountUsd: numeric("amount_usd", { precision: 18, scale: 2 }).notNull(),
+    ...timestamps,
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("budget_tenant_category_key").on(t.tenantId, t.categoryId),
+    check("budget_period_check", inList("period", BUDGET_PERIODS)),
   ],
 );

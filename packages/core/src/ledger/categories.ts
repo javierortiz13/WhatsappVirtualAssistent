@@ -30,7 +30,9 @@ export async function listCategories(tx: Tx, tenantId: string): Promise<Category
       name: c.name,
       isActive: c.isActive,
       sortOrder: c.sortOrder,
-      movements: sql<number>`(select count(*)::int from ${schema.movement} m where m.category_id = ${c.id} and m.deleted_at is null)`,
+      // La columna va calificada con la tabla: ${c.id} solo se escribe "id" y dentro de la
+      // subconsulta se resolvería como m.id (siempre 0).
+      movements: sql<number>`(select count(*)::int from ${schema.movement} m where m.category_id = ${c}.id and m.deleted_at is null)`,
     })
     .from(c)
     .where(and(eq(c.tenantId, tenantId), eq(c.kind, "expense")))

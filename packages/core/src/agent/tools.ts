@@ -16,6 +16,7 @@ import {
   parseVenezuelanAmount,
   type Rate,
 } from "../domain/money";
+import { budgetStatuses } from "../ledger/budgets";
 import {
   createExpenseDraft,
   createExpensesDraft,
@@ -37,6 +38,7 @@ import {
   recentMovementsByPhone,
 } from "../ledger/last-movement";
 import { euroRateFor, NoEurRateError, NoRateError } from "../ledger/rate-for";
+import { matchCategoryName } from "../ledger/reports";
 import { renderSummary } from "../ledger/summary";
 import { getRateInfo } from "../rates/current";
 import { es, type Outbound } from "../render/index";
@@ -255,6 +257,19 @@ export const GetSummaryInput = z.object({
     .string()
     .describe(
       'Solo si pregunta cuánto gastó en UNA categoría o cosa ("en champú", "en insumos"): el nombre de la lista o lo que dijo. "" para el cierre o resumen general.',
+    ),
+});
+
+export const GetBudgetsInput = z.object({
+  category_name: z
+    .string()
+    .describe(
+      'La categoría si pregunta por UNA ("cuánto me queda en insumos"): el nombre de la lista o lo que dijo. "" para todos los presupuestos.',
+    ),
+  wants_to_set: z
+    .boolean()
+    .describe(
+      'true si quiere PONER, cambiar o quitar un presupuesto ("ponle 200$ al mes a insumos"); false si solo pregunta cómo va.',
     ),
 });
 
@@ -847,6 +862,40 @@ const getSummary: ToolSpec<typeof GetSummaryInput> = {
   },
 };
 
+const getBudgets: ToolSpec<typeof GetBudgetsInput> = {
+  name: "get_budgets",
+  description:
+    "Presupuestos por categoría: cuánto le queda o cómo va ('cuánto me queda en insumos', 'cómo voy con el presupuesto', 'me pasé en comida?'). Solo lectura; los presupuestos se ponen en el dashboard. Lo ve el dueño.",
+  schema: GetBudgetsInput,
+  roles: ["owner", "employee"],
+  async run(input, run) {
+    const reply = (o: Outbound) => ({
+      kind: "terminal" as const,
+      status: "ok" as const,
+      outbound: [o],
+    });
+    if (run.ctx.role !== "owner") return reply(es.budgetsOwnerOnly());
+    if (input.wants_to_set) return reply(es.setBudgetInDashboard(run.ctx.dashboardUrl));
+    const all = await budgetStatuses(run.tx, run.ctx.tenantId, run.ctx.today);
+    const name = input.category_name.trim();
+    if (!name) {
+      return reply(
+        all.length ? es.budgetsSummary(all, run.ctx.today) : es.noBudgets(run.ctx.dashboardUrl),
+      );
+    }
+    const withBudget = matchCategoryName(all, name);
+    if (withBudget) return reply(es.budgetsSummary([withBudget], run.ctx.today));
+    const category = matchCategoryName(run.ctx.categories, name);
+    if (category) return reply(es.categoryWithoutBudget(category.name, run.ctx.dashboardUrl));
+    return reply(
+      es.categoryNotFound(
+        name,
+        run.ctx.categories.slice(0, 3).map((c) => c.name),
+      ),
+    );
+  },
+};
+
 async function categoryNameOf(run: ToolRunCtx, categoryId: string | null): Promise<string | null> {
   if (!categoryId) return null;
   return run.ctx.categories.find((c) => c.id === categoryId)?.name ?? null;
@@ -1161,6 +1210,7 @@ export const ALL_TOOLS: ToolSpec<z.ZodType>[] = [
   draftIncomeDayTotal,
   draftIncomeSingle,
   getSummary,
+  getBudgets,
   amendLast,
   deleteLast,
   askClarification,

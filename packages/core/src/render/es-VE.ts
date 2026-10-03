@@ -417,19 +417,134 @@ export function expensesDraft(v: ExpensesDraftView): Outbound {
   };
 }
 
-export function expensesSaved(saved: number, dayTotalUsd: Decimal.Value, count: number): Outbound {
+/** `budgetLines`: una línea por presupuesto tocado (solo al dueño), de `budgetLine`. */
+export function expensesSaved(
+  saved: number,
+  dayTotalUsd: Decimal.Value,
+  count: number,
+  budgetLines: string[] = [],
+): Outbound {
   const n = count === 1 ? "1 registro" : `${count} registros`;
   return {
     type: "text",
-    body: `✅ Guardados ${saved} gastos. Gastos de hoy: *${formatMoney(dayTotalUsd, "USD")}* (${n}).`,
+    body: [
+      `✅ Guardados ${saved} gastos. Gastos de hoy: *${formatMoney(dayTotalUsd, "USD")}* (${n}).`,
+      ...budgetLines,
+    ].join("\n"),
   };
 }
 
-export function expenseSaved(dayTotalUsd: Decimal.Value, count: number): Outbound {
+export function expenseSaved(
+  dayTotalUsd: Decimal.Value,
+  count: number,
+  budgetLines: string[] = [],
+): Outbound {
   const n = count === 1 ? "1 registro" : `${count} registros`;
   return {
     type: "text",
-    body: `✅ Guardado. Gastos de hoy: *${formatMoney(dayTotalUsd, "USD")}* (${n}).`,
+    body: [
+      `✅ Guardado. Gastos de hoy: *${formatMoney(dayTotalUsd, "USD")}* (${n}).`,
+      ...budgetLines,
+    ].join("\n"),
+  };
+}
+
+// ---------------------------------------------------------------- presupuestos (0009)
+
+export type BudgetView = {
+  name: string;
+  period: "monthly" | "biweekly";
+  amountUsd: Decimal;
+  remainingUsd: Decimal;
+  pct: number;
+  from: IsoDate;
+  to: IsoDate;
+  daysLeft: number;
+};
+
+const BUDGET_WARN_PCT = 80;
+
+/** "este mes", "esta quincena", "en septiembre", "en la 2ª quincena de septiembre". */
+function budgetWhen(b: BudgetView, today: IsoDate): string {
+  const current = b.from <= today && today <= b.to;
+  if (b.period === "monthly")
+    return current ? "este mes" : `en ${monthNameEs(b.from).toLowerCase()}`;
+  if (current) return "esta quincena";
+  const half = b.from.endsWith("-01") ? "1ª" : "2ª";
+  return `en la ${half} quincena de ${monthNameEs(b.from).toLowerCase()}`;
+}
+
+/**
+ * Cómo va un presupuesto en una línea: lo que queda, ⚠️ desde el 80 %, 🔴 en el tope o pasado.
+ * "Insumos: te quedan *$45,00* de $200,00 este mes."
+ */
+export function budgetLine(b: BudgetView, today: IsoDate): string {
+  const when = budgetWhen(b, today);
+  const cap = formatMoney(b.amountUsd, "USD");
+  if (b.remainingUsd.isNegative())
+    return `🔴 ${b.name}: te pasaste por *${formatMoney(b.remainingUsd.abs(), "USD")}* del presupuesto de ${cap} ${when}.`;
+  if (b.remainingUsd.isZero()) return `🔴 ${b.name}: llegaste al tope de ${cap} ${when}.`;
+  const rest = `*${formatMoney(b.remainingUsd, "USD")}* de ${cap} ${when}.`;
+  if (b.pct >= BUDGET_WARN_PCT) return `⚠️ ${b.name}: vas por el ${b.pct} %. Te quedan ${rest}`;
+  return `${b.name}: te quedan ${rest}`;
+}
+
+const daysText = (n: number) => (n <= 1 ? "hoy es el último día" : `faltan ${n} días`);
+
+/** Respuesta a "¿cuánto me queda en X?" o "¿cómo voy con los presupuestos?". */
+export function budgetsSummary(list: BudgetView[], today: IsoDate): Outbound {
+  if (list.length === 1) {
+    const b = list[0] as BudgetView;
+    const reset = b.period === "monthly" ? "el mes" : "la quincena";
+    return {
+      type: "text",
+      body: `${budgetLine(b, today)}\n_${daysText(b.daysLeft).replace(/^./, (c) => c.toUpperCase())} para que se reinicie ${reset}._`,
+    };
+  }
+  const lines = list.map((b) => {
+    const cap = formatMoney(b.amountUsd, "USD");
+    const tag = b.period === "biweekly" ? " · quincenal" : "";
+    if (b.remainingUsd.isNegative())
+      return `🔴 ${b.name}: pasado por *${formatMoney(b.remainingUsd.abs(), "USD")}* (tope ${cap}${tag})`;
+    const icon = b.remainingUsd.isZero() || b.pct >= BUDGET_WARN_PCT ? "⚠️ " : "• ";
+    return `${icon}${b.name}: quedan *${formatMoney(b.remainingUsd, "USD")}* de ${cap} (${b.pct} %${tag})`;
+  });
+  const foot: string[] = [];
+  const monthly = list.find((b) => b.period === "monthly");
+  const biweekly = list.find((b) => b.period === "biweekly");
+  if (monthly) foot.push(`Mes: ${daysText(monthly.daysLeft)}.`);
+  if (biweekly) foot.push(`Quincena: ${daysText(biweekly.daysLeft)}.`);
+  return {
+    type: "text",
+    body: `*Presupuestos* · ${formatShortDate(today)}\n${lines.join("\n")}\n_${foot.join(" ")}_`,
+  };
+}
+
+export function budgetsOwnerOnly(): Outbound {
+  return {
+    type: "text",
+    body: "Los presupuestos los ve el dueño. Tú puedes registrar gastos y ventas.",
+  };
+}
+
+export function noBudgets(dashboardUrl: string): Outbound {
+  return {
+    type: "text",
+    body: `Todavía no tienes presupuestos. Ponlos en ${dashboardUrl}/ajustes/categorias: a cada categoría le das un tope en dólares, mensual o quincenal.`,
+  };
+}
+
+export function categoryWithoutBudget(name: string, dashboardUrl: string): Outbound {
+  return {
+    type: "text",
+    body: `${name} no tiene presupuesto. Ponlo en ${dashboardUrl}/ajustes/categorias.`,
+  };
+}
+
+export function setBudgetInDashboard(dashboardUrl: string): Outbound {
+  return {
+    type: "text",
+    body: `Los presupuestos se ponen en el dashboard: ${dashboardUrl}/ajustes/categorias. Ahí le das a cada categoría un tope en dólares, mensual o quincenal, y yo te aviso cuánto te queda cada vez que guardes un gasto.`,
   };
 }
 

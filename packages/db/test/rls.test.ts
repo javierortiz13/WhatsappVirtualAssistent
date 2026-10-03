@@ -11,6 +11,7 @@ describe("RLS por tenant", () => {
   const tenantA = "11111111-1111-4111-8111-111111111111";
   const tenantB = "22222222-2222-4222-8222-222222222222";
   let rateId: string;
+  const categoryOf: Record<string, string> = {};
 
   beforeAll(async () => {
     ({ pg } = await createTestDb());
@@ -32,6 +33,17 @@ describe("RLS por tenant", () => {
         `INSERT INTO app.movement (tenant_id, type, business_date, amount, currency, rate_id, rate_value, amount_usd, amount_ves, source_channel, created_by_phone_id)
          VALUES ($1, 'expense', '2026-09-29', 15.00, 'USD', $2, 858.00000000, 15.00, 12870.00, 'text', $3)`,
         [t, rateId, p.rows[0]?.id],
+      );
+    }
+    for (const t of [tenantA, tenantB]) {
+      const c = await pg.query<{ id: string }>(
+        `INSERT INTO app.category (tenant_id, name) VALUES ($1, 'Insumos') RETURNING id`,
+        [t],
+      );
+      categoryOf[t] = c.rows[0]?.id ?? "";
+      await pg.query(
+        `INSERT INTO app.budget (tenant_id, category_id, period, amount_usd) VALUES ($1, $2, 'monthly', 200)`,
+        [t, categoryOf[t]],
       );
     }
     await pg.exec(`SET ROLE caja_app`);
@@ -94,6 +106,25 @@ describe("RLS por tenant", () => {
       pg.query<{ id: string }>(`SELECT id FROM app.tenant`),
     );
     expect(seen.rows.map((r) => r.id)).toEqual([tenantA]);
+  });
+
+  it("presupuestos: cada tenant ve y cambia solo los suyos", async () => {
+    const a = await asTenant(tenantA, () =>
+      pg.query<{ tenant_id: string }>(`SELECT tenant_id FROM app.budget`),
+    );
+    expect(a.rows.map((r) => r.tenant_id)).toEqual([tenantA]);
+    const changed = await asTenant(tenantA, () =>
+      pg.query(`UPDATE app.budget SET amount_usd = 1 WHERE tenant_id = $1 RETURNING id`, [tenantB]),
+    );
+    expect(changed.rows).toHaveLength(0);
+    await expect(
+      asTenant(tenantA, () =>
+        pg.query(
+          `INSERT INTO app.budget (tenant_id, category_id, period, amount_usd) VALUES ($1, $2, 'monthly', 5)`,
+          [tenantB, categoryOf[tenantB]],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/);
   });
 
   it("resolve_phone funciona sin tenant fijado y devuelve solo lo necesario", async () => {

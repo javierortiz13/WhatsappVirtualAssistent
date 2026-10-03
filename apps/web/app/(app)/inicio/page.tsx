@@ -1,4 +1,13 @@
-import { dailyClose, formatMoney, formatShortDate, getRateInfo, ownerPhone } from "@caja/core";
+import {
+  BUDGET_WARN_PCT,
+  type BudgetStatus,
+  budgetStatuses,
+  dailyClose,
+  formatMoney,
+  formatShortDate,
+  getRateInfo,
+  ownerPhone,
+} from "@caja/core";
 import { monthNameEs } from "@caja/core/domain";
 import { withTenant } from "@caja/db";
 import type { Metadata } from "next";
@@ -15,9 +24,11 @@ export default async function Inicio() {
   const { tenant } = await requireTenant();
   const today = todayInCaracas();
   const month = monthBounds(today);
-  const [rate, close, monthTotals, recent, owner] = await Promise.all([
+  const [rate, [close, budgets], monthTotals, recent, owner] = await Promise.all([
     getRateInfo(db(), today),
-    withTenant(db(), tenant.id, (tx) => dailyClose(tx, tenant.id, today)),
+    withTenant(db(), tenant.id, (tx) =>
+      Promise.all([dailyClose(tx, tenant.id, today), budgetStatuses(tx, tenant.id, today)]),
+    ),
     totalsBetween(tenant.id, month.from, month.to),
     movementsBetween(tenant.id, month.from, month.to, 6),
     ownerPhone(db(), tenant.id),
@@ -77,6 +88,8 @@ export default async function Inicio() {
         </div>
       </div>
 
+      {budgets.length ? <Budgets list={budgets} /> : null}
+
       <div className="day">
         <h2>Últimos movimientos</h2>
         <a className="sub" href="/movimientos">
@@ -93,5 +106,45 @@ export default async function Inicio() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Una barra por presupuesto: verde, ámbar desde el 80 % y rojo en el tope o pasado. */
+function Budgets({ list }: { list: BudgetStatus[] }) {
+  return (
+    <section className="card stack budgets">
+      <div className="day">
+        <h2>Presupuestos</h2>
+        <a className="sub" href="/ajustes/categorias">
+          Editar ›
+        </a>
+      </div>
+      {list.map((b) => {
+        const over = !b.remainingUsd.isPositive();
+        const tone = over ? "over" : b.pct >= BUDGET_WARN_PCT ? "warn" : "";
+        const days = b.daysLeft <= 1 ? "último día" : `faltan ${b.daysLeft} días`;
+        return (
+          <div className="budget-row" key={b.categoryId}>
+            <div className="budget-head">
+              <strong className="budget-name">{b.name}</strong>
+              <span
+                className={`budget-left num ${over ? "danger" : tone === "warn" ? "amber" : ""}`}
+              >
+                {b.remainingUsd.isNegative()
+                  ? `pasado ${formatMoney(b.remainingUsd.abs(), "USD")}`
+                  : `quedan ${formatMoney(b.remainingUsd, "USD")}`}
+              </span>
+            </div>
+            <div className="usage" aria-hidden="true">
+              <span style={{ width: `${Math.min(100, b.pct)}%` }} className={tone} />
+            </div>
+            <span className="sub num">
+              {formatMoney(b.spentUsd, "USD")} de {formatMoney(b.amountUsd, "USD")} ·{" "}
+              {b.period === "monthly" ? "mensual" : "quincenal"}, {days}
+            </span>
+          </div>
+        );
+      })}
+    </section>
   );
 }

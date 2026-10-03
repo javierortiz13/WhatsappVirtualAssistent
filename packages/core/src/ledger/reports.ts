@@ -143,6 +143,31 @@ async function expensesByCategory(
 }
 
 /** Total de una categoría en un período (US-D3); si no existe, devuelve las candidatas. */
+/**
+ * La categoría que el usuario nombró: igual sin acentos, una contiene a la otra, o comparten una
+ * palabra de más de dos letras ("limpieza" → "Productos de limpieza").
+ */
+export function matchCategoryName<C extends { name: string }>(all: C[], name: string): C | null {
+  const norm = (s: string) =>
+    s
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+  const n = norm(name);
+  if (!n) return null;
+  const words = n.split(/\s+/).filter((w) => w.length > 2);
+  return (
+    all.find((c) => norm(c.name) === n) ??
+    all.find((c) => norm(c.name).includes(n) || n.includes(norm(c.name))) ??
+    all.find((c) => {
+      const cw = norm(c.name).split(/\s+/);
+      return words.some((w) => cw.includes(w));
+    }) ??
+    null
+  );
+}
+
 export async function categoryTotal(
   tx: Tx,
   tenantId: string,
@@ -153,22 +178,11 @@ export async function categoryTotal(
   | { found: true; name: string; usd: Decimal; ves: Decimal; count: number }
   | { found: false; suggestions: string[] }
 > {
-  const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
   const all = await tx
     .select({ id: schema.category.id, name: schema.category.name })
     .from(schema.category)
     .where(and(eq(schema.category.tenantId, tenantId), eq(schema.category.kind, "expense")));
-  const n = norm(name);
-  const words = n.split(/\s+/).filter((w) => w.length > 2);
-  const exact =
-    all.find((c) => norm(c.name) === n) ??
-    all.find((c) => norm(c.name).includes(n) || n.includes(norm(c.name)));
-  const match =
-    exact ??
-    all.find((c) => {
-      const cw = norm(c.name).split(/\s+/);
-      return words.some((w) => cw.includes(w));
-    });
+  const match = matchCategoryName(all, name);
   if (!match) {
     return { found: false, suggestions: all.slice(0, 3).map((c) => c.name) };
   }

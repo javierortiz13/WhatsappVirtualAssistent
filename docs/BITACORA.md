@@ -495,3 +495,17 @@ La aclaración de la moneda pasa a una nota al final. Las correcciones muestran 
 - Cancelar en Google vuelve a /login con "No se completó la entrada con Google".
 - Detrás de `GOOGLE_AUTH_ENABLED=1` (Vercel): sin el proveedor activo en Supabase el botón llevaría a un error, así que no se muestra hasta configurarlo.
 - **Configuración (Javier):** cliente OAuth "Web" en Google Cloud con la redirección `https://daomgsvvhvuhiccttrlg.supabase.co/auth/v1/callback`; client ID y secret en Supabase → Authentication → Providers → Google; `https://caja.jpsoftwaredev.com/auth/callback` en Authentication → URL Configuration → Redirect URLs.
+
+### S2 · 03/10/2026 · Presupuestos por categoría (ADR-016)
+
+**Pedido (Javier):** presupuestos por categoría como en Rial, quincenales o mensuales, y que el bot diga cuánto queda.
+
+**Qué se hizo**
+- Migración 0009: tabla `app.budget` (categoría, período `monthly`/`biweekly`, tope en $), uno por categoría, con RLS y prueba de aislamiento. Aplicada en producción antes del deploy.
+- Core: `budgetWindow` (mes calendario; quincenas 1–15 y 16–fin), `budgetStatuses` (lo gastado de cada tope en su ventana, en una consulta, solo gastos vivos), `setBudget` (crea, cambia o quita con auditoría `budget`).
+- Bot, solo para el dueño:
+  - Al guardar uno o varios gastos, una línea por presupuesto tocado: `Insumos: te quedan *$45,00* de $200,00 este mes.`, `⚠️ ... vas por el 85 %`, `🔴 ... te pasaste por *$12,00*`. Un gasto de otro período lo nombra ("en septiembre", "en la 2ª quincena de septiembre").
+  - Herramienta `get_budgets`: "cuánto me queda en insumos", "cómo voy con los presupuestos" (con los días que faltan para reiniciar). "Ponle 200$ a insumos" manda al dashboard. El empleado recibe "Los presupuestos los ve el dueño".
+- Dashboard: en Ajustes → Categorías, cada categoría tiene monto en $ y período (vacío lo quita) con la barra de lo gastado; Inicio muestra la tarjeta "Presupuestos" (verde, ámbar desde 80 %, rojo en el tope).
+- **Bug viejo arreglado de paso:** el conteo de gastos por categoría en Ajustes → Categorías siempre decía "sin gastos". La subconsulta comparaba `m.category_id = "id"`, que Postgres resolvía como el id del movimiento. Ahora va calificada con la tabla; test que lo cubre.
+- Tests: ventanas, redacción, cálculo, auditoría, RLS y de punta a punta (dueño, empleado, consultas). Cinco casos de eval nuevos (80 casos). QA a 390 px de las dos pantallas.

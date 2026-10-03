@@ -1,10 +1,22 @@
-import { listCategories } from "@caja/core";
+import {
+  BUDGET_WARN_PCT,
+  type BudgetStatus,
+  budgetStatuses,
+  formatMoney,
+  listCategories,
+} from "@caja/core";
 import { withTenant } from "@caja/db";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
+import { todayInCaracas } from "@/lib/queries";
 import { requireTenant } from "@/lib/session";
 import { IconChevronLeft, IconTags } from "../../icons";
-import { createCategoryAction, renameCategoryAction, setCategoryActiveAction } from "./actions";
+import {
+  createCategoryAction,
+  renameCategoryAction,
+  setBudgetAction,
+  setCategoryActiveAction,
+} from "./actions";
 
 export const metadata: Metadata = { title: "Categorías" };
 export const dynamic = "force-dynamic";
@@ -17,7 +29,33 @@ const MSG: Record<string, string> = {
   missing: "Esa categoría ya no existe.",
   permiso: "Solo el dueño puede cambiar las categorías.",
   servidor: "No pudimos guardar el cambio. Inténtalo en unos minutos.",
+  presupuesto: "Presupuesto guardado. El asistente te dirá cuánto te queda al guardar cada gasto.",
+  presupuesto_quitado: "Presupuesto quitado.",
+  presupuesto_invalid: "Escribe el presupuesto en dólares, por ejemplo 200 o 150,50.",
+  presupuesto_missing: "Esa categoría ya no existe.",
 };
+
+/** "Gastado $155,00 de $200,00 este mes · 77 %" con la barra en verde, ámbar o rojo. */
+function BudgetBar({ b }: { b: BudgetStatus }) {
+  const tone =
+    b.remainingUsd.isNegative() || b.remainingUsd.isZero()
+      ? "over"
+      : b.pct >= BUDGET_WARN_PCT
+        ? "warn"
+        : "";
+  const when = b.period === "monthly" ? "este mes" : "esta quincena";
+  return (
+    <div className="budget-status">
+      <div className="usage" aria-hidden="true">
+        <span style={{ width: `${Math.min(100, b.pct)}%` }} className={tone} />
+      </div>
+      <span className={`num ${tone === "over" ? "danger" : tone === "warn" ? "amber" : ""}`}>
+        Gastado {formatMoney(b.spentUsd, "USD")} de {formatMoney(b.amountUsd, "USD")} {when} ·{" "}
+        {b.pct} %
+      </span>
+    </div>
+  );
+}
 
 const count = (n: number) => (n === 0 ? "sin gastos" : n === 1 ? "1 gasto" : `${n} gastos`);
 
@@ -29,7 +67,11 @@ export default async function Categorias({
 }) {
   const { tenant } = await requireTenant();
   const sp = await searchParams;
-  const list = await withTenant(db(), tenant.id, (tx) => listCategories(tx, tenant.id));
+  const today = todayInCaracas();
+  const [list, budgets] = await withTenant(db(), tenant.id, (tx) =>
+    Promise.all([listCategories(tx, tenant.id), budgetStatuses(tx, tenant.id, today)]),
+  );
+  const budgetOf = new Map(budgets.map((b) => [b.categoryId, b]));
   const active = list.filter((c) => c.isActive);
   const inactive = list.filter((c) => !c.isActive);
   const isOwner = tenant.role === "owner";
@@ -47,6 +89,13 @@ export default async function Categorias({
         El asistente clasifica cada gasto en una de estas. Una categoría desactivada deja de
         sugerirse, pero sus gastos conservan el nombre.
       </p>
+      {isOwner ? (
+        <p className="sub">
+          <strong>Presupuesto:</strong> un tope en dólares, mensual o quincenal (del 1 al 15 y del
+          16 al fin de mes). Al guardar un gasto el asistente te dice cuánto te queda. Déjalo vacío
+          para quitarlo.
+        </p>
+      ) : null}
       <div className="card tight">
         {active.map((c) => (
           <div className="cat" key={c.id}>
@@ -68,6 +117,35 @@ export default async function Categorias({
             ) : (
               <strong>{c.name}</strong>
             )}
+            {isOwner ? (
+              <form action={setBudgetAction} className="edit budget">
+                <input type="hidden" name="id" value={c.id} />
+                <label className="money">
+                  <span aria-hidden="true">$</span>
+                  <input
+                    className="input"
+                    name="amount"
+                    inputMode="decimal"
+                    defaultValue={budgetOf.get(c.id)?.amountUsd.toFixed(2) ?? ""}
+                    placeholder="Monto"
+                    aria-label={`Presupuesto de ${c.name} en dólares`}
+                  />
+                </label>
+                <select
+                  className="input"
+                  name="period"
+                  defaultValue={budgetOf.get(c.id)?.period ?? "monthly"}
+                  aria-label="Período"
+                >
+                  <option value="monthly">Mensual</option>
+                  <option value="biweekly">Quincenal</option>
+                </select>
+                <button className="btn secondary small" type="submit">
+                  Guardar
+                </button>
+              </form>
+            ) : null}
+            {budgetOf.get(c.id) ? <BudgetBar b={budgetOf.get(c.id) as BudgetStatus} /> : null}
             <div className="foot">
               <span>{count(c.movements)}</span>
               {isOwner ? (

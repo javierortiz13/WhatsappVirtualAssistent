@@ -13,6 +13,7 @@ import {
   resolveSender,
 } from "../identity/resolve";
 import { createAttachment, discardAttachment } from "../ledger/attachments";
+import { budgetStatuses } from "../ledger/budgets";
 import {
   amendMovement,
   createExpense,
@@ -866,6 +867,36 @@ async function runAgent(
   }
 }
 
+/**
+ * Cómo quedan los presupuestos de las categorías que tocó lo recién guardado, una línea por
+ * presupuesto y en la ventana de la fecha de cada gasto. Solo el dueño los ve.
+ */
+async function budgetLinesFor(
+  tx: Tx,
+  ctx: RouteCtx,
+  items: { categoryId: string | null; businessDate: string }[],
+): Promise<string[]> {
+  if (ctx.role !== "owner") return [];
+  const byDate = new Map<string, Set<string>>();
+  for (const i of items) {
+    if (!i.categoryId) continue;
+    const set = byDate.get(i.businessDate) ?? new Set<string>();
+    set.add(i.categoryId);
+    byDate.set(i.businessDate, set);
+  }
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const [date, ids] of byDate) {
+    for (const b of await budgetStatuses(tx, ctx.tenantId, asIsoDate(date), [...ids])) {
+      const key = `${b.categoryId}:${b.from}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      lines.push(es.budgetLine(b, ctx.today));
+    }
+  }
+  return lines;
+}
+
 /** Ejecuta un borrador confirmado. Cada tipo de acción escribe en el ledger dentro de la transacción. */
 async function executePending(
   tx: Tx,
@@ -899,7 +930,8 @@ async function executePending(
         .set({ status: "confirmed", resolvedAt: nowTs })
         .where(eq(schema.pendingAction.id, pending.id));
       const total = await expenseTotalForDay(tx, ctx.tenantId, asIsoDate(draft.businessDate));
-      return none([es.expenseSaved(total.usd, total.count)]);
+      const budgets = await budgetLinesFor(tx, ctx, [draft]);
+      return none([es.expenseSaved(total.usd, total.count, budgets)]);
     }
     case "create_expenses": {
       const draft = ExpensesDraft.parse(pending.payload);
@@ -933,7 +965,8 @@ async function executePending(
         ctx.tenantId,
         asIsoDate(last?.businessDate ?? ctx.today),
       );
-      return none([es.expensesSaved(draft.items.length, total.usd, total.count)]);
+      const budgets = await budgetLinesFor(tx, ctx, draft.items);
+      return none([es.expensesSaved(draft.items.length, total.usd, total.count, budgets)]);
     }
     case "create_income_day_total": {
       const draft = IncomeDayTotalDraft.parse(pending.payload);

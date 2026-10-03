@@ -30,6 +30,36 @@ describe("categorías y configuración desde el dashboard", () => {
   });
   afterAll(() => t.close());
 
+  it("cuenta los gastos vivos de cada categoría", async () => {
+    await withTenant(t.db, tenantId, async (tx) => {
+      const [cat] = await listCategories(tx, tenantId);
+      if (!cat) throw new Error("sin categorías");
+      const [phone] = await tx.select().from(schema.phoneNumber);
+      const [rate] = await tx
+        .insert(schema.bcvRate)
+        .values({ effectiveDate: "2026-09-29", rate: "858.00000000", source: "test" })
+        .returning();
+      const base = {
+        tenantId,
+        type: "expense",
+        businessDate: "2026-09-29",
+        amount: "15.00",
+        currency: "USD",
+        rateId: rate?.id,
+        rateValue: "858.00000000",
+        amountUsd: "15.00",
+        amountVes: "12870.00",
+        sourceChannel: "text",
+        createdByPhoneId: phone?.id,
+        categoryId: cat.id,
+      } as const;
+      await tx.insert(schema.movement).values([base, base, { ...base, deletedAt: new Date() }]);
+      const list = await listCategories(tx, tenantId);
+      expect(list.find((c) => c.id === cat.id)?.movements).toBe(2);
+      expect(list.filter((c) => c.id !== cat.id).every((c) => c.movements === 0)).toBe(true);
+    });
+  });
+
   it("crea, renombra y desactiva; rechaza duplicados sin distinguir mayúsculas", async () => {
     await withTenant(t.db, tenantId, async (tx) => {
       const before = await listCategories(tx, tenantId);

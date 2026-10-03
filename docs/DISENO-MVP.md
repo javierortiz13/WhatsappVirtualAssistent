@@ -1195,6 +1195,17 @@ El texto final se escribe en la Fase 4 junto con los guiones, y se versiona en e
 - Implementación: migración 0007 (`tenant.plan`, `trial_ends_at`, `paid_until`, `cap_notified_month`; tabla `payment` con RLS; `bcv_rate.rate_eur`; función `every_tenant_id`). Panel `/admin` solo para `PLATFORM_ADMIN_EMAILS`, que recorre los negocios uno a uno bajo RLS y deja cada acción en `audit_log` (canal `admin`). La vuelta de cobros corre en el housekeeping del worker.
 - Consecuencias: el margen del pago móvil depende de que la brecha no supere la prima del euro sobre el dólar (13,6 % el 02/10). El panel muestra esa prima cada día; si la brecha la pasa, subir el precio en bolívares o cobrar a una tasa manual.
 
+**ADR-016. Presupuestos por categoría, en dólares, mensuales o quincenales** (03/10/2026)
+- Contexto: Javier pidió presupuestos por categoría al estilo de la app Rial, con el bot diciendo cuánto queda.
+- Decisión (Javier, 03/10):
+  1. **Solo en dólares.** Un tope en Bs queda viejo en semanas. Los gastos en Bs cuentan por su `amount_usd`, a la tasa con que se guardaron.
+  2. **Períodos:** mensual (mes calendario) o quincenal (1–15 y 16–fin de mes, las quincenas de pago), en hora de Caracas. Lo que sobra no pasa al período siguiente.
+  3. **En todos los planes.**
+  4. **Solo el dueño ve lo que queda:** la línea tras "Guardar" y la consulta por chat. El empleado ve su ✅ normal.
+  5. **Se fijan en el dashboard** (Ajustes → Categorías). Por chat, "ponle 200$ a insumos" responde con el enlace; fijarlos por chat con borrador queda para después.
+- Implementación: migración 0009 (`app.budget`, uno por categoría, RLS). `budgetStatuses` suma en una consulta lo gastado de cada tope en su ventana. El bot agrega "Insumos: te quedan *$45,00* de $200,00 este mes." al guardar, con ⚠️ desde el 80 % y 🔴 en el tope o pasado; la herramienta `get_budgets` responde "cuánto me queda en X" y "cómo voy con los presupuestos". Inicio muestra una tarjeta con barras.
+- Consecuencias: la línea va dentro de la respuesta a "Guardar", así que no cuesta mensajes extra. No hay avisos proactivos al pasar el tope (requieren plantilla de Meta).
+
 ### Decisiones tomadas en la Fase 3
 
 - Monolito modular, procesos web y worker, cola en Postgres, serialización por teléfono.
