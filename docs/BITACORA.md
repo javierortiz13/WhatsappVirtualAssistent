@@ -536,3 +536,17 @@ La aclaración de la moneda pasa a una nota al final. Las correcciones muestran 
 - Tests: reporte de ventas de punta a punta con PDF adjunto, corrección gasto → venta que conserva el PDF y guarda sin método, texto del agente para ventas y leyenda. Dos casos de eval nuevos (82). 264 tests.
 
 **Pendiente conocido:** si el usuario manda la aclaración ("Ventas del día") como mensaje aparte mientras el PDF se lee, el bot la contesta sola. Mejor escribirla como leyenda del archivo.
+
+### S2 · 03/10/2026 · Renovar el plan por el bot (ADR-015 fase 2)
+
+**Pedido (Javier):** renovar el plan desde WhatsApp. Decisiones: funciona con el plan vencido, solo el dueño, referencia por texto (la foto del comprobante después), un mes del plan actual por defecto con meses y cambio de plan, aviso de "pago verificado" solo dentro de la ventana de 24 horas.
+
+**Flujo**
+1. "quiero renovar", "¿cuándo se me vence el plan?", "pásame a negocio plus 3 meses" → herramienta `renew_plan` → plan, vencimiento y monto por método (pago móvil a tasa euro, Zelle, Binance) con un botón por método. Con el plan vencido, "renovar", "pagar" o "plan" dan lo mismo sin pasar por el LLM; cualquier otra cosa responde "tu plan venció… escribe *renovar*".
+2. Botón → datos de cobro y monto exacto; queda la intención `renew_plan` (48 h, fuera de la cola de borradores).
+3. "ref 123456" (o el número solo, o "ya pagué 12345678" sin moneda, con la intención abierta) → pago pendiente con nota "Reportado por WhatsApp", auditado como teléfono por canal `whatsapp`, sin LLM. Sin intención: botones "¿Por dónde pagaste?" que reportan de un toque. Tope de 3 pendientes.
+4. Aprobar o rechazar en `/admin` → el housekeeping (cada 5 min) manda "✅ Pago verificado. Tu plan Negocio quedó activo hasta el …" o "No pudimos verificar tu pago… Motivo: …" si el dueño escribió en 24 h; cada pago se avisa una sola vez (`payment.notified_at`).
+
+**Cambios:** migración 0011 (`renew_plan` en `pending_action_kind_check`, `payment.notified_at`; los pagos ya revisados quedan marcados), `billing/renew.ts` y `renew-chat.ts`, `inbox/notices.ts`, la puerta de suspendidos deja pasar al dueño, `PAYMENT_*` también en el worker (Railway). La consola marca "por WhatsApp" y los meses.
+
+**Tests:** extracción de referencias (un gasto con monto no es referencia), oferta y botones, intención, reporte sin LLM, cambio de plan y meses, empleado, plan vencido (sin LLM), tope de 3, avisos aprobado/rechazado una sola vez y fuera de la ventana. Cinco casos de eval nuevos (87). 272 tests.

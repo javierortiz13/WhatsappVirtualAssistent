@@ -1,0 +1,30 @@
+# Renovar el plan por el bot (03/10): el plan del asistente es renew_plan; pagar cosas del
+# negocio sigue siendo un gasto.
+- name: quiere renovar
+  input: "quiero renovar el plan"
+  expect:
+    tool: renew_plan
+    args: { plan: current, method: unknown, reference: "" }
+
+- name: cuándo vence
+  input: "cuándo se me vence el plan?"
+  expect:
+    tool: renew_plan
+
+- name: cambiarse de plan con meses
+  input: "pásame a negocio plus por 3 meses"
+  expect:
+    tool: renew_plan
+    args: { plan: negocio_plus, months: 3 }
+
+- name: ya pagó el plan con referencia
+  input: "ya pagué el plan por pago móvil, ref 123456"
+  expect:
+    tool: renew_plan
+    args: { method: pago_movil, reference: "123456" }
+
+- name: pagar la luz es un gasto, no el plan
+  input: "pagué 20$ de luz"
+  expect:
+    tool: draft_expense
+    tool_not: renew_plan

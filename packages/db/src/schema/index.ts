@@ -62,6 +62,7 @@ export const PENDING_KINDS = [
   "replace_day_total",
   "edit_last",
   "delete_last",
+  "renew_plan",
 ] as const;
 export const PENDING_STATUSES = ["pending", "confirmed", "cancelled", "expired"] as const;
 
@@ -395,6 +396,8 @@ export const payment = app.table(
     notes: text("notes"),
     reviewedBy: text("reviewed_by"),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    /** Aviso por WhatsApp de "pago verificado" o "no verificado" (0011). */
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [

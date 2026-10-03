@@ -2,5 +2,7 @@ export * from "./enforce";
 export * from "./payments";
 export * from "./plans";
 export * from "./pricing";
+export * from "./renew";
+export * from "./renew-chat";
 export * from "./subscription";
 export * from "./usage";

@@ -9,6 +9,10 @@ const Env = z.object({
   ASSISTANT_NAME: z.string().default("Asistente de Caja"),
   DASHBOARD_URL: z.string().url().default("http://localhost:3000"),
   SUPPORT_HINT: z.string().optional(),
+  /** Datos de cobro que el bot manda al renovar el plan (mismos valores que en Vercel). */
+  PAYMENT_PAGO_MOVIL: z.string().optional(),
+  PAYMENT_ZELLE: z.string().optional(),
+  PAYMENT_BINANCE: z.string().optional(),
   META_ACCESS_TOKEN: z.string().min(1),
   META_PHONE_NUMBER_ID: z.string().min(1),
   META_GRAPH_VERSION: z.string().default("v24.0"),

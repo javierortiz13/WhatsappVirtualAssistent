@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lt, type Queryable, schema, type Tx } from "@caja/db";
+import { and, desc, eq, inArray, lt, ne, type Queryable, schema, type Tx } from "@caja/db";
 import { z } from "zod";
 import type { IsoDate } from "../domain/dates";
 import {
@@ -222,12 +222,17 @@ export async function insertDraft(
 }
 
 /** Borradores pendientes del teléfono, el más reciente primero. */
+/** Borradores en espera del teléfono. La intención de renovar el plan no es un borrador. */
 export async function pendingDrafts(tx: Tx, phoneId: string) {
   return tx
     .select()
     .from(schema.pendingAction)
     .where(
-      and(eq(schema.pendingAction.phoneId, phoneId), eq(schema.pendingAction.status, "pending")),
+      and(
+        eq(schema.pendingAction.phoneId, phoneId),
+        eq(schema.pendingAction.status, "pending"),
+        ne(schema.pendingAction.kind, "renew_plan"),
+      ),
     )
     .orderBy(desc(schema.pendingAction.createdAt), desc(schema.pendingAction.expiresAt));
 }

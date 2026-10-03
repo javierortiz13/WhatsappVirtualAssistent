@@ -31,7 +31,16 @@ export const IDS = {
   choice: (pendingId: string, key: ChoiceKey) => `choice:${key}:${pendingId}`,
   currency: (c: "USD" | "VES") => `currency:${c}`,
   category: (categoryId: string) => `cat:${categoryId}`,
+  /** Renovar el plan: método elegido para un plan y meses (03/10). */
+  renew: (method: RenewMethod, plan: string, months: number) => `renew:${method}:${plan}:${months}`,
+  /** Ya pagó y mandó la referencia sin haber elegido método: un toque y queda reportado. */
+  renewRef: (method: RenewMethod, reference: string) => `renewref:${method}:${reference}`,
 } as const;
+
+export const RENEW_METHODS = ["pago_movil", "zelle", "binance"] as const;
+export type RenewMethod = (typeof RENEW_METHODS)[number];
+const isRenewMethod = (v: string | undefined): v is RenewMethod =>
+  (RENEW_METHODS as readonly string[]).includes(v ?? "");
 
 export const CHOICE_KEYS = ["stated", "breakdown", "replace", "append"] as const;
 export type ChoiceKey = (typeof CHOICE_KEYS)[number];
@@ -42,6 +51,8 @@ export type ParsedReplyId =
   | { kind: "choice"; key: ChoiceKey; pendingId: string }
   | { kind: "currency"; currency: "USD" | "VES" }
   | { kind: "category"; categoryId: string }
+  | { kind: "renew"; method: RenewMethod; plan: string; months: number }
+  | { kind: "renew_ref"; method: RenewMethod; reference: string }
   | { kind: "unknown"; raw: string };
 
 export function parseReplyId(raw: string): ParsedReplyId {
@@ -70,6 +81,20 @@ export function parseReplyId(raw: string): ParsedReplyId {
     case "cat":
       if (value) return { kind: "category", categoryId: value };
       break;
+    case "renew": {
+      const [method, plan, months] = rest;
+      const n = Number(months);
+      if (isRenewMethod(method) && plan && Number.isInteger(n) && n >= 1 && n <= 12)
+        return { kind: "renew", method, plan, months: n };
+      break;
+    }
+    case "renewref": {
+      const [method, ...refParts] = rest;
+      const reference = refParts.join(":");
+      if (isRenewMethod(method) && /^[A-Z0-9-]{4,30}$/i.test(reference))
+        return { kind: "renew_ref", method, reference };
+      break;
+    }
     default:
       break;
   }

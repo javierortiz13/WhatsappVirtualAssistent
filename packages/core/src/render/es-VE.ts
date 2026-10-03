@@ -1,6 +1,6 @@
 import { asIsoDate, formatShortDate, type IsoDate, monthNameEs } from "../domain/dates";
 import { Decimal, formatMoney, type RateOrigin } from "../domain/money";
-import { IDS, type Outbound } from "./outbound";
+import { IDS, type Outbound, type RenewMethod } from "./outbound";
 
 /**
  * Todo texto que ve el usuario vive aquí (Fase 4). Español venezolano, tuteo, corto, un emoji
@@ -109,12 +109,179 @@ export function tooFast(): Outbound {
 /** Número del dueño todavía sin verificar: solo acepta el código del dashboard. */
 /** Negocio suspendido por plan vencido: sin LLM, con el contacto para renovar. Los datos siguen. */
 export function planExpired(supportHint: string | null): Outbound {
-  const contact = supportHint
-    ? `Para renovarlo escríbenos: ${supportHint}`
-    : "Para renovarlo escríbele a quien te dio de alta.";
+  const contact = supportHint ? ` Si necesitas ayuda: ${supportHint}` : "";
   return {
     type: "text",
-    body: `Tu plan del asistente venció y por ahora no puedo registrar nada. Tus datos siguen guardados. ${contact}`,
+    body: `Tu plan del asistente venció y por ahora no puedo registrar nada. Tus datos siguen guardados. Para renovarlo escribe *renovar* y te digo cómo pagar.${contact}`,
+  };
+}
+
+// ---------------------------------------------------------------- renovar el plan (03/10)
+
+const RENEW_METHOD_LABELS: Record<RenewMethod, string> = {
+  pago_movil: "Pago móvil",
+  zelle: "Zelle",
+  binance: "Binance",
+};
+
+export type RenewQuoteView = {
+  method: RenewMethod;
+  currency: "VES" | "USD" | "USDT";
+  amount: Decimal.Value;
+  rateKind: "bcv_usd" | "bcv_eur" | null;
+  rateValue: Decimal.Value | null;
+};
+
+/** "*Bs 19.468,72* (tasa euro 973,93)", "*$19,99*", "*19,99 USDT*". */
+function renewAmount(q: RenewQuoteView): string {
+  if (q.currency === "USDT") return `*${formatMoney(q.amount, "USD").replace("$", "")} USDT*`;
+  if (q.currency === "USD") return `*${formatMoney(q.amount, "USD")}*`;
+  const rate = q.rateValue
+    ? ` (tasa ${q.rateKind === "bcv_eur" ? "euro" : "BCV"} ${formatMoney(q.rateValue, "VES").replace("Bs ", "")})`
+    : "";
+  return `*${formatMoney(q.amount, "VES")}*${rate}`;
+}
+
+const monthsText = (n: number) => (n === 1 ? "1 mes" : `${n} meses`);
+
+export type RenewOfferView = {
+  planName: string;
+  planId: string;
+  /** Si pidió cambiarse de plan, el nombre del actual. */
+  fromPlanName: string | null;
+  stateKind: "trial" | "active" | "grace" | "expired" | "suspended";
+  endsAt: IsoDate | null;
+  daysLeft: number | null;
+  months: number;
+  quotes: RenewQuoteView[];
+  supportHint: string | null;
+};
+
+function renewStateLine(v: RenewOfferView): string {
+  const when = v.endsAt ? formatShortDate(v.endsAt) : null;
+  const left =
+    v.daysLeft !== null && v.daysLeft > 0
+      ? ` (${v.daysLeft === 1 ? "falta 1 día" : `faltan ${v.daysLeft} días`})`
+      : "";
+  switch (v.stateKind) {
+    case "trial":
+      return when ? `Tu prueba gratis termina el ${when}${left}.` : "Estás en la prueba gratis.";
+    case "active":
+      return when ? `Vence el ${when}${left}.` : "Tu plan está activo.";
+    case "grace":
+      return when
+        ? `Venció el ${when}; tienes 3 días de gracia antes de que se suspenda.`
+        : "Tu plan venció.";
+    default:
+      return when ? `Venció el ${when} y está suspendido.` : "Tu plan está suspendido.";
+  }
+}
+
+/** Plan, vencimiento y cuánto cuesta renovar por cada método, con un botón por método. */
+export function renewOffer(v: RenewOfferView): Outbound {
+  const head = v.fromPlanName
+    ? `*Cambiar a ${v.planName}* (hoy tienes ${v.fromPlanName})`
+    : `*Tu plan: ${v.planName}*`;
+  const lines = [head, renewStateLine(v)];
+  if (v.quotes.length === 0) {
+    lines.push(
+      v.supportHint
+        ? `Para renovar escríbenos: ${v.supportHint}`
+        : "Para renovar escríbele a quien te dio de alta.",
+    );
+    return { type: "text", body: lines.join("\n") };
+  }
+  lines.push(`Renovar ${monthsText(v.months)}:`);
+  for (const q of v.quotes) lines.push(`• ${RENEW_METHOD_LABELS[q.method]}: ${renewAmount(q)}`);
+  lines.push("¿Cómo vas a pagar?");
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: v.quotes.map((q) => ({
+      id: IDS.renew(q.method, v.planId, v.months),
+      title: RENEW_METHOD_LABELS[q.method],
+    })),
+  };
+}
+
+/** Datos para pagar por el método elegido y qué mandar después. */
+export function renewPayTo(v: {
+  quote: RenewQuoteView;
+  dest: string;
+  planName: string;
+  months: number;
+}): Outbound {
+  return {
+    type: "text",
+    body: [
+      `*${RENEW_METHOD_LABELS[v.quote.method]}* · Plan ${v.planName}, ${monthsText(v.months)}`,
+      `Monto: ${renewAmount(v.quote)}`,
+      `Datos: ${v.dest}`,
+      "Cuando pagues, mándame la referencia. Ejemplo: _ref 123456_",
+    ].join("\n"),
+  };
+}
+
+export function renewReported(v: {
+  quote: RenewQuoteView;
+  planName: string;
+  months: number;
+  reference: string;
+}): Outbound {
+  return {
+    type: "text",
+    body: `✅ Recibí tu pago: Plan ${v.planName}, ${monthsText(v.months)}, ${renewAmount(v.quote)}, ref ${v.reference}. Lo verificamos y te aviso por aquí.`,
+  };
+}
+
+/** Mandó la referencia sin haber elegido método: un botón por método reporta de una vez. */
+export function renewWhichMethod(reference: string, methods: RenewMethod[]): Outbound {
+  return {
+    type: "buttons",
+    body: `Recibí la referencia ${reference}. ¿Por dónde pagaste?`,
+    buttons: methods.map((m) => ({
+      id: IDS.renewRef(m, reference),
+      title: RENEW_METHOD_LABELS[m],
+    })),
+  };
+}
+
+export function renewTooMany(supportHint: string | null): Outbound {
+  return {
+    type: "text",
+    body: `Ya tienes 3 pagos por verificar. Espera a que los revisemos${supportHint ? ` o escríbenos: ${supportHint}` : "."}`,
+  };
+}
+
+export function renewOwnerOnly(): Outbound {
+  return { type: "text", body: "El plan lo renueva el dueño del negocio." };
+}
+
+export function renewUnavailable(supportHint: string | null): Outbound {
+  return {
+    type: "text",
+    body: `No pude calcular el monto ahora mismo. Inténtalo en unos minutos${supportHint ? ` o escríbenos: ${supportHint}` : "."}`,
+  };
+}
+
+export function paymentVerified(planName: string, paidUntil: IsoDate | null): Outbound {
+  return {
+    type: "text",
+    body: `✅ Pago verificado. Tu plan ${planName} quedó activo${paidUntil ? ` hasta el ${formatShortDate(paidUntil)}` : ""}. ¡Gracias!`,
+  };
+}
+
+export function paymentRejected(v: {
+  reference: string | null;
+  reason: string | null;
+  supportHint: string | null;
+}): Outbound {
+  const ref = v.reference ? ` con referencia ${v.reference}` : "";
+  const why = v.reason ? ` Motivo: ${v.reason}.` : "";
+  const help = v.supportHint ? ` Si crees que es un error, escríbenos: ${v.supportHint}` : "";
+  return {
+    type: "text",
+    body: `No pudimos verificar tu pago${ref}.${why} Revisa los datos y vuelve a mandarme la referencia.${help}`,
   };
 }
 

@@ -1,4 +1,5 @@
 import type { Tx } from "@caja/db";
+import type { PaymentDest } from "../billing/renew";
 import type { IsoDate } from "../domain/dates";
 import type { Outbound } from "../render/outbound";
 import type { ReceiptExtraction } from "../vision/receipt";
@@ -19,6 +20,8 @@ export type AgentContext = {
   attachmentId: string | null;
   /** Enlace al dashboard para cierres y resúmenes. */
   dashboardUrl: string;
+  /** Datos de cobro para renovar el plan por el bot (03/10). */
+  billing?: { dest: PaymentDest; supportHint: string | null };
 };
 
 export type AgentInput =

@@ -353,13 +353,21 @@ describe("processInbound", () => {
       tx.update(schema.tenant).set({ status: "suspended" }).where(eq(schema.tenant.id, tenantId)),
     );
     try {
+      const before = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));
+      // El dueño pasa (puede renovar por el bot, 03/10); un gasto recibe "tu plan venció".
       const job = await ingest(message("wamid.SUSP1", "584121234567", "gasté 15$ en champú"));
-      expect(await processInbound(deps(client), job)).toBe("ignored");
+      expect(await processInbound(deps(client), job)).toBe("done");
       expect(textOf(sent[0])).toContain("Tu plan del asistente venció");
+      expect(textOf(sent[0])).toContain("escribe *renovar*");
+      const after = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));
+      expect(after).toHaveLength(before.length);
+      // El empleado sigue sin pasar.
+      const emp = await ingest(message("wamid.SUSP2", "584140000002", "gasté 15$ en champú"));
+      expect(await processInbound(deps(client), emp)).toBe("ignored");
       const [ev] = await t.db
         .select()
         .from(schema.webhookEvent)
-        .where(eq(schema.webhookEvent.id, job.webhookEventId));
+        .where(eq(schema.webhookEvent.id, emp.webhookEventId));
       expect(ev?.error).toBe("negocio suspendido");
     } finally {
       await withTenant(t.db, tenantId, (tx) =>

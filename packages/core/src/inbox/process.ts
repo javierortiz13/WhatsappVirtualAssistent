@@ -3,6 +3,18 @@ import type { ProcessMessageJob } from "@caja/db/queue";
 import { LlmUnavailableError } from "../agent/llm";
 import { deleteLastFlow } from "../agent/tools";
 import type { AgentInput, AgentRunner } from "../agent/types";
+import {
+  currentRenewIntent,
+  extractReference,
+  maybeRenewReference,
+  type PaymentDest,
+  planFromName,
+  RENEW_WORDS,
+  type RenewChatCtx,
+  renewOfferReply,
+  renewPayToReply,
+  renewReferenceReply,
+} from "../billing/index";
 import { asIsoDate, businessDateOf, formatShortDate } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import {
@@ -76,6 +88,8 @@ export type ProcessDeps = {
     knownWindowMs?: number;
     maxEventAgeMs: number;
     maxTextLength: number;
+    /** Datos de cobro por método para renovar el plan por el bot (03/10). */
+    paymentDest?: PaymentDest;
   };
 };
 
@@ -136,7 +150,12 @@ export async function processInbound(
   ) {
     return handlePendingOwner(deps, meta, msg, resolved, event.id, log, now);
   }
-  if (!resolved || !canUse(resolved)) {
+  // Plan vencido: el dueño sigue pudiendo renovar por el bot; el resto recibe "tu plan venció".
+  const suspendedOwner =
+    resolved?.phoneStatus === "active" &&
+    resolved.tenantStatus === "suspended" &&
+    resolved.role === "owner";
+  if (!resolved || (!canUse(resolved) && !suspendedOwner)) {
     const key = msg.sender.e164 ?? msg.sender.waUserId ?? msg.waMessageId;
     const reply = await allowUnknownReply(deps.db, key, {
       max: deps.config.unknownReplyMax,
@@ -281,6 +300,7 @@ export async function processInbound(
       }
     };
     const route = await routeMessage(tx, deps, msg, {
+      suspended: resolved.tenantStatus === "suspended",
       tenantId: resolved.tenantId,
       tenantName: tenant.name,
       phoneId: resolved.phoneId,
@@ -420,6 +440,8 @@ async function handlePendingOwner(
 }
 
 type RouteCtx = {
+  /** Negocio suspendido: solo se atiende la renovación del plan, sin LLM. */
+  suspended: boolean;
   tenantId: string;
   tenantName: string;
   phoneId: string;
@@ -449,16 +471,57 @@ const none = (outbound: Outbound[]): RouteResult => ({
   costUsd: null,
 });
 
+function renewCtx(deps: ProcessDeps, ctx: RouteCtx): RenewChatCtx {
+  return {
+    tenantId: ctx.tenantId,
+    phoneId: ctx.phoneId,
+    now: (deps.now ?? (() => new Date()))(),
+    dest: deps.config.paymentDest ?? {},
+    supportHint: deps.config.supportHint,
+  };
+}
+
+/**
+ * Negocio suspendido (solo llega el dueño): renovar sí, todo lo demás responde "tu plan venció".
+ * Sin LLM: botones de renovación, la referencia del pago y palabras como "renovar" o "pagar".
+ */
+async function routeSuspended(
+  tx: Tx,
+  deps: ProcessDeps,
+  msg: InboundMessage,
+  ctx: RouteCtx,
+): Promise<RouteResult> {
+  const c = renewCtx(deps, ctx);
+  if (msg.kind === "interactive") {
+    const parsed = parseReplyId(msg.replyId);
+    if (parsed.kind === "renew" || parsed.kind === "renew_ref")
+      return routeInteractive(tx, deps, msg.replyId, ctx);
+  }
+  if (msg.kind === "text") {
+    const open = await currentRenewIntent(tx, ctx.phoneId, c.now);
+    const reference = extractReference(msg.text, open !== null);
+    if (reference) return none([await renewReferenceReply(tx, c, reference)]);
+    if (RENEW_WORDS.test(msg.text)) return none([await renewOfferReply(tx, c)]);
+  }
+  return none([es.planExpired(deps.config.supportHint)]);
+}
+
 async function routeMessage(
   tx: Tx,
   deps: ProcessDeps,
   msg: InboundMessage,
   ctx: RouteCtx,
 ): Promise<RouteResult> {
+  if (ctx.suspended) return routeSuspended(tx, deps, msg, ctx);
   switch (msg.kind) {
     case "interactive":
       return routeInteractive(tx, deps, msg.replyId, ctx);
     case "text": {
+      // Referencia de un pago del plan con la intención abierta ("ref 123456"): sin LLM.
+      if (ctx.role === "owner") {
+        const paid = await maybeRenewReference(tx, renewCtx(deps, ctx), msg.text);
+        if (paid) return none([paid]);
+      }
       const keyword = classifyKeyword(msg.text);
       if (keyword === "menu") return none([es.menu(await getRateInfo(tx, ctx.today))]);
       if (keyword === "rate") return none([es.rate(await getRateInfo(tx, ctx.today))]);
@@ -793,6 +856,24 @@ async function routeInteractive(
         text: `Respuesta al botón de moneda: ${label}. Registra lo del mensaje anterior en esa moneda.`,
       });
     }
+    case "renew": {
+      if (ctx.role !== "owner") return none([es.renewOwnerOnly()]);
+      const plan = planFromName(parsed.plan);
+      if (!plan) return none([await renewOfferReply(tx, renewCtx(deps, ctx))]);
+      return none([
+        await renewPayToReply(tx, renewCtx(deps, ctx), {
+          method: parsed.method,
+          plan,
+          months: parsed.months,
+        }),
+      ]);
+    }
+    case "renew_ref": {
+      if (ctx.role !== "owner") return none([es.renewOwnerOnly()]);
+      return none([
+        await renewReferenceReply(tx, renewCtx(deps, ctx), parsed.reference, parsed.method),
+      ]);
+    }
     case "category": {
       const [cat] = await tx
         .select({ name: schema.category.name })
@@ -902,6 +983,7 @@ async function runAgent(
         attachmentId,
         sourceChannel: input.kind === "text" ? "text" : input.kind === "voice" ? "voice" : "image",
         dashboardUrl: deps.config.dashboardUrl,
+        billing: { dest: deps.config.paymentDest ?? {}, supportHint: deps.config.supportHint },
       },
       input,
     );

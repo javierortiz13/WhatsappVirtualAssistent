@@ -10,6 +10,7 @@ import {
   type ProcessDeps,
   processInbound,
   refreshRates,
+  sendPaymentNotices,
   sweepOrphanAttachments,
 } from "@caja/core";
 import { allTenantIds, type Db, withTenant } from "@caja/db";
@@ -39,6 +40,8 @@ export async function registerJobs(opts: {
   store?: ObjectStore | null;
   log: Logger;
   concurrency: number;
+  /** Número de la plataforma desde el que salen los avisos de pago verificado. */
+  platformPhoneNumberId?: string;
   /** Se llama con cada error de un handler antes de relanzarlo (Sentry en producción). */
   onError?: (err: unknown, queue: string) => void;
   /** Negocios que pasaron el límite de mensajes del plan este mes (una vez por mes cada uno). */
@@ -151,6 +154,21 @@ export async function registerJobs(opts: {
         log.error(
           { err: err instanceof Error ? err.message : String(err) },
           "cobros: ¿falta la migración 0007?",
+        );
+      }
+      // Pagos revisados en la consola: avisar al dueño por WhatsApp (si escribió en 24 h).
+      try {
+        const meta = opts.platformPhoneNumberId ? deps.metaFor(opts.platformPhoneNumberId) : null;
+        const notices = await sendPaymentNotices(db, meta, {
+          now,
+          supportHint: deps.config.supportHint,
+          log,
+        });
+        if (notices.sent || notices.skipped) log.info(notices, "avisos de pago");
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : String(err) },
+          "avisos de pago: ¿falta la migración 0011?",
         );
       }
     }),

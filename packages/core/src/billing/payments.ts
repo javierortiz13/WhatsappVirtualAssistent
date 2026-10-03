@@ -10,6 +10,8 @@ import { extendPaidUntil } from "./subscription";
  * 30 días por mes pagado. Todo corre dentro de `withTenant` del negocio y queda en auditoría.
  */
 export type Reviewer = { userId: string; email: string };
+/** Quién reporta un pago: el dueño en el dashboard (usuario) o por WhatsApp (teléfono). */
+export type Reporter = Reviewer | { phoneId: string };
 
 export type NewPayment = {
   tenantId: string;
@@ -59,13 +61,13 @@ export async function recordPayment(
 }
 
 /**
- * El cliente reporta desde "Mi plan" un pago que hizo (fase 2 adelantada, 02/10/2026). Queda
+ * El cliente reporta un pago que hizo, desde "Mi plan" (02/10/2026) o por WhatsApp (03/10). Queda
  * pendiente: solo el administrador lo aprueba después de verificarlo en su banco o billetera.
  */
 export async function reportPayment(
   tx: Tx,
   p: NewPayment,
-  user: Reviewer,
+  reporter: Reporter,
   now: Date,
 ): Promise<{ paymentId: string }> {
   if (!p.amount.isFinite() || p.amount.lte(0)) throw new Error("monto inválido");
@@ -93,7 +95,18 @@ export async function reportPayment(
     })
     .returning({ id: schema.payment.id });
   if (!row) throw new Error("no se pudo registrar el pago");
-  await audit(tx, p.tenantId, user, "report", "payment", row.id, null, { ...p }, now, "dashboard");
+  await audit(
+    tx,
+    p.tenantId,
+    reporter,
+    "report",
+    "payment",
+    row.id,
+    null,
+    { ...p },
+    now,
+    "phoneId" in reporter ? "whatsapp" : "dashboard",
+  );
   return { paymentId: row.id };
 }
 
@@ -198,19 +211,19 @@ function pickBilling(t: typeof schema.tenant.$inferSelect) {
 async function audit(
   tx: Tx,
   tenantId: string,
-  actor: Reviewer | null,
+  actor: Reporter | null,
   action: string,
   entity: string,
   entityId: string,
   before: unknown,
   after: unknown,
   now: Date,
-  channel: "admin" | "dashboard" = "admin",
+  channel: "admin" | "dashboard" | "whatsapp" = "admin",
 ): Promise<void> {
   await tx.insert(schema.auditLog).values({
     tenantId,
-    actorType: actor ? "user" : "system",
-    actorId: actor?.userId ?? null,
+    actorType: !actor ? "system" : "phoneId" in actor ? "phone" : "user",
+    actorId: !actor ? null : "phoneId" in actor ? actor.phoneId : actor.userId,
     action,
     entity,
     entityId,

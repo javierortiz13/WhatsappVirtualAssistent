@@ -112,6 +112,8 @@ export default async function AdminHome({
                 <span className="sub num">
                   {METHOD_LABEL[p.method]} · {p.currency === "VES" ? ves(p.amount) : usd(p.amount)}
                   {p.reference ? ` · ref ${p.reference}` : ""} · plan {p.plan}
+                  {p.months > 1 ? ` × ${p.months} meses` : ""}
+                  {p.notes === "Reportado por WhatsApp" ? " · por WhatsApp" : ""}
                 </span>
               </span>
               <span className="amts">

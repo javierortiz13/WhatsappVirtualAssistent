@@ -76,14 +76,15 @@ describe("definiciones de herramientas", () => {
       "draft_income_single",
       "get_summary",
       "get_budgets",
+      "renew_plan",
       "amend_last_movement",
       "delete_last_movement",
       "ask_clarification",
       "reject_out_of_scope",
       "get_bcv_rate",
     ]);
-    expect(toolsForRole("employee")).toHaveLength(11);
-    expect(toolsForRole("owner")).toHaveLength(11);
+    expect(toolsForRole("employee")).toHaveLength(12);
+    expect(toolsForRole("owner")).toHaveLength(12);
   });
   it("el JSON Schema es estricto: sin $schema, sin propiedades extra, con properties", () => {
     for (const t of ALL_TOOLS) {

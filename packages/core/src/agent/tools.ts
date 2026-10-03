@@ -1,5 +1,7 @@
-import type { Tx } from "@caja/db";
+import { eq, schema, type Tx } from "@caja/db";
 import { z } from "zod";
+import { planFromName } from "../billing/renew";
+import { renewOfferReply, renewPayToReply, renewReferenceReply } from "../billing/renew-chat";
 import { inferCurrency } from "../domain/currency-rule";
 import {
   addDays,
@@ -270,6 +272,23 @@ export const GetBudgetsInput = z.object({
     .boolean()
     .describe(
       'true si quiere PONER, cambiar o quitar un presupuesto ("ponle 200$ al mes a insumos"); false si solo pregunta cómo va.',
+    ),
+});
+
+export const RenewPlanInput = z.object({
+  plan: z
+    .enum(["current", "personal", "negocio", "negocio_plus"])
+    .describe(
+      'Plan a pagar: "current" si no pidió cambiarse; "personal", "negocio" o "negocio_plus" si dijo "pásame a ...".',
+    ),
+  months: z.number().int().describe("Meses a pagar; 1 si no lo dijo (máximo 12)."),
+  method: z
+    .enum(["unknown", "pago_movil", "zelle", "binance"])
+    .describe("Cómo va a pagar o pagó, si lo dijo; unknown si no."),
+  reference: z
+    .string()
+    .describe(
+      'Referencia o número de confirmación del pago si lo dio ("ref 123456" → "123456"); "" si no.',
     ),
 });
 
@@ -914,6 +933,44 @@ const getBudgets: ToolSpec<typeof GetBudgetsInput> = {
   },
 };
 
+const renewPlan: ToolSpec<typeof RenewPlanInput> = {
+  name: "renew_plan",
+  description:
+    "El plan del ASISTENTE (la suscripción a este servicio): cuándo vence, cuánto cuesta, renovarlo, cambiarse de plan o reportar que ya lo pagó ('quiero renovar', '¿cuándo se me vence el plan?', 'pásame a negocio plus', 'ya pagué el plan, ref 123456'). No es para gastos del negocio.",
+  schema: RenewPlanInput,
+  roles: ["owner", "employee"],
+  async run(input, run) {
+    const reply = (o: Outbound) => ({
+      kind: "terminal" as const,
+      status: "ok" as const,
+      outbound: [o],
+    });
+    if (run.ctx.role !== "owner") return reply(es.renewOwnerOnly());
+    const c = {
+      tenantId: run.ctx.tenantId,
+      phoneId: run.ctx.phoneId,
+      now: run.now,
+      dest: run.ctx.billing?.dest ?? {},
+      supportHint: run.ctx.billing?.supportHint ?? null,
+    };
+    const method = input.method === "unknown" ? null : input.method;
+    const reference = input.reference.replace(/[^A-Za-z0-9-]/g, "").toUpperCase();
+    if (reference.length >= 4)
+      return reply(await renewReferenceReply(run.tx, c, reference, method));
+    const months = Number.isInteger(input.months) ? input.months : 1;
+    const plan = input.plan === "current" ? null : input.plan;
+    if (method) {
+      const [t] = await run.tx
+        .select({ plan: schema.tenant.plan })
+        .from(schema.tenant)
+        .where(eq(schema.tenant.id, run.ctx.tenantId));
+      const current = planFromName(t?.plan) ?? "negocio";
+      return reply(await renewPayToReply(run.tx, c, { method, plan: plan ?? current, months }));
+    }
+    return reply(await renewOfferReply(run.tx, c, { plan, months }));
+  },
+};
+
 async function categoryNameOf(run: ToolRunCtx, categoryId: string | null): Promise<string | null> {
   if (!categoryId) return null;
   return run.ctx.categories.find((c) => c.id === categoryId)?.name ?? null;
@@ -1229,6 +1286,7 @@ export const ALL_TOOLS: ToolSpec<z.ZodType>[] = [
   draftIncomeSingle,
   getSummary,
   getBudgets,
+  renewPlan,
   amendLast,
   deleteLast,
   askClarification,

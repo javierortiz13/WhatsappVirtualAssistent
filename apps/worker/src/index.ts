@@ -86,6 +86,11 @@ async function main() {
       unknownReplyWindowMs: 60 * 60 * 1000,
       maxEventAgeMs: 12 * 60 * 60 * 1000,
       maxTextLength: 500,
+      paymentDest: {
+        pago_movil: env.PAYMENT_PAGO_MOVIL ?? null,
+        zelle: env.PAYMENT_ZELLE ?? null,
+        binance: env.PAYMENT_BINANCE ?? null,
+      },
     },
   };
 
@@ -104,6 +109,7 @@ async function main() {
     store,
     log,
     concurrency: env.WORKER_CONCURRENCY,
+    platformPhoneNumberId: env.META_PHONE_NUMBER_ID,
     onError: (err, queue) => captureError(err, { queue }),
     // Aviso al administrador por Sentry (sin números ni mensajes): el bot sigue funcionando.
     onOverCap: (items) => {
