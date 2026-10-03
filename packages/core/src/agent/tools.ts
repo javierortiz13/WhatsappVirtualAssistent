@@ -182,7 +182,7 @@ export const AskClarificationInput = z.object({
 
 export const RejectOutOfScopeInput = z.object({
   reason: z
-    .enum(["general_chat", "other_business_task", "unclear"])
+    .enum(["general_chat", "other_business_task", "unclear", "dashboard_link"])
     .describe("Por qué no aplica ninguna función."),
 });
 
@@ -1271,10 +1271,16 @@ const askClarification: ToolSpec<typeof AskClarificationInput> = {
 const rejectOutOfScope: ToolSpec<typeof RejectOutOfScopeInput> = {
   name: "reject_out_of_scope",
   description:
-    "El mensaje no es un gasto, una venta, un ingreso, una corrección, un cierre o consulta, ni la tasa: saludos largos, preguntas generales, pedir que redactes algo, chistes, cualquier otra tarea (general_chat). También si pide algo de caja que no existe: inventario, deudas, clientes, presupuestos, corregir un movimiento que no sea el último (other_business_task). Borrar uno o varios de los últimos 30 minutos SÍ se puede: usa delete_last_movement.",
+    "El mensaje no es un gasto, una venta, un ingreso, una corrección, un cierre o consulta, ni la tasa: saludos largos, preguntas generales, pedir que redactes algo, chistes, cualquier otra tarea (general_chat). También si pide algo de caja que no existe: inventario, deudas, clientes, presupuestos, corregir un movimiento que no sea el último (other_business_task). Borrar uno o varios de los últimos 30 minutos SÍ se puede: usa delete_last_movement. Si pide el enlace o la página del dashboard, o dónde ver, corregir o exportar sus movimientos en la web, usa reason dashboard_link: el sistema le manda el enlace.",
   schema: RejectOutOfScopeInput,
   roles: ["owner", "employee"],
-  async run(input) {
+  async run(input, run) {
+    if (input.reason === "dashboard_link")
+      return {
+        kind: "terminal",
+        outbound: [es.dashboardLink(run.ctx.dashboardUrl, run.ctx.role)],
+        status: "ok",
+      };
     return {
       kind: "terminal",
       outbound: [input.reason === "other_business_task" ? es.comingSoon() : es.outOfScope()],

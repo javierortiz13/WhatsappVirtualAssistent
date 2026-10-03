@@ -549,6 +549,8 @@ async function routeMessage(
       if (keyword === "rate") return none([es.rate(await getRateInfo(tx, ctx.today))]);
       if (keyword === "help")
         return none([es.help(deps.config.dashboardUrl, deps.config.supportHint)]);
+      if (keyword === "dashboard")
+        return none([es.dashboardLink(deps.config.dashboardUrl, ctx.role)]);
       if (keyword === "close") return closeToday(tx, deps, ctx);
       if (keyword === "delete") return deleteLast(tx, deps, ctx, msg);
       if (msg.text.length > deps.config.maxTextLength) return none([es.tooLong()]);
@@ -1441,7 +1443,7 @@ async function totalsFor(
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export type Keyword = "menu" | "rate" | "help" | "close" | "delete" | null;
+export type Keyword = "menu" | "rate" | "help" | "close" | "delete" | "dashboard" | null;
 
 export function classifyKeyword(text: string): Keyword {
   const t = text
@@ -1496,8 +1498,19 @@ export function classifyKeyword(text: string): Keyword {
     ].includes(t)
   )
     return "delete";
+  // "link del dashboard", "pásame el enlace", "cuál es la página": mensaje corto, sin cifras y sin
+  // hablar de pagos ("el link de pago" es de la renovación).
+  if (
+    DASHBOARD_WORDS.test(t) &&
+    !/\d/.test(t) &&
+    !/\b(pago|pagar|pague|renovar|renuevo)\b/.test(t) &&
+    t.split(" ").length <= 8
+  )
+    return "dashboard";
   return null;
 }
+
+const DASHBOARD_WORDS = /\b(dashboard|dashbord|dasboard|panel|link|enlace|pagina|web)\b/;
 
 /** Cuerpo dentro del límite de Meta para botones y listas (1024): se recorta en vez de fallar. */
 function clip(body: string, max: number): string {

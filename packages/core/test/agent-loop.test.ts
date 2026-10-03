@@ -259,6 +259,23 @@ describe("agent loop", () => {
     expect(turn.indexOf("Contexto:")).toBeLessThan(turn.indexOf("Mensaje del usuario:"));
   });
 
+  it("reject_out_of_scope con dashboard_link manda el enlace (el empleado no tiene dashboard)", async () => {
+    const owner = await run(
+      fakeLlm([call("reject_out_of_scope", { reason: "dashboard_link" })]).client,
+      "¿dónde veo mis gastos en la computadora?",
+    );
+    expect(owner.status).toBe("ok");
+    expect((owner.outbound[0] as { body: string }).body).toContain(
+      "📊 Tu dashboard: https://caja.test",
+    );
+    const emp = await run(
+      fakeLlm([call("reject_out_of_scope", { reason: "dashboard_link" })]).client,
+      "¿dónde veo los gastos?",
+      { ...ctx, role: "employee" },
+    );
+    expect((emp.outbound[0] as { body: string }).body).toContain("lo ve el dueño");
+  });
+
   it("reject_out_of_scope y get_bcv_rate", async () => {
     const rej = await run(
       fakeLlm([call("reject_out_of_scope", { reason: "general_chat" })]).client,

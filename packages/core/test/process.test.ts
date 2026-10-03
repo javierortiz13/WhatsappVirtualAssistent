@@ -192,6 +192,11 @@ describe("processInbound", () => {
     expect(textOf(sent[0])).toContain("Próxima (mié 30/09): *Bs 859,30*");
     await processInbound(deps(client), await ingest(message("wamid.A1", "584121234567", "ayuda")));
     expect(textOf(sent[1])).toContain("https://caja.test");
+    await processInbound(
+      deps(client),
+      await ingest(message("wamid.DASH1", "584121234567", "Link del dashboard")),
+    );
+    expect(textOf(sent[2])).toContain("📊 Tu dashboard: https://caja.test");
   });
 
   it("texto libre va al agente (stub: fuera de alcance con menú)", async () => {
@@ -485,6 +490,12 @@ describe("classifyKeyword", () => {
     ["tasa", "rate"],
     ["¿a cómo está el dólar?", "rate"],
     ["ayuda", "help"],
+    ["Link del dashboard", "dashboard"],
+    ["pásame el enlace", "dashboard"],
+    ["¿cuál es la página?", "dashboard"],
+    ["dashboard", "dashboard"],
+    ["mándame el link de pago", null],
+    ["pagué 20$ de la página web", null],
     ["gasté 15$ en champú", null],
     ["hola, gasté 20", null],
   ])("%s → %s", (input, expected) => {

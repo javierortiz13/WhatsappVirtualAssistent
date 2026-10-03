@@ -91,6 +91,23 @@ export function help(dashboardUrl: string, supportHint: string | null): Outbound
   return { type: "text", body: lines.join("\n") };
 }
 
+/** "link del dashboard" (03/10): el enlace y cómo entrar. El empleado no tiene dashboard. */
+export function dashboardLink(dashboardUrl: string, role: "owner" | "employee"): Outbound {
+  if (role === "employee")
+    return {
+      type: "text",
+      body: "El dashboard lo ve el dueño del negocio. Tú puedes registrar gastos y ventas por aquí.",
+    };
+  return {
+    type: "text",
+    body: [
+      `📊 Tu dashboard: ${dashboardUrl}`,
+      "Ahí ves, corriges y exportas todos tus movimientos, y pones presupuestos por categoría.",
+      "Para entrar escribe tu correo: te mandamos un enlace y entras con un toque.",
+    ].join("\n"),
+  };
+}
+
 export function unknownNumber(registerUrl: string): Outbound {
   return {
     type: "text",

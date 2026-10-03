@@ -19,3 +19,18 @@
   input: "buenas tardes, cómo está todo por allá?"
   expect:
     tool: reject_out_of_scope
+
+# Pedir el dashboard (03/10, prueba de Javier): "Link del dashboard" caía en "todavía no lo hago".
+# Las frases cortas las resuelve una palabra clave; estas más libres van por el agente.
+- name: dónde ver los movimientos en la web
+  input: "¿dónde puedo ver todos mis gastos en la computadora?"
+  expect:
+    tool: reject_out_of_scope
+    args: { reason: dashboard_link }
+
+- name: cómo entro al dashboard
+  input: "como hago para entrar a ver mis cuentas desde la laptop"
+  expect:
+    tool: reject_out_of_scope
+    args: { reason: dashboard_link }
+

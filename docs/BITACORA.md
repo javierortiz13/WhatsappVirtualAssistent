@@ -580,3 +580,11 @@ La aclaración de la moneda pasa a una nota al final. Las correcciones muestran 
 - Lector: céntimos cortados con la parte entera clara ya no bajan la confianza de 0,6 (el usuario confirma el borrador).
 
 **Tests:** el caso "12956 bs → Gasto", el contexto en el turno, y la foto ilegible de punta a punta (mensaje, foto guardada, "12956 bs" → borrador → Guardar con la foto; el mensaje siguiente ya no hereda). Tres casos de eval nuevos (90). 279 tests.
+
+### S2 · 03/10/2026 · Pedir el enlace del dashboard por chat
+
+**Pedido (Javier):** "Link del dashboard" respondía "Eso todavía no lo hago por chat".
+
+**Cambios:** palabra clave `dashboard` sin LLM para mensajes cortos sin cifras que nombran dashboard, panel, link, enlace, página o web ("link del dashboard", "pásame el enlace", "¿cuál es la página?"); "el link de pago" o "pagué 20$ de la página web" no cuentan. Las frases libres ("¿dónde veo mis gastos en la computadora?") van por el agente: `reject_out_of_scope` con `reason: dashboard_link` manda el enlace. Respuesta: "📊 Tu dashboard: …", qué se hace ahí y cómo entrar (correo con enlace). El empleado recibe "El dashboard lo ve el dueño del negocio".
+
+**Tests:** palabras clave (incluidos los que no deben contar), el mensaje de punta a punta, la razón del agente para dueño y empleado. Dos casos de eval nuevos (92). 286 tests.
