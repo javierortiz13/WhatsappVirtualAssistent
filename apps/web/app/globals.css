@@ -885,6 +885,16 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
   border: 1px solid var(--border-2);
   box-shadow: none;
 }
+/* Guardar dentro de listas: verde suave, se ve como acción sin pesar tanto como el principal. */
+.btn.save {
+  background: var(--mint-soft);
+  color: var(--mint);
+  border: 1px solid rgba(63, 224, 176, 0.35);
+  box-shadow: none;
+}
+.btn.save:hover {
+  background: rgba(63, 224, 176, 0.22);
+}
 .btn.danger {
   background: transparent;
   color: var(--danger);

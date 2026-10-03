@@ -110,7 +110,7 @@ export default async function Categorias({
                   required
                   aria-label="Nombre"
                 />
-                <button className="btn secondary small" type="submit">
+                <button className="btn save small" type="submit">
                   Guardar
                 </button>
               </form>
@@ -140,7 +140,7 @@ export default async function Categorias({
                   <option value="monthly">Mensual</option>
                   <option value="biweekly">Quincenal</option>
                 </select>
-                <button className="btn secondary small" type="submit">
+                <button className="btn save small" type="submit">
                   Guardar
                 </button>
               </form>
