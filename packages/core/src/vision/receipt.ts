@@ -190,7 +190,7 @@ export function receiptUserText(e: ReceiptExtraction, caption: string | null = n
     `${e.line_items_count} renglones`,
   ];
   const note = caption?.trim()
-    ? ` El usuario escribió junto al archivo: "${caption.trim().slice(0, 200)}". Si dice que es una venta o un gasto, eso manda sobre lo leído.`
+    ? ` El usuario escribió junto al archivo: "${caption.trim().slice(0, 200)}". Si dice que es una venta o un gasto, eso manda sobre lo leído. Si dice qué se compró o en qué fue, úsalo como description, corto y sin verbos ("Registrar compra de cepillos y pala" → "Cepillos y pala"), y como category_name si encaja con una categoría.`
     : "";
   if (e.document_type === "pago_movil") {
     const cur = e.currency === "USD" ? "USD" : "VES";

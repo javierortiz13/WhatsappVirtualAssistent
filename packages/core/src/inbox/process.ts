@@ -1,4 +1,4 @@
-import { and, type Db, desc, eq, gt, ne, schema, sql, type Tx, withTenant } from "@caja/db";
+import { and, type Db, desc, eq, gt, gte, ne, schema, sql, type Tx, withTenant } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
 import { z } from "zod";
 import { LlmUnavailableError } from "../agent/llm";
@@ -99,8 +99,17 @@ export type ProcessDeps = {
     maxTextLength: number;
     /** Datos de cobro por método para renovar el plan por el bot (03/10). */
     paymentDest?: PaymentDest;
+    /**
+     * Cuánto espera un texto sin monto que el bot iba a contestar con una pregunta, por si detrás
+     * viene la foto que describe (al reenviar, WhatsApp entrega el texto antes). 03/10.
+     */
+    captionWaitMs?: number;
   };
 };
+
+/** Texto suelto + foto (03/10): espera por defecto y ventana para unirlos después. */
+export const CAPTION_WAIT_MS = 6_000;
+const CAPTION_LINK_MS = 2 * 60_000;
 
 /** Checklist de seguridad S2: 30 mensajes por 5 minutos para números conocidos. */
 export const KNOWN_MAX = 30;
@@ -319,6 +328,7 @@ export async function processInbound(
       today,
       inboundId: msg.waMessageId,
       ack,
+      mediaFollows: (waitMs) => mediaFollows(tx, event.id, event.receivedAt, msg.sender, waitMs),
     });
 
     // Una respuesta = un mensaje (ADR-014): la bienvenida viaja en el mismo envío que la respuesta.
@@ -482,6 +492,8 @@ type RouteCtx = {
   inboundId: string;
   /** Envía y registra un acuse antes de terminar la ruta (reacción 🎧 mientras se transcribe). */
   ack: (out: Outbound) => Promise<void>;
+  /** true si llega una foto o un PDF del mismo remitente antes de `waitMs`. */
+  mediaFollows?: (waitMs: number) => Promise<boolean>;
 };
 
 type RouteResult = {
@@ -561,7 +573,18 @@ async function routeMessage(
       if (keyword === "close") return closeToday(tx, deps, ctx);
       if (keyword === "delete") return deleteLast(tx, deps, ctx, msg);
       if (msg.text.length > deps.config.maxTextLength) return none([es.tooLong()]);
-      return runAgent(tx, deps, ctx, msg.waMessageId, { kind: "text", text: msg.text });
+      const result = await runAgent(tx, deps, ctx, msg.waMessageId, {
+        kind: "text",
+        text: msg.text,
+      });
+      // "Registrar compra de cepillos y pala" reenviado con una foto: el texto llega primero. Si el
+      // bot iba a preguntar y en unos segundos llega la foto, el texto no se contesta: la foto lo
+      // toma como leyenda (`captionBefore`) y sale un solo borrador.
+      const asked = result.toolCalls.at(-1)?.name === "ask_clarification";
+      const wait = deps.config.captionWaitMs ?? CAPTION_WAIT_MS;
+      if (asked && looksLikeCaption(msg.text) && ctx.mediaFollows && (await ctx.mediaFollows(wait)))
+        return { ...result, outbound: [] };
+      return result;
     }
     case "audio":
       return handleAudio(tx, deps, ctx, msg);
@@ -687,6 +710,16 @@ async function handleImage(
   const meta = deps.metaFor(msg.phoneNumberId);
   if (!deps.vision || !meta) return none([es.mediaNotYet("image")]);
   await ctx.ack(es.imageAck(msg.waMessageId));
+  // Sin leyenda propia, la toma del texto que llegó suelto justo antes (reenvíos).
+  if (!msg.caption?.trim()) {
+    const caption = await captionBefore(
+      tx,
+      ctx.phoneId,
+      msg.waMessageId,
+      (deps.now ?? (() => new Date()))(),
+    );
+    if (caption) msg = { ...msg, caption };
+  }
   let bytes: Uint8Array;
   let mimeType: string;
   try {
@@ -900,6 +933,123 @@ async function handlePagoMovil(
         : result.outbound),
     ],
   };
+}
+
+/** El mensaje entrante anterior del teléfono es una foto o un PDF de hace menos de 2 minutos. */
+async function mediaJustBefore(
+  tx: Tx,
+  phoneId: string,
+  currentWaMessageId: string,
+  now: Date,
+): Promise<boolean> {
+  const [prev] = await tx
+    .select({ kind: schema.message.kind })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.phoneId, phoneId),
+        eq(schema.message.direction, "in"),
+        ne(schema.message.kind, "reaction"),
+        ne(schema.message.waMessageId, currentWaMessageId),
+        gt(schema.message.createdAt, new Date(now.getTime() - CAPTION_LINK_MS)),
+      ),
+    )
+    .orderBy(desc(schema.message.createdAt))
+    .limit(1);
+  return prev?.kind === "image" || prev?.kind === "document";
+}
+
+/** Un texto sin cifras y corto puede ser la leyenda de una foto que viene detrás. */
+function looksLikeCaption(text: string): boolean {
+  return !/\d/.test(text) && text.trim().length > 0 && text.length <= 200;
+}
+
+/**
+ * Espera (sondeando cada 400 ms) a que entre una foto o un documento del mismo remitente después
+ * de este evento. Lee `webhook_event` en la misma transacción (READ COMMITTED: cada consulta ve lo
+ * que la ingesta ya confirmó); la cola por teléfono no procesa la foto porque va detrás del texto.
+ */
+async function mediaFollows(
+  db: Tx,
+  eventId: string,
+  receivedAt: Date,
+  sender: InboundMessage["sender"],
+  waitMs: number,
+): Promise<boolean> {
+  const who = sender.e164
+    ? sql`${schema.webhookEvent.payload}->'sender'->>'e164' = ${sender.e164}`
+    : sender.waUserId
+      ? sql`${schema.webhookEvent.payload}->'sender'->>'waUserId' = ${sender.waUserId}`
+      : null;
+  if (!who) return false;
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const [hit] = await db
+      .select({ id: schema.webhookEvent.id })
+      .from(schema.webhookEvent)
+      .where(
+        and(
+          ne(schema.webhookEvent.id, eventId),
+          // Todavía en cola: la foto que viene detrás de este texto, no una ya atendida.
+          eq(schema.webhookEvent.status, "received"),
+          gte(schema.webhookEvent.receivedAt, receivedAt),
+          sql`${schema.webhookEvent.payload}->>'kind' in ('image', 'document')`,
+          who,
+        ),
+      )
+      .limit(1);
+    if (hit) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, Math.min(400, Math.max(0, deadline - Date.now()))));
+  }
+}
+
+/**
+ * La leyenda de una foto que llegó como texto aparte justo antes (03/10): el mensaje entrante
+ * anterior del teléfono, de hace menos de 2 minutos, es un texto sin cifras que el bot no contestó
+ * (esperaba la foto) o contestó con una pregunta. Si no, null.
+ */
+async function captionBefore(
+  tx: Tx,
+  phoneId: string,
+  currentWaMessageId: string,
+  now: Date,
+): Promise<string | null> {
+  const [prev] = await tx
+    .select({
+      kind: schema.message.kind,
+      body: schema.message.body,
+      webhookEventId: schema.message.webhookEventId,
+    })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.phoneId, phoneId),
+        eq(schema.message.direction, "in"),
+        ne(schema.message.kind, "reaction"),
+        ne(schema.message.waMessageId, currentWaMessageId),
+        gt(schema.message.createdAt, new Date(now.getTime() - CAPTION_LINK_MS)),
+      ),
+    )
+    .orderBy(desc(schema.message.createdAt))
+    .limit(1);
+  if (prev?.kind !== "text" || !prev.body || !looksLikeCaption(prev.body) || !prev.webhookEventId)
+    return null;
+  const replies = await tx
+    .select({ toolCalls: schema.message.toolCalls })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.webhookEventId, prev.webhookEventId),
+        eq(schema.message.direction, "out"),
+        ne(schema.message.kind, "reaction"),
+      ),
+    );
+  const onlyAsked = replies.every((r) => {
+    const calls = Array.isArray(r.toolCalls) ? (r.toolCalls as { name?: string }[]) : [];
+    return calls.at(-1)?.name === "ask_clarification";
+  });
+  return onlyAsked ? prev.body.trim() : null;
 }
 
 function sumCost(a: string | null, b: string | null): string | null {
@@ -1158,6 +1308,22 @@ async function runAgent(
       attachmentId = prev.attachmentId;
     }
   }
+  // Texto sin cifras justo después de una foto: puede ser su leyenda llegada aparte.
+  if (
+    input.kind === "text" &&
+    waMessageId &&
+    !input.afterUnclearReceipt &&
+    looksLikeCaption(input.text)
+  )
+    input = {
+      ...input,
+      afterMedia: await mediaJustBefore(
+        tx,
+        ctx.phoneId,
+        waMessageId,
+        (deps.now ?? (() => new Date()))(),
+      ),
+    };
   const categories = await tx
     .select({ id: schema.category.id, name: schema.category.name })
     .from(schema.category)

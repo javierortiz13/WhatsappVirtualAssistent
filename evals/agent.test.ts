@@ -153,7 +153,7 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
                 description: d.description,
                 categoryName: d.category,
                 businessDate: ctx.today,
-                attachmentId: null,
+                attachmentId: d.with_photo ? "00000000-0000-4000-8000-000000000001" : null,
                 ...(d.fixing ? { fixing: true } : {}),
               },
               expiresAt: new Date(Date.now() + 10 * 60_000),
@@ -162,7 +162,12 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
           }
           const input: AgentInput = c.receipt
             ? { kind: "receipt", extracted: c.receipt, caption: c.caption ?? null }
-            : { kind: c.kind, text: c.input, afterUnclearReceipt: c.after_unclear_receipt ?? null };
+            : {
+                kind: c.kind,
+                text: c.input,
+                afterUnclearReceipt: c.after_unclear_receipt ?? null,
+                ...(c.kind === "text" && c.after_media ? { afterMedia: true } : {}),
+              };
           const r = await agent.run(tx, ctx, input);
           const drafts = await tx
             .select({ id: schema.pendingAction.id })

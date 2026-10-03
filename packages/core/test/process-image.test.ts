@@ -103,6 +103,22 @@ const llm: LlmClient = {
       usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
       model: "fake",
     });
+    if (text.includes("es la descripción de esa foto"))
+      return reply([
+        {
+          id: "d1",
+          name: "draft_expense",
+          input: {
+            amount: "45.00",
+            currency: "USD",
+            description: "Cepillos y pala",
+            category_name: "",
+            when: "",
+            rate: "",
+            corrects_draft: true,
+          },
+        },
+      ]);
     const sale =
       /Reporte de ventas leído por el sistema: total ([\d.]+) (USD|VES); fecha ([\d-]+)/.exec(text);
     if (sale)
@@ -227,7 +243,9 @@ const llm: LlmClient = {
       ]);
     }
     const m = /total ([\d.]+) (USD|VES)/.exec(text);
-    const vendor = /proveedor ([^;.]+)/.exec(text)?.[1] ?? "Factura";
+    const vendor = text.includes("cepillos y pala")
+      ? "Cepillos y pala"
+      : (/proveedor ([^;.]+)/.exec(text)?.[1] ?? "Factura");
     const date = /fecha (\d{4}-\d{2}-\d{2})/.exec(text)?.[1] ?? "";
     return {
       toolCalls: m
@@ -301,6 +319,7 @@ describe("fotos de facturas", () => {
         maxTextLength: 500,
         // Todos los casos usan el mismo teléfono y el mismo reloj: sin esto topan el límite.
         knownMax: 1000,
+        captionWaitMs: 30,
       },
     };
   }
@@ -710,5 +729,87 @@ describe("fotos de facturas", () => {
     );
     expect(sent).toHaveLength(2);
     expect(textOf(sent[1])).toContain("no pude leer bien el teléfono ni la cédula");
+  });
+  async function ingestOnly(p: unknown): Promise<ProcessMessageJob> {
+    jobs.length = 0;
+    await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
+    return jobs[0] as ProcessMessageJob;
+  }
+  const photoPayload = () => {
+    const p = JSON.parse(JSON.stringify(fx.imageMessage));
+    p.entry[0].changes[0].value.messages[0].id = `wamid.CAP${++seq}`;
+    delete p.entry[0].changes[0].value.messages[0].image.caption;
+    return p;
+  };
+  const pendingDrafts = () =>
+    withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.pendingAction).where(eq(schema.pendingAction.status, "pending")),
+    );
+  async function cancelAll(client: MetaClient, sent: Sent[]) {
+    for (const s of [...sent]) {
+      const cancel = buttonsOf(s).find((b) => b.title === "Cancelar");
+      if (cancel) await tap(client, null, cancel.id, "Cancelar");
+    }
+  }
+
+  it("reenvío: el texto llega antes que la foto, no se contesta y queda como leyenda", async () => {
+    const { sent, client } = fakeMeta();
+    const vision = fakeVision(RECEIPT);
+    const textJob = await ingestOnly(
+      fx.textMessage(`wamid.CAP${++seq}`, "Registrar compra de cepillos y pala"),
+    );
+    // La foto entra mientras el texto espera (la cola por teléfono la deja detrás).
+    const photoJob = await ingestOnly(photoPayload());
+    await processInbound(deps(client, vision), textJob);
+    expect(sent).toHaveLength(0);
+    await processInbound(deps(client, vision), photoJob);
+    expect(sent[0]?.body.reaction).toMatchObject({ emoji: "🧾" });
+    expect(sent).toHaveLength(2);
+    expect(textOf(sent[1])).toContain("Cepillos y pala: *$45,00*");
+    await cancelAll(client, sent);
+  });
+
+  it("la foto llega tarde: el texto recibe su pregunta y la foto igual toma la leyenda", async () => {
+    const { sent, client } = fakeMeta();
+    const vision = fakeVision(RECEIPT);
+    const textJob = await ingestOnly(
+      fx.textMessage(`wamid.CAP${++seq}`, "Registrar compra de cepillos y pala"),
+    );
+    await processInbound(deps(client, vision), textJob);
+    expect(textOf(sent[0])).toBe("¿Cuánto fue?");
+    await processInbound(deps(client, vision), await ingestOnly(photoPayload()));
+    expect(textOf(sent[2])).toContain("Cepillos y pala: *$45,00*");
+    await cancelAll(client, sent);
+  });
+
+  it("un texto con monto no espera ni se usa como leyenda", async () => {
+    const { sent, client } = fakeMeta();
+    const vision = fakeVision(RECEIPT);
+    const textJob = await ingestOnly(fx.textMessage(`wamid.CAP${++seq}`, "15 de cepillos y pala"));
+    const photoJob = await ingestOnly(photoPayload());
+    await processInbound(deps(client, vision), textJob);
+    expect(sent).toHaveLength(1);
+    await processInbound(deps(client, vision), photoJob);
+    expect(textOf(sent[2])).toContain("Ferretería El Tornillo");
+    await cancelAll(client, sent);
+  });
+
+  it("foto primero y el texto después: el texto describe el borrador de la foto", async () => {
+    const { sent, client } = fakeMeta();
+    const vision = fakeVision(RECEIPT);
+    await processInbound(deps(client, vision), await ingestOnly(photoPayload()));
+    expect(textOf(sent[1])).toContain("Ferretería El Tornillo");
+    const att = (await attachments()).at(-1);
+    await processInbound(
+      deps(client, vision),
+      await ingestOnly(fx.textMessage(`wamid.CAP${++seq}`, "Registrar compra de cepillos y pala")),
+    );
+    expect(textOf(sent[2])).toContain("Cepillos y pala: *$45,00*");
+    const drafts = await pendingDrafts();
+    expect(drafts).toHaveLength(1);
+    expect((drafts[0]?.payload as { attachmentId?: string } | undefined)?.attachmentId).toBe(
+      att?.id,
+    );
+    await cancelAll(client, sent);
   });
 });

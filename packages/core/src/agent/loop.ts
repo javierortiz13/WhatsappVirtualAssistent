@@ -6,7 +6,13 @@ import type { Outbound } from "../render/index";
 import { es } from "../render/index";
 import { receiptUserText } from "../vision/receipt";
 import { type LlmClient, type LlmTurn, LlmUnavailableError } from "./llm";
-import { GLOBAL_SYSTEM, tenantSystem, unclearReceiptContext, userTurn } from "./prompt";
+import {
+  afterMediaContext,
+  GLOBAL_SYSTEM,
+  tenantSystem,
+  unclearReceiptContext,
+  userTurn,
+} from "./prompt";
 import { type DraftRef, type ToolSpec, toLlmToolDef, toolsForRole } from "./tools";
 import type { AgentContext, AgentInput, AgentResult, AgentRunner } from "./types";
 
@@ -70,6 +76,13 @@ export function createAgent(opts: AgentOptions): AgentRunner {
 
       const after =
         input.kind === "text" || input.kind === "voice" ? input.afterUnclearReceipt : null;
+      const describes =
+        input.kind === "text" &&
+        input.afterMedia &&
+        !pendingDraft &&
+        drafts.latest?.payload.attachmentId
+          ? afterMediaContext(FIXABLE[drafts.latest.kind] as string)
+          : null;
       const turns: LlmTurn[] = [
         ...history,
         {
@@ -79,7 +92,7 @@ export function createAgent(opts: AgentOptions): AgentRunner {
             ctx.today,
             pendingDraft,
             waiting,
-            after ? unclearReceiptContext(after) : null,
+            after ? unclearReceiptContext(after) : describes,
           ),
         },
       ];

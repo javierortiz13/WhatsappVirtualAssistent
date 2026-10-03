@@ -37,6 +37,8 @@ export const EvalCase = z.object({
   /** Leyenda que el usuario escribió junto a la foto o el PDF. */
   caption: z.string().optional(),
   history: z.array(z.object({ role: z.enum(["in", "out"]), body: z.string() })).default([]),
+  /** El mensaje anterior fue una foto o PDF (03/10): el texto puede ser su leyenda llegada aparte. */
+  after_media: z.boolean().default(false),
   /** El mensaje responde a "no pude leer bien la factura" (03/10): lo poco que se leyó. */
   after_unclear_receipt: z
     .object({
@@ -59,6 +61,8 @@ export const EvalCase = z.object({
         description: z.string(),
         category: z.string().default("Otros"),
         fixing: z.boolean().default(false),
+        /** El borrador viene de una foto o PDF (lleva adjunto). */
+        with_photo: z.boolean().default(false),
       }),
     )
     .default([]),

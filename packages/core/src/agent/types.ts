@@ -38,7 +38,13 @@ export type UnclearReceipt = {
 };
 
 export type AgentInput =
-  | { kind: "text"; text: string; afterUnclearReceipt?: UnclearReceipt | null }
+  | {
+      kind: "text";
+      text: string;
+      afterUnclearReceipt?: UnclearReceipt | null;
+      /** El mensaje anterior fue una foto o PDF (hace menos de 2 min): puede ser su descripción. */
+      afterMedia?: boolean;
+    }
   /** Transcripción de una nota de voz: se trata como texto, pero el movimiento lleva canal `voice`. */
   | { kind: "voice"; text: string; afterUnclearReceipt?: UnclearReceipt | null }
   /** Lectura estructurada de una foto de factura: el loop la convierte en texto para el modelo. */

@@ -141,3 +141,11 @@ export function unclearReceiptContext(r: UnclearReceipt): string {
     "Usa SOLO el monto que escribe el usuario, nunca el posible total. Si no escribió ningún monto, usa ask_clarification preguntando solo el monto y la moneda.",
   ].join(" ");
 }
+
+/**
+ * Texto sin monto justo después de una foto que quedó en borrador (03/10, reenvíos: la leyenda
+ * llega como mensaje aparte). Es la descripción de esa foto, no un gasto nuevo.
+ */
+export function afterMediaContext(tool: string): string {
+  return `Contexto: el mensaje anterior del usuario fue una foto o PDF que quedó como el borrador más reciente (${tool}). Si este mensaje dice qué se compró, en qué fue o qué se vendió, es la descripción de esa foto: llama ${tool} con TODOS los campos del borrador, cambiando solo description (corta, sin verbos: "Registrar compra de cepillos y pala" → "Cepillos y pala") y category_name si encaja, con corrects_draft=true. Si es otra cosa (una pregunta, un cierre), ignora este contexto.`;
+}

@@ -612,3 +612,14 @@ Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más cla
 **Arreglo:** `ToolSpec.strict: false` para las herramientas de esquema trivial (`reject_out_of_scope`, `get_bcv_rate`, `convert_currency`); Zod las sigue validando y un argumento inválido tiene su reintento. Quedan 10 estrictas. `STRICT_TOOL_LIMIT = 12` (el último conjunto aceptado en producción) y un test que falla si se pasa, porque los tests con LLM falso no ven este error.
 
 **Lección:** un cambio en las herramientas del agente se prueba contra la API real antes de subir (`pnpm evals` o una llamada de humo), no solo con el LLM falso.
+
+### S2 · 03/10/2026 · Reenvío con texto aparte: la leyenda se une a la foto
+
+**Reporte (Javier):** al reenviar un comprobante con "Registrar compra de cepillos y pala", WhatsApp manda el texto como mensaje aparte y lo entrega ANTES que la foto (la imagen tarda en subir). La cola por teléfono los atiende en ese orden: el bot preguntaba "¿Cuánto pagaste…?" y luego armaba el borrador de la foto como "Factura", sin la descripción.
+
+**Cambios (opciones 1 + 2 acordadas)**
+1. *Esperar la foto:* si un texto sin cifras iba a recibir una pregunta (`ask_clarification`), el job espera hasta 6 s (`captionWaitMs`) sondeando `webhook_event` en la misma transacción por una foto o PDF del mismo remitente que siga en cola. Si llega, el texto no se contesta. Los textos con monto o que no dan pregunta no esperan.
+2. *Unir después:* al leer una foto sin leyenda, si el mensaje entrante anterior (menos de 2 min) es un texto sin cifras que no se contestó o se contestó solo con una pregunta, se usa como leyenda. Con leyenda, el lector pide usarla como descripción corta ("Cepillos y pala") y categoría.
+3. *Foto primero:* un texto sin cifras justo después de una foto que quedó en borrador lleva contexto al agente para corregir la descripción de ese borrador (corrects_draft, conserva la foto); una pregunta como "cómo va el mes" lo ignora.
+
+**Tests:** los cuatro casos (foto durante la espera, foto tarde, texto con monto que no espera, foto primero). Tres casos de eval nuevos (103). 323 tests.

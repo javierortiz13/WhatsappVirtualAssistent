@@ -97,3 +97,30 @@
     tool: draft_expense
     args: { currency: VES }
 
+
+# Reenvío con texto aparte (03/10, prueba de Javier): la foto llegó primero y quedó en borrador;
+# el texto sin monto que sigue es su descripción, no un gasto nuevo ni una pregunta.
+- name: texto después de la foto describe su borrador
+  input: "Registrar compra de cepillos y pala"
+  after_media: true
+  pending:
+    - { amount: "12960", currency: VES, description: "Factura", with_photo: true }
+  expect:
+    tool: draft_expense
+    args: { corrects_draft: true, amount: "12960", currency: VES }
+    pending_after: 1
+
+- name: una pregunta después de la foto no toca el borrador
+  input: "cómo va el mes"
+  after_media: true
+  pending:
+    - { amount: "12960", currency: VES, description: "Factura", with_photo: true }
+  expect:
+    tool: get_summary
+
+- name: leyenda llegada aparte se usa como descripción de la factura
+  receipt: { total: "12960.00", currency: VES, date: "2026-10-03", vendor: "", line_items_count: 0 }
+  caption: "Registrar compra de cepillos y pala"
+  expect:
+    tool: draft_expense
+    args: { amount: "12960.00", currency: VES }
