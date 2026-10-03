@@ -43,7 +43,7 @@ export function createAgent(opts: AgentOptions): AgentRunner {
       const userText =
         input.kind === "text" || input.kind === "voice"
           ? input.text
-          : receiptUserText(input.extracted);
+          : receiptUserText(input.extracted, input.caption ?? null);
 
       // Cola de borradores (ADR-006 revisado el 02/10): pueden esperar varios a la vez.
       const queue = (await pendingDrafts(tx, ctx.phoneId)).filter((d) => FIXABLE[d.kind]);

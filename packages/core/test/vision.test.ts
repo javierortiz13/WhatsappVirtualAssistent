@@ -64,10 +64,32 @@ describe("lector de facturas", () => {
       vendor: "",
       line_items_count: 0,
       confidence: 0.7,
+      document_type: "expense",
     });
     expect(t).toContain("total 45.00 (moneda no legible)");
     expect(t).toContain("fecha no legible");
     expect(t).toContain("proveedor no legible");
+    expect(t).toContain("draft_expense");
+  });
+
+  it("un reporte de ventas va a la venta del día; la leyenda del archivo manda", () => {
+    const sales = receiptUserText(
+      {
+        is_receipt: true,
+        total: "115.80",
+        currency: "USD",
+        date: "2026-09-30",
+        vendor: "Jp Car Wash",
+        line_items_count: 4,
+        confidence: 0.9,
+        document_type: "sales",
+      },
+      "Ventas del día",
+    );
+    expect(sales).toContain("Reporte de ventas leído por el sistema");
+    expect(sales).toContain("draft_income_day_total");
+    expect(sales).toContain("emisor Jp Car Wash");
+    expect(sales).toContain('El usuario escribió junto al archivo: "Ventas del día"');
   });
 
   it("el esquema de la herramienta no tiene uniones (modo strict)", async () => {

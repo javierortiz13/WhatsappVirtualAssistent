@@ -17,3 +17,17 @@
   expect:
     tool: draft_expense
     args: { amount: "18", currency: USD, when: ayer }
+
+# Reporte de ventas en PDF (03/10, prueba de Javier): "Detalles de ventas" de su propio negocio se
+# registraba como gasto. El lector marca document_type sales y el agente va a la venta del día.
+- name: reporte de ventas del propio negocio es venta del día
+  receipt: { total: "115.80", currency: USD, date: "2026-09-30", vendor: "Jp Car Wash", line_items_count: 4, document_type: sales }
+  expect:
+    tool: draft_income_day_total
+    tool_not: draft_expense
+
+- name: la leyenda "es una venta" manda sobre una lectura de gasto
+  receipt: { total: "60", currency: USD, date: "", vendor: "Cliente Pedro", line_items_count: 1, document_type: unknown }
+  caption: "esto es una venta que me pagaron"
+  expect:
+    tool_not: draft_expense

@@ -293,10 +293,7 @@ export const movement = app.table(
       "movement_single_author",
       sql.raw(`(created_by_phone_id IS NULL) <> (created_by_user_id IS NULL)`),
     ),
-    check(
-      "movement_income_needs_method",
-      sql.raw(`type = 'expense' OR payment_method <> 'unspecified' OR origin = 'day_total'`),
-    ),
+    // movement_income_needs_method se quitó en 0010: un ingreso suelto puede no decir el método.
   ],
 );
 

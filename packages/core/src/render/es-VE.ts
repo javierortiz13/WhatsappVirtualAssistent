@@ -233,17 +233,20 @@ export function imageAck(inboundId: string): Outbound {
   return { type: "reaction", body: "🧾", waMessageId: inboundId };
 }
 
-/** Qué leyó el sistema en la foto; va en el mismo envío que el borrador. */
+/** Qué leyó el sistema en la foto o el PDF; va en el mismo envío que el borrador. */
 export function receiptRead(r: {
   vendor: string;
   date: string;
   total: string;
   currency: string;
+  document_type?: "expense" | "sales" | "unknown";
+  isPdf?: boolean;
 }): Outbound {
   const parts = [r.vendor || "proveedor no legible"];
   if (r.total) parts.push(`${r.total} ${r.currency === "unknown" ? "" : r.currency}`.trim());
   if (r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date)) parts.push(formatShortDate(asIsoDate(r.date)));
-  return { type: "text", body: `🧾 Leí la factura: ${parts.join(" · ")}` };
+  const what = r.document_type === "sales" ? "el reporte de ventas" : "la factura";
+  return { type: "text", body: `🧾 Leí ${what}: ${parts.join(" · ")}` };
 }
 
 export function receiptUnclear(): Outbound {
@@ -705,6 +708,8 @@ export type IncomeSingleView = {
   businessDate: string;
   today: string;
   methodLabel: string;
+  /** "unspecified" omite el "por …": no se dijo cómo pagaron. */
+  method?: string;
   description: string | null;
   transcript: string | null;
   replacedPrevious: boolean;
@@ -716,11 +721,8 @@ export function incomeSingleDraft(v: IncomeSingleView): Outbound {
   if (v.replacedPrevious) lines.push("Descarté el borrador anterior sin guardar.");
   if (v.transcript) lines.push(`Entendí: _"${v.transcript}"_`);
   lines.push("*Ingreso por confirmar*");
-  lines.push(
-    v.description
-      ? `${v.description}: *${main}* por ${v.methodLabel}`
-      : `*${main}* por ${v.methodLabel}`,
-  );
+  const how = v.method === "unspecified" ? "" : ` por ${v.methodLabel}`;
+  lines.push(v.description ? `${v.description}: *${main}*${how}` : `*${main}*${how}`);
   lines.push(equivalentLine(v));
   lines.push(dateLine(v.businessDate, v.today));
   if (v.currencyInferred) lines.push(inferredNote(v.currency));

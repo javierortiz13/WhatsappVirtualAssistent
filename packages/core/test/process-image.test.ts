@@ -68,6 +68,7 @@ const RECEIPT: ReceiptExtraction = {
   vendor: "Ferretería El Tornillo",
   line_items_count: 2,
   confidence: 0.9,
+  document_type: "expense",
 };
 
 function fakeVision(
@@ -95,6 +96,46 @@ const llm: LlmClient = {
   async complete(req) {
     const last = req.turns[req.turns.length - 1];
     const text = last && "text" in last ? (last.text ?? "") : "";
+    const reply = (toolCalls: { id: string; name: string; input: unknown }[]) => ({
+      toolCalls,
+      text: null,
+      stopReason: "tool_use" as const,
+      usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      model: "fake",
+    });
+    const sale =
+      /Reporte de ventas leído por el sistema: total ([\d.]+) (USD|VES); fecha ([\d-]+)/.exec(text);
+    if (sale)
+      return reply([
+        {
+          id: "s1",
+          name: "draft_income_day_total",
+          input: {
+            total_amount: sale[1],
+            total_currency: sale[2],
+            lines: [],
+            when: sale[3],
+            rate: "",
+            corrects_draft: false,
+          },
+        },
+      ]);
+    if (text.includes("No es un gasto es una venta"))
+      return reply([
+        {
+          id: "s2",
+          name: "draft_income_single",
+          input: {
+            amount: "45",
+            currency: "USD",
+            method: "unspecified",
+            description: "Ferretería El Tornillo",
+            when: "",
+            rate: "",
+            corrects_draft: true,
+          },
+        },
+      ]);
     if (text.includes("eran 50"))
       return {
         toolCalls: [
@@ -389,6 +430,54 @@ describe("fotos de facturas", () => {
     expect(vision.mimes).toEqual(["image/jpeg"]);
     expect(textOf(sent[1])).toContain("Gasto por confirmar");
     expect((await attachments()).at(-1)).toMatchObject({ mimeType: "image/jpeg" });
+  });
+
+  it("un reporte de ventas del propio negocio va a la venta del día con el PDF adjunto", async () => {
+    const { sent, client } = fakeMeta(pdf(2), "application/pdf");
+    const vision = fakeVision({
+      ...RECEIPT,
+      vendor: "Autolavado",
+      total: "115.80",
+      document_type: "sales",
+    });
+    await sendDocument(client, vision, { mime_type: "application/pdf", filename: "ventas.pdf" });
+    const body = textOf(sent[1]);
+    expect(body.startsWith("🧾 Leí el reporte de ventas: Autolavado · 115.80 USD")).toBe(true);
+    expect(body).toContain("$115,80");
+    const att = (await attachments()).at(-1);
+    await tap(client, vision, buttonsOf(sent[1])[0]?.id as string, "Guardar");
+    const [mv] = await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .select()
+        .from(schema.movement)
+        .where(eq(schema.movement.attachmentId, att?.id as string)),
+    );
+    expect(mv).toMatchObject({ type: "income", origin: "day_total", amountUsd: "115.80" });
+  });
+
+  it("corregir 'no es un gasto, es una venta' conserva el PDF y no dice 'Sin especificar'", async () => {
+    const { sent, client } = fakeMeta(pdf(1), "application/pdf");
+    const vision = fakeVision(RECEIPT);
+    await sendDocument(client, vision, { mime_type: "application/pdf", filename: "f.pdf" });
+    const att = (await attachments()).at(-1);
+    await tap(client, vision, buttonsOf(sent[1])[1]?.id as string, "Corregir");
+    jobs.length = 0;
+    const p = fx.textMessage(`wamid.SALE${++seq}`, "No es un gasto es una venta");
+    await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
+    await processInbound(deps(client, vision), jobs[0] as ProcessMessageJob);
+    const draft = textOf(sent.at(-1));
+    expect(draft).toContain("Ingreso por confirmar");
+    expect(draft).toContain("Ferretería El Tornillo: *$45,00*\n");
+    expect(draft).not.toContain("Sin especificar");
+    await tap(client, vision, buttonsOf(sent.at(-1))[0]?.id as string, "Guardar");
+    const [mv] = await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .select()
+        .from(schema.movement)
+        .where(eq(schema.movement.attachmentId, att?.id as string)),
+    );
+    expect(mv).toMatchObject({ type: "income", origin: "single", sourceChannel: "image" });
+    expect((await attachments()).find((a) => a.id === att?.id)?.deletedAt).toBeNull();
   });
 
   it("Word, Excel u otros archivos: lo dice sin descargar ni leer", async () => {

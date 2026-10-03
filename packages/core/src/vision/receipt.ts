@@ -14,6 +14,8 @@ export const ReceiptExtraction = z.object({
   vendor: z.string(),
   line_items_count: z.number(),
   confidence: z.number(),
+  /** 03/10: un reporte de ventas del propio negocio es dinero que entró, no un gasto. */
+  document_type: z.enum(["expense", "sales", "unknown"]).default("unknown"),
 });
 export type ReceiptExtraction = z.infer<typeof ReceiptExtraction>;
 
@@ -33,6 +35,7 @@ export const READ_RECEIPT_TOOL: LlmToolDef = {
       "vendor",
       "line_items_count",
       "confidence",
+      "document_type",
     ],
     properties: {
       is_receipt: {
@@ -67,6 +70,12 @@ export const READ_RECEIPT_TOOL: LlmToolDef = {
         type: "number",
         description: "Confianza de 0 a 1 en el total y la moneda leídos.",
       },
+      document_type: {
+        type: "string",
+        enum: ["expense", "sales", "unknown"],
+        description:
+          '"sales" si registra dinero que el negocio del usuario RECIBIÓ (reporte, detalle o cierre de ventas; factura o recibo emitido POR el negocio del usuario a un cliente). "expense" si es algo que el negocio PAGÓ a otro comercio o proveedor. "unknown" si no se puede saber.',
+      },
     },
   },
 };
@@ -77,6 +86,7 @@ const RECEIPT_SYSTEM = [
   "El total es lo que se pagó, con IVA incluido. Si hay 'Total' y 'Subtotal', usa 'Total'.",
   "Montos venezolanos: el punto separa miles y la coma decimales (1.250,50 = 1250.50). Devuelve el total con punto decimal.",
   "Moneda: Bs, Bs., BsS, VES o 'bolívares' es VES; $, USD o 'dólares' es USD. 'Ref' suele ser USD de referencia; si el pago fue en Bs, la moneda es VES.",
+  "document_type: mira quién emite el documento. Si el emisor es el negocio del usuario (su nombre viene en el mensaje) o el título habla de ventas, cierre de caja o ingresos, es 'sales'. Si lo emite otro comercio y el negocio del usuario es el cliente, es 'expense'.",
   "Si la imagen o el PDF no es una factura, recibo, ticket o comprobante (un contrato, un estado de cuenta, una cotización, un menú), is_receipt=false. No inventes cifras: si no se lee, deja el campo vacío y baja la confianza.",
 ].join("\n");
 
@@ -84,7 +94,12 @@ export type ReceiptReadResult = { extraction: ReceiptExtraction; usage: LlmUsage
 
 export interface ReceiptReader {
   readonly provider: string;
-  read(image: Uint8Array, mimeType: string): Promise<ReceiptReadResult>;
+  /** `businessName`: el negocio del usuario, para saber si el documento lo emitió él (venta). */
+  read(
+    image: Uint8Array,
+    mimeType: string,
+    opts?: { businessName?: string | null },
+  ): Promise<ReceiptReadResult>;
 }
 
 const EMPTY: ReceiptExtraction = {
@@ -95,18 +110,24 @@ const EMPTY: ReceiptExtraction = {
   vendor: "",
   line_items_count: 0,
   confidence: 0,
+  document_type: "unknown",
 };
 
 export function createReceiptReader(llm: LlmClient): ReceiptReader {
   return {
     provider: llm.model,
-    async read(image, mimeType) {
+    async read(image, mimeType, opts) {
+      const what = mimeType === "application/pdf" ? "Lee este PDF." : "Lee esta imagen.";
+      // El nombre va en el turno, no en el sistema: así el prompt de sistema sigue en caché.
+      const who = opts?.businessName
+        ? ` El negocio del usuario se llama "${opts.businessName}".`
+        : "";
       const res = await llm.complete({
         system: [{ text: RECEIPT_SYSTEM, cache: true }],
         turns: [
           {
             role: "user",
-            text: mimeType === "application/pdf" ? "Lee este PDF." : "Lee esta imagen.",
+            text: `${what}${who}`,
             image: { mimeType, data: image },
           },
         ],
@@ -125,13 +146,21 @@ export function createReceiptReader(llm: LlmClient): ReceiptReader {
   };
 }
 
-/** Lo que el agente recibe como "mensaje del usuario" tras leer la factura. */
-export function receiptUserText(e: ReceiptExtraction): string {
+/**
+ * Lo que el agente recibe como "mensaje del usuario" tras leer la factura. Un reporte de ventas
+ * va a la venta del día; la leyenda del archivo, si la hay, manda sobre lo que se infirió.
+ */
+export function receiptUserText(e: ReceiptExtraction, caption: string | null = null): string {
   const parts = [
     `total ${e.total || "no legible"} ${e.currency === "unknown" ? "(moneda no legible)" : e.currency}`,
     `fecha ${e.date || "no legible"}`,
-    `proveedor ${e.vendor || "no legible"}`,
+    `${e.document_type === "sales" ? "emisor" : "proveedor"} ${e.vendor || "no legible"}`,
     `${e.line_items_count} renglones`,
   ];
-  return `Factura leída por el sistema: ${parts.join("; ")}. Registra el gasto con draft_expense usando esos datos: amount = total, currency = moneda leída ("unknown" si no se ve), when = fecha leída ("" si no se ve), description = proveedor (o "Factura"). No inventes datos que no estén.`;
+  const note = caption?.trim()
+    ? ` El usuario escribió junto al archivo: "${caption.trim().slice(0, 200)}". Si dice que es una venta o un gasto, eso manda sobre lo leído.`
+    : "";
+  if (e.document_type === "sales")
+    return `Reporte de ventas leído por el sistema: ${parts.join("; ")}. Es dinero que ENTRÓ: registra la venta del día con draft_income_day_total usando esos datos: total_amount = total, total_currency = moneda leída ("unknown" si no se ve), when = fecha leída ("" si no se ve), lines vacío. No inventes datos que no estén.${note}`;
+  return `Factura leída por el sistema: ${parts.join("; ")}. Registra el gasto con draft_expense usando esos datos: amount = total, currency = moneda leída ("unknown" si no se ve), when = fecha leída ("" si no se ve), description = proveedor (o "Factura"). No inventes datos que no estén.${note}`;
 }

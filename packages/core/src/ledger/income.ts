@@ -41,6 +41,8 @@ type Common = {
   actor: Actor;
   sourceChannel: "text" | "voice" | "image" | "dashboard";
   sourceMessageId?: string | null;
+  /** Foto o PDF que respalda el ingreso (un reporte de ventas, por ejemplo). */
+  attachmentId?: string | null;
   rate?: { id: string | null; value: string; effectiveDate: IsoDate; source?: RateOrigin };
 };
 
@@ -86,6 +88,7 @@ async function insertIncome(
       createdByPhoneId: input.actor.phoneId ?? null,
       createdByUserId: input.actor.userId ?? null,
       sourceMessageId: input.sourceMessageId ?? null,
+      attachmentId: input.attachmentId ?? null,
     })
     .returning();
   if (!row) throw new Error("no se pudo crear el ingreso");

@@ -617,7 +617,7 @@ async function handleImage(
 
   let read: Awaited<ReturnType<ReceiptReader["read"]>>;
   try {
-    read = await deps.vision.read(bytes, mimeType);
+    read = await deps.vision.read(bytes, mimeType, { businessName: ctx.tenantName });
   } catch (err) {
     log.warn({ err: errMsg(err) }, "foto: lectura falló");
     return none([es.receiptUnclear()]);
@@ -670,7 +670,7 @@ async function handleImage(
     deps,
     ctx,
     msg.waMessageId,
-    { kind: "receipt", extracted: e },
+    { kind: "receipt", extracted: e, caption: msg.caption },
     attachmentId,
   );
   const first = result.outbound[0];
@@ -680,7 +680,7 @@ async function handleImage(
     tokensIn: result.tokensIn + read.usage.inputTokens,
     tokensOut: result.tokensOut + read.usage.outputTokens,
     outbound: first
-      ? [...mergeOutbound(es.receiptRead(e), first), ...result.outbound.slice(1)]
+      ? [...mergeOutbound(es.receiptRead({ ...e, isPdf }), first), ...result.outbound.slice(1)]
       : result.outbound,
   };
 }
@@ -726,17 +726,12 @@ async function routeInteractive(
           .update(schema.pendingAction)
           .set({ status: "cancelled", resolvedAt: nowTs })
           .where(eq(schema.pendingAction.id, pending.id));
-        // La foto provisional de un gasto cancelado se borra (US-B6).
+        // La foto o el PDF provisional de un borrador cancelado se borra (US-B6), sea gasto o venta.
         const payload = pending.payload as {
           attachmentId?: string | null;
           items?: { attachmentId?: string | null }[];
         };
-        const atts =
-          pending.kind === "create_expense"
-            ? [payload.attachmentId]
-            : pending.kind === "create_expenses"
-              ? (payload.items ?? []).map((i) => i.attachmentId)
-              : [];
+        const atts = [payload.attachmentId, ...(payload.items ?? []).map((i) => i.attachmentId)];
         for (const att of atts)
           if (att)
             await discardAttachment(tx, deps.store ?? null, ctx.tenantId, att, nowTs, deps.log);
@@ -1053,6 +1048,7 @@ async function executePending(
         actor: { phoneId: ctx.phoneId },
         sourceChannel: draft.sourceChannel,
         sourceMessageId: draft.sourceMessageId,
+        attachmentId: draft.attachmentId,
         rate: {
           id: draft.rateId,
           value: draft.rateValue,
@@ -1083,6 +1079,7 @@ async function executePending(
         actor: { phoneId: ctx.phoneId },
         sourceChannel: draft.sourceChannel,
         sourceMessageId: draft.sourceMessageId,
+        attachmentId: draft.attachmentId,
         rate: {
           id: draft.rateId,
           value: draft.rateValue,

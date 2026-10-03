@@ -26,7 +26,7 @@ export type AgentInput =
   /** Transcripción de una nota de voz: se trata como texto, pero el movimiento lleva canal `voice`. */
   | { kind: "voice"; text: string }
   /** Lectura estructurada de una foto de factura: el loop la convierte en texto para el modelo. */
-  | { kind: "receipt"; extracted: ReceiptExtraction };
+  | { kind: "receipt"; extracted: ReceiptExtraction; caption?: string | null };
 
 export type AgentResult = {
   outbound: Outbound[];

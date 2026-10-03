@@ -271,6 +271,8 @@ export const IncomeDayTotalDraft = z.object({
   rateEffectiveDate: z.string(),
   sourceChannel: z.enum(["text", "voice", "image"]),
   sourceMessageId: z.string().uuid().nullable(),
+  /** Reporte de ventas en foto o PDF (03/10); los borradores viejos no lo traen. */
+  attachmentId: z.string().uuid().nullable().default(null),
   transcript: z.string().nullable(),
   fixing: z.boolean().optional(),
 });
@@ -291,6 +293,7 @@ export const IncomeSingleDraft = z.object({
   amountVes: z.string(),
   sourceChannel: z.enum(["text", "voice", "image"]),
   sourceMessageId: z.string().uuid().nullable(),
+  attachmentId: z.string().uuid().nullable().default(null),
   transcript: z.string().nullable(),
   fixing: z.boolean().optional(),
 });
@@ -305,6 +308,7 @@ export type IncomeDayTotalInput = {
   lines: { method: PaymentMethod; amount: Decimal; currency: Currency }[];
   sourceChannel: "text" | "voice" | "image";
   sourceMessageId: string | null;
+  attachmentId?: string | null;
   transcript: string | null;
   manualRate?: Rate | null;
   replaces?: string | null;
@@ -375,6 +379,7 @@ export async function createIncomeDayTotalDraft(
     rateEffectiveDate: rate.effectiveDate,
     sourceChannel: input.sourceChannel,
     sourceMessageId: input.sourceMessageId,
+    attachmentId: input.attachmentId ?? null,
     transcript: input.transcript,
   };
   const { pendingId, replacedPrevious } = await insertDraft(
@@ -441,6 +446,7 @@ export type IncomeSingleInput = {
   businessDate: IsoDate;
   sourceChannel: "text" | "voice" | "image";
   sourceMessageId: string | null;
+  attachmentId?: string | null;
   transcript: string | null;
   manualRate?: Rate | null;
   replaces?: string | null;
@@ -470,6 +476,7 @@ export async function createIncomeSingleDraft(
     amountVes: toDbAmount(c.amountVes),
     sourceChannel: input.sourceChannel,
     sourceMessageId: input.sourceMessageId,
+    attachmentId: input.attachmentId ?? null,
     transcript: input.transcript,
   };
   const { pendingId, replacedPrevious } = await insertDraft(

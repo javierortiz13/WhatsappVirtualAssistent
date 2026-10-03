@@ -378,10 +378,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
     // Corrección de un borrador de factura ("no, eran 50" por texto o voz): el borrador nuevo
     // reemplaza al pendiente y hereda su foto; si no, el respaldo se perdía (bug del 01/10).
     const target = draftTarget(run, input.corrects_draft);
-    const inherited =
-      !run.ctx.attachmentId && target?.kind === "create_expense"
-        ? ((target.payload.attachmentId as string | null | undefined) ?? null)
-        : null;
+    const inherited = inheritedAttachment(run, target);
     const category = matchCategory(run.ctx.categories, nz(input.category_name));
     const categoryId = category?.id ?? defaultCategoryId(run.ctx.categories);
     const categoryName =
@@ -646,6 +643,27 @@ function parseAmount(s: string): Decimal | null {
   return d && isPositiveAmount(d) ? d : null;
 }
 
+/**
+ * Foto o PDF que hereda un borrador que corrige a otro sin traer archivo propio: "no es un gasto,
+ * es una venta" sobre el borrador de un reporte de ventas conserva el PDF, sea cual sea el tipo.
+ */
+function inheritedAttachment(
+  run: ToolRunCtx,
+  target: ReturnType<typeof draftTarget>,
+): string | null {
+  if (run.ctx.attachmentId || !target) return null;
+  return (target.payload.attachmentId as string | null | undefined) ?? null;
+}
+
+/** Canal y archivo de un borrador de venta: el propio (reporte de ventas) o el heredado. */
+function attachmentFields(run: ToolRunCtx, target: ReturnType<typeof draftTarget>) {
+  const inherited = inheritedAttachment(run, target);
+  return {
+    sourceChannel: inherited ? ("image" as const) : run.ctx.sourceChannel,
+    attachmentId: run.ctx.attachmentId ?? inherited,
+  };
+}
+
 const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
   name: "draft_income_day_total",
   description:
@@ -735,7 +753,7 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
               ? { amount: statedAmount, currency: statedCurrency }
               : null,
           lines,
-          sourceChannel: run.ctx.sourceChannel,
+          ...attachmentFields(run, draftTarget(run, input.corrects_draft)),
           sourceMessageId: run.ctx.sourceMessageDbId,
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
           manualRate: mr,
@@ -811,7 +829,7 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
           method,
           description: withNote(input.description, eurNote),
           businessDate: when.date,
-          sourceChannel: run.ctx.sourceChannel,
+          ...attachmentFields(run, draftTarget(run, input.corrects_draft)),
           sourceMessageId: run.ctx.sourceMessageDbId,
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
           manualRate: mr,

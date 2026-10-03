@@ -17,6 +17,7 @@ const Receipt = z.object({
   vendor: z.string().default(""),
   line_items_count: z.number().int().default(0),
   confidence: z.number().default(0.9),
+  document_type: z.enum(["expense", "sales", "unknown"]).default("expense"),
 });
 
 /**
@@ -30,6 +31,8 @@ export const EvalCase = z.object({
   input: z.string().default(""),
   kind: z.enum(["text", "voice"]).default("text"),
   receipt: Receipt.optional(),
+  /** Leyenda que el usuario escribió junto a la foto o el PDF. */
+  caption: z.string().optional(),
   history: z.array(z.object({ role: z.enum(["in", "out"]), body: z.string() })).default([]),
   /**
    * Borradores de gasto que esperan su Guardar antes del mensaje (cola de borradores, 02/10), el

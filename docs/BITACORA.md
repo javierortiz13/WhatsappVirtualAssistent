@@ -523,3 +523,16 @@ La aclaración de la moneda pasa a una nota al final. Las correcciones muestran 
 - Textos de ayuda y de "no es factura" mencionan foto o PDF.
 - **Producción:** el bucket `receipts` ahora admite `application/pdf` (cambiado antes del deploy; sin eso el respaldo del PDF fallaría y el gasto se guardaría sin adjunto).
 - Tests: parseo, PDF de punta a punta, foto como documento, Word rechazado, PDF largo/pesado/falso, bloque `document` en la petición a Anthropic. 261 tests.
+
+### S2 · 03/10/2026 · Reportes de ventas en PDF y ventas sin método
+
+**Síntoma (Javier, WhatsApp real):** mandó "Detalles de ventas(149).pdf" de su propio negocio (Jp Car Wash) y el bot armó un *Gasto por confirmar* de $115,80. Al corregir con "No es un gasto es una venta" salió "Jp Car Wash: $115,80 por Sin especificar", y al tocar Guardar no se guardó.
+
+**Causas y arreglos**
+- El lector trataba todo documento como factura de compra. Ahora devuelve `document_type` (`expense`, `sales`, `unknown`) y recibe el nombre del negocio en el turno (no en el sistema, para no romper la caché): si el emisor es el propio negocio o el título habla de ventas o cierre, es `sales`. Un reporte de ventas va a `draft_income_day_total` y el mensaje dice "🧾 Leí el reporte de ventas: …".
+- La leyenda que el usuario escribe junto a la foto o el PDF llega al agente y manda sobre lo leído ("esto es una venta").
+- Las ventas (del día y sueltas) ahora llevan la foto o el PDF: el borrador guarda `attachmentId`, una corrección hereda el archivo del borrador que reemplaza (de cualquier tipo), Guardar lo vincula al movimiento y Cancelar lo borra.
+- **Bug viejo:** `draft_income_single` aceptaba método "unspecified" y mostraba el borrador, pero la restricción `movement_income_needs_method` (0001) rechazaba el Guardar. La venta del día ya lo permitía. Migración 0010 la quita (aplicada en producción antes del deploy). El borrador ya no dice "por Sin especificar".
+- Tests: reporte de ventas de punta a punta con PDF adjunto, corrección gasto → venta que conserva el PDF y guarda sin método, texto del agente para ventas y leyenda. Dos casos de eval nuevos (82). 264 tests.
+
+**Pendiente conocido:** si el usuario manda la aclaración ("Ventas del día") como mensaje aparte mientras el PDF se lee, el bot la contesta sola. Mejor escribirla como leyenda del archivo.

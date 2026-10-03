@@ -161,7 +161,7 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
             });
           }
           const input: AgentInput = c.receipt
-            ? { kind: "receipt", extracted: c.receipt }
+            ? { kind: "receipt", extracted: c.receipt, caption: c.caption ?? null }
             : { kind: c.kind, text: c.input };
           const r = await agent.run(tx, ctx, input);
           const drafts = await tx
