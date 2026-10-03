@@ -11,6 +11,7 @@ const Media = z
     mime_type: z.string().optional(),
     sha256: z.string().optional(),
     caption: z.string().optional(),
+    filename: z.string().optional(),
     voice: z.boolean().optional(),
   })
   .loose();
@@ -130,6 +131,7 @@ export type InboundMessage = {
   | { kind: "text"; text: string }
   | { kind: "audio"; media: InboundMedia; isVoiceNote: boolean }
   | { kind: "image"; media: InboundMedia; caption: string | null }
+  | { kind: "document"; media: InboundMedia; filename: string | null; caption: string | null }
   | { kind: "interactive"; replyKind: "button" | "list"; replyId: string; replyTitle: string }
   | { kind: "unsupported"; rawType: string }
 );

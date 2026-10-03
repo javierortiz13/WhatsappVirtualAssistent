@@ -153,7 +153,8 @@ que funciona en cuanto se despliega; lo que necesita configuración es el respal
 1. `pnpm db:migrate` desde tu máquina (migración 0004: función para que el housekeeping recorra
    los negocios). Sin ella el worker registra "¿falta la migración 0004?" cada 5 minutos.
 2. Supabase → Storage → **New bucket** → nombre `receipts`, **privado** (Public bucket apagado),
-   límite de tamaño 5 MB, tipos `image/jpeg, image/png, image/webp`.
+   límite de tamaño 5 MB, tipos `image/jpeg, image/png, image/webp, application/pdf` (el PDF
+   desde el 03/10, para facturas en PDF).
 3. Supabase → Project Settings → API → copia la clave **service_role** (nunca la anon).
 4. Railway → worker → Variables: `SUPABASE_URL` (la misma URL del proyecto) y
    `SUPABASE_SERVICE_ROLE_KEY`. En "worker listo" debe salir `store: supabase:receipts`.

@@ -30,6 +30,16 @@ describe("parseWebhook", () => {
     expect(m?.kind).toBe("image");
     if (m?.kind === "image") expect(m.caption).toBe("factura");
   });
+  it("documento con nombre de archivo", () => {
+    const m = parseWebhook(fx.documentMessage).messages[0];
+    expect(m?.kind).toBe("document");
+    if (m?.kind === "document")
+      expect([m.media.mimeType, m.filename, m.caption]).toEqual([
+        "application/pdf",
+        "factura-0042.pdf",
+        null,
+      ]);
+  });
   it("botón y lista", () => {
     const b = parseWebhook(fx.buttonReply).messages[0];
     expect(b?.kind).toBe("interactive");

@@ -11,6 +11,7 @@ import {
   IconCamera,
   IconChevronDown,
   IconChevronLeft,
+  IconFile,
 } from "../../icons";
 import { deleteMovementAction, updateMovementAction } from "./actions";
 
@@ -199,7 +200,10 @@ export default async function Movimiento({
           <span className="what">
             <strong>{m.author}</strong>
             <span className="sub">
-              {CHANNEL[m.sourceChannel] ?? m.sourceChannel} · {fmt(m.createdAt)}
+              {m.attachmentMime === "application/pdf"
+                ? "por PDF"
+                : (CHANNEL[m.sourceChannel] ?? m.sourceChannel)}{" "}
+              · {fmt(m.createdAt)}
             </span>
           </span>
           {m.attachmentId ? (
@@ -209,8 +213,17 @@ export default async function Movimiento({
               target="_blank"
               rel="noreferrer"
             >
-              <IconCamera size={16} />
-              Foto
+              {m.attachmentMime === "application/pdf" ? (
+                <>
+                  <IconFile size={16} />
+                  PDF
+                </>
+              ) : (
+                <>
+                  <IconCamera size={16} />
+                  Foto
+                </>
+              )}
             </a>
           ) : null}
         </div>

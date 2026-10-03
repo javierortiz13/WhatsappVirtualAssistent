@@ -7,7 +7,12 @@ import type { LlmClient } from "../src/agent/llm";
 import { createAgent } from "../src/agent/loop";
 import { Decimal } from "../src/domain/money";
 import { ingestWebhook } from "../src/inbox/ingest";
-import { IMAGE_MAX_BYTES, type ProcessDeps, processInbound } from "../src/inbox/process";
+import {
+  IMAGE_MAX_BYTES,
+  type ProcessDeps,
+  pdfPageCount,
+  processInbound,
+} from "../src/inbox/process";
 import { sweepOrphanAttachments } from "../src/ledger/attachments";
 import { MemoryObjectStore } from "../src/storage/store";
 import type { ReceiptExtraction, ReceiptReader } from "../src/vision/receipt";
@@ -17,7 +22,8 @@ import * as fx from "./fixtures";
 /** Foto de factura de punta a punta (US-B6): acuse 🧾, lectura, respaldo, borrador, Guardar y Cancelar. */
 type Sent = { body: Record<string, unknown> };
 
-function fakeMeta(bytes = 2000, mime = "image/jpeg") {
+function fakeMeta(bytes: number | Uint8Array = 2000, mime = "image/jpeg") {
+  const payload = typeof bytes === "number" ? new Uint8Array(bytes) : bytes;
   const sent: Sent[] = [];
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
@@ -28,9 +34,9 @@ function fakeMeta(bytes = 2000, mime = "image/jpeg") {
         mime_type: mime,
       });
     if (u.startsWith("https://lookaside.test/"))
-      return new Response(new Uint8Array(bytes), {
+      return new Response(payload, {
         status: 200,
-        headers: { "content-type": mime, "content-length": String(bytes) },
+        headers: { "content-type": mime, "content-length": String(payload.byteLength) },
       });
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
     if (body.status !== "read") sent.push({ body });
@@ -64,12 +70,16 @@ const RECEIPT: ReceiptExtraction = {
   confidence: 0.9,
 };
 
-function fakeVision(e: ReceiptExtraction | Error): ReceiptReader & { calls: number } {
+function fakeVision(
+  e: ReceiptExtraction | Error,
+): ReceiptReader & { calls: number; mimes: string[] } {
   return {
     provider: "fake",
     calls: 0,
-    async read() {
+    mimes: [],
+    async read(_bytes, mimeType) {
       this.calls += 1;
+      this.mimes.push(mimeType);
       if (e instanceof Error) throw e;
       return {
         extraction: e,
@@ -267,7 +277,7 @@ describe("fotos de facturas", () => {
   it("no es factura, confianza baja o lector caído: respuestas sin respaldo", async () => {
     const notReceipt = fakeMeta();
     await sendImage(notReceipt.client, fakeVision({ ...RECEIPT, is_receipt: false }));
-    expect(textOf(notReceipt.sent[1])).toContain("Solo proceso fotos de facturas y recibos");
+    expect(textOf(notReceipt.sent[1])).toContain("Solo proceso facturas y recibos");
     const low = fakeMeta();
     await sendImage(low.client, fakeVision({ ...RECEIPT, confidence: 0.3 }));
     expect(textOf(low.sent[1])).toBe("No pude leer bien la factura. ¿Cuánto fue y en qué moneda?");
@@ -285,7 +295,7 @@ describe("fotos de facturas", () => {
     expect(textOf(big.sent[1])).toContain("muy pesada");
     const gif = fakeMeta(100, "image/gif");
     await sendImage(gif.client, vision);
-    expect(textOf(gif.sent[1])).toContain("Solo proceso fotos de facturas");
+    expect(textOf(gif.sent[1])).toContain("Solo proceso facturas y recibos");
     const off = fakeMeta();
     await sendImage(off.client, null);
     expect(off.sent).toHaveLength(1);
@@ -314,5 +324,100 @@ describe("fotos de facturas", () => {
     // Las dos vinculadas a gastos guardados siguen vivas; la cancelada ya estaba de baja.
     const atts = await attachments();
     expect(atts.filter((a) => !a.deletedAt)).toHaveLength(2);
+  });
+
+  async function sendDocument(
+    client: MetaClient,
+    vision: ReceiptReader | null,
+    doc: { mime_type?: string; filename?: string },
+  ) {
+    jobs.length = 0;
+    const p = JSON.parse(JSON.stringify(fx.documentMessage));
+    const m = p.entry[0].changes[0].value.messages[0];
+    m.id = `wamid.DOC${++seq}`;
+    m.document = { id: "MEDIA_IMG", sha256: "ghi", ...doc };
+    await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
+    return processInbound(deps(client, vision), jobs[0] as ProcessMessageJob);
+  }
+  const pdf = (pages: number) =>
+    new TextEncoder().encode(
+      `%PDF-1.4\n1 0 obj << /Type /Pages /Count ${pages} >> endobj\n${Array.from(
+        { length: pages },
+        (_, i) => `${i + 2} 0 obj << /Type /Page /Parent 1 0 R >> endobj`,
+      ).join("\n")}\n%%EOF`,
+    );
+
+  it("cuenta las páginas de un PDF sin confundir /Pages", () => {
+    expect(pdfPageCount(pdf(1))).toBe(1);
+    expect(pdfPageCount(pdf(7))).toBe(7);
+    expect(pdfPageCount(new TextEncoder().encode("%PDF-1.7 comprimido"))).toBe(0);
+  });
+
+  it("un PDF de factura se lee como la foto: lectura, respaldo .pdf, borrador y Guardar", async () => {
+    const { sent, client } = fakeMeta(pdf(2), "application/pdf");
+    const vision = fakeVision(RECEIPT);
+    const before = store.objects.size;
+    await sendDocument(client, vision, { mime_type: "application/pdf", filename: "f-0042.pdf" });
+    expect(vision.mimes).toEqual(["application/pdf"]);
+    expect(sent[0]?.body.reaction).toMatchObject({ emoji: "🧾" });
+    expect(textOf(sent[1]).startsWith("🧾 Leí la factura: Ferretería El Tornillo")).toBe(true);
+    expect(store.objects.size).toBe(before + 1);
+    const att = (await attachments()).at(-1);
+    expect(att).toMatchObject({ mimeType: "application/pdf" });
+    expect(att?.storageKey.endsWith(".pdf")).toBe(true);
+    const [msg] = await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .select()
+        .from(schema.message)
+        .where(eq(schema.message.waMessageId, `wamid.DOC${seq}`)),
+    );
+    expect(msg?.body?.startsWith("[PDF de factura] Ferretería El Tornillo")).toBe(true);
+    await tap(client, vision, buttonsOf(sent[1])[0]?.id as string, "Guardar");
+    const [mv] = await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .select()
+        .from(schema.movement)
+        .where(eq(schema.movement.attachmentId, att?.id as string)),
+    );
+    expect(mv).toMatchObject({ amountUsd: "45.00" });
+  });
+
+  it("una foto mandada como documento se lee igual que una foto", async () => {
+    const { sent, client } = fakeMeta(2000, "image/jpeg");
+    const vision = fakeVision(RECEIPT);
+    await sendDocument(client, vision, { mime_type: "image/jpeg", filename: "IMG_2041.jpg" });
+    expect(vision.mimes).toEqual(["image/jpeg"]);
+    expect(textOf(sent[1])).toContain("Gasto por confirmar");
+    expect((await attachments()).at(-1)).toMatchObject({ mimeType: "image/jpeg" });
+  });
+
+  it("Word, Excel u otros archivos: lo dice sin descargar ni leer", async () => {
+    const { sent, client } = fakeMeta();
+    const vision = fakeVision(RECEIPT);
+    await sendDocument(client, vision, {
+      mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      filename: "presupuesto.docx",
+    });
+    expect(vision.calls).toBe(0);
+    expect(sent).toHaveLength(1);
+    expect(textOf(sent[0])).toBe(
+      'No puedo leer "presupuesto.docx". De archivos solo leo facturas en PDF o en foto. Si es un gasto, escríbemelo: _gasté 15$ en champú_',
+    );
+  });
+
+  it("PDF con muchas páginas, pesado o que no es PDF: no lo manda al lector", async () => {
+    const vision = fakeVision(RECEIPT);
+    const long = fakeMeta(pdf(6), "application/pdf");
+    await sendDocument(long.client, vision, { mime_type: "application/pdf", filename: "e.pdf" });
+    expect(textOf(long.sent[1])).toBe(
+      "Ese PDF tiene 6 páginas y leo facturas de hasta 5. Mándame solo la factura o una foto del total.",
+    );
+    const big = fakeMeta(IMAGE_MAX_BYTES + 1, "application/pdf");
+    await sendDocument(big.client, vision, { mime_type: "application/pdf", filename: "b.pdf" });
+    expect(textOf(big.sent[1])).toContain("El PDF es muy pesado");
+    const fake = fakeMeta(new TextEncoder().encode("<html>no</html>"), "application/pdf");
+    await sendDocument(fake.client, vision, { mime_type: "application/pdf", filename: "x.pdf" });
+    expect(textOf(fake.sent[1])).toContain("No pude leer bien la factura");
+    expect(vision.calls).toBe(0);
   });
 });

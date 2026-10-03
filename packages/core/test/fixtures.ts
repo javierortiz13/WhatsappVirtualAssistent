@@ -34,6 +34,27 @@ export const audioMessage = envelope({
   ],
 });
 
+/** PDF (o cualquier archivo) mandado como documento; `mime_type` y `filename` se cambian por test. */
+export const documentMessage = envelope({
+  messaging_product: "whatsapp",
+  metadata,
+  contacts: [contact],
+  messages: [
+    {
+      from: "584121234567",
+      id: "wamid.DOC1",
+      timestamp: "1759190400",
+      type: "document",
+      document: {
+        id: "MEDIA_IMG",
+        mime_type: "application/pdf",
+        sha256: "ghi",
+        filename: "factura-0042.pdf",
+      },
+    },
+  ],
+});
+
 export const imageMessage = envelope({
   messaging_product: "whatsapp",
   metadata,

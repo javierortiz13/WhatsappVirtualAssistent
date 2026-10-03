@@ -87,3 +87,43 @@ describe("cliente de Anthropic: caché del prompt", () => {
     ).toBe("3.1");
   });
 });
+
+describe("cliente de Anthropic: archivo de la factura", () => {
+  const withFile = (mimeType: string) => ({
+    ...request,
+    turns: [
+      {
+        role: "user" as const,
+        text: "Lee esto.",
+        image: { mimeType, data: new TextEncoder().encode("%PDF-1.4") },
+      },
+    ],
+  });
+  type Block = { type: string; source?: { type: string; media_type: string; data: string } };
+  const firstContent = (bodies: Record<string, unknown>[]): Block[] => {
+    const messages = (bodies[0]?.messages ?? []) as { content: Block[] }[];
+    return messages[0]?.content ?? [];
+  };
+
+  it("un PDF va como bloque document en base64, antes del texto", async () => {
+    const { bodies, fetchImpl } = capture();
+    const llm = new AnthropicLlmClient({ apiKey: "test", fetch: fetchImpl });
+    await llm.complete(withFile("application/pdf"));
+    const [file, text] = firstContent(bodies);
+    expect(file).toEqual({
+      type: "document",
+      source: { type: "base64", media_type: "application/pdf", data: "JVBERi0xLjQ=" },
+    });
+    expect(text).toMatchObject({ type: "text" });
+  });
+
+  it("una foto sigue yendo como bloque image", async () => {
+    const { bodies, fetchImpl } = capture();
+    const llm = new AnthropicLlmClient({ apiKey: "test", fetch: fetchImpl });
+    await llm.complete(withFile("image/jpeg"));
+    expect(firstContent(bodies)[0]).toMatchObject({
+      type: "image",
+      source: { type: "base64", media_type: "image/jpeg" },
+    });
+  });
+});

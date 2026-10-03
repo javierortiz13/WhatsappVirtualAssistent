@@ -132,6 +132,12 @@ export const IconCamera = (p: P) => (
     <circle cx="12" cy="13" r="3.5" />
   </Svg>
 );
+export const IconFile = (p: P) => (
+  <Svg {...p}>
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+    <path d="M14 3v5h5M9 13h6M9 17h4" />
+  </Svg>
+);
 export const IconShield = (p: P) => (
   <Svg {...p}>
     <path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z" />

@@ -217,7 +217,10 @@ export async function processInbound(
         kind: msg.kind,
         // El título del botón queda como cuerpo: el historial del agente ve "Dólares" o "Guardar".
         body: msg.kind === "text" ? msg.text : msg.kind === "interactive" ? msg.replyTitle : null,
-        mediaId: msg.kind === "audio" || msg.kind === "image" ? msg.media.id : null,
+        mediaId:
+          msg.kind === "audio" || msg.kind === "image" || msg.kind === "document"
+            ? msg.media.id
+            : null,
         webhookEventId: event.id,
       })
       .onConflictDoNothing({ target: schema.message.waMessageId });
@@ -470,6 +473,8 @@ async function routeMessage(
       return handleAudio(tx, deps, ctx, msg);
     case "image":
       return handleImage(tx, deps, ctx, msg);
+    case "document":
+      return handleDocument(tx, deps, ctx, msg);
     default:
       return none([es.unsupported()]);
   }
@@ -527,9 +532,46 @@ async function handleAudio(
   };
 }
 
-/** Foto de factura: 5 MB como máximo; JPEG, PNG o WebP. */
+/** Foto o PDF de factura: 5 MB como máximo; JPEG, PNG, WebP o PDF. */
 export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const IMAGE_MIMES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const PDF_MIME = "application/pdf";
+/** Una factura cabe en pocas páginas; más páginas es otro documento y sube el costo de leerlo. */
+export const PDF_MAX_PAGES = 5;
+
+/**
+ * Páginas de un PDF sin librería: cuenta los objetos `/Type /Page`. Si las páginas van dentro de
+ * flujos comprimidos no se ven y devuelve 0 (desconocido); el tope de 5 MB sigue protegiendo.
+ */
+export function pdfPageCount(bytes: Uint8Array): number {
+  const text = Buffer.from(bytes).toString("latin1");
+  return (text.match(/\/Type\s*\/Page(?![a-zA-Z])/g) ?? []).length;
+}
+
+const extOf = (filename: string | null) =>
+  filename?.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
+
+/**
+ * Documento (US-B6b): un PDF de factura o una foto mandada "como documento" se leen igual que una
+ * foto. Cualquier otro archivo (Word, Excel...) se rechaza con un mensaje que dice qué sí se lee.
+ */
+async function handleDocument(
+  tx: Tx,
+  deps: ProcessDeps,
+  ctx: RouteCtx,
+  msg: Extract<InboundMessage, { kind: "document" }>,
+): Promise<RouteResult> {
+  const mime = (msg.media.mimeType ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  const ext = extOf(msg.filename);
+  const isPdf = mime === PDF_MIME || (!mime && ext === "pdf");
+  const isImage = IMAGE_MIMES.has(mime) || (!mime && ["jpg", "jpeg", "png", "webp"].includes(ext));
+  if (!isPdf && !isImage) return none([es.documentNotSupported(msg.filename)]);
+  return handleImage(tx, deps, ctx, {
+    ...msg,
+    kind: "image",
+    media: { ...msg.media, mimeType: isPdf ? PDF_MIME : msg.media.mimeType },
+  });
+}
 
 /**
  * Foto de factura (US-B6): acuse 🧾, descarga, lectura con el modelo de visión, foto al bucket
@@ -556,11 +598,22 @@ async function handleImage(
     mimeType =
       (media.mimeType ?? msg.media.mimeType ?? "image/jpeg").split(";")[0]?.trim() ?? "image/jpeg";
   } catch (err) {
-    if (err instanceof LimitError) return none([es.imageTooBig()]);
+    if (err instanceof LimitError)
+      return none([msg.media.mimeType === PDF_MIME ? es.pdfTooBig() : es.imageTooBig()]);
     log.warn({ err: errMsg(err) }, "foto: descarga falló");
     return none([es.receiptUnclear()]);
   }
-  if (!IMAGE_MIMES.has(mimeType)) return none([es.notAReceipt()]);
+  // El tipo lo dice Meta al descargar; un PDF además empieza con "%PDF-".
+  if (mimeType === "application/octet-stream" && msg.media.mimeType === PDF_MIME)
+    mimeType = PDF_MIME;
+  const isPdf = mimeType === PDF_MIME;
+  if (isPdf && Buffer.from(bytes.subarray(0, 5)).toString("latin1") !== "%PDF-")
+    return none([es.receiptUnclear()]);
+  if (!isPdf && !IMAGE_MIMES.has(mimeType)) return none([es.notAReceipt()]);
+  if (isPdf) {
+    const pages = pdfPageCount(bytes);
+    if (pages > PDF_MAX_PAGES) return none([es.pdfTooManyPages(pages, PDF_MAX_PAGES)]);
+  }
 
   let read: Awaited<ReturnType<ReceiptReader["read"]>>;
   try {
@@ -585,7 +638,13 @@ async function handleImage(
   // Respaldo en el bucket (provisional hasta Guardar). Sin bucket, el gasto se registra igual.
   let attachmentId: string | null = null;
   if (deps.store) {
-    const ext = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
+    const ext = isPdf
+      ? "pdf"
+      : mimeType === "image/png"
+        ? "png"
+        : mimeType === "image/webp"
+          ? "webp"
+          : "jpg";
     const key = `${ctx.tenantId}/${ctx.today.slice(0, 7)}/${crypto.randomUUID()}.${ext}`;
     try {
       await deps.store.put(key, bytes, mimeType);
@@ -601,7 +660,7 @@ async function handleImage(
       log.warn({ err: errMsg(err) }, "foto: no se pudo guardar el respaldo");
     }
   }
-  const summary = `[foto de factura] ${e.vendor || "proveedor no legible"} · ${e.total} ${e.currency}${e.date ? ` · ${e.date}` : ""}`;
+  const summary = `[${isPdf ? "PDF" : "foto"} de factura] ${e.vendor || "proveedor no legible"} · ${e.total} ${e.currency}${e.date ? ` · ${e.date}` : ""}`;
   await tx
     .update(schema.message)
     .set({ body: summary })

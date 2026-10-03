@@ -132,24 +132,24 @@ function toMessages(turns: LlmTurn[]): Anthropic.Beta.BetaMessageParam[] {
   for (const t of turns) {
     if (t.role === "user") {
       if (t.image) {
-        out.push({
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: t.image.mimeType as
-                  | "image/jpeg"
-                  | "image/png"
-                  | "image/webp"
-                  | "image/gif",
-                data: Buffer.from(t.image.data).toString("base64"),
-              },
-            },
-            { type: "text", text: t.text },
-          ],
-        });
+        const data = Buffer.from(t.image.data).toString("base64");
+        // Un PDF va como bloque `document`; las fotos como `image`. El archivo antes del texto.
+        const file: Anthropic.Beta.BetaContentBlockParam =
+          t.image.mimeType === "application/pdf"
+            ? { type: "document", source: { type: "base64", media_type: "application/pdf", data } }
+            : {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: t.image.mimeType as
+                    | "image/jpeg"
+                    | "image/png"
+                    | "image/webp"
+                    | "image/gif",
+                  data,
+                },
+              };
+        out.push({ role: "user", content: [file, { type: "text", text: t.text }] });
       } else out.push({ role: "user", content: t.text });
     } else if (t.role === "assistant") {
       const content: Anthropic.Beta.BetaContentBlockParam[] = [];

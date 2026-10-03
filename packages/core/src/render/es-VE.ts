@@ -39,7 +39,7 @@ export function welcomeOwner(tenantName: string, assistantName: string, r: RateI
       "• _gasté 15$ en champú_\n" +
       "• _hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto_\n" +
       "• _cómo va el mes_\n\n" +
-      "También me puedes mandar una nota de voz o la foto de una factura.\n\n" +
+      "También me puedes mandar una nota de voz o la factura en foto o PDF.\n\n" +
       rateLine(r),
     buttons: MENU_BUTTONS,
   };
@@ -81,7 +81,7 @@ export function rate(r: RateInfo): Outbound {
 export function help(dashboardUrl: string, supportHint: string | null): Outbound {
   const lines = [
     "Esto es lo que puedo hacer:",
-    "• Registrar gastos: _gasté 15$ en champú_, o nota de voz, o foto de la factura",
+    "• Registrar gastos: _gasté 15$ en champú_, o nota de voz, o la factura en foto o PDF",
     "• Registrar ventas: _hoy vendí 350$: 200 efectivo, 150 pago móvil_",
     "• Cierre: _cierre de hoy_, _cómo va el mes_, _cuánto gasté en insumos esta semana_",
     "• Tasa: _tasa_",
@@ -163,7 +163,7 @@ export function ownerOnly(): Outbound {
 export function promptExpense(): Outbound {
   return {
     type: "text",
-    body: "Dime el gasto. Ejemplo: _gasté 15$ en champú_ o mándame la foto de la factura.",
+    body: "Dime el gasto. Ejemplo: _gasté 15$ en champú_ o mándame la factura en foto o PDF.",
   };
 }
 
@@ -253,7 +253,7 @@ export function receiptUnclear(): Outbound {
 export function notAReceipt(): Outbound {
   return {
     type: "text",
-    body: "Solo proceso fotos de facturas y recibos. Si es un gasto, escríbemelo: _gasté 15$ en champú_",
+    body: "Solo proceso facturas y recibos, en foto o PDF. Si es un gasto, escríbemelo: _gasté 15$ en champú_",
   };
 }
 
@@ -265,7 +265,29 @@ export function imageTooBig(): Outbound {
 }
 
 export function unsupported(): Outbound {
-  return { type: "text", body: "Solo entiendo texto, notas de voz y fotos de facturas." };
+  return { type: "text", body: "Solo entiendo texto, notas de voz y facturas en foto o PDF." };
+}
+
+export function documentNotSupported(filename: string | null): Outbound {
+  const name = filename ? `"${filename}"` : "ese archivo";
+  return {
+    type: "text",
+    body: `No puedo leer ${name}. De archivos solo leo facturas en PDF o en foto. Si es un gasto, escríbemelo: _gasté 15$ en champú_`,
+  };
+}
+
+export function pdfTooBig(): Outbound {
+  return {
+    type: "text",
+    body: "El PDF es muy pesado (más de 5 MB). Mándame solo la factura o una foto de ella.",
+  };
+}
+
+export function pdfTooManyPages(pages: number, max: number): Outbound {
+  return {
+    type: "text",
+    body: `Ese PDF tiene ${pages} páginas y leo facturas de hasta ${max}. Mándame solo la factura o una foto del total.`,
+  };
 }
 
 export function tooLong(): Outbound {

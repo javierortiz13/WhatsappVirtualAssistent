@@ -509,3 +509,17 @@ La aclaración de la moneda pasa a una nota al final. Las correcciones muestran 
 - Dashboard: en Ajustes → Categorías, cada categoría tiene monto en $ y período (vacío lo quita) con la barra de lo gastado; Inicio muestra la tarjeta "Presupuestos" (verde, ámbar desde 80 %, rojo en el tope).
 - **Bug viejo arreglado de paso:** el conteo de gastos por categoría en Ajustes → Categorías siempre decía "sin gastos". La subconsulta comparaba `m.category_id = "id"`, que Postgres resolvía como el id del movimiento. Ahora va calificada con la tabla; test que lo cubre.
 - Tests: ventanas, redacción, cálculo, auditoría, RLS y de punta a punta (dueño, empleado, consultas). Cinco casos de eval nuevos (80 casos). QA a 390 px de las dos pantallas.
+
+### S2 · 03/10/2026 · Facturas en PDF y fotos mandadas como documento
+
+**Pedido (Javier):** que el bot lea documentos. Se acordó solo PDF de factura y fotos mandadas "como documento"; Word, Excel y demás no.
+
+**Qué se hizo**
+- WhatsApp: los mensajes `document` se normalizan con tipo, nombre de archivo y leyenda.
+- Un PDF o una imagen (JPEG, PNG, WebP) mandados como documento siguen el mismo camino que la foto: acuse 🧾, lectura con el modelo, respaldo en el bucket (`.pdf` para los PDF), borrador con lo leído y Guardar/Corregir/Cancelar. El PDF va al modelo como bloque `document` en base64.
+- Límites: 5 MB y hasta 5 páginas (contadas en el PDF sin librería; si las páginas van comprimidas no se ven y manda el tope de 5 MB). Un archivo que dice ser PDF y no empieza con `%PDF-` no se manda al modelo.
+- Otro archivo: "No puedo leer "presupuesto.docx". De archivos solo leo facturas en PDF o en foto…", sin descargarlo.
+- Dashboard: el detalle del movimiento dice "por PDF" y el botón abre el PDF.
+- Textos de ayuda y de "no es factura" mencionan foto o PDF.
+- **Producción:** el bucket `receipts` ahora admite `application/pdf` (cambiado antes del deploy; sin eso el respaldo del PDF fallaría y el gasto se guardaría sin adjunto).
+- Tests: parseo, PDF de punta a punta, foto como documento, Word rechazado, PDF largo/pesado/falso, bloque `document` en la petición a Anthropic. 261 tests.

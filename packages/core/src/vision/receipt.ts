@@ -21,7 +21,7 @@ export const RECEIPT_MIN_CONFIDENCE = 0.6;
 
 export const READ_RECEIPT_TOOL: LlmToolDef = {
   name: "read_receipt",
-  description: "Devuelve lo que se lee en la imagen de una factura o recibo.",
+  description: "Devuelve lo que se lee en la imagen o el PDF de una factura o recibo.",
   inputSchema: {
     type: "object",
     additionalProperties: false,
@@ -37,7 +37,8 @@ export const READ_RECEIPT_TOOL: LlmToolDef = {
     properties: {
       is_receipt: {
         type: "boolean",
-        description: "true si la imagen es una factura, recibo, ticket o comprobante de pago.",
+        description:
+          "true si la imagen o el PDF es una factura, recibo, ticket o comprobante de pago.",
       },
       total: {
         type: "string",
@@ -71,11 +72,12 @@ export const READ_RECEIPT_TOOL: LlmToolDef = {
 };
 
 const RECEIPT_SYSTEM = [
-  "Eres un lector de facturas y recibos de negocios en Venezuela. Recibes una imagen y respondes SOLO con la herramienta read_receipt.",
+  "Eres un lector de facturas y recibos de negocios en Venezuela. Recibes una imagen o un PDF y respondes SOLO con la herramienta read_receipt.",
+  "Si es un PDF de varias páginas, el total suele estar en la última página de la factura; ignora páginas de términos, publicidad o anexos.",
   "El total es lo que se pagó, con IVA incluido. Si hay 'Total' y 'Subtotal', usa 'Total'.",
   "Montos venezolanos: el punto separa miles y la coma decimales (1.250,50 = 1250.50). Devuelve el total con punto decimal.",
   "Moneda: Bs, Bs., BsS, VES o 'bolívares' es VES; $, USD o 'dólares' es USD. 'Ref' suele ser USD de referencia; si el pago fue en Bs, la moneda es VES.",
-  "Si la imagen no es una factura, recibo, ticket o comprobante, is_receipt=false. No inventes cifras: si no se lee, deja el campo vacío y baja la confianza.",
+  "Si la imagen o el PDF no es una factura, recibo, ticket o comprobante (un contrato, un estado de cuenta, una cotización, un menú), is_receipt=false. No inventes cifras: si no se lee, deja el campo vacío y baja la confianza.",
 ].join("\n");
 
 export type ReceiptReadResult = { extraction: ReceiptExtraction; usage: LlmUsage; costUsd: string };
@@ -101,7 +103,13 @@ export function createReceiptReader(llm: LlmClient): ReceiptReader {
     async read(image, mimeType) {
       const res = await llm.complete({
         system: [{ text: RECEIPT_SYSTEM, cache: true }],
-        turns: [{ role: "user", text: "Lee esta imagen.", image: { mimeType, data: image } }],
+        turns: [
+          {
+            role: "user",
+            text: mimeType === "application/pdf" ? "Lee este PDF." : "Lee esta imagen.",
+            image: { mimeType, data: image },
+          },
+        ],
         tools: [READ_RECEIPT_TOOL],
         maxTokens: 400,
         timeoutMs: 25_000,
@@ -125,5 +133,5 @@ export function receiptUserText(e: ReceiptExtraction): string {
     `proveedor ${e.vendor || "no legible"}`,
     `${e.line_items_count} renglones`,
   ];
-  return `Foto de factura leída por el sistema: ${parts.join("; ")}. Registra el gasto con draft_expense usando esos datos: amount = total, currency = moneda leída ("unknown" si no se ve), when = fecha leída ("" si no se ve), description = proveedor (o "Factura"). No inventes datos que no estén.`;
+  return `Factura leída por el sistema: ${parts.join("; ")}. Registra el gasto con draft_expense usando esos datos: amount = total, currency = moneda leída ("unknown" si no se ve), when = fecha leída ("" si no se ve), description = proveedor (o "Factura"). No inventes datos que no estén.`;
 }

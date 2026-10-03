@@ -100,6 +100,20 @@ function toInbound(m: RawMessage, v: RawValue): InboundMessage {
           caption: m.image.caption ?? null,
         };
       break;
+    case "document":
+      if (m.document)
+        return {
+          ...base,
+          kind: "document",
+          media: {
+            id: m.document.id,
+            mimeType: m.document.mime_type ?? null,
+            sha256: m.document.sha256 ?? null,
+          },
+          filename: m.document.filename ?? null,
+          caption: m.document.caption ?? null,
+        };
+      break;
     case "interactive": {
       const r = m.interactive;
       if (r?.type === "button_reply" && r.button_reply)

@@ -14,7 +14,10 @@ export type LlmToolDef = {
 export type LlmToolCall = { id: string; name: string; input: unknown };
 
 export type LlmTurn =
-  /** `image` solo en la lectura de facturas: un turno con la foto y la instrucción. */
+  /**
+   * `image` solo en la lectura de facturas: un turno con la foto (jpeg, png, webp) o el PDF
+   * (`application/pdf`) y la instrucción.
+   */
   | { role: "user"; text: string; image?: { mimeType: string; data: Uint8Array } }
   | { role: "assistant"; text: string | null; toolCalls: LlmToolCall[] }
   | { role: "tool_result"; toolUseId: string; content: string; isError?: boolean };

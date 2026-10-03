@@ -154,6 +154,7 @@ export type MovementDetail = MovementRow & {
   updatedAt: Date;
   author: string;
   sourceBody: string | null;
+  attachmentMime: string | null;
 };
 
 /** Un movimiento con su categoría, autor (teléfono o cuenta) y el mensaje que lo originó. */
@@ -184,12 +185,14 @@ export async function movementById(tenantId: string, id: string): Promise<Moveme
         phoneE164: schema.phoneNumber.e164,
         userEmail: schema.userAccount.email,
         sourceBody: schema.message.body,
+        attachmentMime: schema.attachment.mimeType,
       })
       .from(schema.movement)
       .leftJoin(schema.category, eq(schema.category.id, schema.movement.categoryId))
       .leftJoin(schema.phoneNumber, eq(schema.phoneNumber.id, schema.movement.createdByPhoneId))
       .leftJoin(schema.userAccount, eq(schema.userAccount.id, schema.movement.createdByUserId))
       .leftJoin(schema.message, eq(schema.message.id, schema.movement.sourceMessageId))
+      .leftJoin(schema.attachment, eq(schema.attachment.id, schema.movement.attachmentId))
       .where(eq(schema.movement.id, id)),
   );
   if (!m) return null;
