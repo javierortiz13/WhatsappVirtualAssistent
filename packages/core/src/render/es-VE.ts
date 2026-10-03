@@ -1,5 +1,5 @@
 import { asIsoDate, formatShortDate, type IsoDate, monthNameEs } from "../domain/dates";
-import { Decimal, formatMoney, type RateOrigin } from "../domain/money";
+import { Decimal, formatMoney, parseVenezuelanAmount, type RateOrigin } from "../domain/money";
 import { IDS, type Outbound, type RenewMethod } from "./outbound";
 
 /**
@@ -423,8 +423,40 @@ export function receiptRead(r: {
   return { type: "text", body: `🧾 Leí ${what}: ${parts.join(" · ")}` };
 }
 
-export function receiptUnclear(): Outbound {
-  return { type: "text", body: "No pude leer bien la factura. ¿Cuánto fue y en qué moneda?" };
+/**
+ * Factura que no se pudo leer (03/10): en un solo mensaje se pide todo lo que falta (gasto o
+ * venta, monto con moneda y en qué fue) para que la respuesta siguiente ya sea el borrador. Con
+ * `keptPhoto`, el borrador de esa respuesta lleva la foto. `guess` es el total que se alcanzó a
+ * ver, para que el usuario lo confirme.
+ */
+export function receiptUnclear(
+  opts: { keptPhoto?: boolean; guess?: { total: string; currency: string } | null } = {},
+): Outbound {
+  let seen = "";
+  const total = opts.guess ? parseLooseAmount(opts.guess.total) : null;
+  if (total && opts.guess) {
+    const c = opts.guess.currency;
+    seen =
+      c === "USD" || c === "VES"
+        ? ` Me pareció ver un total de *${formatMoney(total, c)}*, pero no estoy seguro.`
+        : ` Me pareció ver un total de *${total.toFixed(2).replace(".", ",")}*, pero no estoy seguro.`;
+  }
+  const keep = opts.keptPhoto ? " y la guardo con la foto" : "";
+  return {
+    type: "text",
+    body: [
+      `🧾 No pude leer bien la factura.${seen}`,
+      `Escríbeme en *un solo mensaje*: si fue *gasto* o *venta*, el *monto con la moneda* y *en qué fue*${keep}.`,
+      "Ejemplo: _gasto 12.955 Bs en comida_",
+    ].join("\n"),
+  };
+}
+
+/** Total leído por el lector ("12955.10" o "12.955,10"); null si no es un monto positivo. */
+function parseLooseAmount(s: string): Decimal | null {
+  const t = s.trim();
+  const d = /^\d+(\.\d+)?$/.test(t) ? new Decimal(t) : parseVenezuelanAmount(t);
+  return d?.gt(0) ? d : null;
 }
 
 export function notAReceipt(): Outbound {

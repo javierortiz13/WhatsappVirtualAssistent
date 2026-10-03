@@ -31,3 +31,35 @@
   caption: "esto es una venta que me pagaron"
   expect:
     tool_not: draft_expense
+
+# Factura ilegible (03/10, prueba de Javier): el bot pide en un solo mensaje gasto o venta, monto y
+# en qué fue; la respuesta siguiente va directo al borrador, sin más preguntas.
+- name: respuesta completa a una factura ilegible
+  input: "gasto 12.955 Bs en comida"
+  after_unclear_receipt: { total: "12955.10", currency: VES }
+  history:
+    - { role: in, body: "[foto de factura que no se pudo leer bien] posible total 12955.10 VES" }
+    - { role: out, body: "🧾 No pude leer bien la factura. Escríbeme en un solo mensaje: si fue gasto o venta, el monto con la moneda y en qué fue." }
+  expect:
+    tool: draft_expense
+    args: { currency: VES }
+
+- name: solo el monto tras una factura ilegible es un gasto con descripción Factura
+  input: "12956 bs"
+  after_unclear_receipt: { total: "12955.10", currency: VES }
+  history:
+    - { role: in, body: "[foto de factura que no se pudo leer bien] posible total 12955.10 VES" }
+    - { role: out, body: "🧾 No pude leer bien la factura. Escríbeme en un solo mensaje: si fue gasto o venta, el monto con la moneda y en qué fue." }
+  expect:
+    tool: draft_expense
+    tool_not: ask_clarification
+
+- name: venta tras una factura ilegible no queda como gasto
+  input: "fue una venta de 300$"
+  after_unclear_receipt: { total: "300", currency: USD }
+  history:
+    - { role: in, body: "[foto de factura que no se pudo leer bien] posible total 300 USD" }
+    - { role: out, body: "🧾 No pude leer bien la factura. Escríbeme en un solo mensaje: si fue gasto o venta, el monto con la moneda y en qué fue." }
+  expect:
+    tool_not: draft_expense
+    pending_after: 1

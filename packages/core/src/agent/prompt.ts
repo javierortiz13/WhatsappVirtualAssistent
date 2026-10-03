@@ -1,5 +1,5 @@
 import { formatShortDate, type IsoDate } from "../domain/dates";
-import type { AgentContext } from "./types";
+import type { AgentContext, UnclearReceipt } from "./types";
 
 /**
  * Prompt de sistema (Fase 3). Dos bloques, en orden de estabilidad para la caché:
@@ -97,8 +97,10 @@ export function userTurn(
   today: IsoDate,
   pendingDraft: DraftForPrompt | null,
   waiting: DraftForPrompt[] = [],
+  context: string | null = null,
 ): string {
   const lines = [`Fecha de hoy en Caracas: ${today} (${formatShortDate(today)}).`];
+  if (context) lines.push(context);
   if (pendingDraft) {
     lines.push(
       `Hay un borrador SIN GUARDAR en corrección: ${JSON.stringify(draftSummary(pendingDraft))}. El mensaje del usuario corrige uno o más campos de ese borrador (monto, moneda, descripción, categoría, fecha, método o tasa): llama ${pendingDraft.tool} con TODOS los campos (y todos los renglones, si es una lista), tomando del borrador los que no cambian, y corrects_draft=true. No uses amend_last_movement para esto.`,
@@ -110,4 +112,23 @@ export function userTurn(
   }
   lines.push(`Mensaje del usuario: ${JSON.stringify(text)}`);
   return lines.join("\n");
+}
+
+/**
+ * Contexto del mensaje que responde a "no pude leer bien la factura": registrar de una vez, sin
+ * volver a preguntar lo que el usuario ya dijo. El total que se alcanzó a ver no cuenta como monto.
+ */
+export function unclearReceiptContext(r: UnclearReceipt): string {
+  const seen = [
+    r.total
+      ? `posible total ${r.total}${r.currency && r.currency !== "unknown" ? ` ${r.currency}` : ""}`
+      : null,
+    r.vendor ? `proveedor ${JSON.stringify(r.vendor)}` : null,
+  ].filter(Boolean);
+  const description = r.vendor ? JSON.stringify(r.vendor) : '"Factura"';
+  return [
+    `Contexto: el mensaje anterior del usuario fue una foto o PDF de factura que el sistema NO pudo leer bien${seen.length ? ` (${seen.join(", ")})` : ""}, y se le pidió en un solo mensaje: gasto o venta, el monto con la moneda y en qué fue.`,
+    `Este mensaje responde eso. Registra DIRECTAMENTE: gasto → draft_expense; venta → draft_income_day_total (o draft_income_single si es una venta suelta). Si no dice si es gasto o venta, ${r.documentType === "sales" ? "es una venta" : "es un gasto"}. Si no dice en qué fue, usa description = ${description}.`,
+    "Usa SOLO el monto que escribe el usuario, nunca el posible total. Si no escribió ningún monto, usa ask_clarification preguntando solo el monto y la moneda.",
+  ].join(" ");
 }

@@ -60,8 +60,10 @@ import type { AgentContext } from "./types";
 export type ToolRunCtx = {
   tx: Tx;
   ctx: AgentContext;
-  /** Texto del usuario en este turno (para validar cifras en aclaraciones). */
+  /** Texto del usuario en este turno. */
   userText: string;
+  /** Este turno más los mensajes anteriores del usuario: las cifras de una aclaración salen de aquí. */
+  groundingText?: string;
   now: Date;
   /**
    * Cola de borradores del teléfono: el que está en corrección (botón Corregir) y el más reciente.
@@ -1255,7 +1257,7 @@ const askClarification: ToolSpec<typeof AskClarificationInput> = {
   schema: AskClarificationInput,
   roles: ["owner", "employee"],
   async run(input, run) {
-    const question = numbersAreGrounded(input.question, run.userText)
+    const question = numbersAreGrounded(input.question, run.groundingText ?? run.userText)
       ? input.question
       : "No entendí bien. ¿Me lo repites con el monto y en qué lo gastaste?";
     return {

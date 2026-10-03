@@ -24,10 +24,21 @@ export type AgentContext = {
   billing?: { dest: PaymentDest; supportHint: string | null };
 };
 
+/**
+ * La respuesta a "no pude leer bien la factura" (03/10): lo poco que se leyó, para que el agente
+ * arme el borrador con lo que escriba el usuario sin volver a preguntar.
+ */
+export type UnclearReceipt = {
+  total: string | null;
+  currency: string | null;
+  vendor: string | null;
+  documentType: "expense" | "sales" | "unknown";
+};
+
 export type AgentInput =
-  | { kind: "text"; text: string }
+  | { kind: "text"; text: string; afterUnclearReceipt?: UnclearReceipt | null }
   /** Transcripción de una nota de voz: se trata como texto, pero el movimiento lleva canal `voice`. */
-  | { kind: "voice"; text: string }
+  | { kind: "voice"; text: string; afterUnclearReceipt?: UnclearReceipt | null }
   /** Lectura estructurada de una foto de factura: el loop la convierte en texto para el modelo. */
   | { kind: "receipt"; extracted: ReceiptExtraction; caption?: string | null };
 

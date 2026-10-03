@@ -204,6 +204,61 @@ describe("agent loop", () => {
     );
   });
 
+  it("ask_clarification: una cifra de un mensaje anterior del usuario no es inventada (03/10)", async () => {
+    // "12956 bs" → "¿Gasto o venta?" → "Gasto": la pregunta siguiente cita los 12956 del
+    // mensaje anterior y antes caía en "No entendí bien".
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.insert(schema.message).values([
+        {
+          tenantId,
+          phoneId,
+          direction: "in",
+          kind: "text",
+          body: "12956 bs",
+          waMessageId: "wamid.g1",
+          createdAt: new Date("2026-09-29T14:58:00Z"),
+        },
+        {
+          tenantId,
+          phoneId,
+          direction: "out",
+          kind: "text",
+          body: "¿Es un gasto o una venta?",
+          createdAt: new Date("2026-09-29T14:58:01Z"),
+        },
+      ]),
+    );
+    const res = await run(
+      fakeLlm([
+        call("ask_clarification", { question: "¿En qué fueron esos 12956 Bs?", options: [] }),
+      ]).client,
+      "Gasto",
+    );
+    expect((res.outbound[0] as { body: string }).body).toBe("¿En qué fueron esos 12956 Bs?");
+  });
+
+  it("respuesta a una factura ilegible: el turno lleva el contexto para registrar de una vez", async () => {
+    const { client, requests } = fakeLlm([call("draft_expense", expense())]);
+    await withTenant(t.db, tenantId, (tx) =>
+      createAgent({ llm: client, now }).run(tx, ctx, {
+        kind: "text",
+        text: "gasto 12956 bs",
+        afterUnclearReceipt: {
+          total: "12955.10",
+          currency: "VES",
+          vendor: null,
+          documentType: "unknown",
+        },
+      }),
+    );
+    const turn = textOf(requests[0], 0);
+    expect(turn).toContain("NO pudo leer bien");
+    expect(turn).toContain("posible total 12955.10 VES");
+    expect(turn).toContain('description = "Factura"');
+    expect(turn).toContain("es un gasto");
+    expect(turn.indexOf("Contexto:")).toBeLessThan(turn.indexOf("Mensaje del usuario:"));
+  });
+
   it("reject_out_of_scope y get_bcv_rate", async () => {
     const rej = await run(
       fakeLlm([call("reject_out_of_scope", { reason: "general_chat" })]).client,

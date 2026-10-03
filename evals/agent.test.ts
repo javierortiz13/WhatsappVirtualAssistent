@@ -162,7 +162,7 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
           }
           const input: AgentInput = c.receipt
             ? { kind: "receipt", extracted: c.receipt, caption: c.caption ?? null }
-            : { kind: c.kind, text: c.input };
+            : { kind: c.kind, text: c.input, afterUnclearReceipt: c.after_unclear_receipt ?? null };
           const r = await agent.run(tx, ctx, input);
           const drafts = await tx
             .select({ id: schema.pendingAction.id })

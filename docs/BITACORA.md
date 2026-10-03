@@ -564,3 +564,19 @@ La aclaración de la moneda pasa a una nota al final. Las correcciones muestran 
 - Tests nuevos: dos ventas del día en cola, tasa con tres decimales y tasa absurda, parser, fin de semana de DolarAPI. 276 tests.
 
 **Pendiente (anotado, no urgente):** commit-then-send completo del turno (hoy se evita el reintento duplicado, pero el envío sigue dentro de la transacción); heredar la foto en las respuestas a botones de moneda y en `draft_expenses`; `pendingDrafts` sin filtrar vencidos hasta el housekeeping; una corrección por chat puede pisar una edición del dashboard hecha en esos minutos; límites de números y empleados por plan; reactivar o extender un negocio de cortesía (sin `paid_until`) lo trata como prueba; confirmación antes de "Suspender ahora"; el login toma el origen del encabezado (lo protege la lista de URLs de Supabase).
+
+### S2 · 03/10/2026 · Factura ilegible: un solo mensaje y la respuesta va directo al borrador
+
+**Reporte (Javier):** un ticket fiscal con los céntimos cortados en el borde (TOTAL Bs 12.955,1x) dio "No pude leer bien la factura. ¿Cuánto fue y en qué moneda?"; "12956 bs" → "¿Es un gasto o una venta?"; "Gasto" → "No entendí bien…". Tres mensajes y nada guardado.
+
+**Causas**
+1. El lector devolvió confianza 0,3 (log "factura leída" de las 14:17 UTC) y el bot descartaba la lectura y la foto.
+2. La pregunta "¿En qué fueron esos 12956 Bs?" citaba una cifra del mensaje anterior; la validación de cifras inventadas solo miraba el mensaje del turno ("Gasto") y la cambiaba por "No entendí bien".
+
+**Cambios**
+- Factura ilegible → un solo mensaje: "🧾 No pude leer bien la factura. Me pareció ver un total de *Bs 12.955,10*, pero no estoy seguro. Escríbeme en *un solo mensaje*: si fue *gasto* o *venta*, el *monto con la moneda* y *en qué fue* y la guardo con la foto. Ejemplo: _gasto 12.955 Bs en comida_".
+- La foto se guarda igual (provisional, el barrido la borra en una hora si no se usa). El saliente lleva la marca `receipt_unclear` en `tool_calls`; si lo siguiente que escribe o dice el usuario (dentro de 30 minutos) responde a eso, el agente recibe el contexto y registra directo: gasto por defecto, descripción "Factura" (o el proveedor) si no dice en qué, solo el monto que escribió el usuario. El borrador lleva la foto. Sin migración.
+- Las cifras de una aclaración se validan contra este mensaje y los anteriores del usuario en la ventana del historial.
+- Lector: céntimos cortados con la parte entera clara ya no bajan la confianza de 0,6 (el usuario confirma el borrador).
+
+**Tests:** el caso "12956 bs → Gasto", el contexto en el turno, y la foto ilegible de punta a punta (mensaje, foto guardada, "12956 bs" → borrador → Guardar con la foto; el mensaje siguiente ya no hereda). Tres casos de eval nuevos (90). 279 tests.

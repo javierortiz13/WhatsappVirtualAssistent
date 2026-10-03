@@ -158,6 +158,30 @@ const llm: LlmClient = {
         usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
         model: "fake",
       };
+    if (text.includes("NO pudo leer bien")) {
+      const said = /Mensaje del usuario: "(?:gasto )?([\d.]+) bs/i.exec(text);
+      return reply([
+        said
+          ? {
+              id: "u1",
+              name: "draft_expense",
+              input: {
+                amount: said[1],
+                currency: "VES",
+                description: "Factura",
+                category_name: "",
+                when: "",
+                rate: "",
+                corrects_draft: false,
+              },
+            }
+          : {
+              id: "u2",
+              name: "ask_clarification",
+              input: { question: "¿Cuánto fue y en qué moneda?", options: [] },
+            },
+      ]);
+    }
     const m = /total ([\d.]+) (USD|VES)/.exec(text);
     const vendor = /proveedor ([^;.]+)/.exec(text)?.[1] ?? "Factura";
     const date = /fecha (\d{4}-\d{2}-\d{2})/.exec(text)?.[1] ?? "";
@@ -315,13 +339,10 @@ describe("fotos de facturas", () => {
     expect(atts.filter((a) => a.deletedAt).length).toBe(1);
   });
 
-  it("no es factura, confianza baja o lector caído: respuestas sin respaldo", async () => {
+  it("no es factura o lector caído: respuestas sin respaldo", async () => {
     const notReceipt = fakeMeta();
     await sendImage(notReceipt.client, fakeVision({ ...RECEIPT, is_receipt: false }));
     expect(textOf(notReceipt.sent[1])).toContain("Solo proceso facturas y recibos");
-    const low = fakeMeta();
-    await sendImage(low.client, fakeVision({ ...RECEIPT, confidence: 0.3 }));
-    expect(textOf(low.sent[1])).toBe("No pude leer bien la factura. ¿Cuánto fue y en qué moneda?");
     const down = fakeMeta();
     await sendImage(down.client, fakeVision(new Error("503")));
     expect(textOf(down.sent[1])).toContain("No pude leer bien la factura");
@@ -508,5 +529,48 @@ describe("fotos de facturas", () => {
     await sendDocument(fake.client, vision, { mime_type: "application/pdf", filename: "x.pdf" });
     expect(textOf(fake.sent[1])).toContain("No pude leer bien la factura");
     expect(vision.calls).toBe(0);
+  });
+  it("factura ilegible: un solo mensaje pide todo, guarda la foto y la respuesta siguiente es el borrador", async () => {
+    const { sent, client } = fakeMeta();
+    const vision = fakeVision({
+      ...RECEIPT,
+      total: "12955.10",
+      currency: "VES",
+      vendor: "",
+      confidence: 0.3,
+    });
+    const before = store.objects.size;
+    await sendImage(client, vision);
+    const ask = textOf(sent[1]);
+    expect(ask).toContain("No pude leer bien la factura");
+    expect(ask).toContain("Me pareció ver un total de *Bs 12.955,10*");
+    expect(ask).toContain("*un solo mensaje*");
+    expect(ask).toContain("y la guardo con la foto");
+    expect(ask).toContain("Ejemplo: _gasto 12.955 Bs en comida_");
+    expect(store.objects.size).toBe(before + 1);
+    const att = (await attachments()).at(-1);
+
+    jobs.length = 0;
+    const p = fx.textMessage(`wamid.UNC${++seq}`, "12956 bs");
+    await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
+    await processInbound(deps(client, vision), jobs[0] as ProcessMessageJob);
+    const draft = textOf(sent[2]);
+    expect(draft).toContain("Gasto por confirmar");
+    expect(draft).toContain("Bs 12.956,00");
+    await tap(client, vision, buttonsOf(sent[2])[0]?.id as string, "Guardar");
+    const [mv] = await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .select()
+        .from(schema.movement)
+        .where(eq(schema.movement.attachmentId, att?.id as string)),
+    );
+    expect(mv).toMatchObject({ amountVes: "12956.00", description: "Factura" });
+
+    // Solo la respuesta inmediata hereda la foto: el mensaje siguiente ya no lleva el contexto.
+    jobs.length = 0;
+    const q = fx.textMessage(`wamid.UNC${++seq}`, "15 bs");
+    await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, q);
+    await processInbound(deps(client, vision), jobs[0] as ProcessMessageJob);
+    expect(textOf(sent[sent.length - 1])).toBe("¿Cuánto fue?");
   });
 });

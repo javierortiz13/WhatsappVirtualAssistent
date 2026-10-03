@@ -34,6 +34,15 @@ export const EvalCase = z.object({
   /** Leyenda que el usuario escribió junto a la foto o el PDF. */
   caption: z.string().optional(),
   history: z.array(z.object({ role: z.enum(["in", "out"]), body: z.string() })).default([]),
+  /** El mensaje responde a "no pude leer bien la factura" (03/10): lo poco que se leyó. */
+  after_unclear_receipt: z
+    .object({
+      total: z.string().nullable().default(null),
+      currency: z.string().nullable().default(null),
+      vendor: z.string().nullable().default(null),
+      documentType: z.enum(["expense", "sales", "unknown"]).default("unknown"),
+    })
+    .optional(),
   /**
    * Borradores de gasto que esperan su Guardar antes del mensaje (cola de borradores, 02/10), el
    * más viejo primero. `fixing: true` simula que el usuario tocó Corregir en ese borrador.

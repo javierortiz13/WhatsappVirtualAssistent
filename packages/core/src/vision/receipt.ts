@@ -87,6 +87,7 @@ const RECEIPT_SYSTEM = [
   "Montos venezolanos: el punto separa miles y la coma decimales (1.250,50 = 1250.50). Devuelve el total con punto decimal.",
   "Moneda: Bs, Bs., BsS, VES o 'bolívares' es VES; $, USD o 'dólares' es USD. 'Ref' suele ser USD de referencia; si el pago fue en Bs, la moneda es VES.",
   "document_type: mira quién emite el documento. Si el emisor es el negocio del usuario (su nombre viene en el mensaje) o el título habla de ventas, cierre de caja o ingresos, es 'sales'. Si lo emite otro comercio y el negocio del usuario es el cliente, es 'expense'.",
+  "Si la parte entera del total se lee clara pero los céntimos están cortados o borrosos (la foto cortó el borde), devuelve el total con los decimales que se vean (o sin decimales) y confianza 0.7: unos céntimos no cambian el gasto y el usuario confirma el borrador. Baja la confianza de 0.6 solo si no se lee algún dígito de la parte entera o la moneda.",
   "Si la imagen o el PDF no es una factura, recibo, ticket o comprobante (un contrato, un estado de cuenta, una cotización, un menú), is_receipt=false. No inventes cifras: si no se lee, deja el campo vacío y baja la confianza.",
 ].join("\n");
 

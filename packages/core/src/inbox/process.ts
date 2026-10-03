@@ -1,8 +1,9 @@
-import { and, type Db, eq, schema, sql, type Tx, withTenant } from "@caja/db";
+import { and, type Db, desc, eq, gt, ne, schema, sql, type Tx, withTenant } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
+import { z } from "zod";
 import { LlmUnavailableError } from "../agent/llm";
 import { deleteLastFlow } from "../agent/tools";
-import type { AgentInput, AgentRunner } from "../agent/types";
+import type { AgentInput, AgentRunner, UnclearReceipt } from "../agent/types";
 import {
   currentRenewIntent,
   extractReference,
@@ -721,7 +722,6 @@ async function handleImage(
     "factura leída",
   );
   if (!e.is_receipt) return none([es.notAReceipt()]);
-  if (e.confidence < RECEIPT_MIN_CONFIDENCE || !e.total) return none([es.receiptUnclear()]);
 
   // Respaldo en el bucket (provisional hasta Guardar). Sin bucket, el gasto se registra igual.
   let attachmentId: string | null = null;
@@ -748,6 +748,36 @@ async function handleImage(
       log.warn({ err: errMsg(err) }, "foto: no se pudo guardar el respaldo");
     }
   }
+
+  if (e.confidence < RECEIPT_MIN_CONFIDENCE || !e.total) {
+    // Una sola pregunta con todo lo que falta; la respuesta siguiente arma el borrador con la
+    // foto (ver `unclearReceiptBefore`). El total dudoso se muestra para que lo confirme.
+    const unclear: UnclearReceipt = {
+      total: e.total || null,
+      currency: e.currency,
+      vendor: e.vendor || null,
+      documentType: e.document_type,
+    };
+    await tx
+      .update(schema.message)
+      .set({
+        body: `[${isPdf ? "PDF" : "foto"} de factura que no se pudo leer bien]${e.total ? ` posible total ${e.total} ${e.currency}` : ""}${e.vendor ? ` · ${e.vendor}` : ""}`,
+      })
+      .where(eq(schema.message.waMessageId, msg.waMessageId));
+    return {
+      ...none([
+        es.receiptUnclear({
+          keptPhoto: attachmentId !== null,
+          guess: e.total ? { total: e.total, currency: e.currency } : null,
+        }),
+      ]),
+      toolCalls: [{ name: UNCLEAR_RECEIPT, args: { ...unclear, attachmentId } }],
+      costUsd: read.costUsd,
+      tokensIn: read.usage.inputTokens,
+      tokensOut: read.usage.outputTokens,
+    };
+  }
+
   const summary = `[${isPdf ? "PDF" : "foto"} de factura] ${e.vendor || "proveedor no legible"} · ${e.total} ${e.currency}${e.date ? ` · ${e.date}` : ""}`;
   await tx
     .update(schema.message)
@@ -968,6 +998,49 @@ async function closeToday(tx: Tx, deps: ProcessDeps, ctx: RouteCtx): Promise<Rou
   ]);
 }
 
+/** Marca, en el saliente, de "no pude leer bien la factura": la respuesta siguiente la usa. */
+const UNCLEAR_RECEIPT = "receipt_unclear";
+const UNCLEAR_WINDOW_MS = 30 * 60_000;
+
+const UnclearMark = z.object({
+  name: z.literal(UNCLEAR_RECEIPT),
+  args: z.object({
+    total: z.string().nullable(),
+    currency: z.string().nullable(),
+    vendor: z.string().nullable(),
+    documentType: z.enum(["expense", "sales", "unknown"]),
+    attachmentId: z.string().uuid().nullable(),
+  }),
+});
+
+/**
+ * Si lo último que respondió el bot (en los últimos 30 minutos) fue "no pude leer bien la
+ * factura", lo que se leyó y la foto guardada; si no, null. Las reacciones (acuses) no cuentan.
+ */
+async function unclearReceiptBefore(
+  tx: Tx,
+  phoneId: string,
+  now: Date,
+): Promise<{ receipt: UnclearReceipt; attachmentId: string | null } | null> {
+  const [last] = await tx
+    .select({ toolCalls: schema.message.toolCalls })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.phoneId, phoneId),
+        eq(schema.message.direction, "out"),
+        ne(schema.message.kind, "reaction"),
+        gt(schema.message.createdAt, new Date(now.getTime() - UNCLEAR_WINDOW_MS)),
+      ),
+    )
+    .orderBy(desc(schema.message.createdAt))
+    .limit(1);
+  const mark = UnclearMark.safeParse(Array.isArray(last?.toolCalls) ? last.toolCalls[0] : null);
+  if (!mark.success) return null;
+  const { attachmentId, ...receipt } = mark.data.args;
+  return { receipt, attachmentId };
+}
+
 async function runAgent(
   tx: Tx,
   deps: ProcessDeps,
@@ -977,6 +1050,14 @@ async function runAgent(
   attachmentId: string | null = null,
 ): Promise<RouteResult> {
   const log = deps.log ?? silentLogger;
+  // Respuesta a una factura ilegible: el agente registra con lo que escribió y hereda la foto.
+  if ((input.kind === "text" || input.kind === "voice") && waMessageId && !attachmentId) {
+    const prev = await unclearReceiptBefore(tx, ctx.phoneId, (deps.now ?? (() => new Date()))());
+    if (prev) {
+      input = { ...input, afterUnclearReceipt: prev.receipt };
+      attachmentId = prev.attachmentId;
+    }
+  }
   const categories = await tx
     .select({ id: schema.category.id, name: schema.category.name })
     .from(schema.category)

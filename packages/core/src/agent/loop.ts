@@ -6,7 +6,7 @@ import type { Outbound } from "../render/index";
 import { es } from "../render/index";
 import { receiptUserText } from "../vision/receipt";
 import { type LlmClient, type LlmTurn, LlmUnavailableError } from "./llm";
-import { GLOBAL_SYSTEM, tenantSystem, userTurn } from "./prompt";
+import { GLOBAL_SYSTEM, tenantSystem, unclearReceiptContext, userTurn } from "./prompt";
 import { type DraftRef, type ToolSpec, toLlmToolDef, toolsForRole } from "./tools";
 import type { AgentContext, AgentInput, AgentResult, AgentRunner } from "./types";
 
@@ -68,10 +68,27 @@ export function createAgent(opts: AgentOptions): AgentRunner {
         ctx.sourceMessageDbId,
       );
 
+      const after =
+        input.kind === "text" || input.kind === "voice" ? input.afterUnclearReceipt : null;
       const turns: LlmTurn[] = [
         ...history,
-        { role: "user", text: userTurn(userText, ctx.today, pendingDraft, waiting) },
+        {
+          role: "user",
+          text: userTurn(
+            userText,
+            ctx.today,
+            pendingDraft,
+            waiting,
+            after ? unclearReceiptContext(after) : null,
+          ),
+        },
       ];
+      // Las cifras de una aclaración pueden venir de mensajes anteriores ("¿En qué fueron esos
+      // 12956 Bs?" cuando ahora solo escribió "Gasto"), no solo del mensaje de este turno.
+      const groundingText = [
+        userText,
+        ...history.flatMap((h) => (h.role === "user" ? [h.text] : [])),
+      ].join("\n");
       const usage = {
         inputTokens: 0,
         outputTokens: 0,
@@ -147,6 +164,7 @@ export function createAgent(opts: AgentOptions): AgentRunner {
           tx,
           ctx,
           userText,
+          groundingText,
           now: started,
           drafts,
         });
