@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { LlmClient, LlmToolDef, LlmUsage } from "../agent/llm";
+import { daysBetween, type IsoDate, isIsoDate } from "../domain/dates";
 import { pagoMovilData } from "../domain/pago-movil";
 
 /**
@@ -65,7 +66,8 @@ export const READ_RECEIPT_TOOL: LlmToolDef = {
       },
       date: {
         type: "string",
-        description: 'Fecha de la factura en formato YYYY-MM-DD si es legible; "" si no.',
+        description:
+          'Fecha de la factura en formato YYYY-MM-DD si es legible; "" si no. En Venezuela se escribe día/mes/año: "03/10/2026" es 2026-10-03.',
       },
       vendor: {
         type: "string",
@@ -114,6 +116,7 @@ const RECEIPT_SYSTEM = [
   "Si es un PDF de varias páginas, el total suele estar en la última página de la factura; ignora páginas de términos, publicidad o anexos.",
   "El total es lo que se pagó, con IVA incluido. Si hay 'Total' y 'Subtotal', usa 'Total'.",
   "Montos venezolanos: el punto separa miles y la coma decimales (1.250,50 = 1250.50). Devuelve el total con punto decimal.",
+  "Fechas: en Venezuela van día/mes/año (03/10/2026 = 3 de octubre de 2026 → 2026-10-03; 10/03/26 = 10 de marzo de 2026). Nunca las leas como mes/día.",
   "Moneda: Bs, Bs., BsS, VES o 'bolívares' es VES; $, USD o 'dólares' es USD. 'Ref' suele ser USD de referencia; si el pago fue en Bs, la moneda es VES.",
   "document_type: mira quién emite el documento. Si el emisor es el negocio del usuario (su nombre viene en el mensaje) o el título habla de ventas, cierre de caja o ingresos, es 'sales'. Si lo emite otro comercio y el negocio del usuario es el cliente, es 'expense'.",
   "Si la parte entera del total se lee clara pero los céntimos están cortados o borrosos (la foto cortó el borde), devuelve el total con los decimales que se vean (o sin decimales) y confianza 0.7: unos céntimos no cambian el gasto y el usuario confirma el borrador. Baja la confianza de 0.6 solo si no se lee algún dígito de la parte entera o la moneda.",
@@ -209,4 +212,18 @@ export function pagoMovilDescription(e: ReceiptExtraction): string {
   const d = e.payee ? pagoMovilData(e.payee) : null;
   const who = d?.holder ?? d?.bankName;
   return who ? `Pago móvil a ${who}` : "Pago móvil";
+}
+
+/**
+ * Red de seguridad para la fecha leída (03/10): si quedó en el futuro o de hace más de un mes y con
+ * día y mes al revés cae entre hoy y hace un mes, se leyó como mes/día. "2026-03-10" con hoy
+ * 2026-10-03 → "2026-10-03". Si no, la deja como vino.
+ */
+export function fixDayMonth(date: string, today: IsoDate): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m || !isIsoDate(date)) return date;
+  const inWindow = (d: IsoDate) => d <= today && daysBetween(d, today) <= 31;
+  if (inWindow(date as IsoDate)) return date;
+  const swapped = `${m[1]}-${m[3]}-${m[2]}`;
+  return isIsoDate(swapped) && inWindow(swapped as IsoDate) ? swapped : date;
 }

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { LlmClient, LlmRequest } from "../src/agent/llm";
+import { asIsoDate } from "../src/domain/dates";
 import { Decimal } from "../src/domain/money";
-import { createReceiptReader, READ_RECEIPT_TOOL, receiptUserText } from "../src/vision/receipt";
+import {
+  createReceiptReader,
+  fixDayMonth,
+  READ_RECEIPT_TOOL,
+  receiptUserText,
+} from "../src/vision/receipt";
 
 function llmReturning(input: unknown, capture: LlmRequest[] = []): LlmClient {
   return {
@@ -95,5 +101,17 @@ describe("lector de facturas", () => {
   it("el esquema de la herramienta no tiene uniones (modo strict)", async () => {
     const { countUnions } = await import("../src/agent/tools");
     expect(countUnions(READ_RECEIPT_TOOL.inputSchema)).toBe(0);
+  });
+
+  it("fecha leída como mes/día: se voltea si así cae en el último mes (03/10)", () => {
+    const today = asIsoDate("2026-10-03");
+    expect(fixDayMonth("2026-03-10", today)).toBe("2026-10-03");
+    expect(fixDayMonth("2026-12-09", asIsoDate("2026-09-29"))).toBe("2026-09-12");
+    // Ya está bien, o volteada tampoco sirve: queda como vino y el agente pregunta.
+    expect(fixDayMonth("2026-09-29", today)).toBe("2026-09-29");
+    expect(fixDayMonth("2026-01-05", today)).toBe("2026-01-05");
+    expect(fixDayMonth("2026-09-15", today)).toBe("2026-09-15");
+    expect(fixDayMonth("2025-10-03", today)).toBe("2025-10-03");
+    expect(fixDayMonth("", today)).toBe("");
   });
 });

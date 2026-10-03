@@ -124,3 +124,15 @@
   expect:
     tool: draft_expense
     args: { amount: "12960.00", currency: VES }
+
+# Factura leída con una pregunta (03/10, prueba de Javier: la fecha salió vieja): la respuesta
+# registra con lo leído, sin volver a pedir el monto.
+- name: respuesta a la pregunta de la fecha de una factura
+  input: "El gasto es del día de hoy"
+  after_unclear_receipt: { total: "8593.15", currency: VES, vendor: "Alimentos VDV, C.A.", documentType: expense, source: receipt_question }
+  history:
+    - { role: in, body: "[foto de factura] Alimentos VDV, C.A. · 8593.15 VES · 2026-03-10" }
+    - { role: out, body: "¿El gasto fue el 2026-03-10? Es de hace más de un mes. Si es así, escríbelo con la fecha completa (por ejemplo 2026-08-15)." }
+  expect:
+    tool: draft_expense
+    args: { amount: "8593.15", currency: VES }

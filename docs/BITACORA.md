@@ -623,3 +623,14 @@ Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más cla
 3. *Foto primero:* un texto sin cifras justo después de una foto que quedó en borrador lleva contexto al agente para corregir la descripción de ese borrador (corrects_draft, conserva la foto); una pregunta como "cómo va el mes" lo ignora.
 
 **Tests:** los cuatro casos (foto durante la espera, foto tarde, texto con monto que no espera, foto primero). Tres casos de eval nuevos (103). 323 tests.
+
+### S2 · 03/10/2026 · Fechas de facturas en día/mes y la foto se conserva tras una pregunta
+
+**Reporte (Javier):** un ticket de McDonald's con fecha "03/10/2026" se leyó como 10 de marzo (formato de EE. UU.); el bot preguntó "¿El gasto fue el 2026-03-10? Es de hace más de un mes". Con "El gasto es del día de hoy" armó el borrador, pero sin la foto.
+
+**Cambios**
+- Lector: regla explícita "en Venezuela las fechas van día/mes/año" en el prompt y en la descripción del campo.
+- Red de seguridad `fixDayMonth`: si la fecha leída queda en el futuro o a más de un mes y con día y mes al revés cae dentro del último mes, se voltea antes del agente ("2026-03-10" con hoy 03/10 → "2026-10-03"). Si volteada tampoco sirve, queda como vino y el agente pregunta.
+- Si el agente pregunta algo sobre una factura leída (fecha, moneda) en vez de armar el borrador, el saliente lleva la marca `receipt_unclear` con `source: receipt_question`; la respuesta siguiente registra con lo leído y lo que diga el usuario, y hereda la foto.
+
+**Tests:** `fixDayMonth` (volteos válidos y los que no), fecha volteada de punta a punta, pregunta de fecha → respuesta → borrador con la foto. Un caso de eval nuevo (104). 326 tests.

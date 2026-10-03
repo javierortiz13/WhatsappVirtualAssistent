@@ -120,6 +120,19 @@ export function userTurn(
  * volver a preguntar lo que el usuario ya dijo. El total que se alcanzó a ver no cuenta como monto.
  */
 export function unclearReceiptContext(r: UnclearReceipt): string {
+  if (r.source === "receipt_question") {
+    const sales = r.documentType === "sales";
+    const read = [
+      r.total
+        ? `total ${r.total}${r.currency && r.currency !== "unknown" ? ` ${r.currency}` : ""}`
+        : null,
+      r.vendor ? `${sales ? "emisor" : "proveedor"} ${JSON.stringify(r.vendor)}` : null,
+    ].filter(Boolean);
+    return [
+      `Contexto: el mensaje anterior del usuario fue ${sales ? "un reporte de ventas" : "una factura"} que el sistema leyó (${read.join(", ") || "sin datos claros"}), y se le hizo una pregunta sobre ${sales ? "él" : "ella"} (la fecha, la moneda u otro dato).`,
+      `Este mensaje la responde. Registra DIRECTAMENTE con ${sales ? "draft_income_day_total" : "draft_expense"} usando lo leído y lo que dice el usuario (si dice "hoy", when = "hoy"; si corrige el monto o la moneda, lo suyo manda)${sales ? "" : `, con description = ${r.vendor ? JSON.stringify(r.vendor) : '"Factura"'}`}.`,
+    ].join(" ");
+  }
   if (r.source === "pago_movil") {
     const description = JSON.stringify(r.vendor ?? "Pago móvil");
     return [

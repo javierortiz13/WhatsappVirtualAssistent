@@ -57,6 +57,7 @@ import { es, mergeOutbound, type Outbound, parseReplyId } from "../render/index"
 import type { SpeechClient } from "../speech/client";
 import type { ObjectStore } from "../storage/store";
 import {
+  fixDayMonth,
   pagoMovilDescription,
   RECEIPT_MIN_CONFIDENCE,
   type ReceiptExtraction,
@@ -753,7 +754,8 @@ async function handleImage(
     log.warn({ err: errMsg(err) }, "foto: lectura falló");
     return none([es.receiptUnclear()]);
   }
-  const e = read.extraction;
+  // Fecha leída como mes/día (03/10: "03/10/2026" salió 10 de marzo): se corrige antes del agente.
+  const e = { ...read.extraction, date: fixDayMonth(read.extraction.date, ctx.today) };
   log.info(
     {
       isReceipt: e.is_receipt,
@@ -841,8 +843,27 @@ async function handleImage(
     attachmentId,
   );
   const first = result.outbound[0];
+  // Si el agente preguntó algo (la fecha, la moneda) en vez de armar el borrador, la respuesta
+  // siguiente registra con lo leído y hereda la foto, como con la factura ilegible.
+  const question: { name: string; args: unknown }[] =
+    isDraftOutbound(first) || !attachmentId
+      ? []
+      : [
+          {
+            name: UNCLEAR_RECEIPT,
+            args: {
+              total: e.total || null,
+              currency: e.currency,
+              vendor: e.vendor || null,
+              documentType: e.document_type === "sales" ? "sales" : "expense",
+              source: "receipt_question",
+              attachmentId,
+            },
+          },
+        ];
   return {
     ...result,
+    toolCalls: [...result.toolCalls, ...question],
     costUsd: sumCost(result.costUsd, read.costUsd),
     tokensIn: result.tokensIn + read.usage.inputTokens,
     tokensOut: result.tokensOut + read.usage.outputTokens,
@@ -919,8 +940,7 @@ async function handlePagoMovil(
   );
   const first = result.outbound[0];
   // "Toca Guardar" solo encima de un borrador; una aclaración del agente va tal cual.
-  const isDraft =
-    first?.type === "buttons" && first.buttons.some((b) => b.id.startsWith("confirm:"));
+  const isDraft = isDraftOutbound(first);
   return {
     ...result,
     costUsd: sumCost(result.costUsd, readCost.costUsd),
@@ -957,6 +977,11 @@ async function mediaJustBefore(
     .orderBy(desc(schema.message.createdAt))
     .limit(1);
   return prev?.kind === "image" || prev?.kind === "document";
+}
+
+/** Un borrador con Guardar/Corregir/Cancelar. */
+function isDraftOutbound(o: Outbound | undefined): boolean {
+  return o?.type === "buttons" && o.buttons.some((b) => b.id.startsWith("confirm:"));
 }
 
 /** Un texto sin cifras y corto puede ser la leyenda de una foto que viene detrás. */
@@ -1258,7 +1283,7 @@ const UnclearMark = z.object({
     currency: z.string().nullable(),
     vendor: z.string().nullable(),
     documentType: z.enum(["expense", "sales", "unknown"]),
-    source: z.enum(["receipt", "pago_movil"]).default("receipt"),
+    source: z.enum(["receipt", "pago_movil", "receipt_question"]).default("receipt"),
     attachmentId: z.string().uuid().nullable(),
   }),
 });
@@ -1285,7 +1310,10 @@ async function unclearReceiptBefore(
     )
     .orderBy(desc(schema.message.createdAt))
     .limit(1);
-  const mark = UnclearMark.safeParse(Array.isArray(last?.toolCalls) ? last.toolCalls[0] : null);
+  const calls: unknown[] = Array.isArray(last?.toolCalls) ? last.toolCalls : [];
+  const mark = UnclearMark.safeParse(
+    calls.find((c) => (c as { name?: string } | null)?.name === UNCLEAR_RECEIPT),
+  );
   if (!mark.success) return null;
   const { attachmentId, ...receipt } = mark.data.args;
   return { receipt, attachmentId };

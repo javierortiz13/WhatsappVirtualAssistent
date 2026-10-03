@@ -103,6 +103,23 @@ const llm: LlmClient = {
       usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 },
       model: "fake",
     });
+    const answered = /que el sistema leyó \(total ([\d.]+) (USD|VES)/.exec(text);
+    if (answered)
+      return reply([
+        {
+          id: "q1",
+          name: "draft_expense",
+          input: {
+            amount: answered[1],
+            currency: answered[2],
+            description: "Ferretería El Tornillo",
+            category_name: "",
+            when: "hoy",
+            rate: "",
+            corrects_draft: false,
+          },
+        },
+      ]);
     if (text.includes("es la descripción de esa foto"))
       return reply([
         {
@@ -808,6 +825,32 @@ describe("fotos de facturas", () => {
     const drafts = await pendingDrafts();
     expect(drafts).toHaveLength(1);
     expect((drafts[0]?.payload as { attachmentId?: string } | undefined)?.attachmentId).toBe(
+      att?.id,
+    );
+    await cancelAll(client, sent);
+  });
+
+  it("fecha leída como mes/día se corrige antes del borrador", async () => {
+    const { sent, client } = fakeMeta();
+    await sendImage(client, fakeVision({ ...RECEIPT, date: "2026-12-09" }), true);
+    expect(textOf(sent[1])).toContain("12/09");
+    expect(textOf(sent[1])).toContain("Gasto por confirmar");
+    await cancelAll(client, sent);
+  });
+
+  it("si el agente pregunta por la factura, la respuesta arma el borrador con la foto", async () => {
+    const { sent, client } = fakeMeta();
+    await sendImage(client, fakeVision({ ...RECEIPT, date: "2025-01-05" }), true);
+    expect(textOf(sent[1])).toContain("Es de hace más de un mes");
+    const att = (await attachments()).at(-1);
+    await processInbound(
+      deps(client, null),
+      await ingestOnly(fx.textMessage(`wamid.Q${++seq}`, "El gasto es del día de hoy")),
+    );
+    expect(textOf(sent[2])).toContain("Gasto por confirmar");
+    expect(textOf(sent[2])).toContain("Fecha: hoy");
+    const drafts = await pendingDrafts();
+    expect((drafts.at(-1)?.payload as { attachmentId?: string } | undefined)?.attachmentId).toBe(
       att?.id,
     );
     await cancelAll(client, sent);

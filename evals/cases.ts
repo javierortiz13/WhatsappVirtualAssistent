@@ -46,7 +46,7 @@ export const EvalCase = z.object({
       currency: z.string().nullable().default(null),
       vendor: z.string().nullable().default(null),
       documentType: z.enum(["expense", "sales", "unknown"]).default("unknown"),
-      source: z.enum(["receipt", "pago_movil"]).default("receipt"),
+      source: z.enum(["receipt", "pago_movil", "receipt_question"]).default("receipt"),
     })
     .optional(),
   /**
