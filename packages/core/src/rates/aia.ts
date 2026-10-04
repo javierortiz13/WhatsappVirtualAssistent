@@ -78,10 +78,13 @@ export const nodeAiaDeps: AiaDeps = {
           res.on("end", () => {
             try {
               resolve(
-                new Response(decode(Buffer.concat(chunks), res.headers["content-encoding"]), {
-                  status: res.statusCode ?? 500,
-                  headers: { "content-type": String(res.headers["content-type"] ?? "text/html") },
-                }),
+                new Response(
+                  new Uint8Array(decode(Buffer.concat(chunks), res.headers["content-encoding"])),
+                  {
+                    status: res.statusCode ?? 500,
+                    headers: { "content-type": String(res.headers["content-type"] ?? "text/html") },
+                  },
+                ),
               );
             } catch (err) {
               reject(err);
