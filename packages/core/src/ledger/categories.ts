@@ -111,6 +111,8 @@ export type TenantSettings = {
   name: string;
   businessType: (typeof schema.BUSINESS_TYPES)[number];
   defaultExpenseCurrency: "USD" | "VES";
+  /** De dónde sale la tasa de los gastos en Bs (0012). */
+  bsRateMode: "bcv" | "usdt" | "ask";
 };
 
 export async function getTenantSettings(tx: Tx, tenantId: string): Promise<TenantSettings | null> {
@@ -119,6 +121,7 @@ export async function getTenantSettings(tx: Tx, tenantId: string): Promise<Tenan
       name: schema.tenant.name,
       businessType: schema.tenant.businessType,
       defaultExpenseCurrency: schema.tenant.defaultExpenseCurrency,
+      bsRateMode: schema.tenant.bsRateMode,
     })
     .from(schema.tenant)
     .where(eq(schema.tenant.id, tenantId));
@@ -127,6 +130,7 @@ export async function getTenantSettings(tx: Tx, tenantId: string): Promise<Tenan
     name: t.name,
     businessType: t.businessType as TenantSettings["businessType"],
     defaultExpenseCurrency: (t.defaultExpenseCurrency as "USD" | "VES" | null) ?? "USD",
+    bsRateMode: (t.bsRateMode as TenantSettings["bsRateMode"] | null) ?? "bcv",
   };
 }
 
@@ -134,13 +138,17 @@ export async function getTenantSettings(tx: Tx, tenantId: string): Promise<Tenan
 export async function updateTenantSettings(
   tx: Tx,
   ref: { tenantId: string; userId: string },
-  input: TenantSettings,
+  input: Omit<TenantSettings, "bsRateMode"> & { bsRateMode?: TenantSettings["bsRateMode"] },
 ): Promise<void> {
   const name = normalize(input.name);
   if (name.length < 2 || name.length > 80) throw new CategoryError("invalid");
   const before = await getTenantSettings(tx, ref.tenantId);
   if (!before) throw new CategoryError("missing");
-  const after = { ...input, name };
+  const after: TenantSettings = {
+    ...input,
+    name,
+    bsRateMode: input.bsRateMode ?? before.bsRateMode,
+  };
   if (JSON.stringify(before) === JSON.stringify(after)) return;
   await tx
     .update(schema.tenant)
@@ -148,6 +156,7 @@ export async function updateTenantSettings(
       name,
       businessType: input.businessType,
       defaultExpenseCurrency: input.defaultExpenseCurrency,
+      bsRateMode: after.bsRateMode,
       updatedAt: new Date(),
     })
     .where(eq(schema.tenant.id, ref.tenantId));

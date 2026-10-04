@@ -2,7 +2,7 @@ import { and, type Db, desc, eq, gt, gte, ne, schema, sql, type Tx, withTenant }
 import type { ProcessMessageJob } from "@caja/db/queue";
 import { z } from "zod";
 import { LlmUnavailableError } from "../agent/llm";
-import { deleteLastFlow } from "../agent/tools";
+import { deleteLastFlow, expenseDraftOutbound, expensesDraftOutbound } from "../agent/tools";
 import type { AgentInput, AgentRunner, UnclearReceipt } from "../agent/types";
 import {
   currentRenewIntent,
@@ -29,7 +29,18 @@ import {
 import { createAttachment, discardAttachment } from "../ledger/attachments";
 import { budgetStatuses } from "../ledger/budgets";
 import {
+  type BsRateMode,
+  createExchangeLot,
+  ExchangeDraft,
+  exchangeLots,
+  type LotPart,
+  planAllocation,
+  saveAllocation,
+  setBsRateMode,
+} from "../ledger/exchange";
+import {
   amendMovement,
+  applyBsChoice,
   createExpense,
   createIncomeDayTotal,
   createIncomeSingle,
@@ -326,6 +337,7 @@ export async function processInbound(
       role: resolved.role,
       defaultCurrency: (tenant.defaultExpenseCurrency as "USD" | "VES" | null) ?? null,
       vesThreshold: tenant.vesThreshold,
+      bsRateMode: (tenant.bsRateMode as BsRateMode | undefined) ?? "bcv",
       today,
       inboundId: msg.waMessageId,
       ack,
@@ -488,6 +500,8 @@ type RouteCtx = {
   role: "owner" | "employee";
   defaultCurrency: "USD" | "VES" | null;
   vesThreshold: string;
+  /** De dónde sale la tasa de los gastos en Bs (0012). */
+  bsRateMode?: BsRateMode;
   today: ReturnType<typeof businessDateOf>;
   /** wa_message_id del mensaje entrante, para reaccionar sobre él. */
   inboundId: string;
@@ -1147,6 +1161,29 @@ async function routeInteractive(
           .where(eq(schema.pendingAction.id, pending.id));
         return none([es.promptFix()]);
       }
+      if (parsed.kind === "choice" && (parsed.key === "usdt" || parsed.key === "bcv")) {
+        // "¿De dónde salieron estos Bs?" (0012): se rehace el borrador a esa tasa y sale con Guardar.
+        if (pending.kind === "create_expense") {
+          const draft = ExpenseDraft.parse(pending.payload);
+          const [item] = await applyBsChoice(tx, ctx.tenantId, [draft], parsed.key);
+          if (!item) return none([es.confirmationExpired()]);
+          await tx
+            .update(schema.pendingAction)
+            .set({ payload: item })
+            .where(eq(schema.pendingAction.id, pending.id));
+          return none([expenseDraftOutbound(pending.id, item, ctx.today)]);
+        }
+        if (pending.kind === "create_expenses") {
+          const draft = ExpensesDraft.parse(pending.payload);
+          const items = await applyBsChoice(tx, ctx.tenantId, draft.items, parsed.key);
+          await tx
+            .update(schema.pendingAction)
+            .set({ payload: { ...draft, items } })
+            .where(eq(schema.pendingAction.id, pending.id));
+          return none([expensesDraftOutbound(pending.id, items, ctx.today)]);
+        }
+        return none([es.confirmationExpired()]);
+      }
       if (parsed.kind === "choice") {
         if (pending.kind !== "create_income_day_total") return none([es.confirmationExpired()]);
         // Reemplazar da de baja la venta del día de todos (también la del dueño): solo el dueño.
@@ -1204,6 +1241,16 @@ async function routeInteractive(
       return none([
         await renewReferenceReply(tx, renewCtx(deps, ctx), parsed.reference, parsed.method),
       ]);
+    }
+    case "bs_mode": {
+      if (ctx.role !== "owner") return none([es.bsModeOwnerOnly()]);
+      await setBsRateMode(tx, {
+        tenantId: ctx.tenantId,
+        mode: parsed.mode,
+        actor: { phoneId: ctx.phoneId },
+        channel: "whatsapp",
+      });
+      return none([es.bsModeSet(parsed.mode)]);
     }
     case "category": {
       const [cat] = await tx
@@ -1379,6 +1426,7 @@ async function runAgent(
         role: ctx.role,
         defaultCurrency: ctx.defaultCurrency,
         vesThreshold: ctx.vesThreshold,
+        bsRateMode: ctx.bsRateMode ?? "bcv",
         categories,
         today: ctx.today,
         sourceMessageDbId: current?.id ?? null,
@@ -1445,60 +1493,25 @@ async function executePending(
   switch (pending.kind) {
     case "create_expense": {
       const draft = ExpenseDraft.parse(pending.payload);
-      await createExpense(tx, {
-        tenantId: ctx.tenantId,
-        businessDate: asIsoDate(draft.businessDate),
-        amount: new Decimal(draft.amount),
-        currency: draft.currency,
-        categoryId: draft.categoryId,
-        description: draft.description,
-        sourceChannel: draft.sourceChannel,
-        actor: { phoneId: ctx.phoneId },
-        sourceMessageId: draft.sourceMessageId,
-        attachmentId: draft.attachmentId,
-        rate: {
-          id: draft.rateId,
-          value: draft.rateValue,
-          effectiveDate: asIsoDate(draft.rateEffectiveDate),
-          source: draft.rateSource,
-        },
-      });
+      const fromLots = await saveDraftExpense(tx, ctx, draft);
       await tx
         .update(schema.pendingAction)
         .set({ status: "confirmed", resolvedAt: nowTs })
         .where(eq(schema.pendingAction.id, pending.id));
       const total = await expenseTotalForDay(tx, ctx.tenantId, asIsoDate(draft.businessDate));
       const budgets = await budgetLinesFor(tx, ctx, [draft]);
-      return none([
-        ownerView(
-          ctx,
-          es.expenseSaved(total.usd, total.count, budgets, dayWord(ctx, draft.businessDate)),
-          "✅ Guardado.",
-        ),
-      ]);
+      const saved = ownerView(
+        ctx,
+        es.expenseSaved(total.usd, total.count, budgets, dayWord(ctx, draft.businessDate)),
+        "✅ Guardado.",
+      );
+      return none([fromLots ? await withExchangeLeft(tx, ctx, saved) : saved]);
     }
     case "create_expenses": {
       const draft = ExpensesDraft.parse(pending.payload);
-      for (const item of draft.items) {
-        await createExpense(tx, {
-          tenantId: ctx.tenantId,
-          businessDate: asIsoDate(item.businessDate),
-          amount: new Decimal(item.amount),
-          currency: item.currency,
-          categoryId: item.categoryId,
-          description: item.description,
-          sourceChannel: item.sourceChannel,
-          actor: { phoneId: ctx.phoneId },
-          sourceMessageId: item.sourceMessageId,
-          attachmentId: item.attachmentId,
-          rate: {
-            id: item.rateId,
-            value: item.rateValue,
-            effectiveDate: asIsoDate(item.rateEffectiveDate),
-            source: item.rateSource,
-          },
-        });
-      }
+      let fromLots = false;
+      for (const item of draft.items)
+        fromLots = (await saveDraftExpense(tx, ctx, item)) || fromLots;
       await tx
         .update(schema.pendingAction)
         .set({ status: "confirmed", resolvedAt: nowTs })
@@ -1510,18 +1523,44 @@ async function executePending(
         asIsoDate(last?.businessDate ?? ctx.today),
       );
       const budgets = await budgetLinesFor(tx, ctx, draft.items);
-      return none([
-        ownerView(
-          ctx,
-          es.expensesSaved(
-            draft.items.length,
-            total.usd,
-            total.count,
-            budgets,
-            dayWord(ctx, last?.businessDate ?? ctx.today),
-          ),
-          `✅ Guardados ${draft.items.length} gastos.`,
+      const saved = ownerView(
+        ctx,
+        es.expensesSaved(
+          draft.items.length,
+          total.usd,
+          total.count,
+          budgets,
+          dayWord(ctx, last?.businessDate ?? ctx.today),
         ),
+        `✅ Guardados ${draft.items.length} gastos.`,
+      );
+      return none([fromLots ? await withExchangeLeft(tx, ctx, saved) : saved]);
+    }
+    case "create_exchange": {
+      const draft = ExchangeDraft.parse(pending.payload);
+      await createExchangeLot(tx, {
+        tenantId: ctx.tenantId,
+        businessDate: draft.businessDate,
+        usd: new Decimal(draft.usd),
+        ves: new Decimal(draft.ves),
+        rate: new Decimal(draft.rate),
+        actor: { phoneId: ctx.phoneId },
+        channel: "whatsapp",
+      });
+      await tx
+        .update(schema.pendingAction)
+        .set({ status: "confirmed", resolvedAt: nowTs })
+        .where(eq(schema.pendingAction.id, pending.id));
+      const lots = await exchangeLots(tx, ctx.tenantId, { active: true });
+      return none([
+        es.exchangeSaved({
+          usd: draft.usd,
+          ves: draft.ves,
+          rate: draft.rate,
+          left: lots.reduce((s, l) => s.plus(l.vesRemaining), new Decimal(0)),
+          // El primer cambio de un negocio a la BCV: ¿sus gastos en Bs salen de aquí?
+          askMode: ctx.role === "owner" && (ctx.bsRateMode ?? "bcv") === "bcv",
+        }),
       ]);
     }
     case "create_income_day_total": {
@@ -1713,6 +1752,68 @@ async function executePending(
  * Los totales del día son del dueño (DISENO-MVP: el empleado registra, no ve cierres). Al
  * empleado se le confirma sin cifras del negocio.
  */
+/**
+ * Escribe un renglón de un borrador de gasto. Si es de los lotes de cambio, la tasa se vuelve a
+ * calcular aquí con los lotes bloqueados (otro gasto pudo tomar de ellos desde el borrador) y se
+ * deja constancia de qué lote pagó. Devuelve true si salió de los lotes.
+ */
+async function saveDraftExpense(tx: Tx, ctx: RouteCtx, item: ExpenseDraft): Promise<boolean> {
+  const businessDate = asIsoDate(item.businessDate);
+  let rate = {
+    id: item.rateId,
+    value: item.rateValue,
+    effectiveDate: asIsoDate(item.rateEffectiveDate),
+    source: item.rateSource,
+  };
+  let parts: LotPart[] = [];
+  if (item.rateSource === "exchange" && item.currency === "VES") {
+    const plan = await planAllocation(tx, ctx.tenantId, new Decimal(item.amount), { lock: true });
+    if (plan) {
+      rate = {
+        id: null,
+        value: plan.rate.toFixed(8),
+        effectiveDate: businessDate,
+        source: "exchange",
+      };
+      parts = plan.parts;
+    } else {
+      // Los cambios se borraron mientras esperaba: a la BCV.
+      const { rate: bcv } = await rateFor(tx, businessDate);
+      rate = {
+        id: bcv.id,
+        value: bcv.value.toFixed(8),
+        effectiveDate: asIsoDate(bcv.effectiveDate),
+        source: "bcv",
+      };
+    }
+  }
+  const created = await createExpense(tx, {
+    tenantId: ctx.tenantId,
+    businessDate,
+    amount: new Decimal(item.amount),
+    currency: item.currency,
+    categoryId: item.categoryId,
+    description: item.description,
+    sourceChannel: item.sourceChannel,
+    actor: { phoneId: ctx.phoneId },
+    sourceMessageId: item.sourceMessageId,
+    attachmentId: item.attachmentId,
+    rate,
+  });
+  if (parts.length) await saveAllocation(tx, ctx.tenantId, created.id, parts);
+  return rate.source === "exchange";
+}
+
+/** Al guardar de los lotes, el mensaje dice cuántos Bs quedan de los cambios. */
+async function withExchangeLeft(tx: Tx, ctx: RouteCtx, out: Outbound): Promise<Outbound> {
+  const lots = await exchangeLots(tx, ctx.tenantId, { active: true });
+  const left = lots.reduce((s, l) => s.plus(l.vesRemaining), new Decimal(0));
+  const line = es.exchangeLeft(left);
+  return out.type === "text" || out.type === "buttons"
+    ? { ...out, body: `${out.body}\n${line}` }
+    : out;
+}
+
 function ownerView(ctx: RouteCtx, out: Outbound, employeeText: string): Outbound {
   return ctx.role === "owner" ? out : { type: "text", body: employeeText };
 }

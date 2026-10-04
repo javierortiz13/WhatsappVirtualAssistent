@@ -1266,3 +1266,10 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
 .budget-status .usage {
   margin: 0;
 }
+
+/* Enlace dentro de un texto de ayuda (Cambios USDT, Negocio). */
+.inline-link {
+  color: var(--mint);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

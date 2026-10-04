@@ -99,6 +99,7 @@ describe("categorías y configuración desde el dashboard", () => {
         name: "Autolavado",
         businessType: "car_wash",
         defaultExpenseCurrency: "USD",
+        bsRateMode: "bcv",
       });
       await updateTenantSettings(tx, ref(), {
         name: "Autolavado El Rápido",

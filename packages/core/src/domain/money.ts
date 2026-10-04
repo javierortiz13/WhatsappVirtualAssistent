@@ -28,7 +28,7 @@ export function isPositiveAmount(amount: Decimal.Value): boolean {
  * Tasa: bolívares por 1 USD. `id` apunta a `bcv_rate`; una tasa manual (ADR-013) no tiene fila.
  * `bcv_eur`: el negocio cobra o paga "a tasa euro": Bs = monto en $ × euro BCV del día (02/10).
  */
-export const RATE_ORIGINS = ["bcv", "bcv_eur", "manual"] as const;
+export const RATE_ORIGINS = ["bcv", "bcv_eur", "manual", "exchange"] as const;
 export type RateOrigin = (typeof RATE_ORIGINS)[number];
 export type Rate = { value: Decimal; effectiveDate: string; id: string | null; source: RateOrigin };
 

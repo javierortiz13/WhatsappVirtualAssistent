@@ -86,6 +86,7 @@ export default async function Movimiento({
         <p className="sub num">
           {m.currency === "USD" ? formatMoney(m.amountVes, "VES") : formatMoney(m.amountUsd, "USD")}{" "}
           · tasa {m.rateSource === "bcv_eur" ? "euro " : ""}
+          {m.rateSource === "exchange" ? "de tu cambio " : ""}
           {formatMoney(m.rateValue, "VES").replace("Bs ", "")}
           {m.rateSource === "manual" ? " (manual)" : ""}
         </p>
@@ -133,7 +134,9 @@ export default async function Movimiento({
             <IconCalendar className="cal" size={18} />
           </span>
           <span className="hint">
-            Si cambias la fecha, se recalcula con la tasa BCV de ese día.
+            {m.rateSource === "exchange"
+              ? "Sale de tus cambios USDT: si cambias el monto, se recalcula con lo que queda en ellos."
+              : "Si cambias la fecha, se recalcula con la tasa BCV de ese día."}
           </span>
         </label>
         {isExpense ? (

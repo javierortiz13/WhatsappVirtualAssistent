@@ -88,6 +88,7 @@ export function help(dashboardUrl: string, supportHint: string | null): Outbound
     "• Tasa: _tasa_",
     "• Calculadora: _cuánto es 8000 bs en $_, _17€ en bs_",
     "• Pago móvil: mándame la foto de los datos y te los paso listos para copiar en el banco",
+    "• Cambios USDT: _cambié 100 usdt a 970_ y tus gastos en Bs salen a esa tasa",
     `Para ver, corregir o exportar todo: ${dashboardUrl}`,
   ];
   if (supportHint) lines.push(`Si algo no funciona, escribe a una persona: ${supportHint}`);
@@ -589,14 +590,156 @@ export type ExpenseDraftView = {
   description: string | null;
   transcript: string | null;
   replacedPrevious: boolean;
+  /** De los lotes de cambio (0012): saldo después y Bs que no cubrieron. */
+  exchange?: { remainingAfter: string; uncoveredVes: string; lastRate: string } | null | undefined;
 };
 
-/** "tasa BCV 866,56", "tasa euro 973,93" o "tasa manual 850,00". */
+/** "tasa BCV 866,56", "tasa euro 973,93", "tasa manual 850,00" o "tasa de tu cambio 970,00". */
 export function rateLabel(value: Decimal.Value, source?: RateOrigin): string {
   const n = formatMoney(value, "VES").replace("Bs ", "");
   if (source === "bcv_eur") return `tasa euro ${n}`;
   if (source === "manual") return `tasa manual ${n}`;
+  if (source === "exchange") return `tasa de tu cambio ${n}`;
   return `tasa BCV ${n}`;
+}
+
+const rateNum = (v: Decimal.Value) => formatMoney(v, "VES").replace("Bs ", "");
+
+/** Debajo de un borrador de los lotes: cuánto quedará, o qué no alcanzó. */
+function exchangeNote(x: {
+  remainingAfter: string;
+  uncoveredVes: string;
+  lastRate: string;
+}): string {
+  if (new Decimal(x.uncoveredVes).gt(0))
+    return `⚠️ Tus cambios no alcanzan: ${formatMoney(x.uncoveredVes, "VES")} van a la tasa de tu último cambio (${rateNum(x.lastRate)}). Si cambiaste de nuevo, dímelo: _cambié 100 usdt a 980_`;
+  return `Quedarán ${formatMoney(x.remainingAfter, "VES")} de tus cambios.`;
+}
+
+/**
+ * Modo "preguntar" (0012): antes del borrador, de dónde salieron los Bs, con los dos cálculos.
+ *   💱 ¿De dónde salieron estos *Bs 9.700,00*?
+ *   • Mi cambio USDT: *$10,00* (a 970,00)
+ *   • Tasa BCV: *$11,19* (866,56)
+ */
+export function bsRateQuestion(v: {
+  pendingId: string;
+  description: string | null;
+  ves: Decimal.Value;
+  exchangeUsd: Decimal.Value;
+  exchangeRate: Decimal.Value;
+  bcvUsd: Decimal.Value;
+  bcvRate: Decimal.Value;
+}): Outbound {
+  const what = v.description ? ` (${v.description})` : "";
+  return {
+    type: "buttons",
+    body: [
+      `💱 ¿De dónde salieron estos *${formatMoney(v.ves, "VES")}*${what}?`,
+      `• Mi cambio USDT: *${formatMoney(v.exchangeUsd, "USD")}* (a ${rateNum(v.exchangeRate)})`,
+      `• Tasa BCV: *${formatMoney(v.bcvUsd, "USD")}* (${rateNum(v.bcvRate)})`,
+    ].join("\n"),
+    buttons: [
+      { id: IDS.choice(v.pendingId, "usdt"), title: "Mi cambio USDT" },
+      { id: IDS.choice(v.pendingId, "bcv"), title: "Tasa BCV" },
+      { id: IDS.cancel(v.pendingId), title: "Cancelar" },
+    ],
+  };
+}
+
+/** Borrador de un cambio USDT → Bs. */
+export function exchangeDraft(v: {
+  pendingId: string;
+  usd: Decimal.Value;
+  ves: Decimal.Value;
+  rate: Decimal.Value;
+  businessDate: string;
+  today: IsoDate;
+}): Outbound {
+  return {
+    type: "buttons",
+    body: [
+      "*Cambio por confirmar*",
+      `${rateNum(v.usd)} USDT → *${formatMoney(v.ves, "VES")}*`,
+      `Tasa: ${rateNum(v.rate)}`,
+      dateLine(v.businessDate, v.today),
+    ].join("\n"),
+    buttons: [
+      { id: IDS.confirm(v.pendingId), title: "Guardar" },
+      { id: IDS.cancel(v.pendingId), title: "Cancelar" },
+    ],
+  };
+}
+
+/** Cambio guardado; con `askMode`, pregunta si sus gastos en Bs salen de los cambios. */
+export function exchangeSaved(v: {
+  usd: Decimal.Value;
+  ves: Decimal.Value;
+  rate: Decimal.Value;
+  left: Decimal.Value;
+  askMode: boolean;
+}): Outbound {
+  const body = [
+    `✅ Cambio guardado: ${rateNum(v.usd)} USDT → ${formatMoney(v.ves, "VES")} a ${rateNum(v.rate)}.`,
+    `💱 Saldo de tus cambios: *${formatMoney(v.left, "VES")}*.`,
+  ];
+  if (!v.askMode) return { type: "text", body: body.join("\n") };
+  body.push("", "¿Tus gastos en Bs salen de estos cambios?");
+  return {
+    type: "buttons",
+    body: body.join("\n"),
+    buttons: [
+      { id: IDS.bsMode("usdt"), title: "Siempre" },
+      { id: IDS.bsMode("ask"), title: "Preguntarme" },
+      { id: IDS.bsMode("bcv"), title: "No, tasa BCV" },
+    ],
+  };
+}
+
+const BS_MODE_TEXT: Record<"bcv" | "usdt" | "ask", string> = {
+  usdt: "siempre salen de tus cambios",
+  ask: "te pregunto cada vez de dónde salieron",
+  bcv: "van a la tasa BCV",
+};
+
+/** Saldo de los cambios: total y cada lote con saldo. */
+export function exchangeBalance(v: {
+  lots: { vesRemaining: Decimal.Value; rate: Decimal.Value; businessDate: string }[];
+  mode: "bcv" | "usdt" | "ask";
+}): Outbound {
+  const modeLine = `Tus gastos en Bs ${BS_MODE_TEXT[v.mode]}.`;
+  if (v.lots.length === 0)
+    return {
+      type: "text",
+      body: `💱 No te quedan Bs de cambios. Cuando cambies, dímelo: _cambié 100 usdt a 970_\n${modeLine}`,
+    };
+  const total = v.lots.reduce((s, l) => s.plus(l.vesRemaining), new Decimal(0));
+  const lines = [`💱 Te quedan *${formatMoney(total, "VES")}* de tus cambios:`];
+  for (const l of v.lots.slice(0, 6))
+    lines.push(
+      `• ${formatMoney(l.vesRemaining, "VES")} a ${rateNum(l.rate)} (${formatShortDate(asIsoDate(l.businessDate))})`,
+    );
+  if (v.lots.length > 6) lines.push(`… y ${v.lots.length - 6} más.`);
+  lines.push(modeLine);
+  return { type: "text", body: lines.join("\n") };
+}
+
+export function bsModeSet(mode: "bcv" | "usdt" | "ask"): Outbound {
+  return {
+    type: "text",
+    body: `Listo: tus gastos en Bs ${BS_MODE_TEXT[mode]}. Lo cambias en Ajustes cuando quieras.`,
+  };
+}
+
+export function bsModeOwnerOnly(): Outbound {
+  return { type: "text", body: "De dónde sale la tasa de los Bs lo decide el dueño del negocio." };
+}
+
+export function exchangeInvalid(): Outbound {
+  return {
+    type: "text",
+    body: "No entendí el cambio. Dime cuántos USDT cambiaste y a qué tasa o cuántos Bs te dieron: _cambié 100 usdt a 970_",
+  };
 }
 
 /** Línea del equivalente: "Bs 9.739,28 · tasa euro 973,93" (con el día si la tasa es de otro). */
@@ -613,6 +756,7 @@ function equivalentLine(d: {
     d.currency === "USD" ? formatMoney(d.amountVes, "VES") : formatMoney(d.amountUsd, "USD");
   const otherDay =
     d.rateSource !== "manual" &&
+    d.rateSource !== "exchange" &&
     d.rateEffectiveDate &&
     d.businessDate &&
     d.rateEffectiveDate !== d.businessDate
@@ -662,6 +806,7 @@ export function expenseDraft(d: ExpenseDraftView): Outbound {
   lines.push(`Categoría: ${d.categoryName ?? "Otros"}`);
   lines.push(dateLine(d.businessDate, d.today));
   if (d.currencyInferred) lines.push(inferredNote(d.currency));
+  if (d.exchange) lines.push(exchangeNote(d.exchange));
   return {
     type: "buttons",
     body: lines.join("\n"),
@@ -700,12 +845,27 @@ export function expensesDraft(v: ExpensesDraftView): Outbound {
     );
   });
   const first = v.items[0];
+  // Renglones de los lotes de cambio llevan cada uno su tasa: el total no muestra una sola.
+  const fromLots = v.items.filter((i) => i.exchange);
+  const rateText = fromLots.length
+    ? " · de tus cambios"
+    : first
+      ? ` · ${rateLabel(first.rateValue, first.rateSource)}`
+      : "";
   lines.push(
-    `Total: *${formatMoney(totalUsd, "USD")}* · ${formatMoney(totalVes, "VES")}${first ? ` · ${rateLabel(first.rateValue, first.rateSource)}` : ""}`,
+    `Total: *${formatMoney(totalUsd, "USD")}* · ${formatMoney(totalVes, "VES")}${rateText}`,
   );
   if (sameDay && first) lines.push(dateLine(first.businessDate, v.today));
   const inferred = v.items.find((i) => i.currencyInferred);
   if (inferred) lines.push(inferredNote(inferred.currency));
+  const lastLot = fromLots[fromLots.length - 1]?.exchange;
+  if (lastLot) {
+    const uncovered = fromLots.reduce(
+      (s, i) => s.plus(i.exchange?.uncoveredVes ?? 0),
+      new Decimal(0),
+    );
+    lines.push(exchangeNote({ ...lastLot, uncoveredVes: uncovered.toFixed(2) }));
+  }
   return {
     type: "buttons",
     body: lines.join("\n"),
@@ -1396,6 +1556,13 @@ export function conversion(c: {
       );
   }
   return { type: "text", body: lines.join("\n") };
+}
+
+/** Saldo de los lotes de cambio tras guardar un gasto en Bs. */
+export function exchangeLeft(left: Decimal): string {
+  return left.gte("0.01")
+    ? `💱 Te quedan *${formatMoney(left, "VES")}* de tus cambios.`
+    : "💱 Se acabaron los Bs de tus cambios. Cuando cambies de nuevo, dímelo: _cambié 100 usdt a 970_";
 }
 
 export function noRate(): Outbound {

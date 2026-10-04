@@ -1,0 +1,32 @@
+# Cambios de USDT a bolívares (04/10, pedido de Javier para un amigo que cobra por Binance): un
+# cambio no es un gasto ni una venta.
+- name: cambio con tasa
+  input: "cambié 100 usdt a 970"
+  expect:
+    tool: exchange_usdt
+    args: { action: record, usd_amount: "100", rate: "970" }
+
+- name: cambio con los bolívares recibidos
+  input: "vendí 50 usdt y me dieron 48.500 bs"
+  expect:
+    tool: exchange_usdt
+    tool_not: draft_income_single
+    args: { action: record, usd_amount: "50" }
+
+- name: cambio dicho en dólares
+  input: "cambié 20$ a 985 en binance"
+  expect:
+    tool: exchange_usdt
+    args: { action: record, rate: "985" }
+
+- name: saldo de los cambios
+  input: "cuántos bs me quedan de mis cambios"
+  expect:
+    tool: exchange_usdt
+    args: { action: balance }
+
+- name: un gasto en usdt no es un cambio
+  input: "gasté 10 usdt en comida"
+  expect:
+    tool: draft_expense
+    args: { currency: USD }

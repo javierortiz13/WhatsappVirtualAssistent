@@ -11,8 +11,24 @@ import {
   toDbAmount,
   toDbRate,
 } from "../domain/money";
+import { type AllocationPlan, planAllocation, planRate } from "./exchange";
 import { existingDayTotal, type PaymentMethod } from "./income";
 import { rateFor } from "./rate-for";
+
+const ExchangeInfo = z.object({
+  remainingAfter: z.string(),
+  uncoveredVes: z.string(),
+  lastRate: z.string(),
+});
+export type ExchangeInfo = z.infer<typeof ExchangeInfo>;
+
+const BsChoicePreview = z.object({
+  exchangeUsd: z.string(),
+  exchangeRate: z.string(),
+  bcvUsd: z.string(),
+  bcvRate: z.string(),
+});
+export type BsChoicePreview = z.infer<typeof BsChoicePreview>;
 
 /**
  * Borradores de escritura (ADR-006). Una herramienta de escritura nunca toca `movement`: crea
@@ -38,6 +54,10 @@ export const ExpenseDraft = z.object({
   attachmentId: z.string().uuid().nullable(),
   transcript: z.string().nullable(),
   fixing: z.boolean().optional(),
+  /** De los lotes de cambio (0012): saldo después de este gasto y lo que no cubrieron. */
+  exchange: ExchangeInfo.nullable().optional(),
+  /** Modo "preguntar": los dos cálculos, para mostrar los botones Mi cambio USDT / Tasa BCV. */
+  bsChoice: BsChoicePreview.nullable().optional(),
 });
 export type ExpenseDraft = z.infer<typeof ExpenseDraft>;
 
@@ -61,16 +81,36 @@ export type DraftInput = {
   manualRate?: Rate | null;
   /** Borrador pendiente que este corrige y reemplaza; sin esto, se suma a la cola. */
   replaces?: string | null;
+  /**
+   * Gastos en Bs con lotes de cambio (0012): "exchange" toma la tasa de los lotes; "ask" arma el
+   * borrador a la BCV y guarda los dos cálculos para preguntar. Sin esto, la BCV de siempre.
+   */
+  bsRate?: "exchange" | "ask" | null;
 };
 
-/** Convierte un gasto dicho por el usuario al payload del borrador, con la tasa del día. */
+/**
+ * Convierte un gasto dicho por el usuario al payload del borrador, con la tasa del día (o la de los
+ * lotes de cambio). `taken` lleva lo que ya tomaron de cada lote los renglones anteriores de un
+ * mismo borrador, para que el siguiente no cuente esos Bs dos veces.
+ */
 async function buildExpenseDraft(
   tx: Tx,
   input: DraftInput,
+  taken: Map<string, Decimal> = new Map(),
 ): Promise<{ draft: ExpenseDraft; usedPriorDay: boolean }> {
+  const lots =
+    input.currency === "VES" && !input.manualRate && input.bsRate
+      ? await planAllocation(tx, input.tenantId, input.amount, { adjust: negate(taken) })
+      : null;
+  const useLots = lots && input.bsRate === "exchange";
   const { rate, usedPriorDay } = input.manualRate
     ? { rate: input.manualRate, usedPriorDay: false }
-    : await rateFor(tx, input.businessDate);
+    : useLots
+      ? { rate: planRate(lots, input.businessDate), usedPriorDay: false }
+      : await rateFor(tx, input.businessDate);
+  if (useLots)
+    for (const p of lots.parts)
+      taken.set(p.lotId, (taken.get(p.lotId) ?? new Decimal(0)).plus(p.ves));
   const c = convert(money(input.amount, input.currency), rate);
   const draft: ExpenseDraft = {
     amount: toDbAmount(c.amount),
@@ -90,8 +130,77 @@ async function buildExpenseDraft(
     sourceMessageId: input.sourceMessageId,
     attachmentId: input.attachmentId,
     transcript: input.transcript,
+    exchange: useLots ? exchangeInfo(lots) : null,
+    bsChoice:
+      lots && input.bsRate === "ask"
+        ? {
+            exchangeUsd: lots.usd.toFixed(2),
+            exchangeRate: lots.rate.toFixed(8),
+            bcvUsd: toDbAmount(c.amountUsd),
+            bcvRate: toDbRate(c.rateValue),
+          }
+        : null,
   };
   return { draft, usedPriorDay };
+}
+
+function exchangeInfo(plan: AllocationPlan): ExchangeInfo {
+  return {
+    remainingAfter: plan.remainingAfter.toFixed(2),
+    uncoveredVes: plan.uncoveredVes.toFixed(2),
+    lastRate: plan.lastRate.toFixed(8),
+  };
+}
+
+function negate(m: Map<string, Decimal>): Map<string, Decimal> {
+  return new Map([...m].map(([k, v]) => [k, v.neg()]));
+}
+
+/**
+ * Respuesta a "¿De dónde salieron estos Bs?" (modo preguntar): rehace los renglones en Bs del
+ * borrador a la tasa de los lotes ("usdt") o a la BCV ("bcv") y quita la pregunta.
+ */
+export async function applyBsChoice(
+  tx: Tx,
+  tenantId: string,
+  items: ExpenseDraft[],
+  choice: "usdt" | "bcv",
+): Promise<ExpenseDraft[]> {
+  const taken = new Map<string, Decimal>();
+  const out: ExpenseDraft[] = [];
+  for (const item of items) {
+    if (!item.bsChoice) {
+      out.push(item);
+      continue;
+    }
+    const businessDate = item.businessDate as IsoDate;
+    const plan =
+      choice === "usdt"
+        ? await planAllocation(tx, tenantId, new Decimal(item.amount), { adjust: negate(taken) })
+        : null;
+    const rate = plan ? planRate(plan, businessDate) : (await rateFor(tx, businessDate)).rate;
+    if (plan)
+      for (const p of plan.parts)
+        taken.set(p.lotId, (taken.get(p.lotId) ?? new Decimal(0)).plus(p.ves));
+    const c = convert(money(new Decimal(item.amount), "VES"), rate);
+    out.push({
+      ...item,
+      rateId: rate.id,
+      rateSource: rate.source,
+      rateValue: toDbRate(c.rateValue),
+      rateEffectiveDate: rate.effectiveDate,
+      amountUsd: toDbAmount(c.amountUsd),
+      amountVes: toDbAmount(c.amountVes),
+      exchange: plan ? exchangeInfo(plan) : null,
+      bsChoice: null,
+    });
+  }
+  return out;
+}
+
+/** El borrador espera la respuesta a "¿De dónde salieron estos Bs?". */
+export function awaitsBsChoice(items: ExpenseDraft[]): boolean {
+  return items.some((i) => i.bsChoice);
 }
 
 export async function createExpenseDraft(
@@ -143,8 +252,9 @@ export async function createExpensesDraft(
   if (!first) throw new Error("un borrador múltiple necesita al menos un gasto");
   const items: ExpenseDraft[] = [];
   let usedPriorDayRate = false;
+  const taken = new Map<string, Decimal>();
   for (const input of inputs) {
-    const { draft, usedPriorDay } = await buildExpenseDraft(tx, input);
+    const { draft, usedPriorDay } = await buildExpenseDraft(tx, input, taken);
     items.push(draft);
     usedPriorDayRate ||= usedPriorDay;
   }

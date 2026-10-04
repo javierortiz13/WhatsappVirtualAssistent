@@ -35,14 +35,20 @@ export const IDS = {
   renew: (method: RenewMethod, plan: string, months: number) => `renew:${method}:${plan}:${months}`,
   /** Ya pagó y mandó la referencia sin haber elegido método: un toque y queda reportado. */
   renewRef: (method: RenewMethod, reference: string) => `renewref:${method}:${reference}`,
+  /** De dónde sale la tasa de los gastos en Bs (0012): BCV, los cambios USDT o preguntar. */
+  bsMode: (mode: BsMode) => `bsmode:${mode}`,
 } as const;
+
+export const BS_MODES = ["bcv", "usdt", "ask"] as const;
+export type BsMode = (typeof BS_MODES)[number];
 
 export const RENEW_METHODS = ["pago_movil", "zelle", "binance"] as const;
 export type RenewMethod = (typeof RENEW_METHODS)[number];
 const isRenewMethod = (v: string | undefined): v is RenewMethod =>
   (RENEW_METHODS as readonly string[]).includes(v ?? "");
 
-export const CHOICE_KEYS = ["stated", "breakdown", "replace", "append"] as const;
+/** usdt / bcv: respuesta a "¿De dónde salieron estos Bs?" sobre un borrador de gasto (0012). */
+export const CHOICE_KEYS = ["stated", "breakdown", "replace", "append", "usdt", "bcv"] as const;
 export type ChoiceKey = (typeof CHOICE_KEYS)[number];
 
 export type ParsedReplyId =
@@ -53,6 +59,7 @@ export type ParsedReplyId =
   | { kind: "category"; categoryId: string }
   | { kind: "renew"; method: RenewMethod; plan: string; months: number }
   | { kind: "renew_ref"; method: RenewMethod; reference: string }
+  | { kind: "bs_mode"; mode: BsMode }
   | { kind: "unknown"; raw: string };
 
 export function parseReplyId(raw: string): ParsedReplyId {
@@ -97,6 +104,10 @@ export function parseReplyId(raw: string): ParsedReplyId {
         return { kind: "renew_ref", method, reference };
       break;
     }
+    case "bsmode":
+      if ((BS_MODES as readonly string[]).includes(value))
+        return { kind: "bs_mode", mode: value as BsMode };
+      break;
     default:
       break;
   }

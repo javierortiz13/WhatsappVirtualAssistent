@@ -86,6 +86,30 @@ export default async function Negocio({
           </span>
           <span className="sub">Cuando dices "gasté 20" sin moneda, el asistente asume esta.</span>
         </label>
+        <label className="field">
+          <span>Tasa para tus gastos en bolívares</span>
+          <span className="sel">
+            <select
+              className="input"
+              name="bs_rate_mode"
+              defaultValue={settings?.bsRateMode ?? "bcv"}
+              disabled={!isOwner}
+            >
+              <option value="bcv">Tasa BCV</option>
+              <option value="usdt">Mis cambios de USDT</option>
+              <option value="ask">Preguntarme cada vez</option>
+            </select>
+            <IconChevronDown size={16} />
+          </span>
+          <span className="sub">
+            Si cobras en USDT y los cambias a Bs, registra cada cambio en{" "}
+            <a className="inline-link" href="/ajustes/cambios">
+              Cambios USDT
+            </a>{" "}
+            o por el chat (<em>cambié 100 usdt a 970</em>): tus gastos en Bs quedan en dólares a la
+            tasa a la que cambiaste.
+          </span>
+        </label>
         {isOwner ? (
           <div className="center">
             <button className="btn" type="submit">

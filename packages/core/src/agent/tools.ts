@@ -25,7 +25,17 @@ import {
   createIncomeDayTotalDraft,
   createIncomeSingleDraft,
   type DraftInput,
+  type ExpenseDraft,
+  insertDraft,
 } from "../ledger/drafts";
+import {
+  type BsRateMode,
+  completeExchange,
+  type ExchangeDraft,
+  exchangeLots,
+  getBsRateMode,
+  implausibleExchangeRate,
+} from "../ledger/exchange";
 import { findCategory } from "../ledger/expenses";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "../ledger/income";
 import {
@@ -193,6 +203,16 @@ export const RejectOutOfScopeInput = z.object({
 });
 
 export const GetBcvRateInput = z.object({});
+
+export const ExchangeInput = z.object({
+  action: z
+    .enum(["record", "balance"])
+    .describe("record: registra un cambio. balance: cuántos Bs le quedan de sus cambios."),
+  usd_amount: z.string().describe('USDT o dólares que cambió ("100"), o "" si no lo dijo.'),
+  ves_amount: z.string().describe('Bolívares que recibió ("97000"), o "" si no lo dijo.'),
+  rate: z.string().describe('Tasa del cambio en Bs por USDT ("970"), o "" si no la dijo.'),
+  when: z.string().describe('Fecha del cambio (hoy, ayer, día de la semana, ISO), o "".'),
+});
 
 export const ConvertCurrencyInput = z.object({
   amount: z
@@ -452,6 +472,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
           manualRate: mr,
           replaces: target?.id ?? null,
+          bsRate: bsRateFor(run.ctx, inferred.currency, mr, eurNote),
         },
         run.now,
       );
@@ -459,23 +480,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
         kind: "terminal",
         status: "ok",
         outbound: [
-          es.expenseDraft({
-            pendingId: draft.pendingId,
-            amount: draft.draft.amount,
-            currency: draft.draft.currency,
-            currencyInferred: draft.draft.currencyInferred,
-            amountUsd: draft.draft.amountUsd,
-            amountVes: draft.draft.amountVes,
-            rateValue: draft.draft.rateValue,
-            rateEffectiveDate: draft.draft.rateEffectiveDate,
-            rateSource: draft.draft.rateSource,
-            businessDate: draft.draft.businessDate,
-            today: run.ctx.today,
-            categoryName: draft.draft.categoryName,
-            description: draft.draft.description,
-            transcript: draft.draft.transcript,
-            replacedPrevious: draft.replacedPrevious,
-          }),
+          expenseDraftOutbound(draft.pendingId, draft.draft, run.ctx.today, draft.replacedPrevious),
         ],
       };
     } catch (err) {
@@ -564,6 +569,7 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
         attachmentId: null,
         transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
         manualRate: itemRate,
+        bsRate: bsRateFor(run.ctx, inferred.currency, itemRate, eurNote),
       });
     }
     // Con moneda ambigua en algún renglón se pregunta una sola vez por todos (los botones vuelven
@@ -585,13 +591,12 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
         kind: "terminal",
         status: "ok",
         outbound: [
-          es.expensesDraft({
-            pendingId: draft.pendingId,
-            items: draft.draft.items,
-            today: run.ctx.today,
-            transcript: draft.draft.items[0]?.transcript ?? null,
-            replacedPrevious: draft.replacedPrevious,
-          }),
+          expensesDraftOutbound(
+            draft.pendingId,
+            draft.draft.items,
+            run.ctx.today,
+            draft.replacedPrevious,
+          ),
         ],
       };
     } catch (err) {
@@ -601,6 +606,92 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
     }
   },
 };
+
+/**
+ * Gasto en Bs con lotes de cambio (0012): sin tasa dicha ni monto en euros, el modo del negocio
+ * decide si sale de los lotes ("usdt"), si se pregunta ("ask") o si va a la BCV.
+ */
+function bsRateFor(
+  ctx: AgentContext,
+  currency: "USD" | "VES",
+  stated: Rate | null,
+  eurNote: string | null,
+): "exchange" | "ask" | null {
+  if (currency !== "VES" || stated || eurNote) return null;
+  if (ctx.bsRateMode === "usdt") return "exchange";
+  if (ctx.bsRateMode === "ask") return "ask";
+  return null;
+}
+
+/** Borrador de un gasto, o la pregunta "¿De dónde salieron estos Bs?" si el modo es preguntar. */
+export function expenseDraftOutbound(
+  pendingId: string,
+  d: ExpenseDraft,
+  today: IsoDate,
+  replacedPrevious = false,
+): Outbound {
+  if (d.bsChoice)
+    return es.bsRateQuestion({
+      pendingId,
+      description: d.description,
+      ves: d.amount,
+      exchangeUsd: d.bsChoice.exchangeUsd,
+      exchangeRate: d.bsChoice.exchangeRate,
+      bcvUsd: d.bsChoice.bcvUsd,
+      bcvRate: d.bsChoice.bcvRate,
+    });
+  return es.expenseDraft({
+    pendingId,
+    amount: d.amount,
+    currency: d.currency,
+    currencyInferred: d.currencyInferred,
+    amountUsd: d.amountUsd,
+    amountVes: d.amountVes,
+    rateValue: d.rateValue,
+    rateEffectiveDate: d.rateEffectiveDate,
+    rateSource: d.rateSource,
+    businessDate: d.businessDate,
+    today,
+    categoryName: d.categoryName,
+    description: d.description,
+    transcript: d.transcript,
+    replacedPrevious,
+    exchange: d.exchange ?? null,
+  });
+}
+
+/** Borrador de varios gastos, o una sola pregunta por los renglones en Bs del modo preguntar. */
+export function expensesDraftOutbound(
+  pendingId: string,
+  items: ExpenseDraft[],
+  today: IsoDate,
+  replacedPrevious = false,
+): Outbound {
+  const asked = items.filter((i) => i.bsChoice);
+  if (asked.length) {
+    const sum = (f: (i: ExpenseDraft) => string) =>
+      asked.reduce((s, i) => s.plus(f(i)), new Decimal(0));
+    const ves = sum((i) => i.amount);
+    const exchangeUsd = sum((i) => i.bsChoice?.exchangeUsd ?? "0");
+    const bcvUsd = sum((i) => i.bsChoice?.bcvUsd ?? "0");
+    return es.bsRateQuestion({
+      pendingId,
+      description: asked.length === 1 ? (asked[0]?.description ?? null) : `${asked.length} gastos`,
+      ves,
+      exchangeUsd,
+      exchangeRate: ves.div(exchangeUsd),
+      bcvUsd,
+      bcvRate: asked[0]?.bsChoice?.bcvRate ?? "0",
+    });
+  }
+  return es.expensesDraft({
+    pendingId,
+    items,
+    today,
+    transcript: items[0]?.transcript ?? null,
+    replacedPrevious,
+  });
+}
 
 /**
  * Tasa pedida por el usuario: "euro" → euro BCV del día del movimiento (02/10/2026); un número →
@@ -1392,6 +1483,95 @@ const convertCurrency: ToolSpec<typeof ConvertCurrencyInput> = {
   },
 };
 
+/**
+ * Cambios de USDT a bolívares (0012): "cambié 100 usdt a 970" deja un borrador del cambio; Guardar
+ * crea el lote del que salen los gastos en Bs. "¿Cuántos Bs me quedan?" da el saldo.
+ */
+const exchangeUsdt: ToolSpec<typeof ExchangeInput> = {
+  name: "exchange_usdt",
+  description:
+    "Cambios de USDT (o dólares) a bolívares, para quien cobra en USDT y paga en Bs. action record: registra un cambio ('cambié 100 usdt a 970', 'vendí 50 usdt y me dieron 48.500 bs', 'cambié 20$ a 985'); un cambio NO es un gasto ni una venta. action balance: cuántos Bs le quedan de sus cambios ('cuántos bs me quedan', 'saldo de mis cambios').",
+  schema: ExchangeInput,
+  roles: ["owner", "employee"],
+  strict: false,
+  async run(input, run) {
+    if (input.action === "balance") {
+      const lots = await exchangeLots(run.tx, run.ctx.tenantId, { active: true });
+      const mode: BsRateMode =
+        run.ctx.bsRateMode ?? (await getBsRateMode(run.tx, run.ctx.tenantId));
+      return { kind: "terminal", status: "ok", outbound: [es.exchangeBalance({ lots, mode })] };
+    }
+    // Montos como los demás gastos ("48.500" = 48500); la tasa con punto decimal primero, como la
+    // normaliza el modelo ("970.5").
+    const amountOf = (v: string) => {
+      const t = nz(v);
+      return t ? parseAmount(t) : null;
+    };
+    const rateOf = (v: string) => {
+      const t = nz(v);
+      if (!t) return null;
+      const d = /^\d+(\.\d+)?$/.test(t) ? new Decimal(t) : parseVenezuelanAmount(t);
+      return d?.gt(0) ? d : null;
+    };
+    const ex = completeExchange({
+      usd: amountOf(input.usd_amount),
+      ves: amountOf(input.ves_amount),
+      rate: rateOf(input.rate),
+    });
+    if (!ex) return { kind: "terminal", status: "ok", outbound: [es.exchangeInvalid()] };
+    const when = resolveWhen(nz(input.when), run.ctx.today);
+    if ("error" in when)
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [es.clarification("¿Qué día hiciste el cambio? ¿Hoy, ayer?", [])],
+      };
+    const bcv = await implausibleExchangeRate(run.tx, ex.rate, when.date);
+    if (bcv)
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [
+          es.clarification(
+            `¿Seguro que fue a ${ex.rate.toFixed(2).replace(".", ",")}? La BCV está en ${bcv.toFixed(2).replace(".", ",")}. Escríbelo de nuevo: _cambié 100 usdt a 970_`,
+            [],
+          ),
+        ],
+      };
+    const payload: ExchangeDraft = {
+      usd: ex.usd.toFixed(2),
+      ves: ex.ves.toFixed(2),
+      rate: ex.rate.toFixed(8),
+      businessDate: when.date,
+    };
+    const { pendingId } = await insertDraft(
+      run.tx,
+      {
+        tenantId: run.ctx.tenantId,
+        phoneId: run.ctx.phoneId,
+        kind: "create_exchange",
+        payload,
+        replaces: null,
+      },
+      run.now,
+    );
+    return {
+      kind: "terminal",
+      status: "ok",
+      outbound: [
+        es.exchangeDraft({
+          pendingId,
+          usd: payload.usd,
+          ves: payload.ves,
+          rate: payload.rate,
+          businessDate: payload.businessDate,
+          today: run.ctx.today,
+        }),
+      ],
+    };
+  },
+};
+
 const NO_EUR_CONVERT =
   "Todavía no tengo la tasa euro del BCV de hoy. Dime la tasa (por ejemplo _17€ a 980_) y lo calculo.";
 
@@ -1436,6 +1616,7 @@ export const ALL_TOOLS: ToolSpec<z.ZodType>[] = [
   rejectOutOfScope,
   getBcvRate,
   convertCurrency,
+  exchangeUsdt,
 ] as ToolSpec<z.ZodType>[];
 
 export function toolsForRole(role: "owner" | "employee"): ToolSpec<z.ZodType>[] {

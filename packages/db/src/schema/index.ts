@@ -41,7 +41,8 @@ export const BILLING_RATE_KINDS = ["bcv_usd", "bcv_eur", "manual"] as const;
 export const MOVEMENT_TYPES = ["expense", "income"] as const;
 export const BUDGET_PERIODS = ["monthly", "biweekly"] as const;
 export const MOVEMENT_ORIGINS = ["single", "day_total"] as const;
-export const RATE_SOURCES = ["bcv", "bcv_eur", "manual"] as const;
+export const RATE_SOURCES = ["bcv", "bcv_eur", "manual", "exchange"] as const;
+export const BS_RATE_MODES = ["bcv", "usdt", "ask"] as const;
 export const SOURCE_CHANNELS = ["text", "voice", "image", "dashboard"] as const;
 export const PAYMENT_METHODS = [
   "cash_usd",
@@ -63,6 +64,7 @@ export const PENDING_KINDS = [
   "edit_last",
   "delete_last",
   "renew_plan",
+  "create_exchange",
 ] as const;
 export const PENDING_STATUSES = ["pending", "confirmed", "cancelled", "expired"] as const;
 
@@ -87,6 +89,8 @@ export const tenant = app.table(
     ),
     paidUntil: timestamp("paid_until", { withTimezone: true }),
     capNotifiedMonth: text("cap_notified_month"),
+    /** De dónde sale la tasa de los gastos en Bs (0012): BCV, los lotes de cambio, o preguntar. */
+    bsRateMode: text("bs_rate_mode").notNull().default("bcv"),
     ...timestamps,
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -98,6 +102,7 @@ export const tenant = app.table(
       sql.raw(`default_expense_currency IS NULL OR default_expense_currency IN ('USD', 'VES')`),
     ),
     check("tenant_status_check", inList("status", TENANT_STATUSES)),
+    check("tenant_bs_rate_mode_check", inList("bs_rate_mode", BS_RATE_MODES)),
   ],
 );
 
@@ -284,7 +289,10 @@ export const movement = app.table(
       .where(sql`deleted_at IS NULL`),
     check("movement_type_check", inList("type", MOVEMENT_TYPES)),
     check("movement_rate_source_check", inList("rate_source", RATE_SOURCES)),
-    check("movement_rate_source_id", sql.raw(`rate_source = 'manual' OR rate_id IS NOT NULL`)),
+    check(
+      "movement_rate_source_id",
+      sql.raw(`rate_source IN ('manual', 'exchange') OR rate_id IS NOT NULL`),
+    ),
     check("movement_currency_check", inList("currency", CURRENCIES)),
     check("movement_amount_positive", sql.raw(`amount > 0`)),
     check("movement_payment_method_check", inList("payment_method", PAYMENT_METHODS)),
@@ -428,5 +436,60 @@ export const budget = app.table(
   (t) => [
     uniqueIndex("budget_tenant_category_key").on(t.tenantId, t.categoryId),
     check("budget_period_check", inList("period", BUDGET_PERIODS)),
+  ],
+);
+
+/** Cambio de USDT a bolívares (0012): los gastos en Bs salen de aquí en orden (FIFO). */
+export const exchangeLot = app.table(
+  "exchange_lot",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id),
+    businessDate: date("business_date").notNull(),
+    usdAmount: numeric("usd_amount", { precision: 14, scale: 2 }).notNull(),
+    vesAmount: numeric("ves_amount", { precision: 18, scale: 2 }).notNull(),
+    rate: numeric("rate", { precision: 18, scale: 8 }).notNull(),
+    vesRemaining: numeric("ves_remaining", { precision: 18, scale: 2 }).notNull(),
+    createdByPhoneId: uuid("created_by_phone_id").references(() => phoneNumber.id),
+    createdByUserId: uuid("created_by_user_id").references(() => userAccount.id),
+    ...timestamps,
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("exchange_lot_tenant_fifo_idx")
+      .on(t.tenantId, t.businessDate, t.createdAt)
+      .where(sql`deleted_at IS NULL`),
+    check("exchange_lot_amounts_check", sql.raw(`usd_amount > 0 AND ves_amount > 0 AND rate > 0`)),
+    check(
+      "exchange_lot_remaining_check",
+      sql.raw(`ves_remaining >= 0 AND ves_remaining <= ves_amount`),
+    ),
+  ],
+);
+
+/** De qué lote salió cada gasto en Bs (0012), para devolver el saldo al borrar o corregir. */
+export const exchangeAllocation = app.table(
+  "exchange_allocation",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id),
+    movementId: uuid("movement_id")
+      .notNull()
+      .references(() => movement.id),
+    lotId: uuid("lot_id")
+      .notNull()
+      .references(() => exchangeLot.id),
+    vesAmount: numeric("ves_amount", { precision: 18, scale: 2 }).notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    index("exchange_allocation_movement_idx").on(t.movementId),
+    index("exchange_allocation_lot_idx").on(t.lotId),
+    check("exchange_allocation_amount_check", sql.raw(`ves_amount > 0`)),
   ],
 );

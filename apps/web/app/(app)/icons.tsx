@@ -150,3 +150,8 @@ export const IconCard = (p: P) => (
     <path d="M3 10h18M7 15h4" />
   </Svg>
 );
+export const IconSwap = (p: P) => (
+  <Svg {...p}>
+    <path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7" />
+  </Svg>
+);

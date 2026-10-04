@@ -20,6 +20,8 @@ export type AgentContext = {
   attachmentId: string | null;
   /** Enlace al dashboard para cierres y resúmenes. */
   dashboardUrl: string;
+  /** De dónde sale la tasa de los gastos en Bs (0012): BCV, los cambios USDT o preguntar. */
+  bsRateMode?: "bcv" | "usdt" | "ask";
   /** Datos de cobro para renovar el plan por el bot (03/10). */
   billing?: { dest: PaymentDest; supportHint: string | null };
 };

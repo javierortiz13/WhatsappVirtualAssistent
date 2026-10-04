@@ -69,6 +69,7 @@ const SettingsForm = z.object({
   name: z.string().trim().min(2).max(80),
   business_type: z.enum(Object.keys(BUSINESS_TYPE_LABELS) as [string, ...string[]]),
   currency: z.enum(["USD", "VES"]),
+  bs_rate_mode: z.enum(["bcv", "usdt", "ask"]).default("bcv"),
 });
 
 /** Nombre, tipo y moneda por defecto del negocio (US-E7). Solo el dueño. */
@@ -86,6 +87,7 @@ export async function updateSettingsAction(formData: FormData): Promise<void> {
           name: parsed.data.name,
           businessType: parsed.data.business_type as keyof typeof BUSINESS_TYPE_LABELS,
           defaultExpenseCurrency: parsed.data.currency,
+          bsRateMode: parsed.data.bs_rate_mode,
         },
       ),
     );
