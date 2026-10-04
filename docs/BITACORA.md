@@ -653,4 +653,4 @@ Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más cla
 
 **Arreglo:** `rates/aia.ts`. Si el fetch normal falla por cadena incompleta, se lee la dirección "CA Issuers" (AIA) del certificado del servidor, se descarga el intermedio y se repite la petición con `https` y `ca = raíces del sistema + intermedio`: la cadena se sigue verificando hasta una raíz de confianza (lo mismo que hacen los navegadores). El intermedio queda en memoria. Solo la lectura de la dirección abre una conexión sin verificar, y de ella no se usa nada de la página.
 
-**Pendiente de confirmar en producción:** que la descarga del intermedio funcione y que `parseBcvHtml` lea la página real (nunca se había podido verificar).
+**Confirmado en producción (04/10, 01:41 UTC):** primero el lector no encontraba el bloque del dólar; con la respuesta descomprimida y el lector más tolerante, el BCV guardó la tasa del lunes 05/10 (USD 871,3689 · EUR 981,1788, fuente `bcv`). Desde ahora la tasa del lunes entra el viernes en la tarde (cron cada 30 min de 15:00 a 20:30 Caracas, lunes a viernes, más las 08:00 todos los días) y el fin de semana la usa.
