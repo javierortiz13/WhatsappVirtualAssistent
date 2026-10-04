@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import https from "node:https";
 import tls from "node:tls";
+import zlib from "node:zlib";
 
 /**
  * bcv.org.ve no manda su certificado intermedio: Node rechaza la conexión con
@@ -74,14 +75,18 @@ export const nodeAiaDeps: AiaDeps = {
         (res) => {
           const chunks: Buffer[] = [];
           res.on("data", (c: Buffer) => chunks.push(c));
-          res.on("end", () =>
-            resolve(
-              new Response(Buffer.concat(chunks), {
-                status: res.statusCode ?? 500,
-                headers: { "content-type": String(res.headers["content-type"] ?? "text/html") },
-              }),
-            ),
-          );
+          res.on("end", () => {
+            try {
+              resolve(
+                new Response(decode(Buffer.concat(chunks), res.headers["content-encoding"]), {
+                  status: res.statusCode ?? 500,
+                  headers: { "content-type": String(res.headers["content-type"] ?? "text/html") },
+                }),
+              );
+            } catch (err) {
+              reject(err);
+            }
+          });
           res.on("error", reject);
         },
       );
@@ -89,6 +94,15 @@ export const nodeAiaDeps: AiaDeps = {
       req.on("error", reject);
     }),
 };
+
+/** `https` no descomprime como `fetch`: gzip, deflate o br según el encabezado. */
+function decode(body: Buffer, encoding: string | undefined): Buffer {
+  const e = (encoding ?? "").toLowerCase();
+  if (e.includes("gzip")) return zlib.gunzipSync(body);
+  if (e.includes("deflate")) return zlib.inflateSync(body);
+  if (e.includes("br")) return zlib.brotliDecompressSync(body);
+  return body;
+}
 
 /**
  * `fetch` que, si el servidor no manda su intermedio, lo busca por AIA y repite la petición con

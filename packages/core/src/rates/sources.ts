@@ -44,20 +44,48 @@ export function parseBcvHtml(html: string): {
   rateEur: Decimal | null;
   effectiveDate: IsoDate;
 } {
-  const dolarBlock = html.match(/id="dolar"[\s\S]{0,2000}?<strong>\s*([\d.,]+)\s*<\/strong>/i);
-  if (!dolarBlock?.[1]) throw new RateSourceError("bcv", "no se encontró el bloque del dólar");
+  const dolarBlock = blockRate(html, "dolar");
+  if (!dolarBlock?.[1])
+    throw new RateSourceError(
+      "bcv",
+      `no se encontró el bloque del dólar ${snippet(html, "dolar")}`,
+    );
   const rate = parseVenezuelanAmount(dolarBlock[1]);
   if (!rate || rate.lte(0)) throw new RateSourceError("bcv", `tasa ilegible: ${dolarBlock[1]}`);
-  const date = html.match(/date-display-single[^>]*content="(\d{4}-\d{2}-\d{2})/i)?.[1];
-  if (!date) throw new RateSourceError("bcv", "no se encontró la fecha valor");
+  const date = html.match(/date-display-single[^>]*content=["'](\d{4}-\d{2}-\d{2})/i)?.[1];
+  if (!date)
+    throw new RateSourceError(
+      "bcv",
+      `no se encontró la fecha valor ${snippet(html, "Fecha Valor")}`,
+    );
   // El euro va en un bloque hermano `id="euro"`. Es opcional: sin él, la tasa del dólar basta.
-  const euroRaw = html.match(/id="euro"[\s\S]{0,2000}?<strong>\s*([\d.,]+)\s*<\/strong>/i)?.[1];
+  const euroRaw = blockRate(html, "euro")?.[1];
   const euro = euroRaw ? parseVenezuelanAmount(euroRaw) : null;
   return {
     rate: rate.toDecimalPlaces(8),
     rateEur: euro?.gt(0) ? euro.toDecimalPlaces(8) : null,
     effectiveDate: asIsoDate(date),
   };
+}
+
+/**
+ * La tasa dentro del bloque `id="dolar"` (o "euro"): el primer `<strong>` con un número, aunque
+ * traiga espacios, `&nbsp;` u otra etiqueta adentro.
+ */
+function blockRate(html: string, id: string): RegExpMatchArray | null {
+  return html.match(
+    new RegExp(
+      `id=["']${id}["'][\\s\\S]{0,4000}?<strong[^>]*>(?:\\s|&nbsp;|<[^>]+>)*([\\d.,]+)`,
+      "i",
+    ),
+  );
+}
+
+/** Pedazo corto de la página para el log cuando no se reconoce (es contenido público). */
+function snippet(html: string, near: string): string {
+  const i = html.toLowerCase().indexOf(near.toLowerCase());
+  const part = (i >= 0 ? html.slice(i, i + 300) : html.slice(0, 300)).replace(/\s+/g, " ");
+  return `(${html.length} caracteres${i >= 0 ? "" : `, sin "${near}"`}: ${part})`;
 }
 
 /** El BCV no manda su certificado intermedio: por defecto se completa por AIA (ver `aia.ts`). */

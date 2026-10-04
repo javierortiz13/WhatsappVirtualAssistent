@@ -39,6 +39,13 @@ describe("fuente BCV", () => {
       parseBcvHtml(BCV_HTML.replace(/<div id="euro">.*?<\/div><\/div>/s, "")).rateEur,
     ).toBeNull();
   });
+  it("tolera comillas simples, &nbsp; y etiquetas dentro del <strong>", () => {
+    const html = BCV_HTML.replace('id="dolar"', "id='dolar'").replace(
+      "<strong> 858,12345678 </strong>",
+      "<strong class='x'>&nbsp;<span> 858,12345678</span></strong>",
+    );
+    expect(parseBcvHtml(html).rate.toFixed(8)).toBe("858.12345678");
+  });
   it("lanza si la página cambió", () => {
     expect(() => parseBcvHtml("<html></html>")).toThrow(/bloque del dólar/);
     expect(() => parseBcvHtml('<div id="dolar"><strong> 858,1 </strong></div>')).toThrow(
