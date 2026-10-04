@@ -13,7 +13,12 @@ import { db } from "@/lib/db";
 import { todayInCaracas } from "@/lib/queries";
 import { requireTenant } from "@/lib/session";
 import { IconChevronDown, IconChevronLeft, IconWallet } from "../../icons";
-import { archiveAccountAction, createAccountAction, updateAccountAction } from "./actions";
+import {
+  archiveAccountAction,
+  createAccountAction,
+  createTransferAction,
+  updateAccountAction,
+} from "./actions";
 
 export const metadata: Metadata = { title: "Cuentas" };
 export const dynamic = "force-dynamic";
@@ -28,6 +33,13 @@ const MSG: Record<string, string> = {
   tope: "Llegaste al máximo de cuentas. Archiva alguna para crear otra.",
   permiso: "Solo el dueño puede cambiar las cuentas.",
   servidor: "No pudimos guardar. Inténtalo en unos minutos.",
+  transferida: "Transferencia guardada.",
+  misma: "Elige dos cuentas distintas.",
+  cambio: "De dólares a bolívares es un cambio: regístralo en Cambios USDT.",
+  monto: "Revisa el monto: 12.500 o 12.500,50.",
+  recibido: "Comprando USDT con Bs, escribe también los USDT que recibiste.",
+  tasa: "Esa tasa está muy lejos de la BCV. Revisa los montos.",
+  fecha: "La fecha no puede ser futura.",
 };
 
 /** "Bs 12.300,00", "$40,00" o "85,00 USDT". */
@@ -97,7 +109,7 @@ export default async function Cuentas({
       {accounts.length ? (
         <div className="card tight">
           {accounts.map((a) => (
-            <div className="row" key={a.id}>
+            <a className="row" key={a.id} href={`/ajustes/cuentas/${a.id}`}>
               <span className="ico lg">
                 <IconWallet />
               </span>
@@ -110,9 +122,84 @@ export default async function Cuentas({
                   {money(a, a.balance)}
                 </strong>
               </span>
-            </div>
+            </a>
           ))}
         </div>
+      ) : null}
+      {isOwner && accounts.length >= 2 ? (
+        <form action={createTransferAction} className="card stack">
+          <h2>Pasar dinero entre cuentas</h2>
+          <p className="sub">
+            No es gasto ni venta: solo cambia dónde está el dinero. También por el chat:{" "}
+            <em>pasé 100$ de Zelle a Binance</em>, <em>compré 50 usdt con 49.000 bs</em>.
+          </p>
+          <label className="field">
+            <span>De</span>
+            <span className="sel">
+              <select className="input" name="from" defaultValue={accounts[0]?.id}>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({kindLine(a).split(" · ").pop()})
+                  </option>
+                ))}
+              </select>
+              <IconChevronDown size={16} />
+            </span>
+          </label>
+          <label className="field">
+            <span>A</span>
+            <span className="sel">
+              <select className="input" name="to" defaultValue={accounts[1]?.id}>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({kindLine(a).split(" · ").pop()})
+                  </option>
+                ))}
+              </select>
+              <IconChevronDown size={16} />
+            </span>
+          </label>
+          <label className="field">
+            <span>Monto que salió</span>
+            <input
+              className="input center"
+              name="amount"
+              inputMode="decimal"
+              placeholder="100"
+              required
+            />
+          </label>
+          <label className="field">
+            <span>Lo que llegó, si es otra moneda</span>
+            <input
+              className="input center"
+              name="received"
+              inputMode="decimal"
+              placeholder="Comprando USDT: los USDT"
+            />
+          </label>
+          <label className="field">
+            <span>Comisión (opcional)</span>
+            <input className="input center" name="fee" inputMode="decimal" placeholder="0" />
+            <span className="sub">Queda como gasto de la cuenta de origen.</span>
+          </label>
+          <label className="field">
+            <span>Fecha</span>
+            <input
+              className="input center"
+              type="date"
+              name="date"
+              defaultValue={todayInCaracas()}
+              max={todayInCaracas()}
+              required
+            />
+          </label>
+          <div className="center">
+            <button className="btn" type="submit">
+              Transferir
+            </button>
+          </div>
+        </form>
       ) : null}
       {isOwner && accounts.length ? (
         <details className="card stack">

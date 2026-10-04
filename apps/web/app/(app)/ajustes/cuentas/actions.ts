@@ -6,8 +6,14 @@ import {
   archiveAccount,
   asIsoDate,
   createAccount,
+  createTransfer,
   Decimal,
+  deleteTransfer,
+  implausibleExchangeRate,
+  listAccounts,
   parseVenezuelanAmount,
+  TransferError,
+  transferAmounts,
   updateAccount,
 } from "@caja/core";
 import { withTenant } from "@caja/db";
@@ -134,4 +140,126 @@ export async function archiveAccountAction(formData: FormData): Promise<void> {
   }
   revalidatePath("/ajustes", "layout");
   redirect(`${BACK}?ok=archivada`);
+}
+
+const TransferForm = z.object({
+  from: z.string().uuid(),
+  to: z.string().uuid(),
+  amount: z.string().max(30),
+  received: z.string().max(30).optional(),
+  fee: z.string().max(30).optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+const TRANSFER_ERRORS: Record<string, string> = {
+  same_account: "misma",
+  use_exchange: "cambio",
+  missing: "datos",
+  invalid: "monto",
+  in_use: "usada",
+};
+
+/** Transferir entre cuentas (0014): misma moneda, o Bs → dólares (comprar USDT). */
+export async function createTransferAction(formData: FormData): Promise<void> {
+  const { user, tenant } = await requireTenant();
+  if (tenant.role !== "owner") redirect(`${BACK}?error=permiso`);
+  const parsed = TransferForm.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) redirect(`${BACK}?error=datos`);
+  const f = parsed.data;
+  if (f.date > todayInCaracas()) redirect(`${BACK}?error=fecha`);
+  const amount = balance(f.amount);
+  const received = f.received?.trim() ? balance(f.received) : null;
+  const fee = f.fee?.trim() ? balance(f.fee) : null;
+  if (!amount?.gt(0) || (f.received?.trim() && !received?.gt(0)) || fee?.lt(0))
+    redirect(`${BACK}?error=monto`);
+  let error: string | null = null;
+  await withTenant(db(), tenant.id, async (tx) => {
+    const accounts = await listAccounts(tx, tenant.id);
+    const from = accounts.find((a) => a.id === f.from);
+    const to = accounts.find((a) => a.id === f.to);
+    if (!from || !to) {
+      error = "datos";
+      return;
+    }
+    const amounts = transferAmounts(from, to, {
+      fromAmount: amount,
+      toAmount: received,
+      rate: null,
+    });
+    if (amounts === "use_exchange") {
+      error = "cambio";
+      return;
+    }
+    if (!amounts) {
+      error = "recibido";
+      return;
+    }
+    if (from.currency !== to.currency) {
+      const absurd = await implausibleExchangeRate(
+        tx,
+        amounts.fromAmount.div(amounts.toAmount),
+        asIsoDate(f.date),
+      );
+      if (absurd) {
+        error = "tasa";
+        return;
+      }
+    }
+    try {
+      await createTransfer(tx, {
+        tenantId: tenant.id,
+        fromAccountId: from.id,
+        toAccountId: to.id,
+        fromAmount: amounts.fromAmount,
+        toAmount: amounts.toAmount,
+        fee: fee?.gt(0) ? fee : null,
+        businessDate: asIsoDate(f.date),
+        description: null,
+        actor: { userId: user.id },
+        channel: "dashboard",
+      });
+    } catch (err) {
+      if (err instanceof TransferError) error = TRANSFER_ERRORS[err.code] ?? "datos";
+      else throw err;
+    }
+  }).catch((err) => {
+    console.error(JSON.stringify({ level: "error", msg: "transferir", detail: String(err) }));
+    error = "servidor";
+  });
+  if (error) redirect(`${BACK}?error=${error}`);
+  revalidatePath("/ajustes", "layout");
+  redirect(`${BACK}?ok=transferida`);
+}
+
+const DeleteTransferForm = z.object({ id: z.string().uuid(), back: z.string().uuid() });
+
+/** Borrar una transferencia desde el estado de cuenta. */
+export async function deleteTransferAction(formData: FormData): Promise<void> {
+  const { user, tenant } = await requireTenant();
+  const parsed = DeleteTransferForm.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) redirect(`${BACK}?error=datos`);
+  const back = `${BACK}/${parsed.data.back}`;
+  if (tenant.role !== "owner") redirect(`${back}?error=permiso`);
+  let error: string | null = null;
+  try {
+    await withTenant(db(), tenant.id, (tx) =>
+      deleteTransfer(tx, {
+        tenantId: tenant.id,
+        transferId: parsed.data.id,
+        actor: { userId: user.id },
+        now: new Date(),
+      }),
+    );
+  } catch (err) {
+    if (err instanceof TransferError) error = TRANSFER_ERRORS[err.code] ?? "datos";
+    else {
+      console.error(
+        JSON.stringify({ level: "error", msg: "borrar transferencia", detail: String(err) }),
+      );
+      error = "servidor";
+    }
+  }
+  if (error) redirect(`${back}?error=${error}`);
+  revalidatePath("/ajustes", "layout");
+  redirect(`${back}?ok=borrada`);
 }

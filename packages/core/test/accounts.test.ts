@@ -213,7 +213,7 @@ describe("cuentas", () => {
           method: "pago_movil",
           amount: new Decimal(8665.6),
           currency: "VES",
-          accountId: bdv?.id,
+          accountId: bdv?.id ?? null,
         },
         description: null,
         actor: actor(),

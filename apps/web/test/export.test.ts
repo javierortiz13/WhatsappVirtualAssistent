@@ -17,6 +17,7 @@ describe("exportar a Excel", () => {
           amountUsd: "15.00",
           amountVes: "12870.00",
           paymentMethod: "unspecified",
+          accountName: "Banesco",
           author: "Javier",
           sourceChannel: "voice",
         },
@@ -31,6 +32,7 @@ describe("exportar a Excel", () => {
           amountUsd: "100.00",
           amountVes: "85800.00",
           paymentMethod: "pago_movil",
+          accountName: null,
           author: "+584121234567",
           sourceChannel: "text",
         },
@@ -55,6 +57,7 @@ describe("exportar a Excel", () => {
       15,
       12870,
       "Sin especificar",
+      "Banesco",
       "Javier",
       "WhatsApp voz",
     ]);

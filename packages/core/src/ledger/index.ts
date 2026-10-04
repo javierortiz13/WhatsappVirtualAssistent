@@ -10,3 +10,4 @@ export * from "./last-movement";
 export * from "./rate-for";
 export * from "./reports";
 export * from "./summary";
+export * from "./transfers";

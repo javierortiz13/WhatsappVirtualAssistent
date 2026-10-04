@@ -609,7 +609,7 @@ type LotPartView = {
   ves: string;
   rate: string;
   usd: string;
-  source?: "exchange" | "income" | "opening" | undefined;
+  source?: "exchange" | "income" | "opening" | "transfer" | undefined;
   date?: string | undefined;
 };
 
@@ -618,6 +618,7 @@ function partOrigin(p: LotPartView): string {
   if (!p.source) return "";
   if (p.source === "opening") return " (saldo inicial)";
   const day = p.date ? ` ${formatShortDate(asIsoDate(p.date)).replace(/^\S+ /, "")}` : "";
+  if (p.source === "transfer") return ` (transferencia${day})`;
   return p.source === "income" ? ` (venta${day})` : ` (cambio${day})`;
 }
 
@@ -695,6 +696,128 @@ export function accountsSummary(v: {
       v.rate && !new Decimal(v.ves).isZero() ? ` (los Bs a la BCV de hoy, ${rateNum(v.rate)})` : "";
     lines.push("", `Total: *${formatMoney(v.totalUsd, "USD")}*${bs}`);
   }
+  return { type: "text", body: lines.join("\n") };
+}
+
+export type TransferView = {
+  from: { name: string; currency: string; kind: string };
+  to: { name: string; currency: string; kind: string };
+  fromAmount: Decimal.Value;
+  toAmount: Decimal.Value;
+  fee: Decimal.Value | null;
+  businessDate: string;
+};
+
+/** "Zelle → Binance: *$99,00*" o, comprando USDT, "Bs 49.000,00 → 50,00 USDT (a 980,00)". */
+function transferLine(v: TransferView): string {
+  if (v.from.currency === v.to.currency)
+    return `${v.from.name} → ${v.to.name}: *${accountMoney(v.from, v.fromAmount)}*`;
+  return `${v.from.name} → ${v.to.name}: *${accountMoney(v.from, v.fromAmount)}* → *${accountMoney(v.to, v.toAmount)}* (a ${rateNum(new Decimal(v.fromAmount).div(v.toAmount))})`;
+}
+
+/** Borrador de una transferencia entre cuentas (0014). */
+export function transferDraft(v: TransferView & { pendingId: string; today: IsoDate }): Outbound {
+  const lines = [
+    v.from.currency === v.to.currency
+      ? "*Transferencia por confirmar*"
+      : "*Compra de USDT por confirmar*",
+    transferLine(v),
+  ];
+  if (v.fee && new Decimal(v.fee).gt(0))
+    lines.push(`Comisión: ${accountMoney(v.from, v.fee)} (queda como gasto de ${v.from.name})`);
+  lines.push(dateLine(v.businessDate, v.today));
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: [
+      { id: IDS.confirm(v.pendingId), title: "Guardar" },
+      { id: IDS.cancel(v.pendingId), title: "Cancelar" },
+    ],
+  };
+}
+
+export function transferSaved(v: TransferView, accounts: AccountBalanceView[]): Outbound {
+  return {
+    type: "text",
+    body: [
+      `✅ ${v.from.currency === v.to.currency ? "Transferencia guardada" : "Compra de USDT guardada"}: ${transferLine(v).replace(/\*/g, "")}.`,
+      ...accounts.map(accountLeft),
+    ].join("\n"),
+  };
+}
+
+/** No se entendió la transferencia: de qué cuenta, a cuál o cuánto. */
+export function transferUnclear(
+  what: "from" | "to" | "amount" | "same" | "rate",
+  accountNames: string[],
+): Outbound {
+  const list = accountNames.length ? ` Tus cuentas: ${accountNames.join(", ")}.` : "";
+  const body =
+    what === "from"
+      ? `¿De qué cuenta salió el dinero?${list}`
+      : what === "to"
+        ? `¿A qué cuenta llegó?${list}`
+        : what === "same"
+          ? "Es la misma cuenta. ¿De cuál a cuál fue?"
+          : what === "rate"
+            ? "¿Seguro? Esa tasa está muy lejos de la BCV. Escríbelo de nuevo: _compré 50 usdt con 49.000 bs_"
+            : "¿Cuánto pasaste? Si compraste USDT con Bs, dime los dos: _compré 50 usdt con 49.000 bs_";
+  return { type: "text", body };
+}
+
+export type StatementEntryView = {
+  kind: string;
+  date: string;
+  amount: Decimal.Value;
+  label: string | null;
+};
+
+/** Qué fue una línea del estado de cuenta, en pocas palabras. */
+export function statementLabel(e: StatementEntryView): string {
+  switch (e.kind) {
+    case "opening":
+      return "Saldo inicial";
+    case "exchange_in":
+      return e.label ? `Cambio desde ${e.label}` : "Cambio";
+    case "exchange_out":
+      return e.label ? `Cambio a ${e.label}` : "Cambio a Bs";
+    case "transfer_in":
+      return `Desde ${e.label ?? "otra cuenta"}`;
+    case "transfer_out":
+      return `A ${e.label ?? "otra cuenta"}`;
+    case "income":
+      return e.label ?? "Venta";
+    default:
+      return e.label ?? "Gasto";
+  }
+}
+
+/** "Cómo va Banesco": saldo, lo que entró y salió en el mes y las últimas líneas. */
+export function accountDetail(v: {
+  account: AccountBalanceView;
+  monthIn: Decimal.Value;
+  monthOut: Decimal.Value;
+  entries: StatementEntryView[];
+  dashboardUrl: string;
+  accountId: string;
+}): Outbound {
+  const a = v.account;
+  const lines = [
+    `💳 *${a.name}*: ${accountMoney(a, a.balance)}`,
+    `Este mes: entró ${accountMoney(a, v.monthIn)} · salió ${accountMoney(a, v.monthOut)}`,
+  ];
+  const recent = v.entries.filter((e) => e.kind !== "opening").slice(0, 5);
+  if (recent.length) {
+    lines.push("", "Últimos:");
+    for (const e of recent) {
+      const amt = new Decimal(e.amount);
+      const sign = amt.isNegative() ? "−" : "+";
+      lines.push(
+        `• ${formatShortDate(asIsoDate(e.date)).replace(/^\S+ /, "")} ${statementLabel(e)}: ${sign}${accountMoney(a, amt.abs())}`,
+      );
+    }
+  }
+  lines.push("", `Todo el detalle: ${v.dashboardUrl}/ajustes/cuentas/${v.accountId}`);
   return { type: "text", body: lines.join("\n") };
 }
 
@@ -852,8 +975,11 @@ export function bsModeOwnerOnly(): Outbound {
 }
 
 /** Va arriba del borrador que sale de una captura de Binance. */
-export function exchangeShotRead(): Outbound {
-  return { type: "text", body: "🧾 Leí tu cambio de Binance:" };
+export function exchangeShotRead(kind: "sell" | "buy" = "sell"): Outbound {
+  return {
+    type: "text",
+    body: kind === "buy" ? "🧾 Leí tu compra de USDT en Binance:" : "🧾 Leí tu cambio de Binance:",
+  };
 }
 
 export function exchangeShotUnclear(): Outbound {
@@ -866,7 +992,7 @@ export function exchangeShotUnclear(): Outbound {
 export function exchangeBuyShot(): Outbound {
   return {
     type: "text",
-    body: "Es una compra de USDT (pagaste bolívares). Por ahora registro los cambios de USDT a Bs; si fue un gasto, escríbemelo.",
+    body: "Es una compra de USDT (pagaste bolívares). Para registrarla necesito tus cuentas: una en Bs y una de Binance. Créalas así: _crea la cuenta Banesco en bolívares con 5.000_ y _agrega mi Binance con 200 usdt_.",
   };
 }
 

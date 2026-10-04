@@ -229,6 +229,7 @@ export type ExportRow = {
   amountUsd: string;
   amountVes: string;
   paymentMethod: string;
+  accountName: string | null;
   author: string;
   sourceChannel: string;
 };
@@ -252,6 +253,7 @@ export async function exportRows(
         amountUsd: schema.movement.amountUsd,
         amountVes: schema.movement.amountVes,
         paymentMethod: schema.movement.paymentMethod,
+        accountName: schema.account.name,
         sourceChannel: schema.movement.sourceChannel,
         phoneName: schema.phoneNumber.displayName,
         phoneE164: schema.phoneNumber.e164,
@@ -260,6 +262,7 @@ export async function exportRows(
       })
       .from(schema.movement)
       .leftJoin(schema.category, eq(schema.category.id, schema.movement.categoryId))
+      .leftJoin(schema.account, eq(schema.account.id, schema.movement.accountId))
       .leftJoin(schema.phoneNumber, eq(schema.phoneNumber.id, schema.movement.createdByPhoneId))
       .leftJoin(schema.userAccount, eq(schema.userAccount.id, schema.movement.createdByUserId))
       .where(

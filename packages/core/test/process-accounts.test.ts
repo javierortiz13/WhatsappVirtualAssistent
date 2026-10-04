@@ -116,7 +116,38 @@ describe("cuentas por WhatsApp", () => {
         input: { action: "record", usd_amount: "100", ves_amount: "", rate: "970", when: "" },
       },
     ],
-    "mis cuentas": [{ id: "a1", name: "get_accounts", input: {} }],
+    "mis cuentas": [{ id: "a1", name: "get_accounts", input: { account: "" } }],
+    "cómo va banesco": [{ id: "a2", name: "get_accounts", input: { account: "banesco" } }],
+    "saqué 5.000 bs de banesco al efectivo": [
+      {
+        id: "t1",
+        name: "transfer_between_accounts",
+        input: {
+          from_account: "banesco",
+          to_account: "efectivo",
+          amount: "5.000",
+          received: "",
+          rate: "",
+          fee: "30",
+          when: "",
+        },
+      },
+    ],
+    "compré 10 usdt con 9.800 bs": [
+      {
+        id: "t2",
+        name: "transfer_between_accounts",
+        input: {
+          from_account: "",
+          to_account: "",
+          amount: "10",
+          received: "9.800",
+          rate: "",
+          fee: "",
+          when: "",
+        },
+      },
+    ],
     "ese fue del efectivo": [
       {
         id: "m1",
@@ -243,5 +274,41 @@ describe("cuentas por WhatsApp", () => {
     expect(body).toContain("• Efectivo: *−Bs 500,00*");
     // 100 + (107.000 − 500) / 866,56
     expect(body).toContain("Total: *$222,90*");
+  });
+
+  it("transferir entre cuentas en Bs con comisión", async () => {
+    const { sent, client } = fakeMeta();
+    await send(client, "saqué 5.000 bs de banesco al efectivo, comisión 30");
+    const draft = textOf(last(sent));
+    expect(draft).toContain("*Transferencia por confirmar*");
+    expect(draft).toContain("Banesco → Efectivo: *Bs 5.000,00*");
+    expect(draft).toContain("Comisión: Bs 30,00 (queda como gasto de Banesco)");
+    await tap(client, button(last(sent), "Guardar"), "Guardar");
+    const saved = textOf(last(sent));
+    expect(saved).toContain("✅ Transferencia guardada");
+    expect(saved).toContain("💳 Banesco: *Bs 101.970,00*");
+    expect(saved).toContain("💳 Efectivo: *Bs 4.500,00*");
+  });
+
+  it("comprar USDT con Bs: del banco a Binance, aunque el modelo dé los montos al revés", async () => {
+    const { sent, client } = fakeMeta();
+    await send(client, "compré 10 usdt con 9.800 bs");
+    const draft = textOf(last(sent));
+    expect(draft).toContain("*Compra de USDT por confirmar*");
+    expect(draft).toContain("Banesco → Binance: *Bs 9.800,00* → *10,00 USDT* (a 980,00)");
+    await tap(client, button(last(sent), "Guardar"), "Guardar");
+    const saved = textOf(last(sent));
+    expect(saved).toContain("💳 Banesco: *Bs 92.170,00*");
+    expect(saved).toContain("💳 Binance: *110,00 USDT*");
+  });
+
+  it("el detalle de una cuenta: saldo, el mes y lo último", async () => {
+    const { sent, client } = fakeMeta();
+    await send(client, "cómo va banesco");
+    const body = textOf(last(sent));
+    expect(body).toContain("💳 *Banesco*: Bs 92.170,00");
+    expect(body).toContain("• 04/10 A Binance: −Bs 9.800,00");
+    expect(body).toContain("• 04/10 Comisión Banesco → Efectivo: −Bs 30,00");
+    expect(body).toContain("https://caja.test/ajustes/cuentas/");
   });
 });

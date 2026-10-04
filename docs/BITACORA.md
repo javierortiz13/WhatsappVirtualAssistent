@@ -706,3 +706,23 @@ Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más cla
 **Tests:** núcleo (adopción con y sin recorte, saldos con monedas cruzadas y cambios, patrimonio, lote de venta al crear/corregir/borrar, lotes por cuenta, mover un gasto de cuenta, saldo inicial, archivar, nombres repetidos, resolución de cuenta) y el flujo por WhatsApp (crear por chat, gasto con su saldo, corregir la cuenta de lo guardado, cambio entre cuentas, "mis cuentas"). Siete casos de eval (116). 370 tests.
 
 **Fase 2 (pendiente):** transferencias entre cuentas de la misma moneda, comisiones, reportes por cuenta.
+
+### S2 · 04/10/2026 · Cuentas (fase 2): transferencias, comprar USDT, comisiones y estado de cuenta
+
+**Pedido (Javier):** seguir con la fase 2 de cuentas.
+
+**Diseño**
+- **Transferencia** entre cuentas: no es gasto ni venta, solo cambia dónde está el dinero. Misma moneda ("pasé 100$ de Zelle a Binance", "del BDV a Banesco") o **Bs → USDT** (comprar USDT con bolívares). Dólares → Bs sigue siendo un cambio (lote); si el bot o el usuario lo piden como transferencia, sale el borrador de cambio con esas cuentas.
+- Entre cuentas en Bs los bolívares **se llevan su costo**: salen de los lotes de la cuenta de origen (`exchange_allocation.transfer_id`) y entran como lote `transfer` de la de destino a esa tasa. Comprando USDT, los Bs salen de los lotes del banco.
+- La **comisión** es un gasto aparte de la cuenta de origen ("Comisión Zelle → Binance", categoría que diga comisión o banco, si no Otros), para que cuente en los gastos del negocio.
+- Borrar una transferencia devuelve los Bs a sus lotes, quita el lote de destino y la comisión; si un gasto ya usó esos Bs, no se puede (como un cambio usado).
+- **Estado de cuenta**: cada cosa que movió la cuenta (saldo inicial, gastos, ventas, cambios, transferencias) con el saldo después, como el extracto del banco, y lo que entró y salió en el mes.
+
+**Cambios**
+- Migración 0014: `account_transfer` (RLS), `exchange_allocation.transfer_id` (de un gasto o de una transferencia), `exchange_lot.transfer_id` y origen `transfer`, `pending_action` kind `create_transfer`.
+- `ledger/transfers.ts` (`transferAmounts`, `createTransfer`, `deleteTransfer`); saldos con transferencias; `accountStatement`; `accountFromWords`.
+- Bot: `transfer_between_accounts` (dueño, sin strict; 17 herramientas, 10 estrictas) con borrador y Guardar; al guardar, el saldo de las dos cuentas. Si el modelo da los montos de una compra de USDT al revés, se voltean (los Bs siempre son más). La captura de **compra** de USDT en Binance, con cuentas, es una transferencia del banco a Binance (sin cuentas explica cómo crearlas). `get_accounts` con `account` da el detalle de una ("cómo va Banesco": saldo, el mes y lo último). Regla 6d ampliada.
+- Dashboard: cada cuenta abre su estado de cuenta (enlace a cada movimiento, borrar transferencias); formulario "Pasar dinero entre cuentas" con comisión; columna Cuenta en el Excel.
+- QA en navegador (390 px): transferencia con comisión, compra de USDT, compra sin USDT recibidos, dólares → Bs (manda a Cambios), misma cuenta, estado de cuenta y borrar. Corregido: el mes salía "2026-10" y la compra mostraba "50,00" sin "USDT".
+
+**Tests:** núcleo (montos por moneda, comisión como gasto, Bs con su costo, compra de USDT, errores, extracto con saldo por línea, borrar) y WhatsApp (transferencia con comisión, compra de USDT con montos al revés, detalle de una cuenta, captura de compra con cuentas). Cinco casos de eval (121). 381 tests.

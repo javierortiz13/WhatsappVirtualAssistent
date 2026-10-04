@@ -55,3 +55,49 @@
   expect:
     tool: exchange_usdt
     args: { action: record, usd_amount: "100", rate: "970" }
+
+# Fase 2: transferencias entre cuentas y detalle de una cuenta.
+- name: transferencia misma moneda
+  input: "pasé 100$ de zelle a binance"
+  accounts:
+    - { name: Zelle, currency: USD, kind: zelle }
+    - { name: Binance, currency: USD, kind: crypto }
+  expect:
+    tool: transfer_between_accounts
+    tool_not: draft_expense
+    args: { amount: "100" }
+
+- name: transferencia en bs con comisión
+  input: "transferí 20.000 bs del bdv a banesco, me cobraron 30 de comisión"
+  accounts:
+    - { name: Banco de Venezuela, currency: VES, kind: bank }
+    - { name: Banesco, currency: VES, kind: bank }
+  expect:
+    tool: transfer_between_accounts
+    args: { fee: "30" }
+
+- name: comprar usdt con bs
+  input: "compré 50 usdt con 49.000 bs"
+  accounts:
+    - { name: Banesco, currency: VES, kind: bank }
+    - { name: Binance, currency: USD, kind: crypto }
+  expect:
+    tool: transfer_between_accounts
+    tool_not: exchange_usdt
+
+- name: sacar efectivo no es gasto
+  input: "saqué 40$ del banco al efectivo"
+  accounts:
+    - { name: Mercantil Panamá, currency: USD, kind: bank }
+    - { name: Efectivo, currency: USD, kind: cash }
+  expect:
+    tool: transfer_between_accounts
+    tool_not: draft_expense
+
+- name: detalle de una cuenta
+  input: "cómo va banesco este mes?"
+  accounts:
+    - { name: Banesco, currency: VES, kind: bank }
+  expect:
+    tool: get_accounts
+    tool_not: get_summary

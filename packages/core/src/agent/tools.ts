@@ -21,7 +21,10 @@ import {
 import {
   AccountError,
   type AccountKind,
+  type AccountRef,
   accountBalances,
+  accountFromWords,
+  accountStatement,
   createAccount,
   namedAccount,
   netWorth,
@@ -66,6 +69,7 @@ import {
 } from "../ledger/rate-for";
 import { matchCategoryName } from "../ledger/reports";
 import { renderSummary } from "../ledger/summary";
+import { type TransferDraft, transferAmounts } from "../ledger/transfers";
 import { getRateInfo } from "../rates/current";
 import { es, type Outbound } from "../render/index";
 import type { LlmToolDef } from "./llm";
@@ -1620,56 +1624,49 @@ const exchangeUsdt: ToolSpec<typeof ExchangeInput> = {
       };
     const to = accountFor(run, "VES", { preferKind: "bank", strictCurrency: true });
     const from = accountFor(run, "USD", { preferKind: "crypto", strictCurrency: true });
-    const payload: ExchangeDraft = {
-      usd: ex.usd.toFixed(2),
-      ves: ex.ves.toFixed(2),
-      rate: ex.rate.toFixed(8),
-      businessDate: when.date,
-      accountId: to?.id ?? null,
-      accountName: to?.name ?? null,
-      fromAccountId: from?.id ?? null,
-      fromAccountName: from?.name ?? null,
-    };
-    const { pendingId } = await insertDraft(
-      run.tx,
-      {
-        tenantId: run.ctx.tenantId,
-        phoneId: run.ctx.phoneId,
-        kind: "create_exchange",
-        payload,
-        replaces: null,
-      },
-      run.now,
-    );
-    return {
-      kind: "terminal",
-      status: "ok",
-      outbound: [
-        es.exchangeDraft({
-          pendingId,
-          usd: payload.usd,
-          ves: payload.ves,
-          rate: payload.rate,
-          businessDate: payload.businessDate,
-          today: run.ctx.today,
-          accountName: payload.accountName,
-          fromAccountName: payload.fromAccountName,
-        }),
-      ],
-    };
+    return exchangeDraftOutcome(run, ex, when.date, { from, to });
   },
 };
 
-export const GetAccountsInput = z.object({});
+export const GetAccountsInput = z.object({
+  account: z
+    .string()
+    .describe('La cuenta por la que pregunta ("Binance", "el banco"), o "" para todas.'),
+});
 
 const getAccounts: ToolSpec<typeof GetAccountsInput> = {
   name: "get_accounts",
   description:
-    "Saldo de las CUENTAS del negocio (banco, Binance, Zelle, efectivo) y el total: 'mis cuentas', 'cuánto tengo en Binance', 'cuánta plata tengo', 'mi saldo', 'cuánto me queda en el banco'.",
+    "Saldo de las CUENTAS del negocio (banco, Binance, Zelle, efectivo) y el total: 'mis cuentas', 'cuánta plata tengo', 'mi saldo'. Con account, el detalle de una: 'cuánto tengo en Binance', 'cómo va Banesco', 'movimientos del efectivo'.",
   schema: GetAccountsInput,
   roles: ["owner"],
   strict: false,
-  async run(_input, run) {
+  async run(input, run) {
+    const asked = nz(input.account ?? "");
+    const one = asked ? accountFromWords(run.ctx.accounts ?? [], asked) : null;
+    if (one) {
+      const monthStart = `${run.ctx.today.slice(0, 8)}01` as IsoDate;
+      const st = await accountStatement(run.tx, run.ctx.tenantId, one.id, {
+        limit: 6,
+        from: monthStart,
+        to: run.ctx.today,
+      });
+      if (st)
+        return {
+          kind: "terminal",
+          status: "ok",
+          outbound: [
+            es.accountDetail({
+              account: st.account,
+              monthIn: st.period.in,
+              monthOut: st.period.out,
+              entries: st.entries,
+              dashboardUrl: run.ctx.dashboardUrl,
+              accountId: one.id,
+            }),
+          ],
+        };
+    }
     const accounts = await accountBalances(run.tx, run.ctx.tenantId);
     const rate = await bcvRateFor(run.tx, run.ctx.today)
       .then((r) => r.rate.value)
@@ -1693,6 +1690,182 @@ const getAccounts: ToolSpec<typeof GetAccountsInput> = {
     };
   },
 };
+
+export const TransferInput = z.object({
+  from_account: z.string().describe('Cuenta de donde salió, como la dijo ("Zelle", "el BDV").'),
+  to_account: z.string().describe('Cuenta a donde llegó ("Binance", "Banesco").'),
+  amount: z.string().describe('Lo que salió de la cuenta de origen ("100", "49.000"), o "".'),
+  received: z
+    .string()
+    .describe('Lo que llegó si es otra moneda (compró 50 USDT con Bs → "50"), o "".'),
+  rate: z.string().describe('Tasa si la dijo ("980"), o "".'),
+  fee: z.string().describe('Comisión si la dijo ("1", "30"), o "".'),
+  when: z.string().describe('Fecha (hoy, ayer, día de la semana, ISO), o "".'),
+});
+
+const transferBetweenAccounts: ToolSpec<typeof TransferInput> = {
+  name: "transfer_between_accounts",
+  description:
+    "Pasa dinero de una CUENTA a otra del mismo negocio: 'pasé 100$ de Zelle a Binance', 'transferí 20.000 bs del BDV a Banesco, comisión 30', 'compré 50 usdt con 49.000 bs', 'saqué 40$ del banco al efectivo'. No es gasto ni venta.",
+  schema: TransferInput,
+  roles: ["owner"],
+  strict: false,
+  async run(input, run) {
+    const accounts = run.ctx.accounts ?? [];
+    const names = accounts.map((a) => a.name);
+    const terminal = (o: Outbound): ToolOutcome => ({
+      kind: "terminal",
+      status: "ok",
+      outbound: [o],
+    });
+    if (!accounts.length)
+      return terminal(
+        es.accountsSummary({
+          accounts: [],
+          totalUsd: null,
+          ves: 0,
+          rate: null,
+          dashboardUrl: run.ctx.dashboardUrl,
+        }),
+      );
+    const buysUsdt = /\b(compr\w*)\b.*\b(usdt|dolares|\$)/i.test(
+      run.userText.normalize("NFD").replace(/[̀-ͯ]/g, ""),
+    );
+    let from: AccountRef | null = accountFromWords(accounts, input.from_account);
+    let to: AccountRef | null = accountFromWords(accounts, input.to_account);
+    // "Compré 50 usdt con 49.000 bs": del banco en Bs (o el nombrado) a Binance.
+    if (buysUsdt) {
+      from ??= resolveAccount(accounts, {
+        currency: "VES",
+        text: run.userText,
+        preferKind: "bank",
+        strictCurrency: true,
+      });
+      to ??= resolveAccount(accounts, {
+        currency: "USD",
+        text: run.userText,
+        preferKind: "crypto",
+        strictCurrency: true,
+      });
+    }
+    if (!from) return terminal(es.transferUnclear("from", names));
+    if (!to) return terminal(es.transferUnclear("to", names));
+    if (from.id === to.id) return terminal(es.transferUnclear("same", names));
+    const when = resolveWhen(nz(input.when), run.ctx.today);
+    if ("error" in when)
+      return terminal(es.clarification(whenQuestion(when.error, input.when), []));
+    const amountOf = (v: string) => {
+      const t = nz(v);
+      return t ? parseAmount(t) : null;
+    };
+    const rateOf = (v: string) => {
+      const t = nz(v);
+      if (!t) return null;
+      const d = /^\d+(\.\d+)?$/.test(t) ? new Decimal(t) : parseVenezuelanAmount(t);
+      return d?.gt(0) ? d : null;
+    };
+    // Dólares → Bs es un cambio: va como borrador de cambio con estas cuentas.
+    if (from.currency === "USD" && to.currency === "VES") {
+      const ex = completeExchange({
+        usd: amountOf(input.amount),
+        ves: amountOf(input.received),
+        rate: rateOf(input.rate),
+      });
+      if (!ex) return terminal(es.exchangeInvalid());
+      if (await implausibleExchangeRate(run.tx, ex.rate, when.date))
+        return terminal(es.transferUnclear("rate", names));
+      return exchangeDraftOutcome(run, ex, when.date, { from, to });
+    }
+    let sent = amountOf(input.amount);
+    let got = amountOf(input.received);
+    // Comprando USDT, los Bs siempre son más que los USDT: si vienen al revés, se voltean.
+    if (from.currency === "VES" && to.currency === "USD" && sent && got && sent.lt(got))
+      [sent, got] = [got, sent];
+    const amounts = transferAmounts(from, to, {
+      fromAmount: sent,
+      toAmount: got,
+      rate: rateOf(input.rate),
+    });
+    if (!amounts || amounts === "use_exchange")
+      return terminal(es.transferUnclear("amount", names));
+    if (from.currency !== to.currency) {
+      const rate = amounts.fromAmount.div(amounts.toAmount);
+      if (await implausibleExchangeRate(run.tx, rate, when.date))
+        return terminal(es.transferUnclear("rate", names));
+    }
+    const fee = amountOf(input.fee);
+    const side = (a: AccountRef) => ({
+      id: a.id,
+      name: a.name,
+      currency: a.currency,
+      kind: a.kind,
+    });
+    const payload: TransferDraft = {
+      from: side(from),
+      to: side(to),
+      fromAmount: amounts.fromAmount.toFixed(2),
+      toAmount: amounts.toAmount.toFixed(2),
+      fee: fee?.gt(0) ? fee.toFixed(2) : null,
+      businessDate: when.date,
+      description: null,
+    };
+    const { pendingId } = await insertDraft(
+      run.tx,
+      { tenantId: run.ctx.tenantId, phoneId: run.ctx.phoneId, kind: "create_transfer", payload },
+      run.now,
+    );
+    return terminal(es.transferDraft({ pendingId, ...payload, today: run.ctx.today }));
+  },
+};
+
+/** Borrador de cambio (dólares → Bs) con sus cuentas: lo usan exchange_usdt y las transferencias. */
+async function exchangeDraftOutcome(
+  run: ToolRunCtx,
+  ex: { usd: Decimal; ves: Decimal; rate: Decimal },
+  businessDate: IsoDate,
+  accounts: {
+    from: { id: string; name: string } | null;
+    to: { id: string; name: string } | null;
+  },
+): Promise<ToolOutcome> {
+  const payload: ExchangeDraft = {
+    usd: ex.usd.toFixed(2),
+    ves: ex.ves.toFixed(2),
+    rate: ex.rate.toFixed(8),
+    businessDate,
+    accountId: accounts.to?.id ?? null,
+    accountName: accounts.to?.name ?? null,
+    fromAccountId: accounts.from?.id ?? null,
+    fromAccountName: accounts.from?.name ?? null,
+  };
+  const { pendingId } = await insertDraft(
+    run.tx,
+    {
+      tenantId: run.ctx.tenantId,
+      phoneId: run.ctx.phoneId,
+      kind: "create_exchange",
+      payload,
+      replaces: null,
+    },
+    run.now,
+  );
+  return {
+    kind: "terminal",
+    status: "ok",
+    outbound: [
+      es.exchangeDraft({
+        pendingId,
+        usd: payload.usd,
+        ves: payload.ves,
+        rate: payload.rate,
+        businessDate: payload.businessDate,
+        today: run.ctx.today,
+        accountName: payload.accountName,
+        fromAccountName: payload.fromAccountName,
+      }),
+    ],
+  };
+}
 
 export const CreateAccountInput = z.object({
   name: z
@@ -1814,6 +1987,7 @@ export const ALL_TOOLS: ToolSpec<z.ZodType>[] = [
   exchangeUsdt,
   getAccounts,
   createAccountTool,
+  transferBetweenAccounts,
 ] as ToolSpec<z.ZodType>[];
 
 export function toolsForRole(role: "owner" | "employee"): ToolSpec<z.ZodType>[] {

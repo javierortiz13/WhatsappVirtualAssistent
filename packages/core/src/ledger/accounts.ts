@@ -67,7 +67,8 @@ export async function listAccounts(tx: Tx, tenantId: string): Promise<AccountRef
 }
 
 /**
- * Saldo de cada cuenta activa, todo en SQL. Un movimiento en otra moneda que la cuenta cuenta por
+ * Saldo de cada cuenta activa, todo en SQL: saldo inicial, movimientos, cambios y transferencias
+ * (0014). Un movimiento en otra moneda que la cuenta cuenta por
  * su equivalente (un gasto en $ pagado con pago móvil resta sus Bs a la tasa del gasto). Los lotes
  * adoptados (de antes de las cuentas) ya están dentro del saldo inicial.
  */
@@ -99,6 +100,10 @@ export async function accountBalances(tx: Tx, tenantId: string): Promise<Account
           - coalesce((select sum(l.usd_amount) from ${schema.exchangeLot} l
               where l.from_account_id = a.id and l.source = 'exchange'
                 and l.deleted_at is null), 0)
+          + coalesce((select sum(t.to_amount) from ${schema.accountTransfer} t
+              where t.to_account_id = a.id and t.deleted_at is null), 0)
+          - coalesce((select sum(t.from_amount) from ${schema.accountTransfer} t
+              where t.from_account_id = a.id and t.deleted_at is null), 0)
         )::text as balance
       from ${schema.account} a
       where a.tenant_id = ${tenantId} and a.archived_at is null
@@ -549,6 +554,28 @@ export function namedAccount(accounts: AccountRef[], text: string): AccountRef |
   return null;
 }
 
+/**
+ * La cuenta que alguien nombra con palabras sueltas ("binance", "el efectivo", "bdv", "zelle"):
+ * por nombre o apodo del banco; si no, por tipo cuando hay una sola de ese tipo.
+ */
+export function accountFromWords(accounts: AccountRef[], words: string): AccountRef | null {
+  const named = namedAccount(accounts, words);
+  if (named) return named;
+  const p = plain(words);
+  if (!p) return null;
+  for (const [re, kind] of KIND_WORDS) {
+    if (!re.test(p)) continue;
+    const same = accounts.filter((a) => a.kind === kind);
+    if (same.length === 1) return same[0] ?? null;
+    // "efectivo en bs" / "efectivo $": la moneda desempata.
+    const ves = /\b(bs|bolivares|bolos)\b/.test(p);
+    const usd = /(\$|\b(dolares|usd)\b)/.test(p);
+    const hit = same.find((a) => (ves && a.currency === "VES") || (usd && a.currency === "USD"));
+    if (hit) return hit;
+  }
+  return null;
+}
+
 function bankCode(p: string): string | null {
   return BANK_ALIAS_CODE.find(([re]) => re.test(p))?.[1] ?? null;
 }
@@ -574,4 +601,179 @@ async function audit(
     after,
     channel,
   });
+}
+
+// ---------------------------------------------------------------- estado de cuenta
+
+export type StatementKind =
+  | "opening"
+  | "expense"
+  | "income"
+  | "exchange_in"
+  | "exchange_out"
+  | "transfer_in"
+  | "transfer_out";
+
+export type StatementEntry = {
+  kind: StatementKind;
+  date: string;
+  /** Con signo, en la moneda de la cuenta. */
+  amount: Decimal;
+  /** Saldo de la cuenta después de esta línea. */
+  balanceAfter: Decimal;
+  /** Descripción o categoría del movimiento; la otra cuenta en cambios y transferencias. */
+  label: string | null;
+  /** Cambios: USDT y tasa. Compra de USDT: Bs y USDT. */
+  usd: Decimal | null;
+  rate: Decimal | null;
+  movementId: string | null;
+  transferId: string | null;
+  lotId: string | null;
+};
+
+export type AccountStatement = {
+  account: AccountView;
+  /** Lo más reciente primero. */
+  entries: StatementEntry[];
+  /** Entró y salió en el rango [from, to] (sin el saldo inicial). */
+  period: { from: IsoDate; to: IsoDate; in: Decimal; out: Decimal };
+};
+
+/**
+ * Estado de cuenta (0014): cada cosa que movió la cuenta con el saldo después, como un extracto
+ * del banco. Los lotes adoptados no salen (ya están en el saldo inicial). `limit` líneas, las más
+ * recientes; `period` suma lo que entró y salió en el rango.
+ */
+export async function accountStatement(
+  tx: Tx,
+  tenantId: string,
+  accountId: string,
+  opts: { limit?: number; from: IsoDate; to: IsoDate },
+): Promise<AccountStatement | null> {
+  const account = await accountBalance(tx, tenantId, accountId);
+  if (!account) return null;
+  const found = rows<{
+    kind: StatementKind;
+    date: string;
+    amount: string;
+    balance_after: string;
+    label: string | null;
+    usd: string | null;
+    rate: string | null;
+    movement_id: string | null;
+    transfer_id: string | null;
+    lot_id: string | null;
+  }>(
+    await tx.execute(sql`
+      with a as (
+        select id, currency, opening_balance, opening_date, created_at
+        from ${schema.account} where id = ${accountId} and tenant_id = ${tenantId}
+      ), e as (
+        select 'opening'::text as kind, a.opening_date as date, a.opening_balance as amount,
+          a.created_at as at, null::text as label, null::numeric as usd, null::numeric as rate,
+          null::uuid as movement_id, null::uuid as transfer_id, null::uuid as lot_id, 0 as ord
+        from a
+        union all
+        select m.type, m.business_date,
+          (case when m.type = 'income' then 1 else -1 end)
+            * (case when m.currency = a.currency then m.amount
+                    when a.currency = 'USD' then m.amount_usd else m.amount_ves end),
+          m.created_at, coalesce(m.description, c.name), null, null, m.id, null, null, 1
+        from ${schema.movement} m
+        cross join a
+        left join ${schema.category} c on c.id = m.category_id
+        where m.account_id = a.id and m.deleted_at is null
+        union all
+        select 'exchange_in', l.business_date, l.ves_amount, l.created_at, fa.name,
+          l.usd_amount, l.rate, null, null, l.id, 1
+        from ${schema.exchangeLot} l
+        cross join a
+        left join ${schema.account} fa on fa.id = l.from_account_id
+        where l.account_id = a.id and l.source = 'exchange' and l.deleted_at is null
+          and l.adopted_at is null
+        union all
+        select 'exchange_out', l.business_date, -l.usd_amount, l.created_at, ta.name,
+          l.usd_amount, l.rate, null, null, l.id, 1
+        from ${schema.exchangeLot} l
+        cross join a
+        left join ${schema.account} ta on ta.id = l.account_id
+        where l.from_account_id = a.id and l.source = 'exchange' and l.deleted_at is null
+        union all
+        select 'transfer_in', t.business_date, t.to_amount, t.created_at, fa.name,
+          case when t.from_amount <> t.to_amount then t.from_amount end, null, null, t.id, null, 1
+        from ${schema.accountTransfer} t
+        cross join a
+        join ${schema.account} fa on fa.id = t.from_account_id
+        where t.to_account_id = a.id and t.deleted_at is null
+        union all
+        select 'transfer_out', t.business_date, -t.from_amount, t.created_at, ta.name,
+          case when t.from_amount <> t.to_amount then t.to_amount end, null, null, t.id, null, 1
+        from ${schema.accountTransfer} t
+        cross join a
+        join ${schema.account} ta on ta.id = t.to_account_id
+        where t.from_account_id = a.id and t.deleted_at is null
+      ), r as (
+        select e.*, sum(amount) over (order by ord, date, at rows unbounded preceding) as bal
+        from e
+      )
+      select kind, date::text, amount::text, bal::text as balance_after, label, usd::text,
+        rate::text, movement_id, transfer_id, lot_id
+      from r order by ord desc, date desc, at desc
+      limit ${opts.limit ?? 50}
+    `),
+  );
+  const totals = rows<{ inflow: string; outflow: string }>(
+    await tx.execute(sql`
+      with a as (select id, currency from ${schema.account} where id = ${accountId}),
+      e as (
+        select (case when m.type = 'income' then 1 else -1 end)
+            * (case when m.currency = a.currency then m.amount
+                    when a.currency = 'USD' then m.amount_usd else m.amount_ves end) as amount
+        from ${schema.movement} m cross join a
+        where m.account_id = a.id and m.deleted_at is null
+          and m.business_date between ${opts.from}::date and ${opts.to}::date
+        union all
+        select l.ves_amount from ${schema.exchangeLot} l cross join a
+        where l.account_id = a.id and l.source = 'exchange' and l.deleted_at is null
+          and l.adopted_at is null and l.business_date between ${opts.from}::date and ${opts.to}::date
+        union all
+        select -l.usd_amount from ${schema.exchangeLot} l cross join a
+        where l.from_account_id = a.id and l.source = 'exchange' and l.deleted_at is null
+          and l.business_date between ${opts.from}::date and ${opts.to}::date
+        union all
+        select t.to_amount from ${schema.accountTransfer} t cross join a
+        where t.to_account_id = a.id and t.deleted_at is null
+          and t.business_date between ${opts.from}::date and ${opts.to}::date
+        union all
+        select -t.from_amount from ${schema.accountTransfer} t cross join a
+        where t.from_account_id = a.id and t.deleted_at is null
+          and t.business_date between ${opts.from}::date and ${opts.to}::date
+      )
+      select coalesce(sum(amount) filter (where amount > 0), 0)::text as inflow,
+             coalesce(-sum(amount) filter (where amount < 0), 0)::text as outflow
+      from e
+    `),
+  );
+  const dec = (v: string | null) => (v === null ? null : new Decimal(v));
+  return {
+    account,
+    entries: found.map((r) => ({
+      kind: r.kind,
+      date: r.date,
+      amount: new Decimal(r.amount),
+      balanceAfter: new Decimal(r.balance_after),
+      label: r.label,
+      usd: dec(r.usd),
+      rate: dec(r.rate),
+      movementId: r.movement_id,
+      transferId: r.transfer_id,
+      lotId: r.lot_id,
+    })),
+    period: {
+      from: opts.from,
+      to: opts.to,
+      in: new Decimal(totals[0]?.inflow ?? 0),
+      out: new Decimal(totals[0]?.outflow ?? 0),
+    },
+  };
 }

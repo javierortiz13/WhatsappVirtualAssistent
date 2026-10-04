@@ -48,12 +48,14 @@ import {
   takesFromLots,
 } from "../ledger/exchange";
 import {
+  type AccountRef,
   accountBalances,
   amendMovement,
   applyBsChoice,
   createExpense,
   createIncomeDayTotal,
   createIncomeSingle,
+  createTransfer,
   DeleteLastDraft,
   DeleteManyDraft,
   dayTotals,
@@ -72,6 +74,9 @@ import {
   renderSummary,
   resolveAccount,
   resolveMismatch,
+  TransferDraft,
+  TransferError,
+  transferAmounts,
 } from "../ledger/index";
 import { NoRateError, rateFor } from "../ledger/rate-for";
 import { type Logger, maskPhone, silentLogger } from "../log";
@@ -926,7 +931,7 @@ async function handleExchangeShot(
   now: () => Date,
 ): Promise<RouteResult> {
   const x = e.exchange;
-  if (x?.side === "buy") return none([es.exchangeBuyShot()]);
+  if (x?.side === "buy") return handleBuyShot(tx, ctx, msg, e, now);
   const num = (v: string | undefined) => {
     const t = (v ?? "").trim();
     return /^\d+(\.\d+)?$/.test(t) && Number(t) > 0 ? new Decimal(t) : null;
@@ -986,6 +991,74 @@ async function handleExchangeShot(
   );
   const draft = es.exchangeDraft({ pendingId, ...payload, today: ctx.today });
   return none([...mergeOutbound(es.exchangeShotRead(), draft)]);
+}
+
+/**
+ * Captura de una COMPRA de USDT en Binance (0014): con cuentas, es una transferencia de la cuenta
+ * en Bs (el banco, o la nombrada en el texto) a Binance. Sin cuentas no hay a dónde llevarla.
+ */
+async function handleBuyShot(
+  tx: Tx,
+  ctx: RouteCtx,
+  msg: Extract<InboundMessage, { kind: "image" }>,
+  e: ReceiptExtraction,
+  now: () => Date,
+): Promise<RouteResult> {
+  const accounts = await listAccounts(tx, ctx.tenantId);
+  const caption = msg.caption ?? "";
+  const from = resolveAccount(accounts, {
+    currency: "VES",
+    text: caption,
+    preferKind: "bank",
+    strictCurrency: true,
+  });
+  const to = resolveAccount(accounts, {
+    currency: "USD",
+    text: caption,
+    preferKind: "crypto",
+    strictCurrency: true,
+  });
+  if (!from || !to) return none([es.exchangeBuyShot()]);
+  const x = e.exchange;
+  const num = (v: string | undefined) => {
+    const t = (v ?? "").trim();
+    return /^\d+(\.\d+)?$/.test(t) && Number(t) > 0 ? new Decimal(t) : null;
+  };
+  const amounts = transferAmounts(from, to, {
+    fromAmount: num(x?.fiat_amount) ?? (e.currency === "VES" ? num(e.total) : null),
+    toAmount: num(x?.usdt_amount),
+    rate: num(x?.price),
+  });
+  if (!amounts || amounts === "use_exchange") return none([es.exchangeShotUnclear()]);
+  const read = e.date && isIsoDate(e.date) ? e.date : null;
+  const businessDate =
+    read && read <= ctx.today && daysBetween(asIsoDate(read), ctx.today) <= 31 ? read : ctx.today;
+  const rate = amounts.fromAmount.div(amounts.toAmount);
+  if (await implausibleExchangeRate(tx, rate, asIsoDate(businessDate)))
+    return none([es.exchangeShotUnclear()]);
+  await tx
+    .update(schema.message)
+    .set({
+      body: `[captura de compra de USDT] ${amounts.fromAmount.toFixed(2)} VES → ${amounts.toAmount.toFixed(2)} USDT`,
+    })
+    .where(eq(schema.message.waMessageId, msg.waMessageId));
+  const side = (a: AccountRef) => ({ id: a.id, name: a.name, currency: a.currency, kind: a.kind });
+  const payload: TransferDraft = {
+    from: side(from),
+    to: side(to),
+    fromAmount: amounts.fromAmount.toFixed(2),
+    toAmount: amounts.toAmount.toFixed(2),
+    fee: null,
+    businessDate,
+    description: null,
+  };
+  const { pendingId } = await insertDraft(
+    tx,
+    { tenantId: ctx.tenantId, phoneId: ctx.phoneId, kind: "create_transfer", payload },
+    now(),
+  );
+  const draft = es.transferDraft({ pendingId, ...payload, today: ctx.today });
+  return none([...mergeOutbound(es.exchangeShotRead("buy"), draft)]);
 }
 
 async function handlePagoMovil(
@@ -1671,6 +1744,44 @@ async function executePending(
           // El primer cambio de un negocio a la BCV: ¿sus gastos en Bs salen de aquí?
           askMode: ctx.role === "owner" && (ctx.bsRateMode ?? "bcv") === "bcv",
         }),
+      ]);
+    }
+    case "create_transfer": {
+      const draft = TransferDraft.parse(pending.payload);
+      try {
+        await createTransfer(tx, {
+          tenantId: ctx.tenantId,
+          fromAccountId: draft.from.id,
+          toAccountId: draft.to.id,
+          fromAmount: new Decimal(draft.fromAmount),
+          toAmount: new Decimal(draft.toAmount),
+          fee: draft.fee ? new Decimal(draft.fee) : null,
+          businessDate: asIsoDate(draft.businessDate),
+          description: draft.description,
+          actor: { phoneId: ctx.phoneId },
+          channel: "whatsapp",
+        });
+      } catch (err) {
+        // Una cuenta archivada mientras esperaba el Guardar.
+        if (err instanceof TransferError) {
+          await tx
+            .update(schema.pendingAction)
+            .set({ status: "cancelled", resolvedAt: nowTs })
+            .where(eq(schema.pendingAction.id, pending.id));
+          return none([es.transferUnclear("from", [])]);
+        }
+        throw err;
+      }
+      await tx
+        .update(schema.pendingAction)
+        .set({ status: "confirmed", resolvedAt: nowTs })
+        .where(eq(schema.pendingAction.id, pending.id));
+      const balances = await accountBalances(tx, ctx.tenantId);
+      return none([
+        es.transferSaved(
+          draft,
+          balances.filter((a) => a.id === draft.from.id || a.id === draft.to.id),
+        ),
       ]);
     }
     case "create_income_day_total": {

@@ -87,9 +87,10 @@ describe("definiciones de herramientas", () => {
       "exchange_usdt",
       "get_accounts",
       "create_account",
+      "transfer_between_accounts",
     ]);
     expect(toolsForRole("employee")).toHaveLength(14);
-    expect(toolsForRole("owner")).toHaveLength(16);
+    expect(toolsForRole("owner")).toHaveLength(17);
   });
   it("el JSON Schema es estricto: sin $schema, sin propiedades extra, con properties", () => {
     for (const t of ALL_TOOLS) {
@@ -133,6 +134,7 @@ describe("definiciones de herramientas", () => {
       "exchange_usdt",
       "get_accounts",
       "create_account",
+      "transfer_between_accounts",
     ]);
   });
 

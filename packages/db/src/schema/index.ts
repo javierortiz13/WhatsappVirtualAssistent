@@ -45,7 +45,7 @@ export const MOVEMENT_ORIGINS = ["single", "day_total"] as const;
 export const RATE_SOURCES = ["bcv", "bcv_eur", "manual", "exchange"] as const;
 export const BS_RATE_MODES = ["bcv", "usdt", "ask"] as const;
 export const ACCOUNT_KINDS = ["bank", "cash", "zelle", "crypto", "other"] as const;
-export const LOT_SOURCES = ["exchange", "income", "opening"] as const;
+export const LOT_SOURCES = ["exchange", "income", "opening", "transfer"] as const;
 export const SOURCE_CHANNELS = ["text", "voice", "image", "dashboard"] as const;
 export const PAYMENT_METHODS = [
   "cash_usd",
@@ -68,6 +68,7 @@ export const PENDING_KINDS = [
   "delete_last",
   "renew_plan",
   "create_exchange",
+  "create_transfer",
 ] as const;
 export const PENDING_STATUSES = ["pending", "confirmed", "cancelled", "expired"] as const;
 
@@ -499,6 +500,8 @@ export const exchangeLot = app.table(
     movementId: uuid("movement_id").references(() => movement.id),
     /** Lote de antes de las cuentas que adoptó una cuenta: ya está en su saldo inicial. */
     adoptedAt: timestamp("adopted_at", { withTimezone: true }),
+    /** La transferencia en Bs que dejó este lote en la cuenta de destino (0014). */
+    transferId: uuid("transfer_id").references((): AnyPgColumn => accountTransfer.id),
     createdByPhoneId: uuid("created_by_phone_id").references(() => phoneNumber.id),
     createdByUserId: uuid("created_by_user_id").references(() => userAccount.id),
     ...timestamps,
@@ -535,9 +538,9 @@ export const exchangeAllocation = app.table(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenant.id),
-    movementId: uuid("movement_id")
-      .notNull()
-      .references(() => movement.id),
+    /** De un gasto o (0014) de una transferencia: uno de los dos. */
+    movementId: uuid("movement_id").references(() => movement.id),
+    transferId: uuid("transfer_id").references((): AnyPgColumn => accountTransfer.id),
     lotId: uuid("lot_id")
       .notNull()
       .references(() => exchangeLot.id),
@@ -547,6 +550,45 @@ export const exchangeAllocation = app.table(
   (t) => [
     index("exchange_allocation_movement_idx").on(t.movementId),
     index("exchange_allocation_lot_idx").on(t.lotId),
+    index("exchange_allocation_transfer_idx").on(t.transferId).where(sql`transfer_id IS NOT NULL`),
     check("exchange_allocation_amount_check", sql.raw(`ves_amount > 0`)),
+    check(
+      "exchange_allocation_owner_check",
+      sql.raw(`(movement_id IS NULL) <> (transfer_id IS NULL)`),
+    ),
+  ],
+);
+
+/** Transferencia entre cuentas (0014): mueve dinero sin ser gasto ni venta. */
+export const accountTransfer = app.table(
+  "account_transfer",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id),
+    fromAccountId: uuid("from_account_id")
+      .notNull()
+      .references(() => account.id),
+    toAccountId: uuid("to_account_id")
+      .notNull()
+      .references(() => account.id),
+    fromAmount: numeric("from_amount", { precision: 18, scale: 2 }).notNull(),
+    toAmount: numeric("to_amount", { precision: 18, scale: 2 }).notNull(),
+    businessDate: date("business_date").notNull(),
+    description: text("description"),
+    /** La comisión, como gasto de la cuenta de origen. */
+    feeMovementId: uuid("fee_movement_id").references(() => movement.id),
+    createdByPhoneId: uuid("created_by_phone_id").references(() => phoneNumber.id),
+    createdByUserId: uuid("created_by_user_id").references(() => userAccount.id),
+    ...timestamps,
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("account_transfer_from_idx").on(t.fromAccountId).where(sql`deleted_at IS NULL`),
+    index("account_transfer_to_idx").on(t.toAccountId).where(sql`deleted_at IS NULL`),
+    check("account_transfer_amounts_check", sql.raw(`from_amount > 0 AND to_amount > 0`)),
+    check("account_transfer_accounts_check", sql.raw(`from_account_id <> to_account_id`)),
   ],
 );

@@ -5,6 +5,7 @@ import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { LlmClient } from "../src/agent/llm";
 import { createAgent } from "../src/agent/loop";
+import { asIsoDate } from "../src/domain/dates";
 import { Decimal } from "../src/domain/money";
 import { ingestWebhook } from "../src/inbox/ingest";
 import {
@@ -13,6 +14,7 @@ import {
   pdfPageCount,
   processInbound,
 } from "../src/inbox/process";
+import { createAccount } from "../src/ledger/accounts";
 import { sweepOrphanAttachments } from "../src/ledger/attachments";
 import { MemoryObjectStore } from "../src/storage/store";
 import type { ReceiptExtraction, ReceiptReader } from "../src/vision/receipt";
@@ -910,5 +912,40 @@ describe("fotos de facturas", () => {
     );
     expect(textOf(sent[1])).toContain("Es una compra de USDT");
     expect(sent).toHaveLength(2);
+  });
+
+  it("con cuentas, la compra de USDT es una transferencia del banco a Binance", async () => {
+    await withTenant(t.db, tenantId, async (tx) => {
+      const [ph] = await tx.select().from(schema.phoneNumber);
+      for (const [name, currency, kind] of [
+        ["Mercantil", "VES", "bank"],
+        ["Binance", "USD", "crypto"],
+      ] as const)
+        await createAccount(tx, {
+          tenantId,
+          name,
+          currency,
+          kind,
+          openingBalance: new Decimal(0),
+          openingDate: asIsoDate("2026-10-01"),
+          actor: { phoneId: ph?.id as string },
+          channel: "dashboard",
+        });
+    });
+    const { sent, client } = fakeMeta();
+    await sendImage(
+      client,
+      fakeVision({
+        ...BINANCE,
+        exchange: { side: "buy", usdt_amount: "30.88", fiat_amount: "30000", price: "973.15" },
+      }),
+      true,
+    );
+    const body = textOf(sent[1]);
+    expect(body.startsWith("🧾 Leí tu compra de USDT en Binance:")).toBe(true);
+    expect(body).toContain("Mercantil → Binance: *Bs 30.000,00* → *30,88 USDT* (a 971,50)");
+    await tap(client, null, buttonsOf(sent[1])[0]?.id as string, "Guardar");
+    expect(textOf(sent[2])).toContain("✅ Compra de USDT guardada");
+    expect(textOf(sent[2])).toContain("💳 Binance: *30,88 USDT*");
   });
 });

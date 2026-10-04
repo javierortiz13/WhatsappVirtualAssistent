@@ -162,11 +162,31 @@ async function lastLotRate(
   return row ? new Decimal(row.rate) : null;
 }
 
+/** De quién es una asignación de lotes: un gasto o (0014) una transferencia. */
+export type AllocationOwner = { movementId: string } | { transferId: string };
+
+function ownerWhere(tenantId: string, owner: AllocationOwner) {
+  const a = schema.exchangeAllocation;
+  return and(
+    eq(a.tenantId, tenantId),
+    "movementId" in owner ? eq(a.movementId, owner.movementId) : eq(a.transferId, owner.transferId),
+  );
+}
+
 /** Descuenta los Bs de cada lote y deja constancia de qué lote pagó el gasto. */
 export async function saveAllocation(
   tx: Tx,
   tenantId: string,
   movementId: string,
+  parts: LotPart[],
+): Promise<void> {
+  await saveParts(tx, tenantId, { movementId }, parts);
+}
+
+export async function saveParts(
+  tx: Tx,
+  tenantId: string,
+  owner: AllocationOwner,
   parts: LotPart[],
 ): Promise<void> {
   const l = schema.exchangeLot;
@@ -185,7 +205,8 @@ export async function saveAllocation(
       .where(eq(l.id, p.lotId));
     await tx.insert(schema.exchangeAllocation).values({
       tenantId,
-      movementId,
+      movementId: "movementId" in owner ? owner.movementId : null,
+      transferId: "transferId" in owner ? owner.transferId : null,
       lotId: p.lotId,
       vesAmount: ves.toFixed(2),
     });
@@ -198,12 +219,20 @@ export async function releaseAllocation(
   tenantId: string,
   movementId: string,
 ): Promise<Map<string, Decimal>> {
+  return releaseParts(tx, tenantId, { movementId });
+}
+
+export async function releaseParts(
+  tx: Tx,
+  tenantId: string,
+  owner: AllocationOwner,
+): Promise<Map<string, Decimal>> {
   const a = schema.exchangeAllocation;
   const l = schema.exchangeLot;
   const rows = await tx
     .select({ id: a.id, lotId: a.lotId, ves: a.vesAmount })
     .from(a)
-    .where(and(eq(a.tenantId, tenantId), eq(a.movementId, movementId)));
+    .where(ownerWhere(tenantId, owner));
   const back = new Map<string, Decimal>();
   for (const r of rows) back.set(r.lotId, (back.get(r.lotId) ?? D0).plus(r.ves));
   for (const [lotId, ves] of back) {
@@ -218,8 +247,7 @@ export async function releaseAllocation(
       .set({ vesRemaining: restored.toFixed(2), updatedAt: new Date() })
       .where(eq(l.id, lotId));
   }
-  if (rows.length)
-    await tx.delete(a).where(and(eq(a.tenantId, tenantId), eq(a.movementId, movementId)));
+  if (rows.length) await tx.delete(a).where(ownerWhere(tenantId, owner));
   return back;
 }
 

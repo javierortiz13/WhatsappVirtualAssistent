@@ -27,7 +27,7 @@ const ExchangeInfo = z.object({
         rate: z.string(),
         usd: z.string(),
         /** Cuentas (0013): de dónde vinieron esos Bs y de qué día. */
-        source: z.enum(["exchange", "income", "opening"]).optional(),
+        source: z.enum(["exchange", "income", "opening", "transfer"]).optional(),
         date: z.string().optional(),
       }),
     )

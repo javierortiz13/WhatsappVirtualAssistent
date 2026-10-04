@@ -21,6 +21,7 @@ export const EXPORT_COLUMNS = [
   "Equivalente USD",
   "Equivalente Bs",
   "Método",
+  "Cuenta",
   "Autor",
   "Canal",
 ] as const;
@@ -36,7 +37,7 @@ export async function buildWorkbook(
   ws.columns = EXPORT_COLUMNS.map((header, i) => ({
     header,
     key: `c${i}`,
-    width: i === 3 ? 32 : i === 2 || i === 10 ? 22 : 14,
+    width: i === 3 ? 32 : i === 2 || i === 10 || i === 11 ? 22 : 14,
   }));
   ws.getRow(1).font = { bold: true };
   for (const r of rows) {
@@ -51,6 +52,7 @@ export async function buildWorkbook(
       Number(r.amountUsd),
       Number(r.amountVes),
       PAYMENT_METHOD_LABELS[r.paymentMethod as PaymentMethod] ?? r.paymentMethod,
+      r.accountName ?? "",
       r.author,
       CHANNEL[r.sourceChannel] ?? r.sourceChannel,
     ]);
