@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigserial,
   boolean,
   check,
@@ -43,6 +44,8 @@ export const BUDGET_PERIODS = ["monthly", "biweekly"] as const;
 export const MOVEMENT_ORIGINS = ["single", "day_total"] as const;
 export const RATE_SOURCES = ["bcv", "bcv_eur", "manual", "exchange"] as const;
 export const BS_RATE_MODES = ["bcv", "usdt", "ask"] as const;
+export const ACCOUNT_KINDS = ["bank", "cash", "zelle", "crypto", "other"] as const;
+export const LOT_SOURCES = ["exchange", "income", "opening"] as const;
 export const SOURCE_CHANNELS = ["text", "voice", "image", "dashboard"] as const;
 export const PAYMENT_METHODS = [
   "cash_usd",
@@ -278,11 +281,16 @@ export const movement = app.table(
     createdByUserId: uuid("created_by_user_id").references(() => userAccount.id),
     sourceMessageId: uuid("source_message_id").references(() => message.id),
     attachmentId: uuid("attachment_id").references(() => attachment.id),
+    /** Cuenta de donde salió o a donde entró (0013); null si el negocio no usa cuentas. */
+    accountId: uuid("account_id").references((): AnyPgColumn => account.id),
     ...timestamps,
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
+    index("movement_account_idx")
+      .on(t.accountId)
+      .where(sql`deleted_at IS NULL AND account_id IS NOT NULL`),
     index("movement_tenant_date_idx").on(t.tenantId, t.businessDate).where(sql`deleted_at IS NULL`),
     index("movement_tenant_category_idx")
       .on(t.tenantId, t.categoryId)
@@ -439,6 +447,36 @@ export const budget = app.table(
   ],
 );
 
+/** Cuenta donde vive el dinero (0013): banco en Bs, Binance, Zelle, efectivo. */
+export const account = app.table(
+  "account",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id),
+    name: text("name").notNull(),
+    currency: text("currency").notNull(),
+    kind: text("kind").notNull().default("bank"),
+    openingBalance: numeric("opening_balance", { precision: 18, scale: 2 }).notNull().default("0"),
+    openingDate: date("opening_date").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdByPhoneId: uuid("created_by_phone_id").references(() => phoneNumber.id),
+    createdByUserId: uuid("created_by_user_id").references(() => userAccount.id),
+    ...timestamps,
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("account_tenant_name_key")
+      .on(t.tenantId, sql`lower(${t.name})`)
+      .where(sql`archived_at IS NULL`),
+    check("account_currency_check", inList("currency", CURRENCIES)),
+    check("account_kind_check", inList("kind", ACCOUNT_KINDS)),
+    check("account_name_check", sql.raw(`char_length(btrim(name)) BETWEEN 1 AND 40`)),
+  ],
+);
+
 /** Cambio de USDT a bolívares (0012): los gastos en Bs salen de aquí en orden (FIFO). */
 export const exchangeLot = app.table(
   "exchange_lot",
@@ -452,6 +490,15 @@ export const exchangeLot = app.table(
     vesAmount: numeric("ves_amount", { precision: 18, scale: 2 }).notNull(),
     rate: numeric("rate", { precision: 18, scale: 8 }).notNull(),
     vesRemaining: numeric("ves_remaining", { precision: 18, scale: 2 }).notNull(),
+    /** Cuenta en Bs del lote (0013); null = lote de antes de las cuentas. */
+    accountId: uuid("account_id").references(() => account.id),
+    /** Cuenta en dólares de donde salieron los USDT de un cambio. */
+    fromAccountId: uuid("from_account_id").references(() => account.id),
+    source: text("source").notNull().default("exchange"),
+    /** La venta en Bs que dio origen al lote (source = income). */
+    movementId: uuid("movement_id").references(() => movement.id),
+    /** Lote de antes de las cuentas que adoptó una cuenta: ya está en su saldo inicial. */
+    adoptedAt: timestamp("adopted_at", { withTimezone: true }),
     createdByPhoneId: uuid("created_by_phone_id").references(() => phoneNumber.id),
     createdByUserId: uuid("created_by_user_id").references(() => userAccount.id),
     ...timestamps,
@@ -459,6 +506,16 @@ export const exchangeLot = app.table(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
+    uniqueIndex("exchange_lot_movement_key")
+      .on(t.movementId)
+      .where(sql`movement_id IS NOT NULL AND deleted_at IS NULL`),
+    uniqueIndex("exchange_lot_opening_key")
+      .on(t.accountId)
+      .where(sql`source = 'opening' AND deleted_at IS NULL`),
+    index("exchange_lot_account_fifo_idx")
+      .on(t.accountId, t.businessDate, t.createdAt)
+      .where(sql`deleted_at IS NULL`),
+    check("exchange_lot_source_check", inList("source", LOT_SOURCES)),
     index("exchange_lot_tenant_fifo_idx")
       .on(t.tenantId, t.businessDate, t.createdAt)
       .where(sql`deleted_at IS NULL`),

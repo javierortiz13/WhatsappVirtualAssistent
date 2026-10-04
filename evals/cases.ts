@@ -67,6 +67,16 @@ export const EvalCase = z.object({
     )
     .default([]),
   role: z.enum(["owner", "employee"]).default("owner"),
+  /** Cuentas del negocio (0013): nombre, moneda y tipo. */
+  accounts: z
+    .array(
+      z.object({
+        name: z.string(),
+        currency: z.enum(["USD", "VES"]),
+        kind: z.enum(["bank", "cash", "zelle", "crypto", "other"]).default("bank"),
+      }),
+    )
+    .default([]),
   default_currency: z.enum(["USD", "VES"]).nullable().default("USD"),
   expect: z.object({
     tool: z.string().optional(),

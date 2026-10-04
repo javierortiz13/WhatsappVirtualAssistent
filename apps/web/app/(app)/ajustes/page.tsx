@@ -1,4 +1,5 @@
 import {
+  accountBalances,
   BUSINESS_TYPE_LABELS,
   Decimal,
   exchangeLots,
@@ -23,6 +24,7 @@ import {
   IconSwap,
   IconTags,
   IconUser,
+  IconWallet,
 } from "../icons";
 
 export const metadata: Metadata = { title: "Ajustes" };
@@ -31,12 +33,17 @@ export const dynamic = "force-dynamic";
 /** Portada de ajustes: una tarjeta por sección. Cada una vive en su propia página. */
 export default async function Ajustes() {
   const { user, tenant } = await requireTenant();
-  const { phones, settings, billing, lots } = await withTenant(db(), tenant.id, async (tx) => ({
-    phones: await tenantPhones(tx, tenant.id),
-    settings: await getTenantSettings(tx, tenant.id),
-    billing: (await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenant.id)))[0],
-    lots: await exchangeLots(tx, tenant.id),
-  }));
+  const { phones, settings, billing, lots, accounts } = await withTenant(
+    db(),
+    tenant.id,
+    async (tx) => ({
+      phones: await tenantPhones(tx, tenant.id),
+      settings: await getTenantSettings(tx, tenant.id),
+      billing: (await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenant.id)))[0],
+      lots: await exchangeLots(tx, tenant.id, { source: "exchange" }),
+      accounts: await accountBalances(tx, tenant.id),
+    }),
+  );
   const lotsLeft = lots.length
     ? lots.reduce((s, l) => s.plus(l.vesRemaining), new Decimal(0))
     : null;
@@ -96,6 +103,14 @@ export default async function Ajustes() {
       </div>
       <div className="card tight">
         {item("/ajustes/negocio", <IconStore />, "Negocio", "Nombre, tipo y moneda de los gastos")}
+        {item(
+          "/ajustes/cuentas",
+          <IconWallet />,
+          "Cuentas",
+          accounts.length
+            ? accounts.map((a) => a.name).join(" · ")
+            : "Banco, Binance, Zelle, efectivo: cuánto hay en cada una",
+        )}
         {item(
           "/ajustes/cambios",
           <IconSwap />,

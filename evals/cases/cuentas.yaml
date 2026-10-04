@@ -1,0 +1,57 @@
+# Cuentas (04/10, como Rial): el sistema elige la cuenta del mensaje; el modelo solo enruta.
+- name: gasto con cuenta nombrada sigue siendo gasto
+  input: "pagué 500 bs de luz con banesco"
+  accounts:
+    - { name: Banesco, currency: VES, kind: bank }
+    - { name: Binance, currency: USD, kind: crypto }
+  expect:
+    tool: draft_expense
+    args: { currency: VES }
+
+- name: mis cuentas
+  input: "mis cuentas"
+  accounts:
+    - { name: Banesco, currency: VES, kind: bank }
+  expect:
+    tool: get_accounts
+
+- name: cuánto tengo en binance
+  input: "cuánto tengo en binance?"
+  accounts:
+    - { name: Binance, currency: USD, kind: crypto }
+  expect:
+    tool: get_accounts
+    tool_not: exchange_usdt
+
+- name: crear cuenta en bolívares con saldo
+  input: "crea la cuenta Banesco en bolívares con 5.000"
+  expect:
+    tool: create_account
+    args: { currency: VES, kind: bank }
+
+- name: crear binance en usdt
+  input: "agrega mi binance con 200 usdt"
+  expect:
+    tool: create_account
+    args: { currency: USDT }
+
+- name: corregir la cuenta de lo guardado
+  input: "ese gasto fue del efectivo"
+  accounts:
+    - { name: Banesco, currency: VES, kind: bank }
+    - { name: Efectivo, currency: VES, kind: cash }
+  history:
+    - { role: in, body: "gasté 500 bs en pan" }
+    - { role: out, body: "✅ Guardado. Hoy llevas $0,58 en 1 gasto.\n💳 Banesco: *Bs 9.500,00*" }
+  expect:
+    tool: amend_last_movement
+    tool_not: draft_expense
+
+- name: cambio entre cuentas es un cambio
+  input: "pasé 100 usdt de binance al banesco a 970"
+  accounts:
+    - { name: Banesco, currency: VES, kind: bank }
+    - { name: Binance, currency: USD, kind: crypto }
+  expect:
+    tool: exchange_usdt
+    args: { action: record, usd_amount: "100", rate: "970" }

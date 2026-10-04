@@ -1,4 +1,4 @@
-import { schema, withTenant } from "@caja/db";
+import { isNull, schema, withTenant } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
@@ -11,7 +11,7 @@ import { type ProcessDeps, processInbound } from "../src/inbox/process";
 import { MetaClient } from "../src/whatsapp/client";
 import * as fx from "./fixtures";
 
-/** Cambios USDT → Bs por WhatsApp (0012): registrar, elegir el modo, gastar, preguntar y saldo. */
+/** Cuentas por WhatsApp (0013): crear, gastar de una cuenta, cambiar entre cuentas y ver saldos. */
 type Sent = { body: Record<string, unknown> };
 
 function fakeMeta() {
@@ -76,7 +76,7 @@ const expense = (amount: string, description: string) => [
   },
 ];
 
-describe("cambios USDT por WhatsApp", () => {
+describe("cuentas por WhatsApp", () => {
   let t: Awaited<ReturnType<typeof createTestDb>>;
   let tenantId: string;
   const now = () => new Date("2026-10-04T15:00:00Z");
@@ -86,7 +86,7 @@ describe("cambios USDT por WhatsApp", () => {
   beforeAll(async () => {
     t = await createTestDb();
     tenantId = await seedTenant(t.db, {
-      name: "Pedro",
+      name: "Ana",
       businessType: "other",
       ownerPhone: "584121234567",
     });
@@ -96,7 +96,19 @@ describe("cambios USDT por WhatsApp", () => {
   });
   afterAll(() => t.close());
 
+  const create = (name: string, currency: string, kind: string, opening: string) => [
+    {
+      id: `c-${name}`,
+      name: "create_account",
+      input: { name, currency, kind, opening_balance: opening },
+    },
+  ];
+
   const llm = scriptedLlm({
+    "crea la cuenta Banesco": create("Banesco", "VES", "bank", "10.000"),
+    "agrega mi Binance": create("Binance", "USDT", "crypto", "200"),
+    "crea el efectivo": create("Efectivo", "VES", "cash", ""),
+    "gasté 500 bs en pan": expense("500", "Pan"),
     "cambié 100 usdt a 970": [
       {
         id: "x1",
@@ -104,30 +116,22 @@ describe("cambios USDT por WhatsApp", () => {
         input: { action: "record", usd_amount: "100", ves_amount: "", rate: "970", when: "" },
       },
     ],
-    "cambié 100 usdt a 97": [
+    "mis cuentas": [{ id: "a1", name: "get_accounts", input: {} }],
+    "ese fue del efectivo": [
       {
-        id: "x2",
-        name: "exchange_usdt",
-        input: { action: "record", usd_amount: "100", ves_amount: "", rate: "97", when: "" },
+        id: "m1",
+        name: "amend_last_movement",
+        input: {
+          amount: "",
+          currency: "keep",
+          category_name: "",
+          description: "",
+          when: "",
+          method: "keep",
+          rate: "",
+        },
       },
     ],
-    "cuántos bs me quedan": [
-      {
-        id: "x3",
-        name: "exchange_usdt",
-        input: { action: "balance", usd_amount: "", ves_amount: "", rate: "", when: "" },
-      },
-    ],
-    "cambié 50 usdt a 985": [
-      {
-        id: "x4",
-        name: "exchange_usdt",
-        input: { action: "record", usd_amount: "50", ves_amount: "", rate: "985", when: "" },
-      },
-    ],
-    "97.000 bs en mercancía": expense("97000", "Mercancía"),
-    "9700 bs en mercado": expense("9700", "Mercado"),
-    "970 bs en pan": expense("970", "Pan"),
   });
 
   function deps(client: MetaClient): ProcessDeps {
@@ -151,7 +155,7 @@ describe("cambios USDT por WhatsApp", () => {
 
   async function send(client: MetaClient, body: string) {
     jobs.length = 0;
-    const p = fx.textMessage(`wamid.X${++seq}`, body);
+    const p = fx.textMessage(`wamid.AC${++seq}`, body);
     await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
     return processInbound(deps(client), jobs[0] as ProcessMessageJob);
   }
@@ -159,7 +163,7 @@ describe("cambios USDT por WhatsApp", () => {
   async function tap(client: MetaClient, id: string, title: string) {
     jobs.length = 0;
     const p = JSON.parse(JSON.stringify(fx.buttonReply));
-    p.entry[0].changes[0].value.messages[0].id = `wamid.XB${++seq}`;
+    p.entry[0].changes[0].value.messages[0].id = `wamid.ACB${++seq}`;
     p.entry[0].changes[0].value.messages[0].interactive.button_reply = { id, title };
     await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
     return processInbound(deps(client), jobs[0] as ProcessMessageJob);
@@ -171,88 +175,73 @@ describe("cambios USDT por WhatsApp", () => {
     return b.id;
   };
 
-  it("registrar un cambio: borrador, Guardar, saldo y la pregunta del modo", async () => {
+  it("sin cuentas, 'mis cuentas' explica cómo crearlas", async () => {
     const { sent, client } = fakeMeta();
-    await send(client, "cambié 100 usdt a 970");
-    expect(textOf(last(sent))).toContain("100,00 USDT → *Bs 97.000,00*");
-    await tap(client, button(last(sent), "Guardar"), "Guardar");
-    const saved = textOf(last(sent));
-    expect(saved).toContain("✅ Cambio guardado: 100,00 USDT → Bs 97.000,00 a 970,00.");
-    expect(saved).toContain("Saldo de tus cambios: *Bs 97.000,00*");
-    expect(buttonsOf(last(sent)).map((b) => b.title)).toEqual([
-      "Siempre",
-      "Preguntarme",
-      "No, tasa BCV",
-    ]);
-    await tap(client, button(last(sent), "Siempre"), "Siempre");
-    expect(textOf(last(sent))).toContain("siempre salen de tus cambios");
-    const [tenant] = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.tenant));
-    expect(tenant?.bsRateMode).toBe("usdt");
+    await send(client, "mis cuentas");
+    expect(textOf(last(sent))).toContain("Aún no tienes cuentas");
   });
 
-  it("una tasa absurda se pregunta antes de guardar", async () => {
+  it("crear cuentas por chat", async () => {
     const { sent, client } = fakeMeta();
-    await send(client, "cambié 100 usdt a 97");
-    expect(textOf(last(sent))).toContain("¿Seguro que fue a 97,00?");
+    await send(client, "crea la cuenta Banesco en bolívares con 10.000");
+    expect(textOf(last(sent))).toContain("✅ Creé la cuenta *Banesco* con Bs 10.000,00");
+    await send(client, "agrega mi Binance con 200 usdt");
+    expect(textOf(last(sent))).toContain("✅ Creé la cuenta *Binance* con 200,00 USDT");
+    await send(client, "crea la cuenta Banesco otra vez");
+    expect(textOf(last(sent))).toContain("Ya tienes una cuenta llamada *Banesco*");
   });
 
-  it("modo siempre: el gasto en Bs sale del cambio y dice cuánto queda", async () => {
+  it("un gasto en Bs sale de la cuenta principal y al guardar dice cuánto le queda", async () => {
     const { sent, client } = fakeMeta();
-    await send(client, "gasté 9700 bs en mercado");
-    const draft = textOf(last(sent));
-    expect(draft).toContain("$10,00 · tasa de tu cambio 970,00");
-    expect(draft).toContain("Quedarán Bs 87.300,00 de tus cambios.");
+    await send(client, "gasté 500 bs en pan");
+    expect(textOf(last(sent))).toContain("Cuenta: Banesco");
     await tap(client, button(last(sent), "Guardar"), "Guardar");
-    expect(textOf(last(sent))).toContain("💱 Te quedan *Bs 87.300,00* de tus cambios.");
+    expect(textOf(last(sent))).toContain("💳 Banesco: *Bs 9.500,00*");
+    const [mv] = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));
+    expect(mv?.accountId).not.toBeNull();
+    // Sus Bs salieron del lote del saldo inicial aunque vaya a la BCV.
     const allocs = await withTenant(t.db, tenantId, (tx) =>
       tx.select().from(schema.exchangeAllocation),
     );
-    expect(allocs.map((a) => a.vesAmount)).toEqual(["9700.00"]);
+    expect(allocs.map((a) => a.vesAmount)).toEqual(["500.00"]);
+    expect(mv?.rateSource).toBe("bcv");
   });
 
-  it("modo preguntar: primero de dónde salieron los Bs, después el borrador con Guardar", async () => {
-    await withTenant(t.db, tenantId, (tx) => tx.update(schema.tenant).set({ bsRateMode: "ask" }));
+  it("corregir la cuenta de lo guardado por chat", async () => {
     const { sent, client } = fakeMeta();
-    await send(client, "gasté 970 bs en pan");
-    const q = textOf(last(sent));
-    expect(q).toContain("¿De dónde salieron estos *Bs 970,00* (Pan)?");
-    expect(q).toContain("• Mi cambio USDT: *$1,00* (a 970,00)");
-    expect(q).toContain("• Tasa BCV: *$1,12* (866,56)");
-    expect(buttonsOf(last(sent)).map((b) => b.title)).toEqual([
-      "Mi cambio USDT",
-      "Tasa BCV",
-      "Cancelar",
-    ]);
-    await tap(client, button(last(sent), "Mi cambio USDT"), "Mi cambio USDT");
-    expect(textOf(last(sent))).toContain("$1,00 · tasa de tu cambio 970,00");
-    await tap(client, button(last(sent), "Guardar"), "Guardar");
-    expect(textOf(last(sent))).toContain("Te quedan *Bs 86.330,00*");
-    // La otra respuesta: a la BCV, sin tocar los cambios.
-    await send(client, "gasté 970 bs en pan");
-    await tap(client, button(last(sent), "Tasa BCV"), "Tasa BCV");
-    expect(textOf(last(sent))).toContain("$1,12 · tasa BCV 866,56");
-    await tap(client, button(last(sent), "Guardar"), "Guardar");
-    expect(textOf(last(sent))).not.toContain("de tus cambios");
-  });
-
-  it("el saldo por chat", async () => {
-    const { sent, client } = fakeMeta();
-    await send(client, "cuántos bs me quedan");
-    const body = textOf(last(sent));
-    expect(body).toContain("Te quedan *Bs 86.330,00* de tus cambios:");
-    expect(body).toContain("a 970,00");
-    expect(body).toContain("te pregunto cada vez");
-  });
-  it("un gasto que toma de dos cambios muestra de dónde sale cada parte", async () => {
-    await withTenant(t.db, tenantId, (tx) => tx.update(schema.tenant).set({ bsRateMode: "usdt" }));
-    const { sent, client } = fakeMeta();
-    await send(client, "cambié 50 usdt a 985");
-    await tap(client, button(last(sent), "Guardar"), "Guardar");
-    await send(client, "gasté 97.000 bs en mercancía");
+    await send(client, "crea el efectivo en bolívares");
+    // Corregir por chat es para lo guardado hace menos de 30 minutos (reloj de la prueba).
+    await withTenant(t.db, tenantId, (tx) => tx.update(schema.movement).set({ createdAt: now() }));
+    await send(client, "ese fue del efectivo");
     const draft = textOf(last(sent));
-    expect(draft).toContain("$99,83 · de tus cambios:");
-    expect(draft).toContain("• Bs 86.330 a 970 (cambio 04/10) → $89,00");
-    expect(draft).toContain("• Bs 10.670 a 985 (cambio 04/10) → $10,83");
-    expect(draft).not.toContain("tasa de tu cambio");
+    expect(draft).toContain("Cuenta: Banesco → *Efectivo*");
+    await tap(client, button(last(sent), "Guardar"), "Guardar");
+    const [mv] = await withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.movement).where(isNull(schema.movement.deletedAt)),
+    );
+    const accounts = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.account));
+    expect(accounts.find((a) => a.id === mv?.accountId)?.name).toBe("Efectivo");
+  });
+
+  it("un cambio sale de Binance y entra al banco; los dos saldos al guardar", async () => {
+    const { sent, client } = fakeMeta();
+    await send(client, "cambié 100 usdt a 970");
+    expect(textOf(last(sent))).toContain("De Binance → a Banesco");
+    await tap(client, button(last(sent), "Guardar"), "Guardar");
+    const saved = textOf(last(sent));
+    expect(saved).toContain("💳 Banesco: *Bs 107.000,00*");
+    expect(saved).toContain("💳 Binance: *100,00 USDT*");
+    expect(saved).not.toContain("Saldo de tus cambios");
+  });
+
+  it("'mis cuentas' da cada saldo y el total con los Bs a la BCV de hoy", async () => {
+    const { sent, client } = fakeMeta();
+    await send(client, "mis cuentas");
+    const body = textOf(last(sent));
+    expect(body).toContain("• Banesco: *Bs 107.000,00*");
+    expect(body).toContain("• Binance: *100,00 USDT*");
+    expect(body).toContain("• Efectivo: *−Bs 500,00*");
+    // 100 + (107.000 − 500) / 866,56
+    expect(body).toContain("Total: *$222,90*");
   });
 });

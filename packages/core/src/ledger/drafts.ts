@@ -20,7 +20,18 @@ const ExchangeInfo = z.object({
   uncoveredVes: z.string(),
   lastRate: z.string(),
   /** De qué cambio sale cada parte (para el desglose cuando toma de dos o más). */
-  parts: z.array(z.object({ ves: z.string(), rate: z.string(), usd: z.string() })).optional(),
+  parts: z
+    .array(
+      z.object({
+        ves: z.string(),
+        rate: z.string(),
+        usd: z.string(),
+        /** Cuentas (0013): de dónde vinieron esos Bs y de qué día. */
+        source: z.enum(["exchange", "income", "opening"]).optional(),
+        date: z.string().optional(),
+      }),
+    )
+    .optional(),
 });
 export type ExchangeInfo = z.infer<typeof ExchangeInfo>;
 
@@ -31,6 +42,12 @@ const BsChoicePreview = z.object({
   bcvRate: z.string(),
 });
 export type BsChoicePreview = z.infer<typeof BsChoicePreview>;
+
+/** Cuenta elegida para un borrador (0013): id y nombre, para mostrarla sin otra consulta. */
+const AccountFields = {
+  accountId: z.string().uuid().nullable().optional(),
+  accountName: z.string().nullable().optional(),
+};
 
 /**
  * Borradores de escritura (ADR-006). Una herramienta de escritura nunca toca `movement`: crea
@@ -60,6 +77,7 @@ export const ExpenseDraft = z.object({
   exchange: ExchangeInfo.nullable().optional(),
   /** Modo "preguntar": los dos cálculos, para mostrar los botones Mi cambio USDT / Tasa BCV. */
   bsChoice: BsChoicePreview.nullable().optional(),
+  ...AccountFields,
 });
 export type ExpenseDraft = z.infer<typeof ExpenseDraft>;
 
@@ -88,6 +106,8 @@ export type DraftInput = {
    * borrador a la BCV y guarda los dos cálculos para preguntar. Sin esto, la BCV de siempre.
    */
   bsRate?: "exchange" | "ask" | null;
+  /** Cuenta de donde salió (0013): sus lotes son los que cuentan. */
+  account?: { id: string; name: string } | null;
 };
 
 /**
@@ -102,7 +122,10 @@ async function buildExpenseDraft(
 ): Promise<{ draft: ExpenseDraft; usedPriorDay: boolean }> {
   const lots =
     input.currency === "VES" && !input.manualRate && input.bsRate
-      ? await planAllocation(tx, input.tenantId, input.amount, { adjust: negate(taken) })
+      ? await planAllocation(tx, input.tenantId, input.amount, {
+          adjust: negate(taken),
+          accountId: input.account?.id ?? null,
+        })
       : null;
   const useLots = lots && input.bsRate === "exchange";
   const { rate, usedPriorDay } = input.manualRate
@@ -142,6 +165,8 @@ async function buildExpenseDraft(
             bcvRate: toDbRate(c.rateValue),
           }
         : null,
+    accountId: input.account?.id ?? null,
+    accountName: input.account?.name ?? null,
   };
   return { draft, usedPriorDay };
 }
@@ -155,6 +180,8 @@ function exchangeInfo(plan: AllocationPlan): ExchangeInfo {
       ves: p.ves.toFixed(2),
       rate: p.rate.toFixed(8),
       usd: p.ves.div(p.rate).toFixed(2),
+      ...(p.source ? { source: p.source } : {}),
+      ...(p.businessDate ? { date: p.businessDate } : {}),
     })),
   };
 }
@@ -183,7 +210,10 @@ export async function applyBsChoice(
     const businessDate = item.businessDate as IsoDate;
     const plan =
       choice === "usdt"
-        ? await planAllocation(tx, tenantId, new Decimal(item.amount), { adjust: negate(taken) })
+        ? await planAllocation(tx, tenantId, new Decimal(item.amount), {
+            adjust: negate(taken),
+            accountId: item.accountId ?? null,
+          })
         : null;
     const rate = plan ? planRate(plan, businessDate) : (await rateFor(tx, businessDate)).rate;
     if (plan)
@@ -364,6 +394,7 @@ export const IncomeLineDraft = z.object({
   currency: z.enum(["USD", "VES"]),
   amountUsd: z.string(),
   amountVes: z.string(),
+  ...AccountFields,
 });
 export type IncomeLineDraft = z.infer<typeof IncomeLineDraft>;
 
@@ -397,6 +428,13 @@ export const IncomeDayTotalDraft = z.object({
   attachmentId: z.string().uuid().nullable().default(null),
   transcript: z.string().nullable(),
   fixing: z.boolean().optional(),
+  /** Cuenta principal por moneda, para la línea que agrega "Total X" al cuadrar (0013). */
+  fallbackAccounts: z
+    .object({
+      USD: z.object({ id: z.string().uuid(), name: z.string() }).nullable().optional(),
+      VES: z.object({ id: z.string().uuid(), name: z.string() }).nullable().optional(),
+    })
+    .optional(),
 });
 export type IncomeDayTotalDraft = z.infer<typeof IncomeDayTotalDraft>;
 
@@ -418,6 +456,7 @@ export const IncomeSingleDraft = z.object({
   attachmentId: z.string().uuid().nullable().default(null),
   transcript: z.string().nullable(),
   fixing: z.boolean().optional(),
+  ...AccountFields,
 });
 export type IncomeSingleDraft = z.infer<typeof IncomeSingleDraft>;
 
@@ -427,7 +466,14 @@ export type IncomeDayTotalInput = {
   businessDate: IsoDate;
   /** Total dicho por el usuario, si lo dijo. */
   stated: { amount: Decimal; currency: Currency } | null;
-  lines: { method: PaymentMethod; amount: Decimal; currency: Currency }[];
+  lines: {
+    method: PaymentMethod;
+    amount: Decimal;
+    currency: Currency;
+    account?: { id: string; name: string } | null;
+  }[];
+  /** Cuenta principal por moneda (0013), para el total sin desglose o la línea que cuadra. */
+  fallbackAccounts?: IncomeDayTotalDraft["fallbackAccounts"];
   sourceChannel: "text" | "voice" | "image";
   sourceMessageId: string | null;
   attachmentId?: string | null;
@@ -444,6 +490,7 @@ function toLine(l: IncomeDayTotalInput["lines"][number], rate: Rate): IncomeLine
     currency: c.currency,
     amountUsd: toDbAmount(c.amountUsd),
     amountVes: toDbAmount(c.amountVes),
+    ...(l.account ? { accountId: l.account.id, accountName: l.account.name } : {}),
   };
 }
 
@@ -469,7 +516,12 @@ export async function createIncomeDayTotalDraft(
     if (lines.length === 0) {
       lines = [
         toLine(
-          { method: "unspecified", amount: input.stated.amount, currency: input.stated.currency },
+          {
+            method: "unspecified",
+            amount: input.stated.amount,
+            currency: input.stated.currency,
+            account: input.fallbackAccounts?.[input.stated.currency] ?? null,
+          },
           rate,
         ),
       ];
@@ -503,6 +555,7 @@ export async function createIncomeDayTotalDraft(
     sourceMessageId: input.sourceMessageId,
     attachmentId: input.attachmentId ?? null,
     transcript: input.transcript,
+    ...(input.fallbackAccounts ? { fallbackAccounts: input.fallbackAccounts } : {}),
   };
   const { pendingId, replacedPrevious } = await insertDraft(
     tx,
@@ -547,7 +600,15 @@ export function resolveMismatch(
       if (amount.gt(0))
         lines = [
           ...lines,
-          toLine({ method: "unspecified", amount, currency: draft.mismatch.statedCurrency }, rate),
+          toLine(
+            {
+              method: "unspecified",
+              amount,
+              currency: draft.mismatch.statedCurrency,
+              account: draft.fallbackAccounts?.[draft.mismatch.statedCurrency] ?? null,
+            },
+            rate,
+          ),
         ];
     }
   }
@@ -576,6 +637,7 @@ export type IncomeSingleInput = {
   transcript: string | null;
   manualRate?: Rate | null;
   replaces?: string | null;
+  account?: { id: string; name: string } | null;
 };
 
 export async function createIncomeSingleDraft(
@@ -604,6 +666,8 @@ export async function createIncomeSingleDraft(
     sourceMessageId: input.sourceMessageId,
     attachmentId: input.attachmentId ?? null,
     transcript: input.transcript,
+    accountId: input.account?.id ?? null,
+    accountName: input.account?.name ?? null,
   };
   const { pendingId, replacedPrevious } = await insertDraft(
     tx,

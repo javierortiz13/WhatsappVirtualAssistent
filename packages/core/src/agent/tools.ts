@@ -18,6 +18,15 @@ import {
   parseVenezuelanAmount,
   type Rate,
 } from "../domain/money";
+import {
+  AccountError,
+  type AccountKind,
+  accountBalances,
+  createAccount,
+  namedAccount,
+  netWorth,
+  resolveAccount,
+} from "../ledger/accounts";
 import { budgetStatuses } from "../ledger/budgets";
 import {
   createExpenseDraft,
@@ -453,6 +462,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
     const categoryId = category?.id ?? defaultCategoryId(run.ctx.categories);
     const categoryName =
       category?.name ?? run.ctx.categories.find((c) => c.id === categoryId)?.name ?? "Otros";
+    const account = accountFor(run, inferred.currency, { target });
     try {
       const draft = await createExpenseDraft(
         run.tx,
@@ -473,6 +483,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
           manualRate: mr,
           replaces: target?.id ?? null,
           bsRate: bsRateFor(run.ctx, inferred.currency, mr, eurNote),
+          account,
         },
         run.now,
       );
@@ -505,6 +516,7 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
     if (first === "invalid") return rateError(first);
     const inputs: DraftInput[] = [];
     const ambiguous: string[] = [];
+    const target = draftTarget(run, input.corrects_draft);
     for (const item of input.items) {
       const parsedAmount = parseAmount(item.amount);
       const label = item.description.trim() || item.amount;
@@ -570,6 +582,7 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
         transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
         manualRate: itemRate,
         bsRate: bsRateFor(run.ctx, inferred.currency, itemRate, eurNote),
+        account: accountFor(run, inferred.currency, { target, itemText: item.description }),
       });
     }
     // Con moneda ambigua en algún renglón se pregunta una sola vez por todos (los botones vuelven
@@ -581,7 +594,6 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
         status: "ok",
       };
     try {
-      const target = draftTarget(run, input.corrects_draft);
       const draft = await createExpensesDraft(
         run.tx,
         inputs.map((i) => ({ ...i, replaces: target?.id ?? null })),
@@ -606,6 +618,44 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
     }
   },
 };
+
+/**
+ * Cuenta del movimiento (0013), sin preguntar: la nombrada en el renglón, luego en el mensaje (y,
+ * si corrige un borrador, en los turnos anteriores: "eran 50" no repite "con Banesco"), luego el
+ * método de pago o las palabras del mensaje, y si no, la principal de esa moneda. El borrador la
+ * muestra y el usuario la corrige si no es. Null si el negocio no usa cuentas.
+ */
+function accountFor(
+  run: ToolRunCtx,
+  currency: "USD" | "VES",
+  opts: {
+    target?: DraftRef | null;
+    itemText?: string;
+    method?: PaymentMethod | null;
+    preferKind?: AccountKind;
+    strictCurrency?: boolean;
+  } = {},
+): { id: string; name: string } | null {
+  const accounts = run.ctx.accounts ?? [];
+  if (!accounts.length) return null;
+  const common = {
+    currency,
+    method: opts.method ?? null,
+    ...(opts.preferKind ? { preferKind: opts.preferKind } : {}),
+    ...(opts.strictCurrency ? { strictCurrency: true } : {}),
+  };
+  const fromItem = opts.itemText?.trim()
+    ? resolveAccount(accounts, { ...common, text: opts.itemText, noFallback: true })
+    : null;
+  const a =
+    fromItem ??
+    resolveAccount(accounts, {
+      ...common,
+      text: run.userText,
+      ...(opts.target && run.groundingText ? { context: run.groundingText } : {}),
+    });
+  return a ? { id: a.id, name: a.name } : null;
+}
 
 /**
  * Gasto en Bs con lotes de cambio (0012): sin tasa dicha ni monto en euros, el modo del negocio
@@ -657,6 +707,7 @@ export function expenseDraftOutbound(
     transcript: d.transcript,
     replacedPrevious,
     exchange: d.exchange ?? null,
+    accountName: d.accountName ?? null,
   });
 }
 
@@ -869,7 +920,13 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
       : null;
     const mr = await rateOverride(run.tx, nz(input.rate), when.date);
     if (mr === "invalid" || mr === "no_eur") return rateError(mr);
-    const lines: { method: PaymentMethod; amount: Decimal; currency: "USD" | "VES" }[] = [];
+    const target = draftTarget(run, input.corrects_draft);
+    const lines: {
+      method: PaymentMethod;
+      amount: Decimal;
+      currency: "USD" | "VES";
+      account: { id: string; name: string } | null;
+    }[] = [];
     for (const l of input.lines) {
       let amount = parseAmount(l.amount);
       if (!amount)
@@ -897,8 +954,19 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
         (l.currency === "EUR" ? "VES" : cur(l.currency)) ??
         statedCurrency ??
         currencyFor(null, amount, run.ctx, METHOD_CURRENCY[l.method]);
-      lines.push({ method: l.method, amount, currency });
+      lines.push({
+        method: l.method,
+        amount,
+        currency,
+        account: accountFor(run, currency, { target, method: l.method }),
+      });
     }
+    const fallbackAccounts = run.ctx.accounts?.length
+      ? {
+          USD: accountFor(run, "USD", { target }),
+          VES: accountFor(run, "VES", { target }),
+        }
+      : undefined;
     try {
       const r = await createIncomeDayTotalDraft(
         run.tx,
@@ -911,11 +979,12 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
               ? { amount: statedAmount, currency: statedCurrency }
               : null,
           lines,
-          ...attachmentFields(run, draftTarget(run, input.corrects_draft)),
+          ...(fallbackAccounts ? { fallbackAccounts } : {}),
+          ...attachmentFields(run, target),
           sourceMessageId: run.ctx.sourceMessageDbId,
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
           manualRate: mr,
-          replaces: draftTarget(run, input.corrects_draft)?.id ?? null,
+          replaces: target?.id ?? null,
         },
         run.now,
       );
@@ -978,6 +1047,7 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
     }
     const explicit = eurNote ? "VES" : (cur(input.currency) ?? METHOD_CURRENCY[method] ?? null);
     const currency = currencyFor(explicit, amount, run.ctx);
+    const target = draftTarget(run, input.corrects_draft);
     try {
       const r = await createIncomeSingleDraft(
         run.tx,
@@ -990,11 +1060,12 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
           method,
           description: withNote(input.description, eurNote),
           businessDate: when.date,
-          ...attachmentFields(run, draftTarget(run, input.corrects_draft)),
+          ...attachmentFields(run, target),
           sourceMessageId: run.ctx.sourceMessageDbId,
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
           manualRate: mr,
-          replaces: draftTarget(run, input.corrects_draft)?.id ?? null,
+          replaces: target?.id ?? null,
+          account: accountFor(run, currency, { target, method }),
         },
         run.now,
       );
@@ -1172,6 +1243,14 @@ const amendLast: ToolSpec<typeof AmendLastInput> = {
       changes.categoryName = c.name;
     }
     if (input.method !== "keep" && m.type === "income") changes.paymentMethod = input.method;
+    // "Ese gasto fue de Banesco": la cuenta nombrada en el mensaje (0013) se cambia aquí, sin
+    // otro campo en la herramienta (la gramática estricta tiene tope).
+    const accounts = run.ctx.accounts ?? [];
+    const named = namedAccount(accounts, run.userText);
+    if (named && named.id !== m.accountId) {
+      changes.accountId = named.id;
+      changes.accountName = named.name;
+    }
     if (input.rate) {
       const r = await rateOverride(
         run.tx,
@@ -1199,6 +1278,7 @@ const amendLast: ToolSpec<typeof AmendLastInput> = {
           movement: m,
           categoryName: await categoryNameOf(run, m.categoryId),
           changes,
+          accountName: accounts.find((a) => a.id === m.accountId)?.name ?? null,
         },
         run.now,
       );
@@ -1538,11 +1618,17 @@ const exchangeUsdt: ToolSpec<typeof ExchangeInput> = {
           ),
         ],
       };
+    const to = accountFor(run, "VES", { preferKind: "bank", strictCurrency: true });
+    const from = accountFor(run, "USD", { preferKind: "crypto", strictCurrency: true });
     const payload: ExchangeDraft = {
       usd: ex.usd.toFixed(2),
       ves: ex.ves.toFixed(2),
       rate: ex.rate.toFixed(8),
       businessDate: when.date,
+      accountId: to?.id ?? null,
+      accountName: to?.name ?? null,
+      fromAccountId: from?.id ?? null,
+      fromAccountName: from?.name ?? null,
     };
     const { pendingId } = await insertDraft(
       run.tx,
@@ -1566,9 +1652,118 @@ const exchangeUsdt: ToolSpec<typeof ExchangeInput> = {
           rate: payload.rate,
           businessDate: payload.businessDate,
           today: run.ctx.today,
+          accountName: payload.accountName,
+          fromAccountName: payload.fromAccountName,
         }),
       ],
     };
+  },
+};
+
+export const GetAccountsInput = z.object({});
+
+const getAccounts: ToolSpec<typeof GetAccountsInput> = {
+  name: "get_accounts",
+  description:
+    "Saldo de las CUENTAS del negocio (banco, Binance, Zelle, efectivo) y el total: 'mis cuentas', 'cuánto tengo en Binance', 'cuánta plata tengo', 'mi saldo', 'cuánto me queda en el banco'.",
+  schema: GetAccountsInput,
+  roles: ["owner"],
+  strict: false,
+  async run(_input, run) {
+    const accounts = await accountBalances(run.tx, run.ctx.tenantId);
+    const rate = await bcvRateFor(run.tx, run.ctx.today)
+      .then((r) => r.rate.value)
+      .catch((err) => {
+        if (err instanceof NoRateError) return null;
+        throw err;
+      });
+    const nw = netWorth(accounts, rate);
+    return {
+      kind: "terminal",
+      status: "ok",
+      outbound: [
+        es.accountsSummary({
+          accounts,
+          totalUsd: nw.totalUsd,
+          ves: nw.ves,
+          rate,
+          dashboardUrl: run.ctx.dashboardUrl,
+        }),
+      ],
+    };
+  },
+};
+
+export const CreateAccountInput = z.object({
+  name: z
+    .string()
+    .max(40)
+    .describe('Nombre de la cuenta como lo dijo ("Banesco", "Binance", "Efectivo").'),
+  currency: z
+    .enum(["VES", "USD", "USDT"])
+    .describe("VES para bolívares; USD para dólares (Zelle, efectivo en $); USDT para Binance."),
+  kind: z
+    .enum(["bank", "cash", "zelle", "crypto", "other"])
+    .describe("bank: banco o pago móvil. cash: efectivo. zelle. crypto: Binance o USDT. other."),
+  opening_balance: z
+    .string()
+    .describe(
+      'Lo que tiene hoy en esa cuenta, tal como lo dijo ("5.000", "200"), o "" si no lo dijo.',
+    ),
+});
+
+const KIND_DEFAULT_NAME: Record<AccountKind, string> = {
+  bank: "Banco",
+  cash: "Efectivo",
+  zelle: "Zelle",
+  crypto: "Binance",
+  other: "Otra",
+};
+
+const createAccountTool: ToolSpec<typeof CreateAccountInput> = {
+  name: "create_account",
+  description:
+    "Crea una CUENTA donde vive el dinero: 'crea la cuenta Banesco en bolívares con 5.000', 'agrega mi Binance con 200 usdt', 'abre una cuenta de efectivo en dólares'. No es un gasto ni una venta.",
+  schema: CreateAccountInput,
+  roles: ["owner"],
+  strict: false,
+  async run(input, run) {
+    const currency = input.currency === "VES" ? "VES" : "USD";
+    const kind: AccountKind = input.currency === "USDT" ? "crypto" : input.kind;
+    const raw = nz(input.opening_balance);
+    const opening = raw ? parseAmount(raw) : new Decimal(0);
+    if (!opening)
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [es.clarification("No entendí el saldo. ¿Cuánto tienes hoy en esa cuenta?", [])],
+      };
+    const name = nz(input.name) ?? KIND_DEFAULT_NAME[kind];
+    try {
+      const a = await createAccount(run.tx, {
+        tenantId: run.ctx.tenantId,
+        name,
+        currency,
+        kind,
+        openingBalance: opening,
+        openingDate: run.ctx.today,
+        actor: { phoneId: run.ctx.phoneId },
+        channel: "whatsapp",
+      });
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [es.accountCreated({ ...a, balance: opening })],
+      };
+    } catch (err) {
+      if (err instanceof AccountError)
+        return {
+          kind: "terminal",
+          status: "ok",
+          outbound: [es.accountError(err.code, name, run.ctx.dashboardUrl)],
+        };
+      throw err;
+    }
   },
 };
 
@@ -1617,6 +1812,8 @@ export const ALL_TOOLS: ToolSpec<z.ZodType>[] = [
   getBcvRate,
   convertCurrency,
   exchangeUsdt,
+  getAccounts,
+  createAccountTool,
 ] as ToolSpec<z.ZodType>[];
 
 export function toolsForRole(role: "owner" | "employee"): ToolSpec<z.ZodType>[] {

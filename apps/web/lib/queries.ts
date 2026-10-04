@@ -149,6 +149,8 @@ export async function dailyNets(
 
 export type MovementDetail = MovementRow & {
   categoryId: string | null;
+  accountId: string | null;
+  accountName: string | null;
   origin: string;
   rateSource: string;
   updatedAt: Date;
@@ -186,9 +188,12 @@ export async function movementById(tenantId: string, id: string): Promise<Moveme
         userEmail: schema.userAccount.email,
         sourceBody: schema.message.body,
         attachmentMime: schema.attachment.mimeType,
+        accountId: schema.movement.accountId,
+        accountName: schema.account.name,
       })
       .from(schema.movement)
       .leftJoin(schema.category, eq(schema.category.id, schema.movement.categoryId))
+      .leftJoin(schema.account, eq(schema.account.id, schema.movement.accountId))
       .leftJoin(schema.phoneNumber, eq(schema.phoneNumber.id, schema.movement.createdByPhoneId))
       .leftJoin(schema.userAccount, eq(schema.userAccount.id, schema.movement.createdByUserId))
       .leftJoin(schema.message, eq(schema.message.id, schema.movement.sourceMessageId))

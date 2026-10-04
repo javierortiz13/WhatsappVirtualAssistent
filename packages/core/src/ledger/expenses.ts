@@ -31,6 +31,8 @@ export type CreateExpenseInput = {
   actor: Actor;
   sourceMessageId?: string | null;
   attachmentId?: string | null;
+  /** Cuenta de donde salió (0013). */
+  accountId?: string | null;
   /** Tasa congelada en el borrador; si no viene, se resuelve la vigente para la fecha. */
   rate?: { id: string | null; value: string; effectiveDate: IsoDate; source?: RateOrigin };
 };
@@ -75,6 +77,7 @@ export async function createExpense(tx: Tx, input: CreateExpenseInput): Promise<
       createdByUserId: input.actor.userId ?? null,
       sourceMessageId: input.sourceMessageId ?? null,
       attachmentId: input.attachmentId ?? null,
+      accountId: input.accountId ?? null,
     })
     .returning();
   if (!row) throw new Error("no se pudo crear el gasto");

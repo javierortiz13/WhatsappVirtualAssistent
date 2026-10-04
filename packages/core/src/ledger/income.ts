@@ -11,6 +11,7 @@ import {
   toDbAmount,
   toDbRate,
 } from "../domain/money";
+import { syncIncomeLot } from "./accounts";
 import type { Actor } from "./expenses";
 import { rateFor } from "./rate-for";
 
@@ -33,7 +34,13 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   unspecified: "Sin especificar",
 };
 
-export type IncomeLine = { method: PaymentMethod; amount: Decimal; currency: Currency };
+export type IncomeLine = {
+  method: PaymentMethod;
+  amount: Decimal;
+  currency: Currency;
+  /** Cuenta a la que entró (0013). */
+  accountId?: string | null;
+};
 
 type Common = {
   tenantId: string;
@@ -89,9 +96,11 @@ async function insertIncome(
       createdByUserId: input.actor.userId ?? null,
       sourceMessageId: input.sourceMessageId ?? null,
       attachmentId: input.attachmentId ?? null,
+      accountId: line.accountId ?? null,
     })
     .returning();
   if (!row) throw new Error("no se pudo crear el ingreso");
+  if (row.accountId) await syncIncomeLot(tx, input.tenantId, row.id);
   await tx.insert(schema.auditLog).values({
     tenantId: input.tenantId,
     actorType: input.actor.phoneId ? "phone" : "user",
@@ -180,6 +189,7 @@ async function softDeleteDayTotal(tx: Tx, input: Common): Promise<number> {
       after: { ...m, deletedAt: now },
       channel: input.sourceChannel === "dashboard" ? "dashboard" : "whatsapp",
     });
+    if (m.accountId) await syncIncomeLot(tx, input.tenantId, m.id);
   }
   return previous.length;
 }

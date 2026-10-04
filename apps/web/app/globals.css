@@ -1273,3 +1273,8 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* Saldo en rojo de una cuenta (0013). */
+.num.neg {
+  color: var(--danger);
+}

@@ -1,10 +1,10 @@
-import { Decimal, exchangeLots, formatMoney, getBsRateMode } from "@caja/core";
+import { Decimal, exchangeLots, formatMoney, getBsRateMode, listAccounts } from "@caja/core";
 import { withTenant } from "@caja/db";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { todayInCaracas } from "@/lib/queries";
 import { requireTenant } from "@/lib/session";
-import { IconChevronLeft, IconSwap } from "../../icons";
+import { IconChevronDown, IconChevronLeft, IconSwap } from "../../icons";
 import { createExchangeAction, deleteExchangeAction } from "./actions";
 
 export const metadata: Metadata = { title: "Cambios USDT" };
@@ -42,10 +42,18 @@ export default async function Cambios({
 }) {
   const { tenant } = await requireTenant();
   const sp = await searchParams;
-  const { lots, mode } = await withTenant(db(), tenant.id, async (tx) => ({
-    lots: await exchangeLots(tx, tenant.id),
+  const { lots, mode, accounts } = await withTenant(db(), tenant.id, async (tx) => ({
+    // Solo los cambios: los lotes de ventas y saldos iniciales de las cuentas (0013) no van aquí.
+    lots: await exchangeLots(tx, tenant.id, { source: "exchange" }),
     mode: await getBsRateMode(tx, tenant.id),
+    accounts: await listAccounts(tx, tenant.id),
   }));
+  const nameOf = (id: string | null) => accounts.find((a) => a.id === id)?.name ?? null;
+  const usdAccounts = accounts.filter((a) => a.currency === "USD");
+  const vesAccounts = accounts.filter((a) => a.currency === "VES");
+  // La de Binance primero para los USDT; el banco primero para los Bs.
+  const fromDefault = usdAccounts.find((a) => a.kind === "crypto") ?? usdAccounts[0];
+  const toDefault = vesAccounts.find((a) => a.kind === "bank") ?? vesAccounts[0];
   const left = lots.reduce((s, l) => s.plus(l.vesRemaining), new Decimal(0));
   const isOwner = tenant.role === "owner";
   const notice = sp.ok ? MSG[sp.ok] : sp.error ? MSG[sp.error] : null;
@@ -88,6 +96,38 @@ export default async function Cambios({
             <span>O los Bs que te dieron</span>
             <input className="input center" name="ves" inputMode="decimal" placeholder="97.000" />
           </label>
+          {usdAccounts.length ? (
+            <label className="field">
+              <span>De la cuenta</span>
+              <span className="sel">
+                <select className="input" name="from_account" defaultValue={fromDefault?.id}>
+                  {usdAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                  <option value="">Ninguna</option>
+                </select>
+                <IconChevronDown size={16} />
+              </span>
+            </label>
+          ) : null}
+          {vesAccounts.length ? (
+            <label className="field">
+              <span>A la cuenta</span>
+              <span className="sel">
+                <select className="input" name="to_account" defaultValue={toDefault?.id}>
+                  {vesAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                  <option value="">Ninguna</option>
+                </select>
+                <IconChevronDown size={16} />
+              </span>
+            </label>
+          ) : null}
           <label className="field">
             <span>Fecha</span>
             <input
@@ -120,6 +160,9 @@ export default async function Cambios({
                 <span className="sub">
                   {formatMoney(l.vesAmount, "VES")} · {l.businessDate.slice(8, 10)}/
                   {l.businessDate.slice(5, 7)}
+                  {l.accountId || l.fromAccountId
+                    ? ` · ${nameOf(l.fromAccountId) ?? "—"} → ${nameOf(l.accountId) ?? "—"}`
+                    : ""}
                 </span>
               </span>
               <span className="amts">

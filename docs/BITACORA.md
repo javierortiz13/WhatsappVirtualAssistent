@@ -684,3 +684,25 @@ Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más cla
 
 **Reporte (Javier):** "gasté 97.000 bs en mercancía" salió "$99,85 · tasa de tu cambio 971,48" y no se entendía de dónde venía 971,48 (la tasa ponderada de Bs 87.300 a 970 y Bs 9.700 a 985). Ahora, cuando el gasto toma de dos o más cambios, el borrador muestra "$99,85 · de tus cambios:" y una línea por cambio ("• Bs 87.300 a 970 → $90,00"); con uno solo sigue "tasa de tu cambio 970,00". El borrador guarda las partes (`exchange.parts`). Test del caso. 352 tests.
 
+
+### S2 · 04/10/2026 · Cuentas (fase 1, como Rial)
+
+**Pedido (Javier):** que el dinero viva en cuentas (Banco de Venezuela en Bs, Binance en USDT, Zelle, Efectivo) para que cada bolívar salga de una cuenta concreta y no haya diferencias entre la tasa del cambio y la BCV. Decisiones: los Bs que ya hay al crear una cuenta valen a la BCV del día; el total muestra los Bs a la BCV de hoy; las cuentas son opcionales para todos (negocios incluidos).
+
+**Diseño**
+- Saldo de una cuenta = saldo inicial + ventas − gastos + cambios recibidos − cambios enviados, todo en SQL. Un movimiento en otra moneda cuenta por su equivalente (un gasto en $ pagado con pago móvil resta sus Bs).
+- Los lotes de 0012 pasan a ser **por cuenta**. En una cuenta en Bs cada bolívar tiene su costo: un cambio (a su tasa), una venta en Bs (a la tasa de la venta) o el saldo inicial (a la BCV del día de apertura). Un gasto de una cuenta en Bs siempre toma de sus lotes (aunque vaya a la BCV), así quedan al día si el negocio cambia de modo; la tasa del gasto sigue saliendo de `bs_rate_mode`.
+- La primera cuenta en Bs **adopta** los cambios de antes de las cuentas (`adopted_at`): sus Bs restantes son parte del saldo inicial (no se suman dos veces) y solo el resto va a la BCV. Si el saldo inicial es menor, se recortan del más viejo.
+- **A qué cuenta va**, sin preguntar: (1) una cuenta de esa moneda nombrada en el mensaje ("con Banesco", "el BDV" por los apodos de bancos del pago móvil); (2) el método o las palabras (pago móvil/punto → banco, efectivo, Zelle, Binance); (3) una de otra moneda nombrada ("pagué 10$ con Banesco"); (4) la principal de la moneda (la primera). El borrador muestra "Cuenta: X" y se corrige diciendo "fue de Banesco" (borrador) o "ese fue del efectivo" (ya guardado, por `amend_last_movement` sin campo nuevo). Sin preguntas ni campos estrictos nuevos: 16 herramientas, 10 estrictas.
+
+**Cambios**
+- Migración 0013: `account` (RLS, nombre único por negocio entre las activas), `movement.account_id`, `exchange_lot.account_id/from_account_id/source/movement_id/adopted_at`.
+- `ledger/accounts.ts`: saldos, patrimonio, crear (con adopción y lote inicial), editar saldo inicial (ajusta su lote), archivar, `syncIncomeLot` (crear, corregir, borrar o reemplazar una venta en Bs), `resolveAccount`.
+- Borradores, guardado, corrección y borrado llevan la cuenta; un cambio sale de la cuenta en dólares (Binance primero) y entra al banco en Bs. Al guardar: "💳 Banesco: *Bs 9.500,00*". El desglose de un gasto dice de dónde vino cada parte ("cambio 03/10", "venta 02/10", "saldo inicial").
+- Bot: `get_accounts` ("mis cuentas", "cuánto tengo en Binance") y `create_account` ("crea la cuenta Banesco en bolívares con 5.000"), solo el dueño y sin strict. Regla 6d del prompt, cuentas en el bloque del negocio, línea en "ayuda". La captura de Binance también elige las cuentas.
+- Dashboard: Ajustes → Cuentas (total con los Bs a la BCV de hoy, saldo por cuenta, crear, editar, archivar); Cambios elige de qué cuenta a cuál y lo muestra en la lista; el movimiento muestra y cambia su cuenta (solo cuentas del negocio).
+- QA en navegador (390 px): crear, nombre repetido, saldo ilegible, editar saldo inicial, cambio entre cuentas, asignar cuenta a un gasto (tomó sus Bs de los lotes). Sin scroll horizontal.
+
+**Tests:** núcleo (adopción con y sin recorte, saldos con monedas cruzadas y cambios, patrimonio, lote de venta al crear/corregir/borrar, lotes por cuenta, mover un gasto de cuenta, saldo inicial, archivar, nombres repetidos, resolución de cuenta) y el flujo por WhatsApp (crear por chat, gasto con su saldo, corregir la cuenta de lo guardado, cambio entre cuentas, "mis cuentas"). Siete casos de eval (116). 370 tests.
+
+**Fase 2 (pendiente):** transferencias entre cuentas de la misma moneda, comisiones, reportes por cuenta.

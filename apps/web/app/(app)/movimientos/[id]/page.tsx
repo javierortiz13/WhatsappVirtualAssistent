@@ -1,7 +1,9 @@
-import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@caja/core";
+import { listAccounts, PAYMENT_METHOD_LABELS, type PaymentMethod } from "@caja/core";
 import { businessDateOf, formatMoney, formatShortDate } from "@caja/core/domain";
+import { withTenant } from "@caja/db";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { db } from "@/lib/db";
 import { categoriesOf, movementById } from "@/lib/queries";
 import { requireTenant } from "@/lib/session";
 import {
@@ -45,7 +47,11 @@ export default async function Movimiento({
   const { id } = await params;
   const sp = await searchParams;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) notFound();
-  const [m, categories] = await Promise.all([movementById(tenant.id, id), categoriesOf(tenant.id)]);
+  const [m, categories, accounts] = await Promise.all([
+    movementById(tenant.id, id),
+    categoriesOf(tenant.id),
+    withTenant(db(), tenant.id, (tx) => listAccounts(tx, tenant.id)),
+  ]);
   if (!m) notFound();
   const isExpense = m.type === "expense";
   const locked = !!m.deletedAt;
@@ -183,6 +189,31 @@ export default async function Movimiento({
             </span>
           </label>
         )}
+        {accounts.length || m.accountId ? (
+          <label className="field">
+            <span>{isExpense ? "Salió de la cuenta" : "Entró a la cuenta"}</span>
+            <span className="sel">
+              <select
+                className="input"
+                name="account_id"
+                defaultValue={m.accountId ?? ""}
+                disabled={locked}
+              >
+                <option value="">Sin cuenta</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+                {/* Cuenta archivada: sigue como opción para que editar otro campo no la quite. */}
+                {m.accountId && !accounts.some((a) => a.id === m.accountId) ? (
+                  <option value={m.accountId}>{m.accountName ?? "Cuenta archivada"}</option>
+                ) : null}
+              </select>
+              <IconChevronDown size={16} />
+            </span>
+          </label>
+        ) : null}
         <label className="field">
           <span>Descripción</span>
           <input

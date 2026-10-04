@@ -1,6 +1,7 @@
 import type { Tx } from "@caja/db";
 import type { PaymentDest } from "../billing/renew";
 import type { IsoDate } from "../domain/dates";
+import type { AccountRef } from "../ledger/accounts";
 import type { Outbound } from "../render/outbound";
 import type { ReceiptExtraction } from "../vision/receipt";
 
@@ -22,6 +23,8 @@ export type AgentContext = {
   dashboardUrl: string;
   /** De dónde sale la tasa de los gastos en Bs (0012): BCV, los cambios USDT o preguntar. */
   bsRateMode?: "bcv" | "usdt" | "ask";
+  /** Cuentas activas del negocio (0013), en el orden del dueño; vacío si no usa cuentas. */
+  accounts?: AccountRef[];
   /** Datos de cobro para renovar el plan por el bot (03/10). */
   billing?: { dest: PaymentDest; supportHint: string | null };
 };

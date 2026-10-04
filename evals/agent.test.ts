@@ -122,6 +122,10 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
         ...base,
         role: c.role,
         defaultCurrency: c.default_currency,
+        accounts: c.accounts.map((a, i) => ({
+          ...a,
+          id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
+        })),
         sourceChannel: c.receipt ? "image" : c.kind,
       };
       const started = Date.now();

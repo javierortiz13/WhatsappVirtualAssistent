@@ -85,9 +85,11 @@ describe("definiciones de herramientas", () => {
       "get_bcv_rate",
       "convert_currency",
       "exchange_usdt",
+      "get_accounts",
+      "create_account",
     ]);
     expect(toolsForRole("employee")).toHaveLength(14);
-    expect(toolsForRole("owner")).toHaveLength(14);
+    expect(toolsForRole("owner")).toHaveLength(16);
   });
   it("el JSON Schema es estricto: sin $schema, sin propiedades extra, con properties", () => {
     for (const t of ALL_TOOLS) {
@@ -124,7 +126,14 @@ describe("definiciones de herramientas", () => {
       ALL_TOOLS.map(toLlmToolDef)
         .filter((d) => d.strict === false)
         .map((d) => d.name),
-    ).toEqual(["reject_out_of_scope", "get_bcv_rate", "convert_currency", "exchange_usdt"]);
+    ).toEqual([
+      "reject_out_of_scope",
+      "get_bcv_rate",
+      "convert_currency",
+      "exchange_usdt",
+      "get_accounts",
+      "create_account",
+    ]);
   });
 
   it("el conjunto de herramientas no supera el tope de uniones del modo estricto", () => {

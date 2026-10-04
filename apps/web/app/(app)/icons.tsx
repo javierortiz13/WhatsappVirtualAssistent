@@ -155,3 +155,8 @@ export const IconSwap = (p: P) => (
     <path d="M7 4 3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7" />
   </Svg>
 );
+export const IconWallet = (p: P) => (
+  <Svg {...p}>
+    <path d="M3 7a2 2 0 0 1 2-2h12v4M3 7v10a2 2 0 0 0 2 2h14V9H5a2 2 0 0 1-2-2ZM16 14h.01" />
+  </Svg>
+);

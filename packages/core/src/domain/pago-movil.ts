@@ -41,8 +41,11 @@ export const BANKS: Record<string, string> = {
   "0191": "BNC Banco Nacional de Crédito",
 };
 
-/** Nombres y apodos de uso común → código. Se busca como palabra dentro de lo leído. */
-const BANK_ALIASES: [RegExp, string][] = [
+/**
+ * Nombres y apodos de uso común → código. Se busca como palabra dentro de lo leído (sin acentos y
+ * en minúsculas). También sirve para reconocer una cuenta por su banco ("bdv" → Banco de Venezuela).
+ */
+export const BANK_ALIAS_CODE: [RegExp, string][] = [
   [/\bvenezolano de credito\b/, "0104"],
   [/\bmercantil\b/, "0105"],
   [/\b(provincial|bbva)\b/, "0108"],
@@ -78,7 +81,7 @@ export function parseBank(raw: string): { code: string | null; name: string | nu
   const code = /\b(01\d{2})\b/.exec(t)?.[1] ?? null;
   if (code && BANKS[code]) return { code, name: BANKS[code] };
   const p = plain(t);
-  const alias = BANK_ALIASES.find(([re]) => re.test(p))?.[1];
+  const alias = BANK_ALIAS_CODE.find(([re]) => re.test(p))?.[1];
   if (alias) return { code: alias, name: BANKS[alias] as string };
   return { code, name: t.slice(0, 60) };
 }

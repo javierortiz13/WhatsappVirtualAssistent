@@ -6,6 +6,7 @@ import {
   computeAmend,
   deleteMovement,
   isIsoDate,
+  listAccounts,
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,
 } from "@caja/core";
@@ -27,6 +28,8 @@ const Form = z.object({
   category_id: z.string().optional(),
   description: z.string().trim().max(200).optional(),
   payment_method: z.string().optional(),
+  /** Solo viene si el negocio tiene cuentas (0013); "" = sin cuenta. */
+  account_id: z.string().optional(),
 });
 
 /** Edición desde el dashboard (US-E2): mismas reglas que la corrección por chat, con auditoría. */
@@ -70,6 +73,25 @@ export async function updateMovementAction(formData: FormData): Promise<void> {
         }
       }
     }
+    // La cuenta (0013): solo una del negocio; sin el campo, no cambia.
+    let account: { accountId: string | null; accountName: string | null } | undefined;
+    const accounts = f.account_id !== undefined ? await listAccounts(tx, tenant.id) : [];
+    const currentAccount =
+      (m.accountId &&
+        (
+          await tx
+            .select({ name: schema.account.name })
+            .from(schema.account)
+            .where(eq(schema.account.id, m.accountId))
+        )[0]?.name) ||
+      null;
+    if (f.account_id !== undefined && (f.account_id || null) !== m.accountId) {
+      if (f.account_id) {
+        const a = accounts.find((x) => x.id === f.account_id);
+        if (!a) return "datos" as const;
+        account = { accountId: a.id, accountName: a.name };
+      } else account = { accountId: null, accountName: null };
+    }
     const [current] = m.categoryId
       ? await tx
           .select({ name: schema.category.name })
@@ -83,11 +105,13 @@ export async function updateMovementAction(formData: FormData): Promise<void> {
       description: f.description || null,
       ...(categoryId !== undefined ? { categoryId, categoryName: categoryName ?? null } : {}),
       ...(m.type === "income" && method ? { paymentMethod: method as PaymentMethod } : {}),
+      ...(account ?? {}),
     };
     const draft = await computeAmend(tx, {
       movement: m,
       categoryName: current?.name ?? null,
       changes,
+      accountName: currentAccount,
     });
     if (draft.changed.length === 0) return "nochange" as const;
     const now = new Date();

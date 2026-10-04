@@ -12,6 +12,7 @@ import {
   toDbAmount,
   toDbRate,
 } from "../domain/money";
+import { syncIncomeLot } from "./accounts";
 import { insertDraft } from "./drafts";
 import {
   allocationOf,
@@ -20,6 +21,7 @@ import {
   planRate,
   releaseAllocation,
   saveAllocation,
+  takesFromLots,
 } from "./exchange";
 import type { Actor } from "./expenses";
 import type { PaymentMethod } from "./income";
@@ -109,6 +111,9 @@ export const MovementSnapshot = z.object({
   categoryName: z.string().nullable(),
   description: z.string().nullable(),
   paymentMethod: z.string(),
+  /** Cuenta (0013); los borradores de antes no la traen. */
+  accountId: z.string().uuid().nullable().optional(),
+  accountName: z.string().nullable().optional(),
 });
 export type MovementSnapshot = z.infer<typeof MovementSnapshot>;
 
@@ -138,9 +143,15 @@ export type AmendChanges = {
   businessDate?: IsoDate;
   paymentMethod?: PaymentMethod;
   manualRate?: Rate;
+  accountId?: string | null;
+  accountName?: string | null;
 };
 
-function snapshot(m: Movement, categoryName: string | null): MovementSnapshot {
+function snapshot(
+  m: Movement,
+  categoryName: string | null,
+  accountName: string | null = null,
+): MovementSnapshot {
   return {
     amount: m.amount,
     currency: m.currency as Currency,
@@ -154,6 +165,8 @@ function snapshot(m: Movement, categoryName: string | null): MovementSnapshot {
     categoryName,
     description: m.description,
     paymentMethod: m.paymentMethod,
+    accountId: m.accountId,
+    accountName,
   };
 }
 
@@ -164,20 +177,27 @@ function snapshot(m: Movement, categoryName: string | null): MovementSnapshot {
  */
 export async function computeAmend(
   tx: Tx,
-  input: { movement: Movement; categoryName: string | null; changes: AmendChanges },
+  input: {
+    movement: Movement;
+    categoryName: string | null;
+    changes: AmendChanges;
+    /** Nombre de la cuenta actual del movimiento, para mostrar el cambio de cuenta. */
+    accountName?: string | null;
+  },
 ): Promise<EditLastDraft> {
   const m = input.movement;
-  const before = snapshot(m, input.categoryName);
+  const before = snapshot(m, input.categoryName, input.accountName ?? null);
   const businessDate = input.changes.businessDate ?? asIsoDate(m.businessDate);
   const dateChanged = businessDate !== m.businessDate;
   const amount = input.changes.amount ?? new Decimal(m.amount);
   const currency = input.changes.currency ?? (m.currency as Currency);
+  const accountId = input.changes.accountId !== undefined ? input.changes.accountId : m.accountId;
   let rate: Rate;
   if (input.changes.manualRate) rate = input.changes.manualRate;
   else if (m.rateSource === "exchange")
     // De los lotes de cambio (0012): se recalcula con lo que el gasto devolvería a sus lotes; si
     // pasa a dólares, sus Bs salen a la BCV del día.
-    rate = await exchangeAmendRate(tx, m, amount, currency, businessDate);
+    rate = await exchangeAmendRate(tx, m, amount, currency, businessDate, accountId);
   else if (dateChanged && m.rateSource === "manual")
     // Una tasa manual la dijo el usuario: cambiar la fecha no la reemplaza por la BCV.
     rate = {
@@ -219,6 +239,11 @@ export async function computeAmend(
     description:
       input.changes.description !== undefined ? input.changes.description : m.description,
     paymentMethod: input.changes.paymentMethod ?? m.paymentMethod,
+    accountId,
+    accountName:
+      input.changes.accountId !== undefined
+        ? (input.changes.accountName ?? null)
+        : (input.accountName ?? null),
   };
   const changed = (Object.keys(after) as (keyof MovementSnapshot)[]).filter(
     (k) => after[k] !== before[k],
@@ -232,10 +257,12 @@ async function exchangeAmendRate(
   amount: Decimal,
   currency: Currency,
   businessDate: IsoDate,
+  accountId: string | null,
 ): Promise<Rate> {
   if (currency === "VES") {
     const plan = await planAllocation(tx, m.tenantId, amount, {
       adjust: await allocationOf(tx, m.tenantId, m.id),
+      accountId,
     });
     if (plan) return planRate(plan, businessDate);
   }
@@ -251,6 +278,7 @@ export async function createEditLastDraft(
     movement: Movement;
     categoryName: string | null;
     changes: AmendChanges;
+    accountName?: string | null;
   },
   now: Date,
 ): Promise<{ pendingId: string; draft: EditLastDraft; replacedPrevious: boolean }> {
@@ -348,13 +376,18 @@ export async function amendMovement(
     .where(and(eq(schema.movement.id, input.draft.movementId), isNull(schema.movement.deletedAt)));
   if (!before) return null;
   let a = input.draft.after;
-  // Lotes de cambio: los Bs vuelven a sus lotes y, si sigue siendo de los lotes, se vuelven a tomar
-  // con el monto nuevo. La tasa se recalcula aquí, con los lotes bloqueados.
-  if (before.rateSource === "exchange") await releaseAllocation(tx, input.tenantId, before.id);
+  // Un borrador de antes de las cuentas no trae la cuenta: queda la que tenía.
+  const accountId = a.accountId !== undefined ? a.accountId : before.accountId;
+  // Lotes: los Bs vuelven a sus lotes y, si el gasto sigue en Bs de los lotes o de una cuenta, se
+  // vuelven a tomar con el monto nuevo. La tasa (si es de los lotes) se recalcula aquí, bloqueados.
+  await releaseAllocation(tx, input.tenantId, before.id);
   let parts: LotPart[] = [];
-  if (a.rateSource === "exchange" && a.currency === "VES") {
-    const plan = await planAllocation(tx, input.tenantId, new Decimal(a.amount), { lock: true });
-    if (plan) {
+  if (takesFromLots(before.type, a.currency, a.rateSource, accountId)) {
+    const plan = await planAllocation(tx, input.tenantId, new Decimal(a.amount), {
+      lock: true,
+      accountId,
+    });
+    if (plan && a.rateSource === "exchange") {
       const c = convert(money(new Decimal(a.amount), "VES"), planRate(plan, a.businessDate));
       a = {
         ...a,
@@ -362,8 +395,8 @@ export async function amendMovement(
         amountVes: toDbAmount(c.amountVes),
         rateValue: toDbRate(c.rateValue),
       };
-      parts = plan.parts;
     }
+    parts = plan?.parts ?? [];
   }
   const [after] = await tx
     .update(schema.movement)
@@ -379,12 +412,14 @@ export async function amendMovement(
       categoryId: a.categoryId,
       description: a.description,
       paymentMethod: a.paymentMethod,
+      accountId,
       updatedAt: input.now,
     })
     .where(eq(schema.movement.id, before.id))
     .returning();
   if (!after) return null;
   if (parts.length) await saveAllocation(tx, input.tenantId, after.id, parts);
+  if (after.type === "income") await syncIncomeLot(tx, input.tenantId, after.id);
   await audit(tx, input.tenantId, input.actor, "update", before, after);
   return after;
 }
@@ -404,8 +439,9 @@ export async function deleteMovement(
     .where(eq(schema.movement.id, before.id))
     .returning();
   if (!after) return null;
-  // Un gasto de los lotes de cambio devuelve sus Bs al borrarse.
-  if (before.rateSource === "exchange") await releaseAllocation(tx, input.tenantId, before.id);
+  // Un gasto que tomó de los lotes devuelve sus Bs al borrarse; una venta en Bs pierde su lote.
+  await releaseAllocation(tx, input.tenantId, before.id);
+  if (before.type === "income") await syncIncomeLot(tx, input.tenantId, before.id);
   await audit(tx, input.tenantId, input.actor, "delete", before, after);
   return after;
 }

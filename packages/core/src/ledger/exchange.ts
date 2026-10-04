@@ -20,10 +20,32 @@ export const ExchangeDraft = z.object({
   ves: z.string(),
   rate: z.string(),
   businessDate: z.string(),
+  /** Cuentas (0013): a cuál entraron los Bs y de cuál salieron los USDT. */
+  accountId: z.string().uuid().nullable().optional(),
+  accountName: z.string().nullable().optional(),
+  fromAccountId: z.string().uuid().nullable().optional(),
+  fromAccountName: z.string().nullable().optional(),
 });
 export type ExchangeDraft = z.infer<typeof ExchangeDraft>;
 
-export type LotPart = { lotId: string; ves: Decimal; rate: Decimal };
+export type LotSource = (typeof schema.LOT_SOURCES)[number];
+
+export type LotPart = {
+  lotId: string;
+  ves: Decimal;
+  rate: Decimal;
+  /** De dónde vinieron esos Bs (un cambio, una venta, el saldo inicial) y de qué día. */
+  source?: LotSource;
+  businessDate?: string;
+};
+
+/**
+ * Qué lotes mira un gasto: los de su cuenta (0013) o, sin cuenta, los de antes de las cuentas.
+ */
+function lotScope(accountId: string | null | undefined) {
+  const l = schema.exchangeLot;
+  return accountId ? eq(l.accountId, accountId) : isNull(l.accountId);
+}
 
 export type AllocationPlan = {
   parts: LotPart[];
@@ -54,17 +76,23 @@ export async function planAllocation(
   tx: Tx,
   tenantId: string,
   ves: Decimal,
-  opts: { lock?: boolean; adjust?: Map<string, Decimal> } = {},
+  opts: { lock?: boolean; adjust?: Map<string, Decimal>; accountId?: string | null } = {},
 ): Promise<AllocationPlan | null> {
   const l = schema.exchangeLot;
   const base = tx
-    .select({ id: l.id, rate: l.rate, remaining: l.vesRemaining })
+    .select({
+      id: l.id,
+      rate: l.rate,
+      remaining: l.vesRemaining,
+      source: l.source,
+      businessDate: l.businessDate,
+    })
     .from(l)
-    .where(and(eq(l.tenantId, tenantId), isNull(l.deletedAt)))
+    .where(and(eq(l.tenantId, tenantId), isNull(l.deletedAt), lotScope(opts.accountId)))
     .orderBy(asc(l.businessDate), asc(l.createdAt), asc(l.id));
   const lots = opts.lock ? await base.for("update") : await base;
   if (lots.length === 0) return null;
-  const last = await lastLotRate(tx, tenantId);
+  const last = await lastLotRate(tx, tenantId, opts.accountId);
   const lastRate = last ?? new Decimal(lots[lots.length - 1]?.rate ?? 1);
 
   let need = ves;
@@ -77,7 +105,13 @@ export async function planAllocation(
     available = available.plus(avail);
     if (need.lte(0) || avail.lt(LOT_DUST)) continue;
     const take = Decimal.min(avail, need);
-    parts.push({ lotId: lot.id, ves: take, rate });
+    parts.push({
+      lotId: lot.id,
+      ves: take,
+      rate,
+      source: lot.source as LotSource,
+      businessDate: lot.businessDate,
+    });
     usd = usd.plus(take.div(rate));
     need = need.minus(take);
   }
@@ -94,17 +128,35 @@ export async function planAllocation(
   };
 }
 
+/**
+ * Un gasto en Bs toma de los lotes si su tasa es la de los lotes, o si es de una cuenta (0013):
+ * aunque vaya a la BCV, sus Bs salen de la cuenta y los lotes quedan al día por si el negocio
+ * cambia de modo.
+ */
+export function takesFromLots(
+  type: string,
+  currency: string,
+  rateSource: string,
+  accountId: string | null | undefined,
+): boolean {
+  return type === "expense" && currency === "VES" && (rateSource === "exchange" || !!accountId);
+}
+
 /** La tasa del plan como `Rate` de origen `exchange` para convertir y guardar el gasto. */
 export function planRate(plan: AllocationPlan, businessDate: IsoDate | string): Rate {
   return makeRate(plan.rate, businessDate, null, "exchange");
 }
 
-async function lastLotRate(tx: Tx, tenantId: string): Promise<Decimal | null> {
+async function lastLotRate(
+  tx: Tx,
+  tenantId: string,
+  accountId: string | null | undefined,
+): Promise<Decimal | null> {
   const l = schema.exchangeLot;
   const [row] = await tx
     .select({ rate: l.rate })
     .from(l)
-    .where(and(eq(l.tenantId, tenantId), isNull(l.deletedAt)))
+    .where(and(eq(l.tenantId, tenantId), isNull(l.deletedAt), lotScope(accountId)))
     .orderBy(desc(l.businessDate), desc(l.createdAt))
     .limit(1);
   return row ? new Decimal(row.rate) : null;
@@ -189,6 +241,9 @@ export async function allocationOf(
 
 export type ExchangeLotView = {
   id: string;
+  accountId: string | null;
+  fromAccountId: string | null;
+  source: LotSource;
   businessDate: string;
   usdAmount: Decimal;
   vesAmount: Decimal;
@@ -197,11 +252,14 @@ export type ExchangeLotView = {
   used: boolean;
 };
 
-/** Lotes vivos del negocio, el más viejo primero; `active` solo los que tienen saldo. */
+/**
+ * Lotes vivos del negocio, el más viejo primero; `active` solo los que tienen saldo, `source` solo
+ * los de un origen (la lista de cambios muestra solo los cambios).
+ */
 export async function exchangeLots(
   tx: Tx,
   tenantId: string,
-  opts: { active?: boolean } = {},
+  opts: { active?: boolean; source?: LotSource } = {},
 ): Promise<ExchangeLotView[]> {
   const l = schema.exchangeLot;
   const rows = await tx
@@ -212,11 +270,15 @@ export async function exchangeLots(
         eq(l.tenantId, tenantId),
         isNull(l.deletedAt),
         opts.active ? gt(l.vesRemaining, LOT_DUST.toFixed(2)) : undefined,
+        opts.source ? eq(l.source, opts.source) : undefined,
       ),
     )
     .orderBy(asc(l.businessDate), asc(l.createdAt));
   return rows.map((r) => ({
     id: r.id,
+    accountId: r.accountId,
+    fromAccountId: r.fromAccountId,
+    source: r.source as LotSource,
     businessDate: r.businessDate,
     usdAmount: new Decimal(r.usdAmount),
     vesAmount: new Decimal(r.vesAmount),
@@ -226,14 +288,18 @@ export async function exchangeLots(
   }));
 }
 
-export async function hasExchangeLots(tx: Tx, tenantId: string): Promise<boolean> {
+/** Bs que quedan en los lotes de una cuenta (o en los de antes de las cuentas, sin cuenta). */
+export async function lotBalance(
+  tx: Tx,
+  tenantId: string,
+  accountId: string | null | undefined,
+): Promise<Decimal> {
   const l = schema.exchangeLot;
-  const [row] = await tx
-    .select({ id: l.id })
+  const found = await tx
+    .select({ remaining: l.vesRemaining })
     .from(l)
-    .where(and(eq(l.tenantId, tenantId), isNull(l.deletedAt)))
-    .limit(1);
-  return !!row;
+    .where(and(eq(l.tenantId, tenantId), isNull(l.deletedAt), lotScope(accountId)));
+  return found.reduce((s, r) => s.plus(r.remaining), D0);
 }
 
 export class ExchangeError extends Error {
@@ -291,6 +357,10 @@ export async function createExchangeLot(
     rate: Decimal;
     actor: Actor;
     channel: "whatsapp" | "dashboard";
+    /** Cuenta en Bs que recibió los bolívares (0013). */
+    accountId?: string | null;
+    /** Cuenta en dólares de donde salieron los USDT. */
+    fromAccountId?: string | null;
   },
 ): Promise<string> {
   if (!(input.usd.gt(0) && input.ves.gt(0) && input.rate.gt(0))) throw new ExchangeError("invalid");
@@ -303,6 +373,9 @@ export async function createExchangeLot(
       vesAmount: input.ves.toFixed(2),
       rate: input.rate.toFixed(8),
       vesRemaining: input.ves.toFixed(2),
+      accountId: input.accountId ?? null,
+      fromAccountId: input.fromAccountId ?? null,
+      source: "exchange",
       createdByPhoneId: input.actor.phoneId ?? null,
       createdByUserId: input.actor.userId ?? null,
     })
@@ -321,7 +394,14 @@ export async function deleteExchangeLot(
   const [lot] = await tx
     .select()
     .from(l)
-    .where(and(eq(l.id, input.lotId), eq(l.tenantId, input.tenantId), isNull(l.deletedAt)))
+    .where(
+      and(
+        eq(l.id, input.lotId),
+        eq(l.tenantId, input.tenantId),
+        eq(l.source, "exchange"),
+        isNull(l.deletedAt),
+      ),
+    )
     .for("update");
   if (!lot) throw new ExchangeError("missing");
   const [used] = await tx

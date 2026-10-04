@@ -1,4 +1,5 @@
 import { formatShortDate, type IsoDate } from "../domain/dates";
+import { accountUnit } from "../ledger/accounts";
 import type { AgentContext, UnclearReceipt } from "./types";
 
 /**
@@ -18,6 +19,7 @@ Reglas que no se negocian:
 5. Si el mensaje no trata de la caja del negocio (saludos con conversación, preguntas generales, redactar textos, chistes, opiniones, otras tareas), usa reject_out_of_scope. No expliques ni te disculpes.
 6. Si preguntan por la tasa, el dólar o el BCV, usa get_bcv_rate.
 6c. Si cuenta que CAMBIÓ USDT o dólares a bolívares ("cambié 100 usdt a 970", "vendí 50 usdt y me dieron 48.500 bs", "cambié 20$ a 985"), usa exchange_usdt con action record: es un cambio, NUNCA un gasto ni una venta. Pasa los dos datos que dijo (dólares, bolívares o tasa) y deja "" el que no dijo. Si pregunta cuántos Bs le quedan de sus cambios, exchange_usdt con action balance.
+6d. CUENTAS (banco, Binance, Zelle, efectivo). No pases la cuenta: el sistema la saca del mensaje ("con Banesco", "por pago móvil", "en efectivo", "de Binance"). Si corrige solo la cuenta de un borrador sin guardar ("fue de Banesco", "era del efectivo"), vuelve a llamar la misma herramienta del borrador con los mismos datos y corrects_draft true; si ya está guardado, amend_last_movement con todo en "" o keep. Si pregunta cuánto tiene ("mis cuentas", "cuánto tengo en Binance", "mi saldo", "cuánta plata tengo"), usa get_accounts. Si quiere crear una cuenta ("crea la cuenta Banesco en bolívares con 5.000", "agrega mi Binance con 200 usdt"), usa create_account. Un pago de una cuenta a otra suya no es gasto ni venta: si es USDT o dólares a Bs, es un cambio (6c).
 6b. Si quiere CONVERTIR un monto a otra moneda ("cuánto es 8000 bs en $", "17€ en bolívares", "pásame 15$ a bs", "cuántos dólares son 50 mil bolos", "20$ a 220 cuánto da"), usa convert_currency con el monto, la moneda de origen, la de destino (auto si no la dice) y la tasa solo si la dice. Es una cuenta, no un gasto ni una venta: nunca registres nada por eso.
 7. Si pide el cierre, un resumen o un total ("cierre", "cómo fue hoy", "cómo va el mes", "cuánto llevo esta semana", "cuánto gasté en insumos", "del 1 al 15"), usa get_summary.
 7a. Si pregunta por un PRESUPUESTO o lo que le QUEDA ("cuánto me queda en insumos", "cómo voy con el presupuesto", "me pasé en comida?"), usa get_budgets con la categoría o "" para todos. "Cuánto gasté en X" sigue siendo get_summary. Si quiere poner, cambiar o quitar un presupuesto ("ponle 200$ al mes a insumos"), usa get_budgets con wants_to_set true: nunca lo rechaces como fuera de alcance.
@@ -48,7 +50,10 @@ export function tenantSystem(ctx: AgentContext): string {
     ctx.role === "owner"
       ? "El usuario es el dueño."
       : "El usuario es un empleado: registra gastos y ventas. Si pide un cierre, un resumen o un total, usa get_summary igual (y get_budgets si pregunta por presupuestos): el sistema le responde que eso lo ve el dueño. No lo rechaces como fuera de alcance.";
-  return `Negocio: ${ctx.tenantName}.\n${currency}\n${role}\nCategorías de gasto (usa el nombre exacto):\n${cats}`;
+  const accounts = ctx.accounts?.length
+    ? `\nCuentas: ${ctx.accounts.map((a) => `${a.name} (${accountUnit(a)})`).join(", ")}.`
+    : "";
+  return `Negocio: ${ctx.tenantName}.\n${currency}\n${role}\nCategorías de gasto (usa el nombre exacto):\n${cats}${accounts}`;
 }
 
 type DraftForPrompt = { tool: string; payload: Record<string, unknown> };
@@ -91,6 +96,7 @@ function draftSummary(d: DraftForPrompt): Record<string, unknown> {
     method: p.method,
     when: p.businessDate,
     rate: rateForPrompt(p),
+    ...(p.accountName ? { account: p.accountName } : {}),
   };
 }
 

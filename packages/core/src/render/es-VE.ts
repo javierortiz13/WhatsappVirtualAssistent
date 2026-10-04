@@ -89,6 +89,7 @@ export function help(dashboardUrl: string, supportHint: string | null): Outbound
     "• Calculadora: _cuánto es 8000 bs en $_, _17€ en bs_",
     "• Pago móvil: mándame la foto de los datos y te los paso listos para copiar en el banco",
     "• Cambios USDT: _cambié 100 usdt a 970_ y tus gastos en Bs salen a esa tasa",
+    "• Cuentas: _crea la cuenta Banesco en bolívares con 5.000_, _mis cuentas_, y al gastar _con Banesco_ o _en efectivo_",
     `Para ver, corregir o exportar todo: ${dashboardUrl}`,
   ];
   if (supportHint) lines.push(`Si algo no funciona, escribe a una persona: ${supportHint}`);
@@ -596,11 +597,29 @@ export type ExpenseDraftView = {
         remainingAfter: string;
         uncoveredVes: string;
         lastRate: string;
-        parts?: { ves: string; rate: string; usd: string }[] | undefined;
+        parts?: LotPartView[] | undefined;
       }
     | null
     | undefined;
+  /** Cuenta de donde sale (0013). */
+  accountName?: string | null | undefined;
 };
+
+type LotPartView = {
+  ves: string;
+  rate: string;
+  usd: string;
+  source?: "exchange" | "income" | "opening" | undefined;
+  date?: string | undefined;
+};
+
+/** "(cambio 03/10)", "(venta 02/10)", "(saldo inicial)": de dónde vinieron esos Bs. */
+function partOrigin(p: LotPartView): string {
+  if (!p.source) return "";
+  if (p.source === "opening") return " (saldo inicial)";
+  const day = p.date ? ` ${formatShortDate(asIsoDate(p.date)).replace(/^\S+ /, "")}` : "";
+  return p.source === "income" ? ` (venta${day})` : ` (cambio${day})`;
+}
 
 /** "tasa BCV 866,56", "tasa euro 973,93", "tasa manual 850,00" o "tasa de tu cambio 970,00". */
 export function rateLabel(value: Decimal.Value, source?: RateOrigin): string {
@@ -617,14 +636,89 @@ const shortBs = (v: Decimal.Value) => formatMoney(v, "VES").replace(/,00$/, "");
 const shortRate = (v: Decimal.Value) => rateNum(v).replace(/,00$/, "");
 
 /** Debajo de un borrador de los lotes: cuánto quedará, o qué no alcanzó. */
-function exchangeNote(x: {
-  remainingAfter: string;
-  uncoveredVes: string;
-  lastRate: string;
-}): string {
+function exchangeNote(
+  x: { remainingAfter: string; uncoveredVes: string; lastRate: string },
+  accountName?: string | null,
+): string {
   if (new Decimal(x.uncoveredVes).gt(0))
-    return `⚠️ Tus cambios no alcanzan: ${formatMoney(x.uncoveredVes, "VES")} van a la tasa de tu último cambio (${rateNum(x.lastRate)}). Si cambiaste de nuevo, dímelo: _cambié 100 usdt a 980_`;
-  return `Quedarán ${formatMoney(x.remainingAfter, "VES")} de tus cambios.`;
+    return accountName
+      ? `⚠️ No alcanza lo que hay en ${accountName}: ${formatMoney(x.uncoveredVes, "VES")} van a la tasa de tu último cambio (${rateNum(x.lastRate)}).`
+      : `⚠️ Tus cambios no alcanzan: ${formatMoney(x.uncoveredVes, "VES")} van a la tasa de tu último cambio (${rateNum(x.lastRate)}). Si cambiaste de nuevo, dímelo: _cambié 100 usdt a 980_`;
+  return accountName
+    ? `Quedarán ${formatMoney(x.remainingAfter, "VES")} en ${accountName}.`
+    : `Quedarán ${formatMoney(x.remainingAfter, "VES")} de tus cambios.`;
+}
+
+/** "Bs 12.300,00", "$40,00" o "85,00 USDT" según la cuenta. */
+export function accountMoney(a: { currency: string; kind: string }, v: Decimal.Value): string {
+  if (a.currency === "VES") return formatMoney(v, "VES");
+  if (a.kind === "crypto") return `${rateNum(v)} USDT`;
+  return formatMoney(v, "USD");
+}
+
+export type AccountBalanceView = {
+  name: string;
+  currency: string;
+  kind: string;
+  balance: Decimal.Value;
+};
+
+/** Saldo de una cuenta tras guardar: "💳 Banco de Venezuela: *Bs 12.300,00*". */
+export function accountLeft(a: AccountBalanceView): string {
+  return `💳 ${a.name}: *${accountMoney(a, a.balance)}*`;
+}
+
+/**
+ * "Mis cuentas": saldo de cada una y el total, con los Bs a lo que valen hoy a la BCV.
+ */
+export function accountsSummary(v: {
+  accounts: AccountBalanceView[];
+  totalUsd: Decimal.Value | null;
+  ves: Decimal.Value;
+  rate: Decimal.Value | null;
+  dashboardUrl: string;
+}): Outbound {
+  if (!v.accounts.length)
+    return {
+      type: "text",
+      body: [
+        "💳 Aún no tienes cuentas.",
+        "Con cuentas sé de dónde sale cada pago y cuánto te queda en cada una (Banco, Binance, Zelle, efectivo).",
+        "Créalas aquí: _crea la cuenta Banesco en bolívares con 5.000_, o en el panel:",
+        `${v.dashboardUrl}/ajustes/cuentas`,
+      ].join("\n"),
+    };
+  const lines = ["💳 *Tus cuentas*"];
+  for (const a of v.accounts) lines.push(`• ${a.name}: *${accountMoney(a, a.balance)}*`);
+  if (v.totalUsd !== null) {
+    const bs =
+      v.rate && !new Decimal(v.ves).isZero() ? ` (los Bs a la BCV de hoy, ${rateNum(v.rate)})` : "";
+    lines.push("", `Total: *${formatMoney(v.totalUsd, "USD")}*${bs}`);
+  }
+  return { type: "text", body: lines.join("\n") };
+}
+
+/** No se pudo crear la cuenta por chat. */
+export function accountError(
+  code: "invalid" | "duplicate" | "missing" | "too_many" | "in_use",
+  name: string,
+  dashboardUrl: string,
+): Outbound {
+  const body =
+    code === "duplicate"
+      ? `Ya tienes una cuenta llamada *${name}*. Si quieres cambiarle el saldo, hazlo en el panel: ${dashboardUrl}/ajustes/cuentas`
+      : code === "too_many"
+        ? `Ya tienes el máximo de cuentas. Archiva alguna en el panel: ${dashboardUrl}/ajustes/cuentas`
+        : "No pude crear la cuenta. Escríbela así: _crea la cuenta Banesco en bolívares con 5.000_";
+  return { type: "text", body };
+}
+
+/** Cuenta creada por chat. */
+export function accountCreated(a: AccountBalanceView): Outbound {
+  return {
+    type: "text",
+    body: `✅ Creé la cuenta *${a.name}* con ${accountMoney(a, a.balance)}. Cuando pagues o cobres por ahí, dímelo: _pagué 500 Bs de luz con ${a.name}_`,
+  };
 }
 
 /**
@@ -666,13 +760,20 @@ export function exchangeDraft(v: {
   rate: Decimal.Value;
   businessDate: string;
   today: IsoDate;
+  fromAccountName?: string | null | undefined;
+  accountName?: string | null | undefined;
 }): Outbound {
+  const accounts =
+    v.fromAccountName || v.accountName
+      ? [`De ${v.fromAccountName ?? "—"} → a ${v.accountName ?? "—"}`]
+      : [];
   return {
     type: "buttons",
     body: [
       "*Cambio por confirmar*",
       `${rateNum(v.usd)} USDT → *${formatMoney(v.ves, "VES")}*`,
       `Tasa: ${rateNum(v.rate)}`,
+      ...accounts,
       dateLine(v.businessDate, v.today),
     ].join("\n"),
     buttons: [
@@ -689,10 +790,14 @@ export function exchangeSaved(v: {
   rate: Decimal.Value;
   left: Decimal.Value;
   askMode: boolean;
+  /** Las cuentas tocadas (0013): su saldo reemplaza al de los cambios. */
+  accounts?: AccountBalanceView[];
 }): Outbound {
   const body = [
     `✅ Cambio guardado: ${rateNum(v.usd)} USDT → ${formatMoney(v.ves, "VES")} a ${rateNum(v.rate)}.`,
-    `💱 Saldo de tus cambios: *${formatMoney(v.left, "VES")}*.`,
+    ...(v.accounts?.length
+      ? v.accounts.map(accountLeft)
+      : [`💱 Saldo de tus cambios: *${formatMoney(v.left, "VES")}*.`]),
   ];
   if (!v.askMode) return { type: "text", body: body.join("\n") };
   body.push("", "¿Tus gastos en Bs salen de estos cambios?");
@@ -836,14 +941,19 @@ export function expenseDraft(d: ExpenseDraftView): Outbound {
   // sola (971,48) no se entiende.
   const parts = d.exchange?.parts ?? [];
   if (parts.length >= 2) {
-    lines.push(`${formatMoney(d.amountUsd, "USD")} · de tus cambios:`);
+    lines.push(
+      `${formatMoney(d.amountUsd, "USD")} · ${d.accountName ? `de ${d.accountName}` : "de tus cambios"}:`,
+    );
     for (const p of parts)
-      lines.push(`• ${shortBs(p.ves)} a ${shortRate(p.rate)} → ${formatMoney(p.usd, "USD")}`);
+      lines.push(
+        `• ${shortBs(p.ves)} a ${shortRate(p.rate)}${partOrigin(p)} → ${formatMoney(p.usd, "USD")}`,
+      );
   } else lines.push(equivalentLine(d));
   lines.push(`Categoría: ${d.categoryName ?? "Otros"}`);
+  if (d.accountName) lines.push(`Cuenta: ${d.accountName}`);
   lines.push(dateLine(d.businessDate, d.today));
   if (d.currencyInferred) lines.push(inferredNote(d.currency));
-  if (d.exchange) lines.push(exchangeNote(d.exchange));
+  if (d.exchange) lines.push(exchangeNote(d.exchange, d.accountName));
   return {
     type: "buttons",
     body: lines.join("\n"),
@@ -870,6 +980,9 @@ export function expensesDraft(v: ExpensesDraftView): Outbound {
   if (v.transcript) lines.push(`Entendí: _"${v.transcript}"_`);
   lines.push(`*${v.items.length} gastos por confirmar*`);
   const sameDay = v.items.every((i) => i.businessDate === v.items[0]?.businessDate);
+  // Una sola cuenta para todos va en su línea; si son varias, cada renglón dice la suya.
+  const accountNames = [...new Set(v.items.map((i) => i.accountName ?? null))];
+  const oneAccount = accountNames.length === 1 ? accountNames[0] : undefined;
   let totalUsd = new Decimal(0);
   let totalVes = new Decimal(0);
   v.items.forEach((d, i) => {
@@ -877,8 +990,9 @@ export function expensesDraft(v: ExpensesDraftView): Outbound {
     totalVes = totalVes.plus(d.amountVes);
     const main = formatMoney(d.amount, d.currency);
     const day = sameDay ? "" : ` · ${relativeDay(d.businessDate, v.today).toLowerCase()}`;
+    const acct = oneAccount === undefined && d.accountName ? ` · ${d.accountName}` : "";
     lines.push(
-      `${i + 1}. ${d.description ?? "Sin descripción"}: *${main}* · ${d.categoryName ?? "Otros"}${day}`,
+      `${i + 1}. ${d.description ?? "Sin descripción"}: *${main}* · ${d.categoryName ?? "Otros"}${acct}${day}`,
     );
   });
   const first = v.items[0];
@@ -892,6 +1006,7 @@ export function expensesDraft(v: ExpensesDraftView): Outbound {
   lines.push(
     `Total: *${formatMoney(totalUsd, "USD")}* · ${formatMoney(totalVes, "VES")}${rateText}`,
   );
+  if (oneAccount) lines.push(`Cuenta: ${oneAccount}`);
   if (sameDay && first) lines.push(dateLine(first.businessDate, v.today));
   const inferred = v.items.find((i) => i.currencyInferred);
   if (inferred) lines.push(inferredNote(inferred.currency));
@@ -901,7 +1016,9 @@ export function expensesDraft(v: ExpensesDraftView): Outbound {
       (s, i) => s.plus(i.exchange?.uncoveredVes ?? 0),
       new Decimal(0),
     );
-    lines.push(exchangeNote({ ...lastLot, uncoveredVes: uncovered.toFixed(2) }));
+    lines.push(
+      exchangeNote({ ...lastLot, uncoveredVes: uncovered.toFixed(2) }, oneAccount ?? null),
+    );
   }
   return {
     type: "buttons",
@@ -1072,6 +1189,7 @@ export type IncomeLineView = {
   currency: "USD" | "VES";
   amountUsd: Decimal.Value;
   amountVes: Decimal.Value;
+  accountName?: string | null | undefined;
 };
 
 export type IncomeDayTotalView = {
@@ -1093,9 +1211,10 @@ export type IncomeDayTotalView = {
 
 function lineText(l: IncomeLineView, label: string): string {
   const main = formatMoney(l.amount, l.currency);
+  const acct = l.accountName ? ` → ${l.accountName}` : "";
   return l.currency === "VES"
-    ? `${label}: *${main}* (${formatMoney(l.amountUsd, "USD")})`
-    : `${label}: *${main}*`;
+    ? `${label}: *${main}* (${formatMoney(l.amountUsd, "USD")})${acct}`
+    : `${label}: *${main}*${acct}`;
 }
 
 export function incomeDayTotalDraft(v: IncomeDayTotalView): Outbound {
@@ -1187,6 +1306,7 @@ export type IncomeSingleView = {
   description: string | null;
   transcript: string | null;
   replacedPrevious: boolean;
+  accountName?: string | null | undefined;
 };
 
 export function incomeSingleDraft(v: IncomeSingleView): Outbound {
@@ -1198,6 +1318,7 @@ export function incomeSingleDraft(v: IncomeSingleView): Outbound {
   const how = v.method === "unspecified" ? "" : ` por ${v.methodLabel}`;
   lines.push(v.description ? `${v.description}: *${main}*${how}` : `*${main}*${how}`);
   lines.push(equivalentLine(v));
+  if (v.accountName) lines.push(`Cuenta: ${v.accountName}`);
   lines.push(dateLine(v.businessDate, v.today));
   if (v.currencyInferred) lines.push(inferredNote(v.currency));
   return {
@@ -1405,6 +1526,7 @@ export type Snapshot = {
   categoryName: string | null;
   description: string | null;
   paymentMethod: string;
+  accountName?: string | null | undefined;
 };
 
 function shortMovement(
@@ -1451,6 +1573,7 @@ export function amendDraft(v: {
     lines.push(
       `Fecha: ${formatShortDate(asIsoDate(b.businessDate))} → *${formatShortDate(asIsoDate(a.businessDate))}*`,
     );
+  if (has("accountId")) lines.push(`Cuenta: ${b.accountName ?? "—"} → *${a.accountName ?? "—"}*`);
   return {
     type: "buttons",
     body: lines.join("\n"),

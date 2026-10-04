@@ -8,6 +8,7 @@ import {
   deleteExchangeLot,
   ExchangeError,
   implausibleExchangeRate,
+  listAccounts,
   parseVenezuelanAmount,
 } from "@caja/core";
 import { withTenant } from "@caja/db";
@@ -36,6 +37,8 @@ const AddForm = z.object({
   ves: z.string().max(30).optional(),
   rate: z.string().max(30).optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  from_account: z.union([z.string().uuid(), z.literal("")]).optional(),
+  to_account: z.union([z.string().uuid(), z.literal("")]).optional(),
 });
 
 /** Registrar un cambio USDT → Bs desde el dashboard (0012). Solo el dueño. */
@@ -56,8 +59,12 @@ export async function createExchangeAction(formData: FormData): Promise<void> {
   );
   if (absurd) redirect(`${BACK}?error=tasa`);
   try {
-    await withTenant(db(), tenant.id, (tx) =>
-      createExchangeLot(tx, {
+    await withTenant(db(), tenant.id, async (tx) => {
+      // Solo cuentas del negocio, de la moneda que toca.
+      const accounts = await listAccounts(tx, tenant.id);
+      const own = (id: string | undefined, currency: "USD" | "VES") =>
+        accounts.find((a) => a.id === id && a.currency === currency)?.id ?? null;
+      return createExchangeLot(tx, {
         tenantId: tenant.id,
         businessDate: parsed.data.date,
         usd: ex.usd,
@@ -65,8 +72,10 @@ export async function createExchangeAction(formData: FormData): Promise<void> {
         rate: ex.rate,
         actor: { userId: user.id },
         channel: "dashboard",
-      }),
-    );
+        accountId: own(parsed.data.to_account, "VES"),
+        fromAccountId: own(parsed.data.from_account, "USD"),
+      });
+    });
   } catch (err) {
     if (err instanceof ExchangeError) redirect(`${BACK}?error=datos`);
     console.error(JSON.stringify({ level: "error", msg: "cambio", detail: String(err) }));

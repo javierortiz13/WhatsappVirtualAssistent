@@ -39,14 +39,16 @@ import {
   completeExchange,
   createExchangeLot,
   ExchangeDraft,
-  exchangeLots,
   implausibleExchangeRate,
   type LotPart,
+  lotBalance,
   planAllocation,
   saveAllocation,
   setBsRateMode,
+  takesFromLots,
 } from "../ledger/exchange";
 import {
+  accountBalances,
   amendMovement,
   applyBsChoice,
   createExpense,
@@ -64,9 +66,11 @@ import {
   IncomeDayTotalDraft,
   IncomeSingleDraft,
   insertDraft,
+  listAccounts,
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,
   renderSummary,
+  resolveAccount,
   resolveMismatch,
 } from "../ledger/index";
 import { NoRateError, rateFor } from "../ledger/rate-for";
@@ -944,11 +948,30 @@ async function handleExchangeShot(
       body: `[captura de cambio de USDT] ${ex.usd.toFixed(2)} USDT → ${ex.ves.toFixed(2)} VES`,
     })
     .where(eq(schema.message.waMessageId, msg.waMessageId));
+  // Cuentas (0013): los USDT salen de Binance (o la nombrada en el texto) y los Bs entran al banco.
+  const accounts = await listAccounts(tx, ctx.tenantId);
+  const caption = msg.caption ?? "";
+  const to = resolveAccount(accounts, {
+    currency: "VES",
+    text: caption,
+    preferKind: "bank",
+    strictCurrency: true,
+  });
+  const from = resolveAccount(accounts, {
+    currency: "USD",
+    text: caption,
+    preferKind: "crypto",
+    strictCurrency: true,
+  });
   const payload: ExchangeDraft = {
     usd: ex.usd.toFixed(2),
     ves: ex.ves.toFixed(2),
     rate: ex.rate.toFixed(8),
     businessDate,
+    accountId: to?.id ?? null,
+    accountName: to?.name ?? null,
+    fromAccountId: from?.id ?? null,
+    fromAccountName: from?.name ?? null,
   };
   const { pendingId } = await insertDraft(
     tx,
@@ -1500,6 +1523,7 @@ async function runAgent(
         defaultCurrency: ctx.defaultCurrency,
         vesThreshold: ctx.vesThreshold,
         bsRateMode: ctx.bsRateMode ?? "bcv",
+        accounts: await listAccounts(tx, ctx.tenantId),
         categories,
         today: ctx.today,
         sourceMessageDbId: current?.id ?? null,
@@ -1578,7 +1602,9 @@ async function executePending(
         es.expenseSaved(total.usd, total.count, budgets, dayWord(ctx, draft.businessDate)),
         "✅ Guardado.",
       );
-      return none([fromLots ? await withExchangeLeft(tx, ctx, saved) : saved]);
+      return none([
+        await withLeftLines(tx, ctx, saved, { accountIds: [draft.accountId], fromLots }),
+      ]);
     }
     case "create_expenses": {
       const draft = ExpensesDraft.parse(pending.payload);
@@ -1607,7 +1633,12 @@ async function executePending(
         ),
         `✅ Guardados ${draft.items.length} gastos.`,
       );
-      return none([fromLots ? await withExchangeLeft(tx, ctx, saved) : saved]);
+      return none([
+        await withLeftLines(tx, ctx, saved, {
+          accountIds: draft.items.map((i) => i.accountId),
+          fromLots,
+        }),
+      ]);
     }
     case "create_exchange": {
       const draft = ExchangeDraft.parse(pending.payload);
@@ -1619,18 +1650,24 @@ async function executePending(
         rate: new Decimal(draft.rate),
         actor: { phoneId: ctx.phoneId },
         channel: "whatsapp",
+        accountId: draft.accountId ?? null,
+        fromAccountId: draft.fromAccountId ?? null,
       });
       await tx
         .update(schema.pendingAction)
         .set({ status: "confirmed", resolvedAt: nowTs })
         .where(eq(schema.pendingAction.id, pending.id));
-      const lots = await exchangeLots(tx, ctx.tenantId, { active: true });
+      const balances =
+        draft.accountId || draft.fromAccountId ? await accountBalances(tx, ctx.tenantId) : [];
       return none([
         es.exchangeSaved({
           usd: draft.usd,
           ves: draft.ves,
           rate: draft.rate,
-          left: lots.reduce((s, l) => s.plus(l.vesRemaining), new Decimal(0)),
+          left: await lotBalance(tx, ctx.tenantId, draft.accountId ?? null),
+          accounts: balances.filter(
+            (a) => a.id === draft.accountId || a.id === draft.fromAccountId,
+          ),
           // El primer cambio de un negocio a la BCV: ¿sus gastos en Bs salen de aquí?
           askMode: ctx.role === "owner" && (ctx.bsRateMode ?? "bcv") === "bcv",
         }),
@@ -1669,6 +1706,7 @@ async function executePending(
           method: l.method,
           amount: new Decimal(l.amount),
           currency: l.currency,
+          accountId: l.accountId ?? null,
         })),
         replace: draft.mode === "replace",
         actor: { phoneId: ctx.phoneId },
@@ -1687,16 +1725,20 @@ async function executePending(
         .set({ status: "confirmed", resolvedAt: nowTs })
         .where(eq(schema.pendingAction.id, pending.id));
       const totals = await dayTotals(tx, ctx.tenantId, asIsoDate(draft.businessDate));
+      const saved = ownerView(
+        ctx,
+        es.incomeSaved(totals.salesUsd, totals.expensesUsd, {
+          replaced: created.replaced,
+          isToday: draft.businessDate === ctx.today,
+          dateLabel: formatShortDate(asIsoDate(draft.businessDate)),
+        }),
+        "✅ Venta guardada.",
+      );
       return none([
-        ownerView(
-          ctx,
-          es.incomeSaved(totals.salesUsd, totals.expensesUsd, {
-            replaced: created.replaced,
-            isToday: draft.businessDate === ctx.today,
-            dateLabel: formatShortDate(asIsoDate(draft.businessDate)),
-          }),
-          "✅ Venta guardada.",
-        ),
+        await withLeftLines(tx, ctx, saved, {
+          accountIds: draft.lines.map((l) => l.accountId),
+          fromLots: false,
+        }),
       ]);
     }
     case "create_income_single": {
@@ -1704,7 +1746,12 @@ async function executePending(
       await createIncomeSingle(tx, {
         tenantId: ctx.tenantId,
         businessDate: asIsoDate(draft.businessDate),
-        line: { method: draft.method, amount: new Decimal(draft.amount), currency: draft.currency },
+        line: {
+          method: draft.method,
+          amount: new Decimal(draft.amount),
+          currency: draft.currency,
+          accountId: draft.accountId ?? null,
+        },
         description: draft.description,
         actor: { phoneId: ctx.phoneId },
         sourceChannel: draft.sourceChannel,
@@ -1722,16 +1769,17 @@ async function executePending(
         .set({ status: "confirmed", resolvedAt: nowTs })
         .where(eq(schema.pendingAction.id, pending.id));
       const totals = await dayTotals(tx, ctx.tenantId, asIsoDate(draft.businessDate));
+      const saved = ownerView(
+        ctx,
+        es.incomeSaved(totals.salesUsd, totals.expensesUsd, {
+          replaced: 0,
+          isToday: draft.businessDate === ctx.today,
+          dateLabel: formatShortDate(asIsoDate(draft.businessDate)),
+        }),
+        "✅ Venta guardada.",
+      );
       return none([
-        ownerView(
-          ctx,
-          es.incomeSaved(totals.salesUsd, totals.expensesUsd, {
-            replaced: 0,
-            isToday: draft.businessDate === ctx.today,
-            dateLabel: formatShortDate(asIsoDate(draft.businessDate)),
-          }),
-          "✅ Venta guardada.",
-        ),
+        await withLeftLines(tx, ctx, saved, { accountIds: [draft.accountId], fromLots: false }),
       ]);
     }
     case "edit_last": {
@@ -1839,8 +1887,14 @@ async function saveDraftExpense(tx: Tx, ctx: RouteCtx, item: ExpenseDraft): Prom
     source: item.rateSource,
   };
   let parts: LotPart[] = [];
+  const accountId = item.accountId ?? null;
+  // De los lotes (su tasa) o de una cuenta en Bs (a la BCV, pero sus Bs salen de los lotes de la
+  // cuenta para que queden al día).
+  const plan = takesFromLots("expense", item.currency, item.rateSource, accountId)
+    ? await planAllocation(tx, ctx.tenantId, new Decimal(item.amount), { lock: true, accountId })
+    : null;
+  if (plan) parts = plan.parts;
   if (item.rateSource === "exchange" && item.currency === "VES") {
-    const plan = await planAllocation(tx, ctx.tenantId, new Decimal(item.amount), { lock: true });
     if (plan) {
       rate = {
         id: null,
@@ -1848,7 +1902,6 @@ async function saveDraftExpense(tx: Tx, ctx: RouteCtx, item: ExpenseDraft): Prom
         effectiveDate: businessDate,
         source: "exchange",
       };
-      parts = plan.parts;
     } else {
       // Los cambios se borraron mientras esperaba: a la BCV.
       const { rate: bcv } = await rateFor(tx, businessDate);
@@ -1871,19 +1924,38 @@ async function saveDraftExpense(tx: Tx, ctx: RouteCtx, item: ExpenseDraft): Prom
     actor: { phoneId: ctx.phoneId },
     sourceMessageId: item.sourceMessageId,
     attachmentId: item.attachmentId,
+    accountId,
     rate,
   });
   if (parts.length) await saveAllocation(tx, ctx.tenantId, created.id, parts);
   return rate.source === "exchange";
 }
 
-/** Al guardar de los lotes, el mensaje dice cuántos Bs quedan de los cambios. */
-async function withExchangeLeft(tx: Tx, ctx: RouteCtx, out: Outbound): Promise<Outbound> {
-  const lots = await exchangeLots(tx, ctx.tenantId, { active: true });
-  const left = lots.reduce((s, l) => s.plus(l.vesRemaining), new Decimal(0));
-  const line = es.exchangeLeft(left);
+/**
+ * Al guardar, el mensaje dice cuánto queda: el saldo de cada cuenta tocada (0013) o, sin cuentas,
+ * los Bs que quedan de los cambios si el gasto salió de ellos.
+ */
+async function withLeftLines(
+  tx: Tx,
+  ctx: RouteCtx,
+  out: Outbound,
+  opts: { accountIds: (string | null | undefined)[]; fromLots: boolean },
+): Promise<Outbound> {
+  const ids = [...new Set(opts.accountIds.filter((id): id is string => !!id))];
+  const lines: string[] = [];
+  if (ids.length) {
+    const all = await accountBalances(tx, ctx.tenantId);
+    for (const id of ids) {
+      const a = all.find((x) => x.id === id);
+      if (a) lines.push(es.accountLeft(a));
+    }
+  } else if (opts.fromLots) {
+    lines.push(es.exchangeLeft(await lotBalance(tx, ctx.tenantId, null)));
+  }
+  if (!lines.length || ctx.role !== "owner") return out;
+  const tail = lines.join("\n");
   return out.type === "text" || out.type === "buttons"
-    ? { ...out, body: `${out.body}\n${line}` }
+    ? { ...out, body: `${out.body}\n${tail}` }
     : out;
 }
 
