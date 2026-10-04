@@ -855,4 +855,45 @@ describe("fotos de facturas", () => {
     );
     await cancelAll(client, sent);
   });
+  const BINANCE: ReceiptExtraction = {
+    is_receipt: false,
+    total: "30000",
+    currency: "VES",
+    date: "",
+    vendor: "Binance",
+    line_items_count: 0,
+    confidence: 0.95,
+    document_type: "usdt_exchange",
+    exchange: { side: "sell", usdt_amount: "30.88", fiat_amount: "30000", price: "973.15" },
+  };
+
+  it("captura de Binance (vender USDT): borrador del cambio a la tasa real, sin foto; Guardar crea el lote", async () => {
+    const { sent, client } = fakeMeta();
+    const before = store.objects.size;
+    await sendImage(client, fakeVision(BINANCE), true);
+    const body = textOf(sent[1]);
+    expect(body.startsWith("🧾 Leí tu cambio de Binance:")).toBe(true);
+    expect(body).toContain("30,88 USDT → *Bs 30.000,00*");
+    // Bs ÷ USDT de verdad (971,50), no el "USDT Price" con la comisión (973,15).
+    expect(body).toContain("Tasa: 971,50");
+    expect(store.objects.size).toBe(before);
+    await tap(client, null, buttonsOf(sent[1])[0]?.id as string, "Guardar");
+    expect(textOf(sent[2])).toContain("✅ Cambio guardado: 30,88 USDT → Bs 30.000,00 a 971,50.");
+    const lots = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.exchangeLot));
+    expect(lots.at(-1)).toMatchObject({ usdAmount: "30.88", vesAmount: "30000.00" });
+  });
+
+  it("captura de Binance comprando USDT: lo dice y no arma nada", async () => {
+    const { sent, client } = fakeMeta();
+    await sendImage(
+      client,
+      fakeVision({
+        ...BINANCE,
+        exchange: { side: "buy", usdt_amount: "30.88", fiat_amount: "30000", price: "973.15" },
+      }),
+      true,
+    );
+    expect(textOf(sent[1])).toContain("Es una compra de USDT");
+    expect(sent).toHaveLength(2);
+  });
 });

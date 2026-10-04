@@ -16,7 +16,13 @@ import {
   renewPayToReply,
   renewReferenceReply,
 } from "../billing/index";
-import { asIsoDate, businessDateOf, formatShortDate } from "../domain/dates";
+import {
+  asIsoDate,
+  businessDateOf,
+  daysBetween,
+  formatShortDate,
+  isIsoDate,
+} from "../domain/dates";
 import { Decimal, parseVenezuelanAmount } from "../domain/money";
 import { isUsable, pagoMovilData } from "../domain/pago-movil";
 import {
@@ -30,9 +36,11 @@ import { createAttachment, discardAttachment } from "../ledger/attachments";
 import { budgetStatuses } from "../ledger/budgets";
 import {
   type BsRateMode,
+  completeExchange,
   createExchangeLot,
   ExchangeDraft,
   exchangeLots,
+  implausibleExchangeRate,
   type LotPart,
   planAllocation,
   saveAllocation,
@@ -55,6 +63,7 @@ import {
   expenseTotalForDay,
   IncomeDayTotalDraft,
   IncomeSingleDraft,
+  insertDraft,
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,
   renderSummary,
@@ -780,6 +789,14 @@ async function handleImage(
     "factura leída",
   );
   const isPagoMovil = e.document_type === "pago_movil";
+  // Captura de un cambio en Binance (04/10): borrador del cambio, sin foto ni agente.
+  if (e.document_type === "usdt_exchange")
+    return {
+      ...(await handleExchangeShot(tx, ctx, msg, e, deps.now ?? (() => new Date()))),
+      costUsd: read.costUsd,
+      tokensIn: read.usage.inputTokens,
+      tokensOut: read.usage.outputTokens,
+    };
   if (!e.is_receipt && !isPagoMovil) return none([es.notAReceipt()]);
 
   // Respaldo en el bucket (provisional hasta Guardar). Sin bucket, el gasto se registra igual.
@@ -892,6 +909,62 @@ async function handleImage(
  * en el banco. Con monto, abajo va el borrador de gasto con la foto (Guardar cuando pague); sin
  * monto, se pregunta y la respuesta siguiente arma el borrador (como la factura ilegible).
  */
+/**
+ * Captura de una orden P2P de Binance (04/10): "Sell USDT · Fiat Amount Bs30,000 · Total Quantity
+ * 30.88 USDT". La tasa sale de lo que de verdad cambió (Bs ÷ USDT = 971,50), no del "USDT Price"
+ * (973,15): la diferencia es la comisión, y lo que importa es cuánto USDT costaron esos Bs.
+ */
+async function handleExchangeShot(
+  tx: Tx,
+  ctx: RouteCtx,
+  msg: Extract<InboundMessage, { kind: "image" }>,
+  e: ReceiptExtraction,
+  now: () => Date,
+): Promise<RouteResult> {
+  const x = e.exchange;
+  if (x?.side === "buy") return none([es.exchangeBuyShot()]);
+  const num = (v: string | undefined) => {
+    const t = (v ?? "").trim();
+    return /^\d+(\.\d+)?$/.test(t) && Number(t) > 0 ? new Decimal(t) : null;
+  };
+  const ex = completeExchange({
+    usd: num(x?.usdt_amount),
+    ves: num(x?.fiat_amount) ?? (e.currency === "VES" ? num(e.total) : null),
+    rate: num(x?.price),
+  });
+  if (!ex) return none([es.exchangeShotUnclear()]);
+  const read = e.date && isIsoDate(e.date) ? e.date : null;
+  const businessDate =
+    read && read <= ctx.today && daysBetween(asIsoDate(read), ctx.today) <= 31 ? read : ctx.today;
+  const absurd = await implausibleExchangeRate(tx, ex.rate, asIsoDate(businessDate));
+  if (absurd) return none([es.exchangeShotUnclear()]);
+  await tx
+    .update(schema.message)
+    .set({
+      body: `[captura de cambio de USDT] ${ex.usd.toFixed(2)} USDT → ${ex.ves.toFixed(2)} VES`,
+    })
+    .where(eq(schema.message.waMessageId, msg.waMessageId));
+  const payload: ExchangeDraft = {
+    usd: ex.usd.toFixed(2),
+    ves: ex.ves.toFixed(2),
+    rate: ex.rate.toFixed(8),
+    businessDate,
+  };
+  const { pendingId } = await insertDraft(
+    tx,
+    {
+      tenantId: ctx.tenantId,
+      phoneId: ctx.phoneId,
+      kind: "create_exchange",
+      payload,
+      replaces: null,
+    },
+    now(),
+  );
+  const draft = es.exchangeDraft({ pendingId, ...payload, today: ctx.today });
+  return none([...mergeOutbound(es.exchangeShotRead(), draft)]);
+}
+
 async function handlePagoMovil(
   tx: Tx,
   deps: ProcessDeps,

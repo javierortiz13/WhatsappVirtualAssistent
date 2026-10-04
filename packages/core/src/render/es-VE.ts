@@ -434,7 +434,7 @@ export function receiptRead(r: {
   date: string;
   total: string;
   currency: string;
-  document_type?: "expense" | "sales" | "pago_movil" | "unknown";
+  document_type?: "expense" | "sales" | "pago_movil" | "usdt_exchange" | "unknown";
   isPdf?: boolean;
 }): Outbound {
   const parts = [r.vendor || "proveedor no legible"];
@@ -733,6 +733,25 @@ export function bsModeSet(mode: "bcv" | "usdt" | "ask"): Outbound {
 
 export function bsModeOwnerOnly(): Outbound {
   return { type: "text", body: "De dónde sale la tasa de los Bs lo decide el dueño del negocio." };
+}
+
+/** Va arriba del borrador que sale de una captura de Binance. */
+export function exchangeShotRead(): Outbound {
+  return { type: "text", body: "🧾 Leí tu cambio de Binance:" };
+}
+
+export function exchangeShotUnclear(): Outbound {
+  return {
+    type: "text",
+    body: "Parece un cambio de USDT, pero no pude leer bien los montos. Escríbemelo: _cambié 30,88 usdt por 30.000 bs_",
+  };
+}
+
+export function exchangeBuyShot(): Outbound {
+  return {
+    type: "text",
+    body: "Es una compra de USDT (pagaste bolívares). Por ahora registro los cambios de USDT a Bs; si fue un gasto, escríbemelo.",
+  };
 }
 
 export function exchangeInvalid(): Outbound {

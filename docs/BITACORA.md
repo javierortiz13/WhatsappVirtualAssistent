@@ -670,3 +670,11 @@ Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más cla
 - QA en navegador (390 px): el formulario leía "49.250" como 49,25 y aceptaba una tasa de 0,99 → montos con la regla venezolana primero y la misma validación de tasa que el bot. Títulos de la lista acortados ("50 USDT a 985").
 
 **Tests:** núcleo (FIFO, ponderada, faltante, devolver al borrar y corregir, borrador múltiple, modo preguntar, borrar cambio usado), flujo por WhatsApp de punta a punta (registrar, modo, gastar, preguntar, saldo, tasa absurda), ajustes. Cinco casos de eval nuevos (109). 349 tests.
+
+### S2 · 04/10/2026 · Captura de Binance → cambio
+
+**Pedido (Javier):** que el bot reconozca la captura de la orden P2P de Binance ("Order Details · Sell USDT · Fiat Amount Bs30,000 · USDT Price Bs973.15 · Total Quantity 30.88 USDT") como un cambio, sin escribirlo.
+
+**Cambios:** el lector de fotos tiene `document_type: usdt_exchange` y `exchange` (side sell/buy, usdt_amount, fiat_amount, price), con la regla de que Binance escribe los montos en formato inglés (coma de miles, punto decimal). La foto no se guarda ni pasa por el agente: sale "🧾 Leí tu cambio de Binance:" + el borrador del cambio con Guardar. La tasa es Bs ÷ USDT reales (30.000 ÷ 30,88 = 971,50), no el "USDT Price" (973,15): la diferencia es la comisión y lo que importa es cuánto USDT costaron esos Bs. Fecha de la orden si se ve y es del último mes; si no, hoy. Una compra de USDT (Buy) se explica y no arma nada; montos ilegibles o tasa absurda piden escribirlo.
+
+**Tests:** venta → borrador a 971,50 sin foto → Guardar crea el lote; compra → aviso. 351 tests. **Sin probar con el modelo real:** la lectura de la captura verdadera.

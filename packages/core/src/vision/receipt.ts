@@ -20,10 +20,24 @@ export const ReceiptExtraction = z.object({
    * 03/10: un reporte de ventas del propio negocio es dinero que entró, no un gasto. `pago_movil`:
    * los datos de alguien a quien hay que pagar (banco, teléfono, cédula), todavía sin pagar.
    */
-  document_type: z.enum(["expense", "sales", "pago_movil", "unknown"]).default("unknown"),
+  document_type: z
+    .enum(["expense", "sales", "pago_movil", "usdt_exchange", "unknown"])
+    .default("unknown"),
   /** Datos de pago móvil, solo con `document_type` pago_movil ("" en lo que no aplica). */
   payee: z
     .object({ bank: z.string(), phone: z.string(), id_number: z.string(), holder: z.string() })
+    .optional(),
+  /**
+   * 04/10: captura de una orden P2P de Binance (u otra app de cambio): vendió USDT y recibió Bs.
+   * Solo con `document_type` usdt_exchange; montos con punto decimal, "" si no se ven.
+   */
+  exchange: z
+    .object({
+      side: z.enum(["sell", "buy", "unknown"]),
+      usdt_amount: z.string(),
+      fiat_amount: z.string(),
+      price: z.string(),
+    })
     .optional(),
 });
 export type ReceiptExtraction = z.infer<typeof ReceiptExtraction>;
@@ -46,6 +60,7 @@ export const READ_RECEIPT_TOOL: LlmToolDef = {
       "confidence",
       "document_type",
       "payee",
+      "exchange",
     ],
     properties: {
       is_receipt: {
@@ -83,9 +98,39 @@ export const READ_RECEIPT_TOOL: LlmToolDef = {
       },
       document_type: {
         type: "string",
-        enum: ["expense", "sales", "pago_movil", "unknown"],
+        enum: ["expense", "sales", "pago_movil", "usdt_exchange", "unknown"],
         description:
-          '"sales" si registra dinero que el negocio del usuario RECIBIÓ (reporte, detalle o cierre de ventas; factura o recibo emitido POR el negocio del usuario a un cliente). "expense" si es algo que el negocio PAGÓ a otro comercio o proveedor (incluye el comprobante de un pago móvil ya hecho, con referencia). "pago_movil" si son los DATOS para hacer un pago móvil (banco, teléfono y cédula o RIF de quien cobra), sin pago hecho todavía. "unknown" si no se puede saber.',
+          '"sales" si registra dinero que el negocio del usuario RECIBIÓ (reporte, detalle o cierre de ventas; factura o recibo emitido POR el negocio del usuario a un cliente). "expense" si es algo que el negocio PAGÓ a otro comercio o proveedor (incluye el comprobante de un pago móvil ya hecho, con referencia). "pago_movil" si son los DATOS para hacer un pago móvil (banco, teléfono y cédula o RIF de quien cobra), sin pago hecho todavía. "usdt_exchange" si es una orden de cambio de USDT por bolívares (Binance P2P u otra app de cambio). "unknown" si no se puede saber.',
+      },
+      exchange: {
+        type: "object",
+        additionalProperties: false,
+        required: ["side", "usdt_amount", "fiat_amount", "price"],
+        description:
+          'Solo si document_type es "usdt_exchange"; si no, side "unknown" y lo demás "". Montos con punto decimal y sin separador de miles.',
+        properties: {
+          side: {
+            type: "string",
+            enum: ["sell", "buy", "unknown"],
+            description:
+              '"sell" si vendió USDT y recibió bolívares (Sell USDT, Vender); "buy" si compró USDT pagando bolívares (Buy USDT, Comprar).',
+          },
+          usdt_amount: {
+            type: "string",
+            description:
+              'USDT de la orden (Total Quantity, Cantidad), ej. "30.88"; "" si no se ve.',
+          },
+          fiat_amount: {
+            type: "string",
+            description:
+              'Bolívares de la orden (Fiat Amount, Monto fiat), ej. "30000"; "" si no se ve.',
+          },
+          price: {
+            type: "string",
+            description:
+              'Precio del USDT en Bs (USDT Price, Precio), ej. "973.15"; "" si no se ve.',
+          },
+        },
       },
       payee: {
         type: "object",
@@ -120,6 +165,7 @@ const RECEIPT_SYSTEM = [
   "Moneda: Bs, Bs., BsS, VES o 'bolívares' es VES; $, USD o 'dólares' es USD. 'Ref' suele ser USD de referencia; si el pago fue en Bs, la moneda es VES.",
   "document_type: mira quién emite el documento. Si el emisor es el negocio del usuario (su nombre viene en el mensaje) o el título habla de ventas, cierre de caja o ingresos, es 'sales'. Si lo emite otro comercio y el negocio del usuario es el cliente, es 'expense'.",
   "Si la parte entera del total se lee clara pero los céntimos están cortados o borrosos (la foto cortó el borde), devuelve el total con los decimales que se vean (o sin decimales) y confianza 0.7: unos céntimos no cambian el gasto y el usuario confirma el borrador. Baja la confianza de 0.6 solo si no se lee algún dígito de la parte entera o la moneda.",
+  "Orden de cambio de USDT (captura de Binance P2P 'Order Details' con Sell USDT o Buy USDT, Fiat Amount, USDT Price, Total Quantity, o de otra app de cambio): is_receipt=false, document_type='usdt_exchange', y llena exchange. OJO: Binance escribe los montos en formato inglés, coma de miles y punto decimal: 'Bs30,000' = 30000, 'Bs973.15' = 973.15, '30.88 USDT' = 30.88. En total pon los bolívares (fiat_amount) y currency VES. La fecha de la orden, si se ve, en date.",
   "Datos de pago móvil (una nota, captura o cartel con banco, teléfono y cédula o RIF para que le paguen a alguien): is_receipt=false, document_type='pago_movil', copia cada dato en payee sin cambiar dígitos, y en total el monto a pagar si aparece (\"\" si no). Un comprobante de pago móvil YA hecho (operación exitosa, número de referencia) no es esto: es 'expense'.",
   "Si la imagen o el PDF no es una factura, recibo, ticket o comprobante (un contrato, un estado de cuenta, una cotización, un menú), is_receipt=false. No inventes cifras: si no se lee, deja el campo vacío y baja la confianza.",
 ].join("\n");
@@ -146,6 +192,7 @@ const EMPTY: ReceiptExtraction = {
   confidence: 0,
   document_type: "unknown",
   payee: { bank: "", phone: "", id_number: "", holder: "" },
+  exchange: { side: "unknown", usdt_amount: "", fiat_amount: "", price: "" },
 };
 
 export function createReceiptReader(llm: LlmClient): ReceiptReader {
