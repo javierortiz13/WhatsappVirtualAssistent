@@ -276,6 +276,18 @@ describe("agent loop", () => {
     expect((emp.outbound[0] as { body: string }).body).toContain("lo ve el dueño");
   });
 
+  it("reject_out_of_scope con help manda la lista de funciones", async () => {
+    const r = await run(
+      fakeLlm([call("reject_out_of_scope", { reason: "help" })]).client,
+      "oye y tú qué cosas me resuelves?",
+    );
+    expect(r.status).toBe("ok");
+    const body = (r.outbound[0] as { body: string }).body;
+    expect(body).toContain("Esto es lo que puedo hacer:");
+    expect(body).toContain("• Cuentas:");
+    expect(body).toContain("• Transferencias:");
+  });
+
   it("reject_out_of_scope y get_bcv_rate", async () => {
     const rej = await run(
       fakeLlm([call("reject_out_of_scope", { reason: "general_chat" })]).client,

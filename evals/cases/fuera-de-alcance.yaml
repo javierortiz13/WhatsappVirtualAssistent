@@ -34,3 +34,9 @@
     tool: reject_out_of_scope
     args: { reason: dashboard_link }
 
+
+- name: preguntar las funciones da la ayuda
+  input: "oye y tú qué cosas me resuelves?"
+  expect:
+    tool: reject_out_of_scope
+    args: { reason: help }

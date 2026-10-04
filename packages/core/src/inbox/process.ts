@@ -2129,7 +2129,8 @@ export function classifyKeyword(text: string): Keyword {
     ].includes(t)
   )
     return "rate";
-  if (["ayuda", "help", "que puedes hacer", "que haces"].includes(t)) return "help";
+  // "¿Cuáles son tus funciones?", "qué sabes hacer", "cómo te uso": mensaje corto, sin cifras.
+  if (HELP_WORDS.test(t) && !/\d/.test(t) && t.split(" ").length <= 8) return "help";
   if (["cierre", "cierre de hoy", "cierre del dia", "como fue hoy", "como vamos hoy"].includes(t))
     return "close";
   if (
@@ -2158,6 +2159,9 @@ export function classifyKeyword(text: string): Keyword {
     return "dashboard";
   return null;
 }
+
+const HELP_WORDS =
+  /^(ayuda|help|comandos|opciones|instrucciones)$|\b(tus funciones|que funciones|que (puedes|sabes|haces|mas puedes) hacer|que haces|que mas haces|para que sirves|como funcionas|como te uso|como se usa|como funciona esto)\b/;
 
 const DASHBOARD_WORDS = /\b(dashboard|dashbord|dasboard|panel|link|enlace|pagina|web)\b/;
 

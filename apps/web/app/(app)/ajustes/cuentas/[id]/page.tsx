@@ -70,7 +70,8 @@ export default async function EstadoDeCuenta({
         <span className="label">{a.name}</span>
         <p className={`big num ${a.balance.isNegative() ? "neg" : ""}`}>{money(a, a.balance)}</p>
         <p className="sub">
-          {monthNameEs(month.from)}: entró {money(a, st.period.in)} · salió {money(a, st.period.out)}
+          {monthNameEs(month.from)}: entró {money(a, st.period.in)} · salió{" "}
+          {money(a, st.period.out)}
         </p>
       </section>
       <div className="card tight">

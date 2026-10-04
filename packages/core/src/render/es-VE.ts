@@ -89,7 +89,10 @@ export function help(dashboardUrl: string, supportHint: string | null): Outbound
     "• Calculadora: _cuánto es 8000 bs en $_, _17€ en bs_",
     "• Pago móvil: mándame la foto de los datos y te los paso listos para copiar en el banco",
     "• Cambios USDT: _cambié 100 usdt a 970_ y tus gastos en Bs salen a esa tasa",
-    "• Cuentas: _crea la cuenta Banesco en bolívares con 5.000_, _mis cuentas_, y al gastar _con Banesco_ o _en efectivo_",
+    "• Presupuestos: _cuánto me queda en insumos_",
+    "• Cuentas: _crea la cuenta Banesco en bolívares con 5.000_, _mis cuentas_, _cómo va Banesco_, y al gastar _con Banesco_ o _en efectivo_",
+    "• Transferencias: _pasé 100$ de Zelle a Binance_, _compré 50 usdt con 49.000 bs_",
+    "• Corregir o borrar lo último: _no, eran 25_, _bórralo_",
     `Para ver, corregir o exportar todo: ${dashboardUrl}`,
   ];
   if (supportHint) lines.push(`Si algo no funciona, escribe a una persona: ${supportHint}`);
@@ -339,7 +342,7 @@ export function codeExpired(registerUrl: string): Outbound {
 export function outOfScope(): Outbound {
   return {
     type: "buttons",
-    body: "Solo te ayudo con tu caja: registrar gastos, registrar ventas y ver el cierre. ¿Qué quieres hacer?",
+    body: "Solo te ayudo con tu caja: gastos, ventas, cierres, tasa, calculadora, cambios USDT y cuentas. Escribe *ayuda* para ver todo lo que hago. ¿Qué quieres hacer?",
     buttons: MENU_BUTTONS,
   };
 }
@@ -348,7 +351,7 @@ export function outOfScope(): Outbound {
 export function comingSoon(): Outbound {
   return {
     type: "text",
-    body: "Eso todavía no lo hago por chat. Lo que sí: _gasté 15$ en champú_ · _hoy vendí 350$: 200 efectivo, 150 pago móvil_ · _cierre_ · _cómo va el mes_ · _no, eran 25_ · _bórralo_",
+    body: "Eso todavía no lo hago por chat. Lo que sí: _gasté 15$ en champú_ · _hoy vendí 350$: 200 efectivo, 150 pago móvil_ · _cierre_ · _cómo va el mes_ · _mis cuentas_ · _no, eran 25_ · _bórralo_. Escribe *ayuda* para ver todo.",
   };
 }
 

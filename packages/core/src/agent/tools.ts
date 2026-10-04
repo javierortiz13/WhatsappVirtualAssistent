@@ -211,7 +211,7 @@ export const AskClarificationInput = z.object({
 
 export const RejectOutOfScopeInput = z.object({
   reason: z
-    .enum(["general_chat", "other_business_task", "unclear", "dashboard_link"])
+    .enum(["general_chat", "other_business_task", "unclear", "dashboard_link", "help"])
     .describe("Por qué no aplica ninguna función."),
 });
 
@@ -1467,11 +1467,17 @@ const askClarification: ToolSpec<typeof AskClarificationInput> = {
 const rejectOutOfScope: ToolSpec<typeof RejectOutOfScopeInput> = {
   name: "reject_out_of_scope",
   description:
-    "El mensaje no es un gasto, una venta, un ingreso, una corrección, un cierre o consulta, ni la tasa: saludos largos, preguntas generales, pedir que redactes algo, chistes, cualquier otra tarea (general_chat). También si pide algo de caja que no existe: inventario, deudas, clientes, presupuestos, corregir un movimiento que no sea el último (other_business_task). Borrar uno o varios de los últimos 30 minutos SÍ se puede: usa delete_last_movement. Si pide el enlace o la página del dashboard, o dónde ver, corregir o exportar sus movimientos en la web, usa reason dashboard_link: el sistema le manda el enlace.",
+    "El mensaje no es un gasto, una venta, un ingreso, una corrección, un cierre o consulta, ni la tasa: saludos largos, preguntas generales, pedir que redactes algo, chistes, cualquier otra tarea (general_chat). También si pide algo de caja que no existe: inventario, deudas, clientes, corregir un movimiento que no sea el último (other_business_task). Borrar uno o varios de los últimos 30 minutos SÍ se puede: usa delete_last_movement. Si pide el enlace o la página del dashboard, o dónde ver, corregir o exportar sus movimientos en la web, usa reason dashboard_link: el sistema le manda el enlace. Si pregunta qué puedes hacer, cuáles son tus funciones o cómo usarte, usa reason help: el sistema le manda la lista de funciones.",
   schema: RejectOutOfScopeInput,
   roles: ["owner", "employee"],
   strict: false,
   async run(input, run) {
+    if (input.reason === "help")
+      return {
+        kind: "terminal",
+        outbound: [es.help(run.ctx.dashboardUrl, run.ctx.billing?.supportHint ?? null)],
+        status: "ok",
+      };
     if (input.reason === "dashboard_link")
       return {
         kind: "terminal",

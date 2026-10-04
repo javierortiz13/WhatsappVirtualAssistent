@@ -726,3 +726,9 @@ Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más cla
 - QA en navegador (390 px): transferencia con comisión, compra de USDT, compra sin USDT recibidos, dólares → Bs (manda a Cambios), misma cuenta, estado de cuenta y borrar. Corregido: el mes salía "2026-10" y la compra mostraba "50,00" sin "USDT".
 
 **Tests:** núcleo (montos por moneda, comisión como gasto, Bs con su costo, compra de USDT, errores, extracto con saldo por línea, borrar) y WhatsApp (transferencia con comisión, compra de USDT con montos al revés, detalle de una cuenta, captura de compra con cuentas). Cinco casos de eval (121). 381 tests.
+
+### S2 · 04/10/2026 · "¿Cuáles son tus funciones?" responde la ayuda completa
+
+**Reporte (Javier):** "Cuáles son tus funciones" caía en fuera de alcance: "Solo te ayudo con tu caja: registrar gastos, registrar ventas y ver el cierre", un mensaje viejo que no nombra la tasa, la calculadora, los cambios ni las cuentas.
+
+**Cambios:** "tus funciones", "qué sabes/puedes hacer", "para qué sirves", "cómo te uso" (mensaje corto, sin cifras) van directo a la ayuda, sin pasar por el modelo; si el modelo lo recibe igual, `reject_out_of_scope` tiene `reason: help` y manda la ayuda. La ayuda suma presupuestos, cuentas ("cómo va Banesco"), transferencias y corregir/borrar. El mensaje de fuera de alcance y el de "todavía no lo hago" nombran todo y dicen "escribe *ayuda*". La descripción de fuera de alcance ya no lista presupuestos como algo que no existe. Tests de palabras clave y de la razón help; un caso de eval (122).
