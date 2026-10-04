@@ -72,7 +72,7 @@ describe("ledger de gastos", () => {
     });
   });
 
-  it("gasto en Bs de un domingo usa la tasa del viernes anterior", async () => {
+  it("gasto en Bs de un domingo usa la tasa del próximo día hábil ya publicada (04/10)", async () => {
     const created = await withTenant(t.db, tenantId, (tx) =>
       createExpense(tx, {
         tenantId,
@@ -85,8 +85,9 @@ describe("ledger de gastos", () => {
         actor: { phoneId },
       }),
     );
-    expect(created.rateEffectiveDate).toBe("2026-09-25");
-    expect(created.amountUsd.toFixed(2)).toBe("529.41");
+    // El lunes 28 no tiene tasa en estos datos (como un feriado): toma la del martes 29.
+    expect(created.rateEffectiveDate).toBe("2026-09-29");
+    expect(created.amountUsd.toFixed(2)).toBe("524.48");
   });
 
   it("total del día suma solo gastos vivos de esa fecha", async () => {

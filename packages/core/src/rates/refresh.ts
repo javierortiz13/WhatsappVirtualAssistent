@@ -33,11 +33,22 @@ export async function refreshRates(deps: {
       log.info({ source: source.name, stored }, "tasa actualizada");
       return { source: source.name, stored, errors };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errorWithCause(err);
       errors.push(msg);
       log.warn({ source: source.name, err: msg }, "fuente de tasa falló");
     }
   }
   log.error({ errors }, "ninguna fuente de tasa respondió");
   return { source: null, stored: [], errors };
+}
+
+/**
+ * "fetch failed" de undici no dice por qué: la causa real (certificado, DNS, tiempo agotado) va en
+ * `err.cause`. Sin ella no se sabía por qué el BCV falla siempre en producción (04/10).
+ */
+export function errorWithCause(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  const cause = (err as { cause?: { code?: unknown; message?: unknown } } | null)?.cause;
+  const detail = cause ? String(cause.code ?? cause.message ?? "") : "";
+  return detail ? `${msg} (${detail})` : msg;
 }

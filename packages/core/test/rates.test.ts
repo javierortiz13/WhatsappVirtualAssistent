@@ -4,7 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { asIsoDate } from "../src/domain/dates";
 import { Decimal } from "../src/domain/money";
 import { euroRateFor, NoEurRateError, NoRateError, rateFor } from "../src/ledger/rate-for";
-import { refreshRates } from "../src/rates/refresh";
+import { getRateInfo } from "../src/rates/current";
+import { errorWithCause, refreshRates } from "../src/rates/refresh";
 import {
   bcvSource,
   dolarApiSource,
@@ -183,7 +184,7 @@ describe("storeRate, refreshRates y rateFor", () => {
 
   it("euroRateFor: el último euro publicado en o antes del día; sin euro, lanza", async () => {
     // Las pruebas anteriores dejaron euro desde el 30/09; antes de esa fecha no hay.
-    await expect(euroRateFor(t.db, asIsoDate("2026-09-29"))).rejects.toBeInstanceOf(NoEurRateError);
+    await expect(euroRateFor(t.db, asIsoDate("2026-09-20"))).rejects.toBeInstanceOf(NoEurRateError);
     await storeRate(t.db, {
       rate: new Decimal("860.17"),
       rateEur: new Decimal("976.84"),
@@ -198,7 +199,48 @@ describe("storeRate, refreshRates y rateFor", () => {
     await t.db.delete(schema.bcvRate).where(eq(schema.bcvRate.effectiveDate, "2026-10-02"));
   });
 
-  it("rateFor: fin de semana usa la última publicada; sin historia usa la más antigua posterior; sin nada lanza", async () => {
+  it("fin de semana: la tasa del lunes ya publicada (Venezuela); sin ella, la del viernes (04/10)", async () => {
+    const put = (d: string, r: string, eur: string | null = null) =>
+      storeRate(t.db, {
+        rate: new Decimal(r),
+        rateEur: eur ? new Decimal(eur) : null,
+        effectiveDate: asIsoDate(d),
+        publishedAt: null,
+        source: "bcv",
+      });
+    await put("2026-10-09", "870", "990"); // viernes
+    // Sábado antes de que el BCV publique el lunes: la del viernes.
+    expect((await rateFor(t.db, asIsoDate("2026-10-10"))).rate.effectiveDate).toBe("2026-10-09");
+    expect((await getRateInfo(t.db, asIsoDate("2026-10-10"))).current?.effectiveDate).toBe(
+      "2026-10-09",
+    );
+    await put("2026-10-12", "875", "995"); // lunes, publicada el viernes
+    for (const d of ["2026-10-10", "2026-10-11"]) {
+      const r = await rateFor(t.db, asIsoDate(d));
+      expect(r.rate.effectiveDate).toBe("2026-10-12");
+      expect(r.usedPriorDay).toBe(true);
+      expect((await euroRateFor(t.db, asIsoDate(d))).rate.value.toFixed(0)).toBe("995");
+    }
+    // El viernes sigue con la suya.
+    expect((await rateFor(t.db, asIsoDate("2026-10-09"))).rate.value.toFixed(0)).toBe("870");
+    const sun = await getRateInfo(t.db, asIsoDate("2026-10-11"));
+    expect(sun.current?.effectiveDate).toBe("2026-10-12");
+    expect(sun.next).toBeNull();
+    const fri = await getRateInfo(t.db, asIsoDate("2026-10-09"));
+    expect(fri.current?.effectiveDate).toBe("2026-10-09");
+    expect(fri.next?.effectiveDate).toBe("2026-10-12");
+    // Feriado entre semana (sin publicación propia): la del próximo día hábil.
+    await put("2026-10-14", "880"); // miércoles; el martes 13 fue feriado
+    expect((await rateFor(t.db, asIsoDate("2026-10-13"))).rate.effectiveDate).toBe("2026-10-14");
+    // Un día hábil con dólar y sin euro no salta al euro de un día después.
+    await put("2026-10-15", "885");
+    await put("2026-10-16", "890", "1000");
+    expect((await euroRateFor(t.db, asIsoDate("2026-10-15"))).rate.value.toFixed(0)).toBe("995");
+    for (const d of ["2026-10-09", "2026-10-12", "2026-10-14", "2026-10-15", "2026-10-16"])
+      await t.db.delete(schema.bcvRate).where(eq(schema.bcvRate.effectiveDate, d));
+  });
+
+  it("rateFor: fin de semana sin el lunes usa la última publicada; sin historia usa la más antigua posterior; sin nada lanza", async () => {
     const sat = await rateFor(t.db, asIsoDate("2026-10-03"));
     expect(sat.rate.effectiveDate).toBe("2026-10-01");
     expect(sat.usedPriorDay).toBe(true);
@@ -211,5 +253,15 @@ describe("storeRate, refreshRates y rateFor", () => {
     expect(early.usedPriorDay).toBe(true);
     await t.db.delete(schema.bcvRate);
     await expect(rateFor(t.db, asIsoDate("2026-01-01"))).rejects.toThrow(NoRateError);
+  });
+
+  it("el error de una fuente lleva la causa de undici", () => {
+    const err = new TypeError("fetch failed", {
+      cause: Object.assign(new Error("unable to verify the first certificate"), {
+        code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+      }),
+    });
+    expect(errorWithCause(err)).toBe("fetch failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE)");
+    expect(errorWithCause(new Error("HTTP 500"))).toBe("HTTP 500");
   });
 });

@@ -634,3 +634,15 @@ Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más cla
 - Si el agente pregunta algo sobre una factura leída (fecha, moneda) en vez de armar el borrador, el saliente lleva la marca `receipt_unclear` con `source: receipt_question`; la respuesta siguiente registra con lo leído y lo que diga el usuario, y hereda la foto.
 
 **Tests:** `fixDayMonth` (volteos válidos y los que no), fecha volteada de punta a punta, pregunta de fecha → respuesta → borrador con la foto. Un caso de eval nuevo (104). 326 tests.
+
+### S2 · 04/10/2026 · Fin de semana a la tasa del lunes
+
+**Reporte (Javier):** el sábado y el domingo el bot calculaba a la tasa del viernes; en Venezuela el fin de semana se cobra a la tasa del próximo día hábil, que el BCV publica el viernes en la tarde.
+
+**Cambios**
+- `rateFor`, `euroRateFor` y `getRateInfo` (bot, calculadora, dashboard, "Tasa BCV hoy"): 1) la tasa del mismo día; 2) si el día no tiene publicación propia (sábado, domingo o feriado), la del próximo día hábil ya publicada, hasta 4 días adelante (Carnaval, Semana Santa); 3) si aún no está, la última anterior; 4) sin historia, la más antigua posterior. El euro solo salta si el día no tiene ninguna fila (un día hábil con dólar y sin euro no toma el euro de otro día).
+- El error de una fuente de tasa registra la causa de undici (`fetch failed (CÓDIGO)`).
+
+**Hallazgo en producción:** no hay fila del lunes 05/10. El BCV directo falla en cada intento con "fetch failed" desde el 30/09 (probablemente el certificado TLS de bcv.org.ve; el log nuevo dirá la causa) y DolarAPI solo cambia de tasa cuando empieza su fecha valor (todo el fin de semana devuelve la del viernes). Sin la fuente del BCV, la regla nueva no tiene la tasa del lunes hasta el lunes. Pendiente: arreglar la conexión al BCV.
+
+**Tests:** fin de semana con y sin el lunes publicado, feriado entre semana, euro, "vigente hoy" y "próxima", el euro que no salta, el gasto de domingo en el ledger, la causa del error. 328 tests.
