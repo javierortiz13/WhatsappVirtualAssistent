@@ -1,5 +1,6 @@
 import { addDays, asIsoDate, businessDateOf, type IsoDate, isWeekend } from "../domain/dates";
 import { Decimal, parseVenezuelanAmount } from "../domain/money";
+import { fetchWithAia } from "./aia";
 
 /**
  * Fuentes de la tasa oficial USD/VES (Fase 6). El BCV publica en la tarde la tasa que rige el
@@ -59,7 +60,8 @@ export function parseBcvHtml(html: string): {
   };
 }
 
-export function bcvSource(fetchImpl: typeof fetch = fetch, url = BCV_URL): RateSource {
+/** El BCV no manda su certificado intermedio: por defecto se completa por AIA (ver `aia.ts`). */
+export function bcvSource(fetchImpl: typeof fetch = fetchWithAia(), url = BCV_URL): RateSource {
   return {
     name: "bcv",
     async fetch(now) {

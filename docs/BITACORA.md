@@ -646,3 +646,11 @@ Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más cla
 **Hallazgo en producción:** no hay fila del lunes 05/10. El BCV directo falla en cada intento con "fetch failed" desde el 30/09 (probablemente el certificado TLS de bcv.org.ve; el log nuevo dirá la causa) y DolarAPI solo cambia de tasa cuando empieza su fecha valor (todo el fin de semana devuelve la del viernes). Sin la fuente del BCV, la regla nueva no tiene la tasa del lunes hasta el lunes. Pendiente: arreglar la conexión al BCV.
 
 **Tests:** fin de semana con y sin el lunes publicado, feriado entre semana, euro, "vigente hoy" y "próxima", el euro que no salta, el gasto de domingo en el ledger, la causa del error. 328 tests.
+
+### S2 · 04/10/2026 · El BCV directo: certificado intermedio por AIA
+
+**Diagnóstico:** con el log nuevo, un fetch manual (job encolado en `pgboss.job`) dio `fetch failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE)`: bcv.org.ve no manda su certificado intermedio y Node rechaza la conexión. Por eso el BCV falló en cada intento desde el 30/09 y la tasa del lunes (que el BCV publica el viernes) nunca llegaba; DolarAPI solo cambia cuando empieza la fecha valor.
+
+**Arreglo:** `rates/aia.ts`. Si el fetch normal falla por cadena incompleta, se lee la dirección "CA Issuers" (AIA) del certificado del servidor, se descarga el intermedio y se repite la petición con `https` y `ca = raíces del sistema + intermedio`: la cadena se sigue verificando hasta una raíz de confianza (lo mismo que hacen los navegadores). El intermedio queda en memoria. Solo la lectura de la dirección abre una conexión sin verificar, y de ella no se usa nada de la página.
+
+**Pendiente de confirmar en producción:** que la descarga del intermedio funcione y que `parseBcvHtml` lea la página real (nunca se había podido verificar).
