@@ -19,6 +19,8 @@ const ExchangeInfo = z.object({
   remainingAfter: z.string(),
   uncoveredVes: z.string(),
   lastRate: z.string(),
+  /** De qué cambio sale cada parte (para el desglose cuando toma de dos o más). */
+  parts: z.array(z.object({ ves: z.string(), rate: z.string(), usd: z.string() })).optional(),
 });
 export type ExchangeInfo = z.infer<typeof ExchangeInfo>;
 
@@ -149,6 +151,11 @@ function exchangeInfo(plan: AllocationPlan): ExchangeInfo {
     remainingAfter: plan.remainingAfter.toFixed(2),
     uncoveredVes: plan.uncoveredVes.toFixed(2),
     lastRate: plan.lastRate.toFixed(8),
+    parts: plan.parts.map((p) => ({
+      ves: p.ves.toFixed(2),
+      rate: p.rate.toFixed(8),
+      usd: p.ves.div(p.rate).toFixed(2),
+    })),
   };
 }
 

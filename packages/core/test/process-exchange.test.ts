@@ -118,6 +118,14 @@ describe("cambios USDT por WhatsApp", () => {
         input: { action: "balance", usd_amount: "", ves_amount: "", rate: "", when: "" },
       },
     ],
+    "cambié 50 usdt a 985": [
+      {
+        id: "x4",
+        name: "exchange_usdt",
+        input: { action: "record", usd_amount: "50", ves_amount: "", rate: "985", when: "" },
+      },
+    ],
+    "97.000 bs en mercancía": expense("97000", "Mercancía"),
     "9700 bs en mercado": expense("9700", "Mercado"),
     "970 bs en pan": expense("970", "Pan"),
   });
@@ -234,5 +242,17 @@ describe("cambios USDT por WhatsApp", () => {
     expect(body).toContain("Te quedan *Bs 86.330,00* de tus cambios:");
     expect(body).toContain("a 970,00");
     expect(body).toContain("te pregunto cada vez");
+  });
+  it("un gasto que toma de dos cambios muestra de dónde sale cada parte", async () => {
+    await withTenant(t.db, tenantId, (tx) => tx.update(schema.tenant).set({ bsRateMode: "usdt" }));
+    const { sent, client } = fakeMeta();
+    await send(client, "cambié 50 usdt a 985");
+    await tap(client, button(last(sent), "Guardar"), "Guardar");
+    await send(client, "gasté 97.000 bs en mercancía");
+    const draft = textOf(last(sent));
+    expect(draft).toContain("$99,83 · de tus cambios:");
+    expect(draft).toContain("• Bs 86.330 a 970 → $89,00");
+    expect(draft).toContain("• Bs 10.670 a 985 → $10,83");
+    expect(draft).not.toContain("tasa de tu cambio");
   });
 });

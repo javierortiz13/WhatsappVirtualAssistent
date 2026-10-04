@@ -679,3 +679,8 @@ Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más cla
 
 **Tests:** venta → borrador a 971,50 sin foto → Guardar crea el lote; compra → aviso. 351 tests. **Sin probar con el modelo real:** la lectura de la captura verdadera.
 - Segunda muestra (04/10): la pantalla de éxito "Bs 30,000 · Successfully sold 30.92 USDT" (o "Vendiste…") también cuenta; no trae precio y la tasa sale de USDT y Bs (970,25). Test agregado.
+
+### S2 · 04/10/2026 · Desglose cuando un gasto toma de dos cambios
+
+**Reporte (Javier):** "gasté 97.000 bs en mercancía" salió "$99,85 · tasa de tu cambio 971,48" y no se entendía de dónde venía 971,48 (la tasa ponderada de Bs 87.300 a 970 y Bs 9.700 a 985). Ahora, cuando el gasto toma de dos o más cambios, el borrador muestra "$99,85 · de tus cambios:" y una línea por cambio ("• Bs 87.300 a 970 → $90,00"); con uno solo sigue "tasa de tu cambio 970,00". El borrador guarda las partes (`exchange.parts`). Test del caso. 352 tests.
+

@@ -591,7 +591,15 @@ export type ExpenseDraftView = {
   transcript: string | null;
   replacedPrevious: boolean;
   /** De los lotes de cambio (0012): saldo después y Bs que no cubrieron. */
-  exchange?: { remainingAfter: string; uncoveredVes: string; lastRate: string } | null | undefined;
+  exchange?:
+    | {
+        remainingAfter: string;
+        uncoveredVes: string;
+        lastRate: string;
+        parts?: { ves: string; rate: string; usd: string }[] | undefined;
+      }
+    | null
+    | undefined;
 };
 
 /** "tasa BCV 866,56", "tasa euro 973,93", "tasa manual 850,00" o "tasa de tu cambio 970,00". */
@@ -604,6 +612,9 @@ export function rateLabel(value: Decimal.Value, source?: RateOrigin): string {
 }
 
 const rateNum = (v: Decimal.Value) => formatMoney(v, "VES").replace("Bs ", "");
+/** "Bs 87.300" sin ",00" si es entero; "970" igual para la tasa. */
+const shortBs = (v: Decimal.Value) => formatMoney(v, "VES").replace(/,00$/, "");
+const shortRate = (v: Decimal.Value) => rateNum(v).replace(/,00$/, "");
 
 /** Debajo de un borrador de los lotes: cuánto quedará, o qué no alcanzó. */
 function exchangeNote(x: {
@@ -821,7 +832,14 @@ export function expenseDraft(d: ExpenseDraftView): Outbound {
   if (d.transcript) lines.push(`Entendí: _"${d.transcript}"_`);
   lines.push("*Gasto por confirmar*");
   lines.push(d.description ? `${d.description}: *${main}*` : `*${main}*`);
-  lines.push(equivalentLine(d));
+  // Un gasto que toma de dos o más cambios muestra de dónde sale cada parte: la tasa ponderada
+  // sola (971,48) no se entiende.
+  const parts = d.exchange?.parts ?? [];
+  if (parts.length >= 2) {
+    lines.push(`${formatMoney(d.amountUsd, "USD")} · de tus cambios:`);
+    for (const p of parts)
+      lines.push(`• ${shortBs(p.ves)} a ${shortRate(p.rate)} → ${formatMoney(p.usd, "USD")}`);
+  } else lines.push(equivalentLine(d));
   lines.push(`Categoría: ${d.categoryName ?? "Otros"}`);
   lines.push(dateLine(d.businessDate, d.today));
   if (d.currencyInferred) lines.push(inferredNote(d.currency));
