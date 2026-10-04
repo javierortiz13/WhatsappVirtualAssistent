@@ -19,14 +19,14 @@ import { type EvalCase, loadCases } from "./cases";
 
 /**
  * Evals v1 (Fase 8, día 5 y S2): los casos de `cases/*.yaml` contra el LLM real. Se corren solo con
- * `RUN_EVALS=1` y `ANTHROPIC_API_KEY`. Tope de costo por ejecución: `EVALS_MAX_USD` (0.50).
+ * `RUN_EVALS=1` y `ANTHROPIC_API_KEY`. Tope de costo por ejecución: `EVALS_MAX_USD` (1.00; los 122 casos cuestan unos 0,63 USD).
  * Escribe `report/last.json` con herramienta, argumentos, tokens, costo y latencia por caso.
  */
 loadNearestEnvFile(import.meta.dirname);
 const enabled = process.env.RUN_EVALS === "1" && Boolean(process.env.ANTHROPIC_API_KEY);
 if (process.env.RUN_EVALS === "1" && !enabled)
   console.warn("evals: falta ANTHROPIC_API_KEY en el entorno o en el .env de la raíz; se saltan.");
-const maxUsd = new Decimal(process.env.EVALS_MAX_USD ?? "0.50");
+const maxUsd = new Decimal(process.env.EVALS_MAX_USD ?? "1.00");
 const cases = loadCases();
 
 type Row = {

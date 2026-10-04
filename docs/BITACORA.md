@@ -732,3 +732,7 @@ Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más cla
 **Reporte (Javier):** "Cuáles son tus funciones" caía en fuera de alcance: "Solo te ayudo con tu caja: registrar gastos, registrar ventas y ver el cierre", un mensaje viejo que no nombra la tasa, la calculadora, los cambios ni las cuentas.
 
 **Cambios:** "tus funciones", "qué sabes/puedes hacer", "para qué sirves", "cómo te uso" (mensaje corto, sin cifras) van directo a la ayuda, sin pasar por el modelo; si el modelo lo recibe igual, `reject_out_of_scope` tiene `reason: help` y manda la ayuda. La ayuda suma presupuestos, cuentas ("cómo va Banesco"), transferencias y corregir/borrar. El mensaje de fuera de alcance y el de "todavía no lo hago" nombran todo y dicen "escribe *ayuda*". La descripción de fuera de alcance ya no lista presupuestos como algo que no existe. Tests de palabras clave y de la razón help; un caso de eval (122).
+
+### S2 · 04/10/2026 · Primera corrida de evals con el modelo real
+
+Javier corrió `pnpm evals` con claude-sonnet-5-5: **97/97 pasaron** (incluidos los 12 de cuentas y transferencias y el de "tus funciones"), costo 0,50 USD. Los otros 25 (renovar, tasa euro, tasa, ventas, voz) no llegaron a correr: tocaron el tope `EVALS_MAX_USD` de 0,50. Con 122 casos la corrida completa cuesta ~0,63 USD, así que el tope por defecto sube a 1,00.
