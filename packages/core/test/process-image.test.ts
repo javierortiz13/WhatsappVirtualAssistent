@@ -883,6 +883,21 @@ describe("fotos de facturas", () => {
     expect(lots.at(-1)).toMatchObject({ usdAmount: "30.88", vesAmount: "30000.00" });
   });
 
+  it("pantalla de éxito de Binance (sin precio): la tasa sale de USDT y Bs", async () => {
+    const { sent, client } = fakeMeta();
+    await sendImage(
+      client,
+      fakeVision({
+        ...BINANCE,
+        exchange: { side: "sell", usdt_amount: "30.92", fiat_amount: "30000", price: "" },
+      }),
+      true,
+    );
+    expect(textOf(sent[1])).toContain("30,92 USDT → *Bs 30.000,00*");
+    expect(textOf(sent[1])).toContain("Tasa: 970,25");
+    await tap(client, null, buttonsOf(sent[1])[1]?.id as string, "Cancelar");
+  });
+
   it("captura de Binance comprando USDT: lo dice y no arma nada", async () => {
     const { sent, client } = fakeMeta();
     await sendImage(
