@@ -737,3 +737,7 @@ Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más cla
 
 Javier corrió `pnpm evals` con claude-sonnet-5-5: **97/97 pasaron** (incluidos los 12 de cuentas y transferencias y el de "tus funciones"), costo 0,50 USD. Los otros 25 (renovar, tasa euro, tasa, ventas, voz) no llegaron a correr: tocaron el tope `EVALS_MAX_USD` de 0,50. Con 122 casos la corrida completa cuesta ~0,63 USD, así que el tope por defecto sube a 1,00.
 - Segunda corrida (05/10, solo renovar, tasa, ventas y voz): 27/30, costo 0,14 USD. Las 3 fallas eran del eval, no del bot: esperaban el formato viejo del borrador de venta ("Total *$350*", "Pago Móvil · *Bs …*") y el mensaje ahora usa dos puntos. Expectativas actualizadas. Con eso las 122 pasan con el modelo real.
+
+### S2 · 05/10/2026 · Entrar con Google activado
+
+Javier configuró la pantalla de consentimiento y el cliente OAuth en Google Cloud, y el proveedor Google y la URL de retorno en Supabase. `GOOGLE_AUTH_ENABLED=1` en Vercel (producción y preview) y panel desplegado de nuevo: /login muestra "Continuar con Google". Prueba de punta a punta: Javier desde su teléfono.
