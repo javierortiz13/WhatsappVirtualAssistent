@@ -7,8 +7,9 @@ para gente nueva. Tiempo: 1 hora de trabajo más la espera de Meta por el nombre
 ## Límites sin verificar la empresa en Meta
 
 - **Responderle a quien escribe primero: sin límite.** Es lo que hace el bot (el usuario escribe,
-  el bot contesta dentro de las 24 horas). Esas respuestas no cuentan para ningún tope y son
-  gratis.
+  el bot contesta dentro de las 24 horas). Esas respuestas no cuentan para ningún tope. Desde el
+  01/10/2026 Meta las cobra como mensajes de servicio: 1.000 gratis al mes por número y luego
+  0,0113 USD cada uno (ADR-014; las reacciones son gratis).
 - **Conversaciones que inicia el negocio** (plantillas: recordatorios, avisos fuera de las 24 h):
   hasta **250 personas distintas en 24 horas** mientras la empresa no esté verificada o el número
   no tenga el nombre visible aprobado.
