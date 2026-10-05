@@ -22,105 +22,162 @@ export default async function LoginPage({
   const error = sp.error ? ERRORS[sp.error] : null;
   const google = env().GOOGLE_AUTH_ENABLED;
   return (
-    <main className="login">
-      <div className="card stack">
+    <main className="auth">
+      <section className="auth-intro">
         <div className="brand">
-          <svg viewBox="0 0 64 64" aria-hidden="true">
-            <rect width="64" height="64" rx="14" fill="#0f7b5f" />
-            <path d="M16 22h32v22a4 4 0 0 1-4 4H20a4 4 0 0 1-4-4z" fill="#fff" />
-            <path d="M14 20a4 4 0 0 1 4-4h28a4 4 0 0 1 4 4v4H14z" fill="#d9f2e8" />
-            <circle cx="40" cy="35" r="4" fill="#0f7b5f" />
-          </svg>
+          <BrandMark />
           <div>
-            <h1>Asistente de Caja</h1>
-            <p>Tu asistente administrativo por WhatsApp.</p>
+            <strong className="brand-name">Asistente de Caja</strong>
+            <p>Tu asistente administrativo por WhatsApp</p>
           </div>
         </div>
-        {sp.enviado ? (
-          <div className="notice ok stack">
-            <p style={{ margin: 0 }}>
-              <strong>Revisa tu correo.</strong> Te enviamos un enlace para entrar. Sirve por 15
-              minutos y solo una vez.
-            </p>
-            <p className="muted" style={{ margin: 0, fontSize: 14 }}>
-              Si no llega en un minuto, mira en spam o pide otro.
-            </p>
-            <div className="center">
-              <a className="btn secondary" href="/login">
+        <h1>
+          Tu caja, en un chat de <span className="hl">WhatsApp</span>.
+        </h1>
+        <p className="auth-lead">
+          Escríbele o mándale un audio: anota gastos y ventas, convierte a la tasa BCV y te da el
+          cierre del día. Sin apps nuevas.
+        </p>
+      </section>
+
+      <section className="auth-demo">
+        <ChatMock />
+        <ul className="auth-chips">
+          <li className="auth-chip">🎙️ Notas de voz</li>
+          <li className="auth-chip">🧾 Fotos de facturas</li>
+          <li className="auth-chip">💱 Tasa BCV y euro</li>
+          <li className="auth-chip">💳 Banco, Binance y efectivo</li>
+        </ul>
+      </section>
+
+      <section className="auth-panel">
+        <div className="card stack">
+          {sp.enviado ? (
+            <div className="stack">
+              <div className="mail-icon" aria-hidden="true">
+                ✉️
+              </div>
+              <h2>Revisa tu correo</h2>
+              <p className="sub" style={{ margin: 0 }}>
+                Te enviamos un enlace para entrar. Sirve por 15 minutos y solo una vez. Si no llega
+                en un minuto, mira en spam.
+              </p>
+              <a className="btn secondary block" href="/login">
                 Pedir otro enlace
               </a>
             </div>
-          </div>
-        ) : (
-          <>
-            <div>
-              <h2 style={{ fontSize: 22, marginBottom: 6 }}>Entra o crea tu cuenta en 3 minutos</h2>
-              <p className="sub">Sin contraseñas ni tarjeta. Durante el piloto no se cobra.</p>
-            </div>
-            <ol className="howto">
-              <li>
-                {google ? (
-                  <>
-                    <strong>Entra con Google o con tu correo.</strong> Con el correo te mandamos un
-                    enlace y entras con un toque.
-                  </>
-                ) : (
-                  <>
-                    <strong>Escribe tu correo.</strong> Te mandamos un enlace y entras con un toque.
-                  </>
-                )}
-              </li>
-              <li>
-                <strong>Registra tu negocio</strong> y el número de WhatsApp desde el que vas a
-                escribirle.
-              </li>
-              <li>
-                <strong>Envía el código de 6 dígitos</strong> al asistente. Desde ese momento anota
-                lo que le digas.
-              </li>
-            </ol>
-            {error ? <div className="notice err">{error}</div> : null}
-            {google ? (
-              <>
-                <form action={signInWithGoogle}>
-                  <button className="btn block google" type="submit">
-                    <GoogleLogo />
-                    Continuar con Google
-                  </button>
-                </form>
-                <p className="divider" aria-hidden="true">
-                  o con tu correo
+          ) : (
+            <>
+              <div>
+                <h2>Entra o crea tu cuenta</h2>
+                <p className="sub" style={{ margin: "6px 0 0" }}>
+                  En 3 minutos, sin contraseñas ni tarjeta.
                 </p>
-              </>
-            ) : null}
-            <form action={sendMagicLink} className="stack">
-              <label className="field">
-                <span>Tu correo</span>
-                <input
-                  className="input center"
-                  type="email"
-                  name="email"
-                  required
-                  autoComplete="email"
-                  inputMode="email"
-                  placeholder="dueno@minegocio.com"
-                />
-              </label>
-              <button className="btn block" type="submit">
-                Enviarme el enlace
-              </button>
-              <p className="sub center-text">
-                Tus datos son tuyos: cada negocio está aislado y puedes borrar tu cuenta cuando
-                quieras.
-              </p>
-            </form>
-          </>
-        )}
-        <p className="sub center-text">
-          <a href="/">← Ver cómo funciona</a>
+              </div>
+              {error ? <div className="notice err">{error}</div> : null}
+              {google ? (
+                <>
+                  <form action={signInWithGoogle}>
+                    <button className="btn block google" type="submit">
+                      <GoogleLogo />
+                      Continuar con Google
+                    </button>
+                  </form>
+                  <p className="divider" aria-hidden="true">
+                    o con tu correo
+                  </p>
+                </>
+              ) : null}
+              <form action={sendMagicLink} className="stack">
+                <label className="field">
+                  <span>Tu correo</span>
+                  <input
+                    className="input"
+                    type="email"
+                    name="email"
+                    required
+                    autoComplete="email"
+                    inputMode="email"
+                    placeholder="tucorreo@gmail.com"
+                  />
+                </label>
+                <button className="btn block" type="submit">
+                  Enviarme el enlace
+                </button>
+              </form>
+              <ol className="mini-steps">
+                <li className="mini-step">
+                  <span className="mini-num">1</span>Entra
+                </li>
+                <li className="mini-step">
+                  <span className="mini-num">2</span>Elige tu plan
+                </li>
+                <li className="mini-step">
+                  <span className="mini-num">3</span>Vincula tu WhatsApp
+                </li>
+              </ol>
+              <p className="pilot">🎁 Gratis durante el piloto · 14 días de prueba</p>
+            </>
+          )}
+        </div>
+        <p className="sub center-text auth-foot">
+          🔒 Cada cuenta está aislada y puedes borrarla cuando quieras ·{" "}
+          <a href="/">Ver cómo funciona</a>
         </p>
-      </div>
+      </section>
     </main>
+  );
+}
+
+/** Logo de la app (caja registradora en verde). */
+function BrandMark() {
+  return (
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <rect width="64" height="64" rx="16" fill="#0f7b5f" />
+      <path d="M16 22h32v22a4 4 0 0 1-4 4H20a4 4 0 0 1-4-4z" fill="#fff" />
+      <path d="M14 20a4 4 0 0 1 4-4h28a4 4 0 0 1 4 4v4H14z" fill="#d9f2e8" />
+      <circle cx="40" cy="35" r="4" fill="#0f7b5f" />
+    </svg>
+  );
+}
+
+/** Conversación de ejemplo: lo que pasa de verdad cuando le escribes al asistente. */
+function ChatMock() {
+  return (
+    <figure className="chat-mock" aria-label="Ejemplo de conversación con el asistente">
+      <div className="chat-head">
+        <span className="chat-avatar">🧾</span>
+        <div>
+          <strong className="chat-title">Asistente de Caja</strong>
+          <small className="chat-sub">en línea</small>
+        </div>
+      </div>
+      <div className="chat-body">
+        <p className="bubble me">gasté 15$ en champú</p>
+        <div className="bubble bot">
+          <strong>Gasto por confirmar</strong>
+          <span>
+            Champú: <b>$15,00</b>
+          </span>
+          <span className="muted">Bs 12.870 · tasa BCV 858,00</span>
+          <span className="muted">Categoría: Insumos de lavado</span>
+          <div className="bubble-btns">
+            <span className="bubble-btn">Guardar</span>
+            <span className="bubble-btn">Corregir</span>
+          </div>
+        </div>
+        <p className="bubble me">cómo va el mes?</p>
+        <div className="bubble bot">
+          <strong>📊 Octubre</strong>
+          <span>
+            Ventas <b className="mint">$1.240</b> · Gastos <b className="amber">$380</b>
+          </span>
+          <span>
+            Neto <b>$860</b>
+          </span>
+        </div>
+      </div>
+    </figure>
   );
 }
 

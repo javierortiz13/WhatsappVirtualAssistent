@@ -741,3 +741,25 @@ Javier corrió `pnpm evals` con claude-sonnet-5-5: **97/97 pasaron** (incluidos 
 ### S2 · 05/10/2026 · Entrar con Google activado
 
 Javier configuró la pantalla de consentimiento y el cliente OAuth en Google Cloud, y el proveedor Google y la URL de retorno en Supabase. `GOOGLE_AUTH_ENABLED=1` en Vercel (producción y preview) y panel desplegado de nuevo: /login muestra "Continuar con Google". Prueba de punta a punta: Javier desde su teléfono.
+
+### S2 · 05/10/2026 · Nueva entrada y onboarding paso a paso (como Rial)
+
+**Pedido (Javier):** la página de entrada se veía plana y el registro era un formulario. Referencia: el onboarding de Rial (barra de progreso, tarjetas grandes con ícono, categorías elegibles, "Primeros pasos"). Decisiones: web primero y después el registro por WhatsApp; categorías en lista simple con íconos (sin subcategorías); quien se registre por chat dará su correo para entrar al panel.
+
+**Entrada (/login):** a la izquierda (arriba en el teléfono) el título "Tu caja, en un chat de WhatsApp", una conversación de ejemplo (gasto por confirmar y "cómo va el mes") y chips de funciones; a la derecha la tarjeta para entrar (Google o correo), los 3 pasos y "gratis durante el piloto". En el teléfono el formulario va antes que la demo.
+
+**Registro (/registro), 6 pasos con barra de progreso y botón redondo:**
+1. Plan: Personal, Negocio o Negocio Plus, con precio y lo que incluye (14 días de prueba; el piloto no cobra).
+2. Perfil: Personal pide tu nombre y la moneda; un negocio pide nombre, tipo (tarjetas con ícono), tu nombre y la moneda.
+3. Categorías: las del tipo marcadas, se quitan con un toque, "Más ideas" en chips y una propia; máximo 10 con Otros.
+4. Cuentas (opcional): banco en Bs, Binance, Zelle, efectivo $ o Bs, con nombre y saldo de hoy (hasta 3).
+5. WhatsApp: el número y un resumen de lo elegido.
+6. Código: botón verde "Enviar el código por WhatsApp" con el código ya escrito; al vincular, "Ver qué puedo hacer".
+
+**Inicio:** con `?bienvenida=1`, una tarjeta con las 6 funciones del asistente y "Abrir WhatsApp". Tarjeta "Completa los primeros pasos" (vincular, crear una cuenta, primer gasto, primera venta o ingreso) que se va tachando y desaparece al completar.
+
+**Núcleo:** migración 0015 (tipo de negocio `personal`, aplicada en producción antes del push), categorías del plan Personal y sugerencias; `registerBusiness` recibe plan, categorías (`onboardingCategories`: sin repetidas, Otros al final, máximo 10) y cuentas iniciales.
+
+**QA en navegador (390 px y escritorio):** entrada, los 6 pasos con plan Personal y con Negocio (categoría quitada, idea agregada, propia agregada, dos cuentas), datos guardados bien, bienvenida y primeros pasos. Corregido en QA: la clase `.cat` chocaba con la de Ajustes (tarjetas gigantes); el formulario de entrada quedaba muy abajo en el teléfono.
+
+**Prueba con fecha fija:** `renew.test` empezó a fallar hoy: los mensajes guardan la hora real y el reloj de la prueba (03/10 + 2 días) ya la alcanzó. El salto ahora parte de la hora más tardía.

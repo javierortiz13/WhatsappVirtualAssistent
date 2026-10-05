@@ -1,14 +1,26 @@
-import { BUSINESS_TYPE_LABELS, CODE_TTL_MS, ownerPhone } from "@caja/core";
+import {
+  BUSINESS_TYPE_LABELS,
+  CODE_TTL_MS,
+  ONBOARDING_MAX_ACCOUNTS,
+  ownerPhone,
+  PLANS,
+} from "@caja/core";
+import {
+  DEFAULT_EXPENSE_CATEGORIES,
+  MAX_ACTIVE_CATEGORIES,
+  SUGGESTED_EXPENSE_CATEGORIES,
+} from "@caja/db/seed-data";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
-import { COUNTRY_CODES, formatE164 } from "@/lib/phone";
+import { formatE164 } from "@/lib/phone";
 import { currentSession } from "@/lib/session";
-import { newCodeAction, registerBusinessAction } from "./actions";
+import { newCodeAction } from "./actions";
 import { LINK_COOKIE } from "./cookie";
 import { LinkStatus } from "./link-status";
+import { RegistroWizard } from "./wizard";
 
 export const metadata: Metadata = { title: "Registro" };
 export const dynamic = "force-dynamic";
@@ -21,7 +33,8 @@ const ERRORS: Record<string, string> = {
 };
 
 /**
- * Onboarding en dos pasos (US-A1, US-A2). Paso 1: el negocio. Paso 2: el código de vinculación
+ * Onboarding (US-A1, US-A2; paso a paso desde el 05/10/2026). Sin cuenta: el asistente de pasos
+ * (plan, perfil, categorías, cuentas, WhatsApp). Con la cuenta creada: el código de vinculación
  * que el dueño envía por WhatsApp; la pantalla se actualiza sola cuando llega.
  */
 export default async function Registro({
@@ -32,7 +45,31 @@ export default async function Registro({
   const session = await currentSession();
   if (!session) redirect("/login");
   const sp = await searchParams;
-  if (!session.tenant) return <Step1 error={(sp.error && ERRORS[sp.error]) ?? null} />;
+  if (!session.tenant)
+    return (
+      <>
+        {sp.error && ERRORS[sp.error] ? (
+          <div className="notice err wizard-flash">{ERRORS[sp.error]}</div>
+        ) : null}
+        <RegistroWizard
+          plans={PLANS.map((p) => ({
+            id: p.id,
+            name: p.name,
+            priceUsd: p.priceUsd,
+            tagline: p.tagline,
+            features: p.features,
+          }))}
+          businessTypes={Object.entries(BUSINESS_TYPE_LABELS)
+            .filter(([k]) => k !== "personal")
+            .map(([id, label]) => ({ id, label }))}
+          defaults={DEFAULT_EXPENSE_CATEGORIES}
+          suggestions={SUGGESTED_EXPENSE_CATEGORIES}
+          maxCategories={MAX_ACTIVE_CATEGORIES}
+          maxAccounts={ONBOARDING_MAX_ACCOUNTS}
+          pilotNote="Durante el piloto no se cobra: empiezas con 14 días de prueba y te avisamos antes de cobrar."
+        />
+      </>
+    );
 
   const owner = await ownerPhone(db(), session.tenant.id);
   if (owner?.status !== "pending") redirect("/inicio");
@@ -52,84 +89,6 @@ export default async function Registro({
   );
 }
 
-function Step1({ error }: { error: string | null }) {
-  return (
-    <main className="login">
-      <div className="card stack">
-        <div>
-          <p className="steps">● ○ &nbsp; Paso 1 de 2</p>
-          <h1 style={{ fontSize: 20, margin: 0 }}>Tu negocio</h1>
-        </div>
-        <form action={registerBusinessAction} className="stack">
-          {error ? <div className="notice err">{error}</div> : null}
-          <label className="field">
-            <span>Nombre del negocio</span>
-            <input
-              className="input"
-              name="name"
-              required
-              minLength={2}
-              maxLength={80}
-              placeholder="Autolavado El Rápido"
-              autoComplete="organization"
-            />
-          </label>
-          <label className="field">
-            <span>Tipo</span>
-            <select className="input" name="business_type" defaultValue="car_wash" required>
-              {Object.entries(BUSINESS_TYPE_LABELS).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v}
-                </option>
-              ))}
-            </select>
-          </label>
-          <fieldset className="field choices">
-            <legend>Moneda en la que sueles hablar de gastos</legend>
-            <label>
-              <input type="radio" name="currency" value="USD" defaultChecked /> Dólares
-            </label>
-            <label>
-              <input type="radio" name="currency" value="VES" /> Bolívares
-            </label>
-          </fieldset>
-          <label className="field">
-            <span>Tu WhatsApp (el del dueño)</span>
-            <div className="phone-row">
-              <select className="input" name="country" defaultValue="58" aria-label="País">
-                {COUNTRY_CODES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="input"
-                name="phone"
-                required
-                inputMode="tel"
-                autoComplete="tel-national"
-                placeholder="412 1234567"
-              />
-            </div>
-          </label>
-          <label className="field">
-            <span>Tu nombre (opcional)</span>
-            <input className="input" name="owner_name" maxLength={60} autoComplete="name" />
-          </label>
-          <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-            Te crearemos categorías de gasto típicas de tu tipo de negocio. Luego las puedes
-            cambiar.
-          </p>
-          <button className="btn block" type="submit">
-            Continuar
-          </button>
-        </form>
-      </div>
-    </main>
-  );
-}
-
 function Step2(props: {
   tenantName: string;
   phone: string;
@@ -142,50 +101,55 @@ function Step2(props: {
       ? `https://wa.me/${props.platformNumber}?text=${encodeURIComponent(props.code)}`
       : null;
   return (
-    <main className="login">
-      <div className="card stack">
-        <div>
-          <p className="steps">○ ● &nbsp; Paso 2 de 2</p>
-          <h1 style={{ fontSize: 20, margin: 0 }}>Tu WhatsApp</h1>
-        </div>
-        <p style={{ margin: 0 }}>
-          <span className="muted">Negocio:</span> <strong>{props.tenantName}</strong>
-          <br />
-          <span className="muted">Número del dueño:</span>{" "}
-          <strong>{formatE164(props.phone)}</strong>
+    <main className="wizard">
+      <header className="wizard-top">
+        <span className="iconbtn" aria-hidden="true">
+          ✓
+        </span>
+        <ol className="progress" aria-label="Paso 6 de 6">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <li key={i} className="progress-seg done" />
+          ))}
+        </ol>
+      </header>
+      <section className="wizard-body">
+        <h1>Último paso: tu código</h1>
+        <p className="lead">
+          Envía este código por WhatsApp desde <strong>{formatE164(props.phone)}</strong> y{" "}
+          <strong>{props.tenantName}</strong> queda lista.
         </p>
         {props.code && props.expiresAt ? (
-          <>
-            <div>
-              <p className="kpi-label">Tu código de vinculación</p>
-              <p className="code">{props.code}</p>
-              <p className="muted" style={{ margin: 0, fontSize: 14 }}>
-                Envíalo desde ese número al asistente. Solo sirve por{" "}
-                {Math.round(CODE_TTL_MS / 60000)} minutos.
-              </p>
-            </div>
+          <div className="panel stack">
+            <p className="code">{props.code}</p>
             {waHref ? (
-              <a className="btn block" href={waHref} target="_blank" rel="noreferrer">
-                Abrir WhatsApp ↗
+              <a className="btn block wa" href={waHref} target="_blank" rel="noreferrer">
+                💬 Enviar el código por WhatsApp
               </a>
             ) : (
               <p className="notice" style={{ margin: 0, fontSize: 14 }}>
                 Abre WhatsApp y envía el código al número del asistente.
               </p>
             )}
+            <ol className="howto">
+              <li>
+                Toca el botón: se abre WhatsApp con el código <strong>ya escrito</strong>.
+              </li>
+              <li>Dale enviar. Sirve por {Math.round(CODE_TTL_MS / 60000)} minutos.</li>
+              <li>Esta pantalla cambia sola cuando llegue.</li>
+            </ol>
             <LinkStatus expiresAt={props.expiresAt} />
-          </>
+          </div>
         ) : (
           <p className="notice" style={{ margin: 0 }}>
             Tu número todavía no está vinculado. Genera un código y envíalo por WhatsApp.
           </p>
         )}
         <form action={newCodeAction} className="center">
-          <button className="btn secondary" type="submit">
+          <button className="btn secondary small" type="submit">
             {props.code ? "Generar otro código" : "Generar código"}
           </button>
         </form>
-      </div>
+      </section>
     </main>
   );
 }

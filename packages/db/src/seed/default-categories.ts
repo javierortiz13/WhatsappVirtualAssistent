@@ -61,7 +61,39 @@ export const DEFAULT_EXPENSE_CATEGORIES: Record<string, readonly string[]> = {
     "Impuestos y trámites",
     "Otros",
   ],
+  // Plan Personal (05/10/2026): la plata de todos los días, no la de un negocio.
+  personal: [
+    "Mercado",
+    "Comida fuera",
+    "Transporte",
+    "Casa y servicios",
+    "Salud",
+    "Educación",
+    "Entretenimiento",
+    "Ropa y cuidado personal",
+    "Suscripciones",
+    "Otros",
+  ],
 };
+
+/**
+ * Más ideas para el onboarding: se ofrecen junto a las de su tipo para que cada quien arme su
+ * lista (máximo 10 activas).
+ */
+export const SUGGESTED_EXPENSE_CATEGORIES: readonly string[] = [
+  "Delivery",
+  "Internet y teléfono",
+  "Gasolina",
+  "Alquiler",
+  "Mantenimiento",
+  "Nómina",
+  "Publicidad",
+  "Impuestos y trámites",
+  "Mascotas",
+  "Regalos",
+  "Viajes",
+  "Seguros",
+];
 
 export const OTHERS_CATEGORY = "Otros";
 export const MAX_ACTIVE_CATEGORIES = 10;

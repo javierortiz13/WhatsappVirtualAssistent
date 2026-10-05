@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { schema, withTenant } from "@caja/db";
+import { eq, schema, withTenant } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -14,6 +14,7 @@ import {
   CODE_MAX_ATTEMPTS,
   CODE_TTL_MS,
   issueCode,
+  onboardingCategories,
   ownerPhone,
   PhoneTakenError,
   registerBusiness,
@@ -284,5 +285,56 @@ describe("onboarding por código de vinculación", () => {
         { e164: EMPLOYEE, displayName: null },
       ),
     ).rejects.toBeInstanceOf(PhoneTakenError);
+  });
+
+  it("onboarding: plan Personal, categorías elegidas y cuentas iniciales", async () => {
+    await t.db
+      .insert(schema.bcvRate)
+      .values({ effectiveDate: "2026-09-28", rate: "858.00000000", source: "test" })
+      .onConflictDoNothing();
+    const r = await registerBusiness(
+      t.db,
+      {
+        userId: USER_ID,
+        name: "Javier",
+        businessType: "personal",
+        defaultExpenseCurrency: "VES",
+        ownerPhone: "584240000777",
+        plan: "personal",
+        categories: ["Mercado", "mercado", "Gasolina", "Otros", "Mascotas"],
+        accounts: [
+          { name: "Banesco", currency: "VES", kind: "bank", openingBalance: "8580" },
+          { name: "Binance", currency: "USD", kind: "crypto", openingBalance: "50" },
+        ],
+      },
+      now(),
+    );
+    const [tenant] = await withTenant(t.db, r.tenantId, (tx) =>
+      tx.select().from(schema.tenant).where(eq(schema.tenant.id, r.tenantId)),
+    );
+    expect(tenant).toMatchObject({ plan: "personal", businessType: "personal", status: "trial" });
+    const cats = await withTenant(t.db, r.tenantId, (tx) =>
+      tx
+        .select()
+        .from(schema.category)
+        .where(eq(schema.category.tenantId, r.tenantId))
+        .orderBy(schema.category.sortOrder),
+    );
+    expect(cats.map((c) => c.name)).toEqual(["Mercado", "Gasolina", "Mascotas", "Otros"]);
+    const accounts = await withTenant(t.db, r.tenantId, (tx) =>
+      tx.select().from(schema.account).where(eq(schema.account.tenantId, r.tenantId)),
+    );
+    expect(accounts.map((a) => [a.name, a.openingBalance])).toEqual([
+      ["Banesco", "8580.00"],
+      ["Binance", "50.00"],
+    ]);
+  });
+
+  it("las categorías del onboarding: máximo 10 con Otros al final", () => {
+    const many = Array.from({ length: 14 }, (_, i) => `Cat ${i}`);
+    const out = onboardingCategories(many, "other");
+    expect(out).toHaveLength(10);
+    expect(out.at(-1)).toBe("Otros");
+    expect(onboardingCategories(undefined, "personal")).toContain("Comida fuera");
   });
 });

@@ -41,10 +41,10 @@ export function LinkStatus({ expiresAt }: { expiresAt: number }) {
     return (
       <div className="notice ok stack">
         <p style={{ margin: 0 }}>
-          <strong>✅ Número vinculado.</strong> Ya puedes escribirle al asistente.
+          <strong>✅ ¡Listo! Tu número quedó vinculado.</strong> Ya puedes escribirle al asistente.
         </p>
-        <a className="btn" href="/inicio">
-          Ir a Inicio
+        <a className="btn" href="/inicio?bienvenida=1">
+          Ver qué puedo hacer ›
         </a>
       </div>
     );

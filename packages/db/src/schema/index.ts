@@ -29,7 +29,14 @@ const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 };
 
-export const BUSINESS_TYPES = ["car_wash", "food", "retail", "services", "other"] as const;
+export const BUSINESS_TYPES = [
+  "car_wash",
+  "food",
+  "retail",
+  "services",
+  "other",
+  "personal",
+] as const;
 export const CURRENCIES = ["USD", "VES"] as const;
 export const PHONE_ROLES = ["owner", "employee"] as const;
 export const PHONE_STATUSES = ["pending", "active", "disabled"] as const;

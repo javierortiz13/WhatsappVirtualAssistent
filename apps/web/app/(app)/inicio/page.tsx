@@ -9,9 +9,11 @@ import {
   ownerPhone,
 } from "@caja/core";
 import { monthNameEs } from "@caja/core/domain";
-import { withTenant } from "@caja/db";
+import { rows, schema, sql, withTenant } from "@caja/db";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
+import { env } from "@/lib/env";
+import { BOT_FEATURES } from "@/lib/onboarding";
 import { monthBounds, movementsBetween, todayInCaracas, totalsBetween } from "@/lib/queries";
 import { requireTenant } from "@/lib/session";
 import { MovementRowView } from "../movements-list";
@@ -20,8 +22,13 @@ export const metadata: Metadata = { title: "Inicio" };
 export const dynamic = "force-dynamic";
 
 /** Una cifra grande (el neto de hoy), dos tarjetas del mes y los últimos movimientos. */
-export default async function Inicio() {
+export default async function Inicio({
+  searchParams,
+}: {
+  searchParams: Promise<{ bienvenida?: string }>;
+}) {
   const { tenant } = await requireTenant();
+  const sp = await searchParams;
   const today = todayInCaracas();
   const month = monthBounds(today);
   const [rate, [close, budgets], monthTotals, recent, owner] = await Promise.all([
@@ -33,6 +40,52 @@ export default async function Inicio() {
     movementsBetween(tenant.id, month.from, month.to, 6),
     ownerPhone(db(), tenant.id),
   ]);
+  const progress = await withTenant(db(), tenant.id, async (tx) => {
+    const [r] = rows<{ accounts: number; expenses: number; incomes: number; personal: boolean }>(
+      await tx.execute(sql`
+        select
+          (select count(*)::int from ${schema.account}
+            where tenant_id = ${tenant.id} and archived_at is null) as accounts,
+          (select count(*)::int from ${schema.movement}
+            where tenant_id = ${tenant.id} and type = 'expense' and deleted_at is null) as expenses,
+          (select count(*)::int from ${schema.movement}
+            where tenant_id = ${tenant.id} and type = 'income' and deleted_at is null) as incomes,
+          (select business_type = 'personal' from ${schema.tenant}
+            where id = ${tenant.id}) as personal
+      `),
+    );
+    return r ?? { accounts: 0, expenses: 0, incomes: 0, personal: false };
+  });
+  const wa = env().PLATFORM_WA_NUMBER;
+  const waLink = (text: string) =>
+    wa ? `https://wa.me/${wa}?text=${encodeURIComponent(text)}` : "#";
+  const steps = [
+    {
+      done: owner?.status === "active",
+      title: "Vincular tu WhatsApp",
+      sub: "Envía el código al asistente",
+      href: "/registro",
+    },
+    {
+      done: progress.accounts > 0,
+      title: "Crear una cuenta",
+      sub: "Tu banco, Binance o efectivo",
+      href: "/ajustes/cuentas",
+    },
+    {
+      done: progress.expenses > 0,
+      title: "Registrar tu primer gasto",
+      sub: "Escríbele: gasté 5$ en café",
+      href: waLink("gasté 5$ en café"),
+    },
+    {
+      done: progress.incomes > 0,
+      title: progress.personal ? "Registrar un ingreso" : "Registrar una venta",
+      sub: progress.personal ? "Escríbele: me pagaron 50$" : "Escríbele: hoy vendí 100$",
+      href: waLink(progress.personal ? "me pagaron 50$" : "hoy vendí 100$"),
+    },
+  ];
+  const doneCount = steps.filter((x) => x.done).length;
   const monthNet = monthTotals.incomeUsd.minus(monthTotals.expensesUsd);
   return (
     <div className="stack">
@@ -43,6 +96,62 @@ export default async function Inicio() {
         </div>
       ) : null}
       {rate.stale ? <div className="notice">La tasa BCV puede estar desactualizada.</div> : null}
+
+      {sp.bienvenida ? (
+        <section className="card stack welcome">
+          <div>
+            <span className="label">¡Bienvenido!</span>
+            <h2 style={{ fontSize: 22, margin: "6px 0 0" }}>Esto es lo que puedo hacer</h2>
+            <p className="sub" style={{ margin: "6px 0 0" }}>
+              Todo por WhatsApp: escribe, manda un audio o una foto.
+            </p>
+          </div>
+          <div className="feature-grid">
+            {BOT_FEATURES.map((f) => (
+              <div className="feature" key={f.title}>
+                <span className="feature-icon">{f.icon}</span>
+                <strong className="feature-title">{f.title}</strong>
+                <em className="feature-ex">{f.example}</em>
+              </div>
+            ))}
+          </div>
+          {wa ? (
+            <a className="btn block wa" href={waLink("ayuda")} target="_blank" rel="noreferrer">
+              Abrir WhatsApp
+            </a>
+          ) : null}
+          <a className="sub center-text" href="/inicio" style={{ display: "block" }}>
+            Cerrar
+          </a>
+        </section>
+      ) : null}
+
+      {doneCount < steps.length ? (
+        <details className="card first-steps" open={Boolean(sp.bienvenida)}>
+          <summary>
+            🚀 Completa los primeros pasos
+            <span className="count num">
+              {doneCount}/{steps.length} ›
+            </span>
+          </summary>
+          <div style={{ marginTop: "var(--space-2)" }}>
+            {steps.map((x) => (
+              <a
+                key={x.title}
+                className={`step-row ${x.done ? "done" : ""}`}
+                href={x.href}
+                {...(x.href.startsWith("https://") ? { target: "_blank", rel: "noreferrer" } : {})}
+              >
+                <span className="dot" aria-hidden="true" />
+                <span className="what">
+                  <strong className="step-title">{x.title}</strong>
+                  <small>{x.sub}</small>
+                </span>
+              </a>
+            ))}
+          </div>
+        </details>
+      ) : null}
 
       <section className="card hero">
         <span className="label">Hoy · {formatShortDate(today)}</span>

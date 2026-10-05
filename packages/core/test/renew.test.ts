@@ -343,7 +343,9 @@ describe("renovar el plan por WhatsApp", () => {
       skipped: 0,
     });
     // Dos días después sin mensajes del dueño: se marca, pero no se manda (Meta exige plantilla).
-    clock = new Date(clock.getTime() + 2 * 24 * 3_600_000);
+    // Los mensajes guardan la hora real de la base: el salto parte de la más tardía de las dos
+    // (antes partía del reloj fijo y la prueba empezó a fallar al llegar esa fecha de verdad).
+    clock = new Date(Math.max(clock.getTime(), Date.now()) + 2 * 24 * 3_600_000);
     const left = (await payments()).filter((p) => p.status === "pending");
     await withTenant(t.db, tenantId, (tx) =>
       approvePayment(tx, tenantId, left[0]?.id as string, ADMIN, now()),

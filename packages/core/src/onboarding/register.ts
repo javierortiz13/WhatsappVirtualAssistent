@@ -13,7 +13,16 @@ import {
   type Tx,
   withTenant,
 } from "@caja/db";
-import { DEFAULT_EXPENSE_CATEGORIES } from "@caja/db/seed-data";
+import {
+  DEFAULT_EXPENSE_CATEGORIES,
+  MAX_ACTIVE_CATEGORIES,
+  MAX_CATEGORY_NAME_LENGTH,
+  OTHERS_CATEGORY,
+} from "@caja/db/seed-data";
+import type { PlanId } from "../billing/plans";
+import { businessDateOf } from "../domain/dates";
+import { Decimal } from "../domain/money";
+import { type AccountKind, createAccount } from "../ledger/accounts";
 
 /**
  * Onboarding (US-A1, US-A2, US-A4). El dueño crea el negocio en el dashboard y prueba que el
@@ -31,6 +40,7 @@ export const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
   retail: "Tienda o bodega",
   services: "Servicios",
   other: "Otro",
+  personal: "Personal",
 };
 
 export class PhoneTakenError extends Error {
@@ -49,7 +59,43 @@ export type RegisterInput = {
   /** E.164 sin '+'. */
   ownerPhone: string;
   ownerName?: string | null;
+  /** Plan elegido en el onboarding (05/10); por defecto, Personal para el tipo personal y Negocio. */
+  plan?: PlanId;
+  /** Categorías de gasto elegidas; sin esto, las del tipo. "Otros" siempre queda. */
+  categories?: string[];
+  /** Cuentas iniciales (banco, Binance, efectivo…), con lo que hay hoy en cada una. */
+  accounts?: {
+    name: string;
+    currency: "USD" | "VES";
+    kind: AccountKind;
+    openingBalance: string;
+  }[];
 };
+
+/** Hasta 3 cuentas en el onboarding; las demás desde Ajustes → Cuentas. */
+export const ONBOARDING_MAX_ACCOUNTS = 3;
+
+/**
+ * Lista de categorías elegida en el onboarding: sin repetidas (sin importar mayúsculas ni
+ * acentos), nombres cortos, "Otros" al final, máximo 10 (lo que cabe en una lista de WhatsApp).
+ */
+export function onboardingCategories(
+  chosen: string[] | undefined,
+  businessType: BusinessType,
+): string[] {
+  const norm = (n: string) => n.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  const base = chosen ?? DEFAULT_EXPENSE_CATEGORIES[businessType] ?? [];
+  const seen = new Set<string>([norm(OTHERS_CATEGORY)]);
+  const out: string[] = [];
+  for (const raw of base) {
+    const name = raw.replace(/\s+/g, " ").trim().slice(0, MAX_CATEGORY_NAME_LENGTH);
+    if (!name || seen.has(norm(name))) continue;
+    seen.add(norm(name));
+    out.push(name);
+    if (out.length >= MAX_ACTIVE_CATEGORIES - 1) break;
+  }
+  return [...out, OTHERS_CATEGORY];
+}
 
 export type IssuedCode = { code: string; expiresAt: Date };
 
@@ -78,8 +124,9 @@ export async function registerBusiness(
       businessType: input.businessType,
       defaultExpenseCurrency: input.defaultExpenseCurrency,
       status: "trial",
+      plan: input.plan ?? (input.businessType === "personal" ? "personal" : "negocio"),
     });
-    const names = DEFAULT_EXPENSE_CATEGORIES[input.businessType] ?? [];
+    const names = onboardingCategories(input.categories, input.businessType);
     if (names.length)
       await tx
         .insert(schema.category)
@@ -110,6 +157,19 @@ export async function registerBusiness(
       after: { name: input.name.trim(), businessType: input.businessType },
       channel: "dashboard",
     });
+    for (const a of (input.accounts ?? []).slice(0, ONBOARDING_MAX_ACCOUNTS)) {
+      const opening = new Decimal(a.openingBalance || "0");
+      await createAccount(tx, {
+        tenantId,
+        name: a.name,
+        currency: a.currency,
+        kind: a.kind,
+        openingBalance: opening.isFinite() ? opening : new Decimal(0),
+        openingDate: businessDateOf(now),
+        actor: { userId: input.userId },
+        channel: "dashboard",
+      });
+    }
     const issued = await issueCode(tx, { tenantId, phoneId: phone.id }, now);
     return { tenantId, phoneId: phone.id, ...issued };
   });
