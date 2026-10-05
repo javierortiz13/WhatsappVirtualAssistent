@@ -736,3 +736,4 @@ Si no se leen al menos dos de banco, teléfono y cédula, pide una foto más cla
 ### S2 · 04/10/2026 · Primera corrida de evals con el modelo real
 
 Javier corrió `pnpm evals` con claude-sonnet-5-5: **97/97 pasaron** (incluidos los 12 de cuentas y transferencias y el de "tus funciones"), costo 0,50 USD. Los otros 25 (renovar, tasa euro, tasa, ventas, voz) no llegaron a correr: tocaron el tope `EVALS_MAX_USD` de 0,50. Con 122 casos la corrida completa cuesta ~0,63 USD, así que el tope por defecto sube a 1,00.
+- Segunda corrida (05/10, solo renovar, tasa, ventas y voz): 27/30, costo 0,14 USD. Las 3 fallas eran del eval, no del bot: esperaban el formato viejo del borrador de venta ("Total *$350*", "Pago Móvil · *Bs …*") y el mensaje ahora usa dos puntos. Expectativas actualizadas. Con eso las 122 pasan con el modelo real.
