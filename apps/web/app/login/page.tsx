@@ -51,7 +51,7 @@ export default async function LoginPage({
       </section>
 
       <section className="auth-panel">
-        <div className="card stack">
+        <div className="card auth-card">
           {sp.enviado ? (
             <div className="stack">
               <div className="mail-icon" aria-hidden="true">
@@ -88,7 +88,7 @@ export default async function LoginPage({
                   </p>
                 </>
               ) : null}
-              <form action={sendMagicLink} className="stack">
+              <form action={sendMagicLink} className="auth-form">
                 <label className="field">
                   <span>Tu correo</span>
                   <input
@@ -121,8 +121,7 @@ export default async function LoginPage({
           )}
         </div>
         <p className="sub center-text auth-foot">
-          🔒 Cada cuenta está aislada y puedes borrarla cuando quieras ·{" "}
-          <a href="/">Ver cómo funciona</a>
+          🔒 Tus datos están aislados y son tuyos · <a href="/">Ver cómo funciona</a>
         </p>
       </section>
     </main>

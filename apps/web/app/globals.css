@@ -1300,8 +1300,16 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
 .auth-demo {
   grid-area: demo;
 }
-.auth-panel .card {
-  gap: var(--space-4);
+/* La tarjeta de entrada maneja su propio espacio: los márgenes de .stack se anulaban. */
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 body:has(.auth),
 body:has(.wizard) {
@@ -1350,8 +1358,8 @@ body:has(.wizard) {
   border: 1px solid var(--border-2);
   color: var(--fg-2);
 }
-.auth-panel .card {
-  padding: var(--space-6);
+.auth-panel .auth-card {
+  padding: 28px 24px;
 }
 .auth-panel h2 {
   font-size: 24px;
@@ -1360,6 +1368,7 @@ body:has(.wizard) {
 .auth-foot {
   margin-top: var(--space-4);
   font-size: 13px;
+  text-align: center;
 }
 .mail-icon {
   font-size: 40px;
@@ -1367,21 +1376,25 @@ body:has(.wizard) {
 .mini-steps {
   list-style: none;
   margin: 0;
-  padding: 0;
-  display: flex;
-  justify-content: space-between;
-  gap: 6px;
+  padding: 4px 0 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
   font-size: 12px;
   color: var(--muted);
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
 }
 .mini-step {
   display: flex;
+  flex-direction: column;
   align-items: center;
+  text-align: center;
   gap: 6px;
 }
 .mini-num {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -1407,7 +1420,7 @@ body:has(.wizard) {
   border: 1px solid var(--border-2);
   background: #0b141a;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
-  max-width: 420px;
+  max-width: 520px;
 }
 .chat-head {
   display: flex;
@@ -1477,18 +1490,30 @@ body:has(.wizard) {
   padding-top: 6px;
 }
 @media (min-width: 900px) {
+  /* Dos columnas iguales: a la izquierda qué es y la demo, a la derecha entrar, centrada. */
   .auth {
-    grid-template-columns: 1.15fr 0.85fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-areas: "intro panel" "demo panel";
-    column-gap: 64px;
-    row-gap: var(--space-5);
-    padding: var(--space-6);
+    column-gap: 72px;
+    row-gap: 28px;
+    padding: 48px 40px;
+    max-width: 1160px;
+  }
+  .auth-intro,
+  .auth-demo {
+    max-width: 520px;
+    justify-self: end;
+    width: 100%;
   }
   .auth-panel {
     align-self: center;
+    justify-self: start;
+    width: 100%;
+    max-width: 460px;
   }
-  .auth-panel .card {
-    padding: 32px;
+  .auth-panel .auth-card {
+    padding: 36px 32px;
+    gap: 22px;
   }
 }
 @media (max-width: 899px) {
