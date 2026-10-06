@@ -763,3 +763,19 @@ Javier configuró la pantalla de consentimiento y el cliente OAuth en Google Clo
 **QA en navegador (390 px y escritorio):** entrada, los 6 pasos con plan Personal y con Negocio (categoría quitada, idea agregada, propia agregada, dos cuentas), datos guardados bien, bienvenida y primeros pasos. Corregido en QA: la clase `.cat` chocaba con la de Ajustes (tarjetas gigantes); el formulario de entrada quedaba muy abajo en el teléfono.
 
 **Prueba con fecha fija:** `renew.test` empezó a fallar hoy: los mensajes guardan la hora real y el reloj de la prueba (03/10 + 2 días) ya la alcanzó. El salto ahora parte de la hora más tardía.
+
+### S2 · 06/10/2026 · Tope de gasto de la prueba gratis
+
+**Pedido (Javier):** un tope exacto para que una prueba gratis no cueste más de lo previsto. Decisiones: 1,50 USD en Personal, 4 en Negocio y 8 en Negocio Plus; al llegar, el bot para y ofrece activar el plan, y el administrador puede darle más.
+
+**Qué se cuenta** (`billing/trial.ts`, desde que se registró el negocio): la IA de cada turno (`message.cost_usd`, agente y lectura de fotos, exacto) + cada respuesta entregada sin reacciones a 0,0113 USD (tarifa de Meta, ADR-014; se cuenta aunque caiga en las 1.000 gratis del mes: el tope es el peor caso) + 0,003 USD por nota de voz (Deepgram). Solo mientras `status = trial`; al pagar desaparece.
+
+**Al llegar al tope:** el mensaje se guarda pero no pasa por el LLM ni por la transcripción. El dueño recibe "Llegaste al límite de uso de tu prueba gratis… escribe *renovar*" una vez al día (cada respuesta también cuesta; el resto del día, silencio) y renovar sigue funcionando (palabras, botones y referencia del pago, sin LLM). Un empleado recibe "avísale al dueño".
+
+**Migración 0016** (aplicada en producción antes del push): `tenant.trial_budget_usd` (tope propio; null = el del plan), `tenant.trial_cap_notified_at` e índice `message (tenant_id, created_at)` para la suma. Los 4 negocios del piloto, creados antes del tope, quedan con 20 USD: el más activo ya llevaba ~2,44 USD en 7 días (1,00 de IA y 127 respuestas) y con 4 se habría cortado antes de terminar su prueba.
+
+**Administrador:** la ficha del negocio muestra "Prueba: $gastado de $tope (IA · Meta · voz)" y un campo "Tope de prueba (USD)" (vacío = el del plan; queda en el historial). El housekeeping avisa por Sentry una vez cuando una prueba llega al tope; si se cambia el tope, vuelve a avisar.
+
+**Usuario:** en Ajustes → Mi plan, durante la prueba la barra muestra el uso incluido ("llevas el 59 %") y, al llegar, que el asistente dejó de registrar y cómo pagar.
+
+**Tests:** suma de costos (sin reacciones ni envíos fallidos), tope por plan y propio, aviso al administrador una sola vez; en el inbox, sin registro ni LLM, aviso una vez al día, renovar sí y el empleado. QA en navegador: Mi plan y la ficha del administrador con un tope de 2 USD (llegó) y vuelta al del plan.

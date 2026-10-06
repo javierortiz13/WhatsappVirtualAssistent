@@ -1,4 +1,12 @@
-import { latestRates, monthUsage, PLANS, planById, quote, subscriptionState } from "@caja/core";
+import {
+  latestRates,
+  monthUsage,
+  PLANS,
+  planById,
+  quote,
+  subscriptionState,
+  trialSpend,
+} from "@caja/core";
 import { businessDateOf, formatShortDate } from "@caja/core/domain";
 import { desc, eq, schema, withTenant } from "@caja/db";
 import type { Metadata } from "next";
@@ -38,12 +46,13 @@ export default async function MiPlan({
   const { tenant } = await requireTenant();
   const sp = await searchParams;
   const now = new Date();
-  const [{ t, usage, payments }, rates] = await Promise.all([
+  const [{ t, usage, trial, payments }, rates] = await Promise.all([
     withTenant(db(), tenant.id, async (tx) => {
       const [t] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenant.id));
       return {
         t,
         usage: await monthUsage(tx, tenant.id, now),
+        trial: t?.status === "trial" ? await trialSpend(tx, t) : null,
         payments: await tx
           .select()
           .from(schema.payment)
@@ -57,7 +66,12 @@ export default async function MiPlan({
   if (!t) return null;
   const plan = planById(t.plan);
   const state = subscriptionState(t, now);
-  const pct = Math.min(100, Math.round((usage.inbound / plan.messagesPerMonth) * 100));
+  // En la prueba la barra es el tope de gasto (0016): al 100 % el asistente deja de registrar.
+  const pct = trial
+    ? trial.budgetUsd.isZero()
+      ? 100
+      : Math.min(100, Math.round(trial.spentUsd.div(trial.budgetUsd).toNumber() * 100))
+    : Math.min(100, Math.round((usage.inbound / plan.messagesPerMonth) * 100));
   const e = env();
   const dest = {
     pago_movil: e.PAYMENT_PAGO_MOVIL,
@@ -92,15 +106,17 @@ export default async function MiPlan({
         <div className="usage" aria-hidden="true">
           <span style={{ width: `${pct}%` }} className={pct >= 90 ? "warn" : ""} />
         </div>
+        {trial ? (
+          <p className="sub">
+            {trial.reached
+              ? "Usaste todo lo incluido en la prueba gratis y el asistente dejó de registrar. Tus datos siguen guardados: paga y repórtalo aquí abajo para seguir."
+              : `Prueba gratis: llevas el ${pct} % del uso incluido. Al llegar al 100 % o a la fecha, el asistente deja de registrar hasta que actives el plan.`}
+          </p>
+        ) : null}
         <p className="sub num">
           Este mes: {usage.inbound} de {plan.messagesPerMonth} registros · {usage.phones} de{" "}
           {plan.numbers} números
         </p>
-        {state.kind === "trial" ? (
-          <p className="sub">
-            Estás en la prueba gratis. Para seguir después de la fecha, paga y repórtalo aquí abajo.
-          </p>
-        ) : null}
       </section>
 
       <span className="sect">Planes</span>

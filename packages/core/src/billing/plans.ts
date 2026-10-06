@@ -12,6 +12,8 @@ export type Plan = {
   tagline: string;
   /** Mensajes del usuario al asistente por mes (los del bot y las reacciones no cuentan). */
   messagesPerMonth: number;
+  /** Tope de gasto de la prueba gratis en USD (IA + Meta + voz); al llegar, el bot para. */
+  trialBudgetUsd: number;
   numbers: number;
   employees: number;
   features: string[];
@@ -25,6 +27,7 @@ export const PLANS: Plan[] = [
     priceUsd: 4.99,
     tagline: "Un asistente para tu plata de todos los días, sin abrir una app.",
     messagesPerMonth: 150,
+    trialBudgetUsd: 1.5,
     numbers: 1,
     employees: 0,
     features: [
@@ -42,6 +45,7 @@ export const PLANS: Plan[] = [
     priceUsd: 19.99,
     tagline: "Hace la parte de la caja que hoy hace una persona. Tú y un empleado.",
     messagesPerMonth: 600,
+    trialBudgetUsd: 4,
     numbers: 2,
     employees: 1,
     features: [
@@ -60,6 +64,7 @@ export const PLANS: Plan[] = [
     priceUsd: 39.99,
     tagline: "Varios turnos o varias personas registrando. Mismo asistente.",
     messagesPerMonth: 1500,
+    trialBudgetUsd: 8,
     numbers: 4,
     employees: 3,
     features: [

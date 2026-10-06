@@ -15,6 +15,8 @@ import {
   reportPayment,
   subscriptionState,
   TooManyPendingError,
+  trialBudget,
+  trialSpend,
 } from "../src/billing/index";
 import { Decimal } from "../src/domain/money";
 
@@ -259,5 +261,83 @@ describe("pagos, suspensión y límite (base de prueba)", () => {
     expect(second.overCap).toEqual([{ tenantId, plan: "negocio", used: 601, cap: 600 }]);
     const third = await enforceBilling(t.db, now);
     expect(third.overCap).toEqual([]);
+  });
+});
+
+describe("tope de gasto de la prueba (0016)", () => {
+  let t: Awaited<ReturnType<typeof createTestDb>>;
+  let tenantId: string;
+  beforeAll(async () => {
+    t = await createTestDb();
+    tenantId = await seedTenant(t.db, {
+      name: "Prueba",
+      businessType: "personal",
+      ownerPhone: "584125550001",
+    });
+  });
+  afterAll(() => t.close());
+
+  const row = () =>
+    withTenant(t.db, tenantId, async (tx) => {
+      const [r] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId));
+      if (!r) throw new Error("sin tenant");
+      return r;
+    });
+
+  const spendOf = (r: Parameters<typeof trialSpend>[1]) =>
+    withTenant(t.db, tenantId, (tx) => trialSpend(tx, r));
+
+  it("tope por plan, o el propio del negocio", () => {
+    expect(trialBudget({ plan: "personal", trialBudgetUsd: null }).toFixed(2)).toBe("1.50");
+    expect(trialBudget({ plan: "negocio", trialBudgetUsd: null }).toFixed(2)).toBe("4.00");
+    expect(trialBudget({ plan: "negocio_plus", trialBudgetUsd: null }).toFixed(2)).toBe("8.00");
+    expect(trialBudget({ plan: "personal", trialBudgetUsd: "20.00" }).toFixed(2)).toBe("20.00");
+  });
+
+  it("suma IA + respuestas a la tarifa de Meta + notas de voz; avisa al administrador una vez", async () => {
+    await withTenant(t.db, tenantId, async (tx) => {
+      await tx
+        .update(schema.tenant)
+        .set({ plan: "personal" })
+        .where(eq(schema.tenant.id, tenantId));
+      const [phone] = await tx.select().from(schema.phoneNumber);
+      const base = { tenantId, phoneId: phone?.id ?? "" };
+      await tx.insert(schema.message).values([
+        { ...base, direction: "in", kind: "text", body: "x" },
+        { ...base, direction: "in", kind: "audio" },
+        { ...base, direction: "out", kind: "text", body: "y", costUsd: "0.500000" },
+        { ...base, direction: "out", kind: "text", body: "y", costUsd: "0.300000" },
+        // Ni las reacciones ni los envíos fallidos se cobran.
+        { ...base, direction: "out", kind: "reaction", body: "🎧" },
+        { ...base, direction: "out", kind: "text", body: "y", status: "failed" },
+      ]);
+    });
+    const spend = await spendOf(await row());
+    expect(spend.aiUsd.toFixed(2)).toBe("0.80");
+    expect(spend.replies).toBe(2);
+    // 0,80 + 2 × 0,0113 + 0,003 = 0,8256
+    expect(spend.spentUsd.toFixed(4)).toBe("0.8256");
+    expect(spend.reached).toBe(false);
+
+    const noYet = await enforceBilling(t.db, new Date());
+    expect(noYet.trialCapped).toEqual([]);
+
+    await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .update(schema.tenant)
+        .set({ trialBudgetUsd: "0.80" })
+        .where(eq(schema.tenant.id, tenantId)),
+    );
+    const capped = await spendOf(await row());
+    expect(capped.reached).toBe(true);
+    const first = await enforceBilling(t.db, new Date());
+    expect(first.trialCapped).toEqual([
+      { tenantId, plan: "personal", spentUsd: "0.83", budgetUsd: "0.80" },
+    ]);
+    expect((await enforceBilling(t.db, new Date())).trialCapped).toEqual([]);
+
+    // Pagado: ya no es prueba y no hay tope.
+    const active = await spendOf({ ...(await row()), status: "active" });
+    expect(active.reached).toBe(false);
   });
 });

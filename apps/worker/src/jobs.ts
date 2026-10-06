@@ -12,6 +12,7 @@ import {
   refreshRates,
   sendPaymentNotices,
   sweepOrphanAttachments,
+  type TrialCapped,
 } from "@caja/core";
 import { allTenantIds, type Db, withTenant } from "@caja/db";
 import {
@@ -46,6 +47,7 @@ export async function registerJobs(opts: {
   onError?: (err: unknown, queue: string) => void;
   /** Negocios que pasaron el límite de mensajes del plan este mes (una vez por mes cada uno). */
   onOverCap?: (items: OverCap[]) => void;
+  onTrialCapped?: (items: TrialCapped[]) => void;
 }) {
   const { boss, db, deps, log } = opts;
   const guarded =
@@ -151,6 +153,10 @@ export async function registerJobs(opts: {
         if (billing.overCap.length) {
           log.warn({ overCap: billing.overCap }, "negocios sobre el límite de mensajes del plan");
           opts.onOverCap?.(billing.overCap);
+        }
+        if (billing.trialCapped.length) {
+          log.warn({ trialCapped: billing.trialCapped }, "pruebas que llegaron a su tope de gasto");
+          opts.onTrialCapped?.(billing.trialCapped);
         }
       } catch (err) {
         log.error(

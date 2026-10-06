@@ -15,6 +15,7 @@ import {
   renewOfferReply,
   renewPayToReply,
   renewReferenceReply,
+  trialSpend,
 } from "../billing/index";
 import {
   asIsoDate,
@@ -347,8 +348,11 @@ export async function processInbound(
         log.debug({ err: errMsg(err) }, "acuse falló");
       }
     };
+    // Prueba gratis en su tope de gasto (0016): sin LLM ni transcripción hasta activar el plan.
+    const trialCapped = tenant.status === "trial" && (await trialSpend(tx, tenant)).reached;
     const route = await routeMessage(tx, deps, msg, {
       suspended: resolved.tenantStatus === "suspended",
+      trialCapped,
       tenantId: resolved.tenantId,
       tenantName: tenant.name,
       phoneId: resolved.phoneId,
@@ -512,6 +516,8 @@ async function handlePendingOwner(
 type RouteCtx = {
   /** Negocio suspendido: solo se atiende la renovación del plan, sin LLM. */
   suspended: boolean;
+  /** Prueba gratis que llegó a su tope de gasto: igual que suspendido, con su propio aviso. */
+  trialCapped?: boolean;
   tenantId: string;
   tenantName: string;
   phoneId: string;
@@ -558,6 +564,8 @@ function renewCtx(deps: ProcessDeps, ctx: RouteCtx): RenewChatCtx {
 /**
  * Negocio suspendido (solo llega el dueño): renovar sí, todo lo demás responde "tu plan venció".
  * Sin LLM: botones de renovación, la referencia del pago y palabras como "renovar" o "pagar".
+ * Con la prueba en su tope (0016) es igual, con el aviso de la prueba: una vez al día por número
+ * (cada respuesta también cuesta) y a los empleados solo "avísale al dueño".
  */
 async function routeSuspended(
   tx: Tx,
@@ -565,6 +573,47 @@ async function routeSuspended(
   msg: InboundMessage,
   ctx: RouteCtx,
 ): Promise<RouteResult> {
+  if (ctx.trialCapped) {
+    const notice = async (out: Outbound): Promise<RouteResult> =>
+      (await trialNoticeSentToday(tx, ctx.phoneId, renewCtx(deps, ctx).now))
+        ? none([])
+        : { ...none([out]), toolCalls: [{ name: TRIAL_CAP, args: {} }] };
+    if (ctx.role !== "owner") return notice(es.trialLimitEmployee(ctx.tenantName));
+    const routed = await routeRenewOnly(tx, deps, msg, ctx);
+    return routed ?? notice(es.trialLimit(deps.config.supportHint));
+  }
+  return (
+    (await routeRenewOnly(tx, deps, msg, ctx)) ?? none([es.planExpired(deps.config.supportHint)])
+  );
+}
+
+/** Marca, en el saliente, del aviso de "la prueba llegó a su límite". */
+const TRIAL_CAP = "trial_cap";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+async function trialNoticeSentToday(tx: Tx, phoneId: string, now: Date): Promise<boolean> {
+  const [hit] = await tx
+    .select({ id: schema.message.id })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.phoneId, phoneId),
+        eq(schema.message.direction, "out"),
+        gt(schema.message.createdAt, new Date(now.getTime() - DAY_MS)),
+        sql`${schema.message.toolCalls} @> ${JSON.stringify([{ name: TRIAL_CAP }])}::jsonb`,
+      ),
+    )
+    .limit(1);
+  return !!hit;
+}
+
+/** Renovación sin LLM (botones, referencia del pago, "renovar"); null si el mensaje no es eso. */
+async function routeRenewOnly(
+  tx: Tx,
+  deps: ProcessDeps,
+  msg: InboundMessage,
+  ctx: RouteCtx,
+): Promise<RouteResult | null> {
   const c = renewCtx(deps, ctx);
   if (msg.kind === "interactive") {
     const parsed = parseReplyId(msg.replyId);
@@ -577,7 +626,7 @@ async function routeSuspended(
     if (reference) return none([await renewReferenceReply(tx, c, reference)]);
     if (RENEW_WORDS.test(msg.text)) return none([await renewOfferReply(tx, c)]);
   }
-  return none([es.planExpired(deps.config.supportHint)]);
+  return null;
 }
 
 async function routeMessage(
@@ -586,7 +635,7 @@ async function routeMessage(
   msg: InboundMessage,
   ctx: RouteCtx,
 ): Promise<RouteResult> {
-  if (ctx.suspended) return routeSuspended(tx, deps, msg, ctx);
+  if (ctx.suspended || ctx.trialCapped) return routeSuspended(tx, deps, msg, ctx);
   switch (msg.kind) {
     case "interactive":
       return routeInteractive(tx, deps, msg.replyId, ctx);

@@ -31,6 +31,7 @@ const ACTION: Record<string, string> = {
   extend: "Fecha extendida",
   suspend: "Suspendido a mano",
   reactivate: "Reactivado",
+  trial_budget: "Tope de prueba cambiado",
   suspend_expired: "Suspendido por vencimiento",
 };
 const PAY_STATUS: Record<string, { label: string; cls: string }> = {
@@ -90,6 +91,14 @@ export default async function AdminTenant({
           Este mes: {d.usage.inbound}/{d.plan.messagesPerMonth} registros · {d.usage.outbound}{" "}
           respuestas · IA {usd(d.usage.aiCostUsd)} en {d.usage.aiTurns} turnos
         </p>
+        {t.status === "trial" ? (
+          <p className={`sub num ${d.trial.reached ? "neg" : ""}`}>
+            Prueba: {usd(d.trial.spentUsd)} de {usd(d.trial.budgetUsd)}
+            {t.trialBudgetUsd === null ? " (tope del plan)" : ""} · IA {usd(d.trial.aiUsd)} · Meta{" "}
+            {usd(d.trial.metaUsd)} ({d.trial.replies} respuestas) · voz {usd(d.trial.voiceUsd)}
+            {d.trial.reached ? " · llegó al tope: el bot no registra" : ""}
+          </p>
+        ) : null}
         <p className="sub">Alta: {day(t.createdAt)}</p>
       </section>
 
@@ -261,6 +270,23 @@ export default async function AdminTenant({
               Extender días
             </button>
           </form>
+          {t.status === "trial" ? (
+            <form action={changeTenantAction} className="admin-inline">
+              <input type="hidden" name="tenant_id" value={t.id} />
+              <input type="hidden" name="op" value="trial_budget" />
+              <input
+                className="input num"
+                name="budget"
+                inputMode="decimal"
+                defaultValue={t.trialBudgetUsd ?? ""}
+                placeholder={`${d.plan.trialBudgetUsd} (plan)`}
+                aria-label="Tope de gasto de la prueba en USD"
+              />
+              <button className="btn secondary small" type="submit">
+                Tope de prueba (USD)
+              </button>
+            </form>
+          ) : null}
           <form action={changeTenantAction}>
             <input type="hidden" name="tenant_id" value={t.id} />
             <input

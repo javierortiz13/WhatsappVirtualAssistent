@@ -126,14 +126,20 @@ export async function rejectPaymentAction(formData: FormData): Promise<void> {
 
 const TenantChange = z.object({
   tenant_id: z.string().uuid(),
-  op: z.enum(["plan", "extend", "suspend", "reactivate"]),
+  op: z.enum(["plan", "extend", "suspend", "reactivate", "trial_budget"]),
   plan: PlanId.optional(),
   days: z.coerce.number().int().min(1).max(366).optional(),
+  /** Tope de gasto de la prueba en USD ("4" o "4,50"); vacío = el del plan. */
+  budget: z
+    .string()
+    .trim()
+    .regex(/^(\d{1,3}([.,]\d{1,2})?)?$/)
+    .optional(),
 });
 
 /**
- * Cambios sin pago: cambiar plan, extender (cortesía o prueba más larga), suspender a mano o
- * reactivar. Reactivar solo si queda vigencia; si no, primero se extiende o se registra un pago.
+ * Cambios sin pago: cambiar plan, extender (cortesía o prueba más larga), tope de gasto de la
+ * prueba, suspender a mano o reactivar. Reactivar solo si queda vigencia; si no, primero se extiende o se registra un pago.
  */
 export async function changeTenantAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
@@ -162,6 +168,17 @@ export async function changeTenantAction(formData: FormData): Promise<void> {
           admin,
           now,
           "extend",
+        );
+      } else if (f.op === "trial_budget") {
+        const budget = f.budget ? Number(f.budget.replace(",", ".")).toFixed(2) : null;
+        // Con un tope nuevo, si lo vuelve a alcanzar se avisa otra vez.
+        await setTenantBilling(
+          tx,
+          t,
+          { trialBudgetUsd: budget, trialCapNotifiedAt: null },
+          admin,
+          now,
+          "trial_budget",
         );
       } else if (f.op === "suspend") {
         await setTenantBilling(tx, t, { status: "suspended" }, admin, now, "suspend");

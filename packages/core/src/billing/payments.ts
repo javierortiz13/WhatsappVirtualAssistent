@@ -188,6 +188,9 @@ export type TenantBillingChange = {
   plan?: string;
   paidUntil?: Date | null;
   trialEndsAt?: Date | null;
+  /** Tope de gasto de la prueba (0016); null = el del plan. */
+  trialBudgetUsd?: string | null;
+  trialCapNotifiedAt?: Date | null;
 };
 
 export async function setTenantBilling(
@@ -217,7 +220,13 @@ export async function setTenantBilling(
 }
 
 function pickBilling(t: typeof schema.tenant.$inferSelect) {
-  return { status: t.status, plan: t.plan, paidUntil: t.paidUntil, trialEndsAt: t.trialEndsAt };
+  return {
+    status: t.status,
+    plan: t.plan,
+    paidUntil: t.paidUntil,
+    trialEndsAt: t.trialEndsAt,
+    trialBudgetUsd: t.trialBudgetUsd,
+  };
 }
 
 async function audit(

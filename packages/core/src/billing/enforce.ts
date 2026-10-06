@@ -2,6 +2,7 @@ import { type Db, eq, everyTenantId, schema, withTenant } from "@caja/db";
 import { setTenantBilling } from "./payments";
 import { planById } from "./plans";
 import { subscriptionState } from "./subscription";
+import { trialSpend } from "./trial";
 import { monthUsage } from "./usage";
 
 /**
@@ -9,8 +10,11 @@ import { monthUsage } from "./usage";
  * 1. Suspende los negocios cuya prueba o período pagado venció hace más de 3 días.
  * 2. Detecta los que pasaron el límite de mensajes del plan este mes y los devuelve una sola vez
  *    por mes, para avisarle al administrador (decisión del 02/10: el bot sigue funcionando).
+ * 3. Detecta las pruebas que llegaron a su tope de gasto (0016; ahí el bot sí para) y las devuelve
+ *    una sola vez, para que el administrador decida si les da más.
  */
 export type OverCap = { tenantId: string; plan: string; used: number; cap: number };
+export type TrialCapped = { tenantId: string; plan: string; spentUsd: string; budgetUsd: string };
 
 export async function enforceBilling(
   db: Db,
@@ -18,20 +22,22 @@ export async function enforceBilling(
 ): Promise<{
   suspended: string[];
   overCap: OverCap[];
+  trialCapped: TrialCapped[];
   errors: { tenantId: string; err: string }[];
 }> {
   const suspended: string[] = [];
   const overCap: OverCap[] = [];
+  const trialCapped: TrialCapped[] = [];
   const errors: { tenantId: string; err: string }[] = [];
   for (const tenantId of await everyTenantId(db)) {
     try {
-      await enforceTenant(db, tenantId, now, suspended, overCap);
+      await enforceTenant(db, tenantId, now, suspended, overCap, trialCapped);
     } catch (err) {
       // Un negocio con error no frena la vuelta de los demás; el siguiente housekeeping reintenta.
       errors.push({ tenantId, err: err instanceof Error ? err.message : String(err) });
     }
   }
-  return { suspended, overCap, errors };
+  return { suspended, overCap, trialCapped, errors };
 }
 
 async function enforceTenant(
@@ -40,6 +46,7 @@ async function enforceTenant(
   now: Date,
   suspended: string[],
   overCap: OverCap[],
+  trialCapped: TrialCapped[],
 ): Promise<void> {
   await withTenant(db, tenantId, async (tx) => {
     // Bloqueado como al aprobar un pago: si la aprobación entra a la vez, este lee el
@@ -56,6 +63,21 @@ async function enforceTenant(
       return;
     }
     if (t.status === "suspended") return;
+    if (t.status === "trial" && !t.trialCapNotifiedAt) {
+      const spend = await trialSpend(tx, t);
+      if (spend.reached) {
+        await tx
+          .update(schema.tenant)
+          .set({ trialCapNotifiedAt: now })
+          .where(eq(schema.tenant.id, tenantId));
+        trialCapped.push({
+          tenantId,
+          plan: t.plan,
+          spentUsd: spend.spentUsd.toFixed(2),
+          budgetUsd: spend.budgetUsd.toFixed(2),
+        });
+      }
+    }
     const usage = await monthUsage(tx, tenantId, now);
     const cap = planById(t.plan).messagesPerMonth;
     if (usage.inbound > cap && t.capNotifiedMonth !== usage.month) {

@@ -100,6 +100,9 @@ export const tenant = app.table(
     ),
     paidUntil: timestamp("paid_until", { withTimezone: true }),
     capNotifiedMonth: text("cap_notified_month"),
+    /** Tope de gasto de la prueba (0016); null = el del plan. */
+    trialBudgetUsd: numeric("trial_budget_usd", { precision: 8, scale: 2 }),
+    trialCapNotifiedAt: timestamp("trial_cap_notified_at", { withTimezone: true }),
     /** De dónde sale la tasa de los gastos en Bs (0012): BCV, los lotes de cambio, o preguntar. */
     bsRateMode: text("bs_rate_mode").notNull().default("bcv"),
     ...timestamps,
@@ -114,6 +117,10 @@ export const tenant = app.table(
     ),
     check("tenant_status_check", inList("status", TENANT_STATUSES)),
     check("tenant_bs_rate_mode_check", inList("bs_rate_mode", BS_RATE_MODES)),
+    check(
+      "tenant_trial_budget_check",
+      sql.raw("trial_budget_usd IS NULL OR trial_budget_usd >= 0"),
+    ),
   ],
 );
 
@@ -260,6 +267,7 @@ export const message = app.table(
   },
   (t) => [
     index("message_phone_recent_idx").on(t.phoneId, t.createdAt),
+    index("message_tenant_created_idx").on(t.tenantId, t.createdAt),
     check("message_direction_check", sql.raw(`direction IN ('in', 'out')`)),
   ],
 );

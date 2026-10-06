@@ -119,6 +119,14 @@ async function main() {
           tags: { tenant: i.tenantId, plan: i.plan },
         });
     },
+    // Prueba que llegó a su tope de gasto: el bot ya no registra; en /admin se le puede dar más.
+    onTrialCapped: (items) => {
+      for (const i of items)
+        Sentry.captureMessage(
+          `Prueba en el tope de gasto (${i.plan}): ${i.spentUsd}/${i.budgetUsd} USD`,
+          { level: "warning", tags: { tenant: i.tenantId, plan: i.plan } },
+        );
+    },
   });
 
   log.info(

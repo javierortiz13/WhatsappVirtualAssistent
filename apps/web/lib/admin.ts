@@ -9,6 +9,7 @@ import {
   subscriptionState,
   type TenantPhone,
   tenantPhones,
+  trialSpend,
 } from "@caja/core";
 import { and, desc, eq, everyTenantId, schema, withTenant } from "@caja/db";
 import { notFound, redirect } from "next/navigation";
@@ -146,9 +147,10 @@ export async function loadTenantDetail(tenantId: string, now: Date) {
   return withTenant(conn, tenantId, async (tx) => {
     const [t] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId));
     if (!t) notFound();
-    const [phones, usage, payments, history] = await Promise.all([
+    const [phones, usage, trial, payments, history] = await Promise.all([
       tenantPhones(tx, tenantId),
       monthUsage(tx, tenantId, now),
+      trialSpend(tx, t, { metaRateUsd: env().META_MSG_RATE_USD }),
       tx
         .select()
         .from(schema.payment)
@@ -175,6 +177,7 @@ export async function loadTenantDetail(tenantId: string, now: Date) {
       state: subscriptionState(t, now),
       phones,
       usage,
+      trial,
       payments,
       history: [...history, ...system].sort(
         (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),

@@ -141,6 +141,23 @@ export function planExpired(supportHint: string | null): Outbound {
   };
 }
 
+/** Prueba gratis que llegó a su tope de gasto (0016): sin LLM, con cómo activar el plan. */
+export function trialLimit(supportHint: string | null): Outbound {
+  const contact = supportHint ? ` Si necesitas ayuda: ${supportHint}` : "";
+  return {
+    type: "text",
+    body: `Llegaste al límite de uso de tu prueba gratis, así que por ahora no puedo registrar nada. Tus datos siguen guardados. Para seguir, activa tu plan: escribe *renovar* y te digo cómo pagar.${contact}`,
+  };
+}
+
+/** Lo mismo para un empleado: el que activa el plan es el dueño. */
+export function trialLimitEmployee(tenantName: string): Outbound {
+  return {
+    type: "text",
+    body: `La prueba gratis de *${tenantName}* llegó a su límite de uso y por ahora no puedo registrar nada. Avísale al dueño para que active el plan; lo registrado sigue guardado.`,
+  };
+}
+
 // ---------------------------------------------------------------- renovar el plan (03/10)
 
 const RENEW_METHOD_LABELS: Record<RenewMethod, string> = {

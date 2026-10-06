@@ -381,6 +381,53 @@ describe("processInbound", () => {
     }
   });
 
+  it("prueba en su tope de gasto: sin LLM ni registro, aviso una vez al día y renovar sí", async () => {
+    const { sent, client } = fakeMeta();
+    const setBudget = (v: string | null) =>
+      withTenant(t.db, tenantId, (tx) =>
+        tx.update(schema.tenant).set({ trialBudgetUsd: v }).where(eq(schema.tenant.id, tenantId)),
+      );
+    await setBudget("0");
+    try {
+      const before = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));
+      const job = await ingest(message("wamid.TCAP1", "584121234567", "gasté 15$ en champú"));
+      expect(await processInbound(deps(client), job)).toBe("done");
+      expect(textOf(sent[0])).toContain("límite de uso de tu prueba gratis");
+      expect(textOf(sent[0])).toContain("escribe *renovar*");
+      // El segundo mensaje del día no recibe respuesta (cada respuesta también cuesta).
+      await processInbound(
+        deps(client),
+        await ingest(message("wamid.TCAP2", "584121234567", "gasté 3$ en café")),
+      );
+      expect(sent).toHaveLength(1);
+      // Renovar sigue funcionando.
+      await processInbound(
+        deps(client),
+        await ingest(message("wamid.TCAP3", "584121234567", "renovar")),
+      );
+      expect(sent).toHaveLength(2);
+      expect(textOf(sent[1])).not.toContain("límite de uso");
+      // El empleado: avísale al dueño.
+      await processInbound(
+        deps(client),
+        await ingest(message("wamid.TCAP4", "584140000002", "vendí 20$")),
+      );
+      expect(textOf(sent[2])).toContain("Avísale al dueño");
+      const after = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));
+      expect(after).toHaveLength(before.length);
+    } finally {
+      await setBudget(null);
+      await withTenant(t.db, tenantId, async (tx) => {
+        await tx.delete(schema.pendingAction);
+        // El empleado vuelve a estar sin verificar: otra prueba ve su bienvenida.
+        await tx
+          .update(schema.phoneNumber)
+          .set({ verifiedAt: null })
+          .where(eq(schema.phoneNumber.e164, "584140000002"));
+      });
+    }
+  });
+
   it("nota de voz y sticker reciben respuestas fijas por ahora", async () => {
     const { sent, client } = fakeMeta();
     await processInbound(deps(client), await ingest(fx.audioMessage));
