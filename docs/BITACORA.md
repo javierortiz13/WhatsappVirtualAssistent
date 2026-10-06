@@ -803,4 +803,6 @@ Javier configuró la pantalla de consentimiento y el cliente OAuth en Google Clo
 
 **Tests:** `erase_tenant` borra todo lo del negocio y nada del otro, no corre con otro `app.tenant_id` y conserva al usuario que es miembro de otro negocio; WhatsApp (empleado, botón sin pedirlo, No, Sí a la papelera, aviso una vez al día, recuperar); retención (avisos a los 60 y 83 una vez cada uno, papelera al 90, borrado al 105, recuperar un impago). QA en navegador: administrador (papelera, recuperar, borrar ya) y dueño (eliminar, /recuperar, recuperar).
 
+**Hecho en producción (06/10):** Javier pegó `erase_tenant` en el SQL Editor; verificada (SECURITY DEFINER, `caja_app` puede ejecutarla, `anon` no) y registrada en `schema_migrations`. "Cinnamon rolls (piloto 2)" se borró con ella: negocio, número 584127806000 y el usuario jpaxieacademy@gmail.com (no estaba en Supabase Auth). Quedan 3 negocios.
+
 **Pendiente visto en la revisión:** `/privacidad` promete borrar el texto de los mensajes a los 90 días y las fotos a los 12 meses; eso todavía no está implementado.
