@@ -157,6 +157,8 @@ export type MovementDetail = MovementRow & {
   author: string;
   sourceBody: string | null;
   attachmentMime: string | null;
+  /** La foto se borró a los 12 meses (conservación). */
+  attachmentDeletedAt: Date | null;
 };
 
 /** Un movimiento con su categoría, autor (teléfono o cuenta) y el mensaje que lo originó. */
@@ -188,6 +190,7 @@ export async function movementById(tenantId: string, id: string): Promise<Moveme
         userEmail: schema.userAccount.email,
         sourceBody: schema.message.body,
         attachmentMime: schema.attachment.mimeType,
+        attachmentDeletedAt: schema.attachment.deletedAt,
         accountId: schema.movement.accountId,
         accountName: schema.account.name,
       })

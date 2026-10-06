@@ -7,6 +7,7 @@ export * from "./exchange";
 export * from "./expenses";
 export * from "./income";
 export * from "./last-movement";
+export * from "./purge";
 export * from "./rate-for";
 export * from "./reports";
 export * from "./summary";

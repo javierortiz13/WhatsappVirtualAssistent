@@ -245,7 +245,9 @@ export default async function Movimiento({
               · {fmt(m.createdAt)}
             </span>
           </span>
-          {m.attachmentId ? (
+          {m.attachmentId && m.attachmentDeletedAt ? (
+            <span className="sub">Foto borrada (se guardan 12 meses)</span>
+          ) : m.attachmentId ? (
             <a
               className="btn secondary small"
               href={`/adjuntos/${m.attachmentId}`}

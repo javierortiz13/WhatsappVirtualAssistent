@@ -10,6 +10,8 @@ import {
   type OverCap,
   type ProcessDeps,
   processInbound,
+  purgeOldTenantData,
+  purgeOldWebhookPayloads,
   refreshRates,
   retentionSweep,
   sendPaymentNotices,
@@ -114,6 +116,7 @@ export async function registerJobs(opts: {
       const now = new Date();
       let expired = 0;
       let swept = 0;
+      const purged = { texts: 0, drafts: 0, photos: 0, events: 0 };
       let tenants: string[] = [];
       try {
         tenants = await allTenantIds(db);
@@ -135,9 +138,34 @@ export async function registerJobs(opts: {
             log,
           );
         });
+        // Conservación (/privacidad): texto de los mensajes a los 90 días, fotos a los 12 meses.
+        // Aparte, para que un fallo aquí no deshaga lo anterior.
+        try {
+          const p = await withTenant(db, tenantId, (tx) =>
+            purgeOldTenantData(tx, opts.store ?? null, tenantId, now, log),
+          );
+          purged.texts += p.texts;
+          purged.drafts += p.drafts;
+          purged.photos += p.photos;
+        } catch (err) {
+          log.error(
+            { tenantId, err: err instanceof Error ? err.message : String(err) },
+            "conservación: no se pudo purgar",
+          );
+        }
       }
       if (expired > 0) log.info({ expired }, "borradores vencidos");
       if (swept > 0) log.info({ swept }, "fotos provisionales borradas");
+      try {
+        purged.events = await purgeOldWebhookPayloads(db, now);
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : String(err) },
+          "conservación: eventos del webhook",
+        );
+      }
+      if (purged.texts || purged.drafts || purged.photos || purged.events)
+        log.info(purged, "conservación: datos viejos borrados");
       // Jobs vencidos por tiempo que quedaron en `failed`: desbloquear el teléfono.
       const stuck = await cancelFailedFifoJobs(db);
       for (const s of stuck) {

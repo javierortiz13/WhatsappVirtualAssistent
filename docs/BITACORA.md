@@ -805,4 +805,15 @@ Javier configuró la pantalla de consentimiento y el cliente OAuth en Google Clo
 
 **Hecho en producción (06/10):** Javier pegó `erase_tenant` en el SQL Editor; verificada (SECURITY DEFINER, `caja_app` puede ejecutarla, `anon` no) y registrada en `schema_migrations`. "Cinnamon rolls (piloto 2)" se borró con ella: negocio, número 584127806000 y el usuario jpaxieacademy@gmail.com (no estaba en Supabase Auth). Quedan 3 negocios.
 
-**Pendiente visto en la revisión:** `/privacidad` promete borrar el texto de los mensajes a los 90 días y las fotos a los 12 meses; eso todavía no está implementado.
+**Pendiente visto en la revisión:** `/privacidad` prometía borrar el texto de los mensajes a los 90 días y las fotos a los 12 meses y no estaba implementado; hecho en la entrada siguiente.
+
+### S2 · 06/10/2026 · Conservación: texto de los mensajes a los 90 días y fotos a los 12 meses
+
+**Por qué:** `/privacidad` lo prometía desde el principio y no estaba implementado (visto al revisar la retención).
+
+**Qué hace** (`ledger/purge.ts`, en el housekeeping del worker, por negocio y aparte del resto para que un fallo no deshaga lo demás):
+- A los 90 días: `message.body` (texto o transcripción) queda en null y `tool_calls` conserva solo los nombres de las herramientas (las métricas los usan; los argumentos traían descripciones); el `payload` de los borradores ya resueltos queda en `{}`; el mensaje crudo de Meta en `webhook_event` (eventos cerrados) queda en `{"purged": true}`.
+- A los 12 meses: las fotos y PDF se borran del bucket y el adjunto queda dado de baja (tandas de 100). El detalle del movimiento muestra "Foto borrada (se guardan 12 meses)".
+- Los movimientos no se tocan. Nada de esto necesita migración. Las notas de voz ya no se guardaban (se transcriben en memoria).
+
+**Tests:** texto viejo borrado y reciente intacto, nombres de herramientas conservados, borradores resueltos vaciados y pendientes no, foto de 366 días borrada y de 300 no, segunda vuelta sin cambios, eventos del webhook cerrados vaciados y en cola no.
