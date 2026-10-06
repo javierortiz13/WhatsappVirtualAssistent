@@ -87,6 +87,7 @@ import { getRateInfo } from "../rates/current";
 import { es, mergeOutbound, type Outbound, parseReplyId } from "../render/index";
 import type { SpeechClient } from "../speech/client";
 import type { ObjectStore } from "../storage/store";
+import type { BillReader } from "../vision/bill";
 import {
   fixDayMonth,
   pagoMovilDescription,
@@ -96,6 +97,7 @@ import {
 } from "../vision/receipt";
 import { LIMITS, LimitError, MetaApiError, type MetaClient } from "../whatsapp/client";
 import type { InboundMessage } from "../whatsapp/types";
+import { SPLIT_WORDS, splitFollowUp, splitFromPhoto } from "./split";
 
 /**
  * Procesa un job `process-message` (Fase 3, flujo end-to-end). Corre en el worker, ya
@@ -114,6 +116,8 @@ export type ProcessDeps = {
   speech?: SpeechClient | null;
   /** Lectura de facturas (US-B6). Sin lector, las fotos responden "llegan pronto". */
   vision?: ReceiptReader | null;
+  /** Dividir la cuenta (06/10): lee renglones y reparte. Sin lector, la foto va como factura. */
+  bills?: BillReader | null;
   /** Bucket privado para las fotos. Sin bucket, la foto se lee pero no se guarda como respaldo. */
   store?: ObjectStore | null;
   log?: Logger;
@@ -756,6 +760,17 @@ async function routeMessage(
       if (keyword === "close") return closeToday(tx, deps, ctx);
       if (keyword === "delete") return deleteLast(tx, deps, ctx, msg);
       if (msg.text.length > deps.config.maxTextLength) return none([es.tooLong()]);
+      // Respuesta a "¿quién consumió qué?" de una cuenta para dividir (06/10).
+      if (deps.bills) {
+        const split = await splitFollowUp(
+          tx,
+          deps.bills,
+          ctx,
+          msg.text,
+          (deps.now ?? (() => new Date()))(),
+        );
+        if (split) return split;
+      }
       const result = await runAgent(tx, deps, ctx, msg.waMessageId, {
         kind: "text",
         text: msg.text,
@@ -928,6 +943,22 @@ async function handleImage(
     const pages = pdfPageCount(bytes);
     if (pages > PDF_MAX_PAGES) return none([es.pdfTooManyPages(pages, PDF_MAX_PAGES)]);
   }
+
+  // "Dividir" en la leyenda (06/10): cuánto paga cada quien, no un gasto.
+  if (deps.bills && msg.caption && SPLIT_WORDS.test(msg.caption))
+    try {
+      return await splitFromPhoto(
+        tx,
+        deps.bills,
+        ctx,
+        { bytes, mimeType },
+        msg.caption,
+        (deps.now ?? (() => new Date()))(),
+      );
+    } catch (err) {
+      log.warn({ err: errMsg(err) }, "dividir: lectura falló");
+      return none([es.splitUnreadable()]);
+    }
 
   let read: Awaited<ReturnType<ReceiptReader["read"]>>;
   try {

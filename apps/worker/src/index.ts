@@ -1,6 +1,7 @@
 import {
   AnthropicLlmClient,
   createAgent,
+  createBillReader,
   createReceiptReader,
   DeepgramClient,
   type ProcessDeps,
@@ -53,6 +54,7 @@ async function main() {
   const agent = llm ? createAgent({ llm, log }) : stubAgent;
   // Fotos de facturas: el mismo modelo lee la imagen (ADR-007); el bucket guarda el respaldo.
   const vision = llm ? createReceiptReader(llm) : null;
+  const bills = llm ? createBillReader(llm) : null;
   const store =
     env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY
       ? new SupabaseStorage({
@@ -77,6 +79,7 @@ async function main() {
     agent,
     speech,
     vision,
+    bills,
     store,
     log,
     config: {

@@ -37,14 +37,12 @@ describe("conservación de datos", () => {
     await t.db
       .insert(schema.webhookEvent)
       .values({ eventKey: "new", payload: { text: "hoy" }, status: "done", receivedAt: ago(10) });
-    await t.db
-      .insert(schema.webhookEvent)
-      .values({
-        eventKey: "pend",
-        payload: { text: "en cola" },
-        status: "received",
-        receivedAt: ago(91),
-      });
+    await t.db.insert(schema.webhookEvent).values({
+      eventKey: "pend",
+      payload: { text: "en cola" },
+      status: "received",
+      receivedAt: ago(91),
+    });
     await run(async (tx) => {
       await tx.insert(schema.message).values([
         {

@@ -1,4 +1,4 @@
-import { eq, schema, type Tx } from "@caja/db";
+import { and, desc, eq, gt, isNull, schema, type Tx } from "@caja/db";
 import { z } from "zod";
 import { planFromName } from "../billing/renew";
 import { renewOfferReply, renewPayToReply, renewReferenceReply } from "../billing/renew-chat";
@@ -225,6 +225,36 @@ export const ExchangeInput = z.object({
   ves_amount: z.string().describe('Bolívares que recibió ("97000"), o "" si no lo dijo.'),
   rate: z.string().describe('Tasa del cambio en Bs por USDT ("970"), o "" si no la dijo.'),
   when: z.string().describe('Fecha del cambio (hoy, ayer, día de la semana, ISO), o "".'),
+});
+
+/** Calculadora de sumas (06/10): "suma 12030,30 + 26171,78 - 500", "divide 120$ entre 4". */
+export const SumAmountsInput = z.object({
+  items: z
+    .array(
+      z.object({
+        amount: z
+          .string()
+          .describe(
+            'Cada monto tal como lo escribió, sin signo ("12030,30", "26171,78", "56706").',
+          ),
+        subtract: z.boolean().describe("true si ese monto se RESTA; false si se suma."),
+      }),
+    )
+    .describe("Los montos en el orden en que los escribió. Nunca inventes uno."),
+  currency: z
+    .enum(["VES", "USD", "EUR", "unknown"])
+    .describe('Moneda de los montos ("bs" → VES, "$" → USD, "€" → EUR); unknown si no la dice.'),
+  to: z
+    .enum(["auto", "USD", "VES", "EUR", "none"])
+    .describe(
+      "A qué moneda pasar el resultado: auto si no lo dice (Bs → $, $ → Bs); USD también si pide USDT o dólares; none si solo quiere el total.",
+    ),
+  rate: z
+    .string()
+    .describe('Tasa Bs por dólar si la dice ("a 970" → "970"), "euro" para la tasa euro, o "".'),
+  divide_by: z
+    .number()
+    .describe('Entre cuántas personas o partes dividir el total ("entre 4" → 4); 0 si no lo pide.'),
 });
 
 export const ConvertCurrencyInput = z.object({
@@ -1493,6 +1523,142 @@ const rejectOutOfScope: ToolSpec<typeof RejectOutOfScopeInput> = {
 };
 
 /**
+ * Sumas y restas (06/10, pedido de Javier): "suma 12030,30 26171,78 56706" o "cuánto es 500 + 230
+ * - 80". El modelo solo copia los montos; la cuenta la hace el backend con Decimal. Si son Bs,
+ * también en dólares a la BCV y en USDT a la tasa del último cambio registrado (lo que hay que
+ * cambiar para cubrirlos). No registra nada.
+ */
+const sumAmounts: ToolSpec<typeof SumAmountsInput> = {
+  name: "sum_amounts",
+  description:
+    "Calculadora de sumas y restas: suma o resta varios montos (y opcionalmente divide el total entre varias personas) sin registrar nada. Úsala cuando pida sumar, restar, totalizar o dividir montos ('suma estos montos', 'cuánto es 500 + 230 - 80', 'cuánto da todo esto en $', 'divide 120$ entre 4').",
+  schema: SumAmountsInput,
+  roles: ["owner", "employee"],
+  strict: false,
+  async run(input, run) {
+    const parsed = input.items.map((i) => ({
+      amount: parseAmount(i.amount),
+      subtract: i.subtract,
+    }));
+    const grounded = numbersAreGrounded(
+      input.items.map((i) => i.amount).join(" "),
+      run.groundingText ?? run.userText,
+    );
+    if (!parsed.length || parsed.some((p) => !p.amount) || !grounded)
+      return {
+        kind: "terminal",
+        status: "ok",
+        outbound: [
+          es.clarification(
+            "No entendí bien los montos. Escríbelos uno por línea o separados por +, por ejemplo: 12.030,30 + 26.171,78",
+            [],
+          ),
+        ],
+      };
+    const items = parsed.map((p) => ({ amount: p.amount as Decimal, subtract: p.subtract }));
+    const total = items.reduce(
+      (t, i) => (i.subtract ? t.minus(i.amount) : t.plus(i.amount)),
+      new Decimal(0),
+    );
+    // Sin moneda: lo de miles es en Bs; lo chico, en dólares (los montos en $ rara vez pasan de 1.000).
+    const assumed = input.currency === "unknown";
+    const from: "VES" | "USD" | "EUR" =
+      input.currency !== "unknown"
+        ? input.currency
+        : items.some((i) => i.amount.gte(1000))
+          ? "VES"
+          : "USD";
+    const to =
+      input.to === "none"
+        ? null
+        : input.to === "auto"
+          ? from === "VES"
+            ? "USD"
+            : "VES"
+          : input.to === from
+            ? null
+            : input.to;
+    let converted: { amount: Decimal; currency: "USD" | "VES" | "EUR"; rate: Rate } | null = null;
+    let usdt: { amount: Decimal; rate: Decimal } | null = null;
+    if (to) {
+      const override = await rateOverride(run.tx, nz(input.rate), run.ctx.today);
+      if (override === "invalid" || override === "no_eur") return rateError(override);
+      let rate: Rate | null = override;
+      if (!rate) {
+        try {
+          rate =
+            from === "EUR" || to === "EUR"
+              ? (await euroRateFor(run.tx, run.ctx.today)).rate
+              : (await bcvRateFor(run.tx, run.ctx.today)).rate;
+        } catch (err) {
+          if (err instanceof NoRateError || err instanceof NoEurRateError)
+            return { kind: "terminal", status: "ok", outbound: [es.noRate()] };
+          throw err;
+        }
+      }
+      // EUR ↔ USD no se cruza aquí: con euros la cuenta va contra bolívares.
+      const amount =
+        from === "VES" ? total.div(rate.value) : to === "VES" ? total.mul(rate.value) : null;
+      if (amount) converted = { amount, currency: to, rate };
+      // Bs → $: también en USDT a la tasa del último cambio registrado (30 días).
+      if (from === "VES" && to === "USD" && !override) {
+        const last = await lastExchangeRate(run.tx, run.ctx.tenantId, run.now);
+        if (last) usdt = { amount: total.div(last), rate: last };
+      }
+    }
+    const parts = input.divide_by >= 2 && input.divide_by <= 100 ? Math.floor(input.divide_by) : 0;
+    return {
+      kind: "terminal",
+      status: "ok",
+      outbound: [
+        es.sumResult({
+          items,
+          total,
+          currency: from,
+          assumedCurrency: assumed,
+          converted: converted && {
+            amount: converted.amount,
+            currency: converted.currency,
+            rate: {
+              value: converted.rate.value,
+              kind:
+                converted.rate.source === "manual"
+                  ? "manual"
+                  : converted.rate.source === "bcv_eur"
+                    ? "euro"
+                    : "bcv",
+              effectiveDate: converted.rate.effectiveDate,
+            },
+          },
+          usdt,
+          divideBy: parts,
+        }),
+      ],
+    };
+  },
+};
+
+/** Tasa (Bs por USDT) del último cambio registrado en los últimos 30 días, o null. */
+async function lastExchangeRate(tx: Tx, tenantId: string, now: Date): Promise<Decimal | null> {
+  const l = schema.exchangeLot;
+  const since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const [row] = await tx
+    .select({ rate: l.rate })
+    .from(l)
+    .where(
+      and(
+        eq(l.tenantId, tenantId),
+        eq(l.source, "exchange"),
+        isNull(l.deletedAt),
+        gt(l.createdAt, since),
+      ),
+    )
+    .orderBy(desc(l.createdAt))
+    .limit(1);
+  return row ? new Decimal(row.rate) : null;
+}
+
+/**
  * Calculadora (03/10): "cuánto es 8000 Bs en $", "17 € en bolívares", "15$ a 220". Solo
  * responde; no registra nada. Bs ↔ $ con la BCV del día (o la tasa que diga, o la euro), € con el
  * euro BCV. $ ↔ € pasa por bolívares con las dos tasas oficiales.
@@ -1990,6 +2156,7 @@ export const ALL_TOOLS: ToolSpec<z.ZodType>[] = [
   rejectOutOfScope,
   getBcvRate,
   convertCurrency,
+  sumAmounts,
   exchangeUsdt,
   getAccounts,
   createAccountTool,

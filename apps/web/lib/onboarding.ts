@@ -136,6 +136,7 @@ export const BOT_FEATURES = [
   { icon: "🎙️", title: "Notas de voz", example: "Mándale un audio y lo anota" },
   { icon: "🧾", title: "Fotos de facturas", example: "Envía la foto y arma el gasto" },
   { icon: "📊", title: "Cierres y resúmenes", example: "cómo va el mes" },
-  { icon: "💱", title: "Tasa y calculadora", example: "cuánto es 8000 bs en $" },
+  { icon: "💱", title: "Tasa y calculadora", example: "suma 12.030 + 26.171 en $" },
+  { icon: "🍕", title: "Dividir la cuenta", example: "Foto + dividir: yo la pizza, Pedro…" },
   { icon: "💳", title: "Cuentas y saldos", example: "mis cuentas" },
 ] as const;

@@ -92,7 +92,8 @@ export function help(dashboardUrl: string, supportHint: string | null): Outbound
     "• Registrar ventas: _hoy vendí 350$: 200 efectivo, 150 pago móvil_",
     "• Cierre: _cierre de hoy_, _cómo va el mes_, _cuánto gasté en insumos esta semana_",
     "• Tasa: _tasa_",
-    "• Calculadora: _cuánto es 8000 bs en $_, _17€ en bs_",
+    "• Calculadora: _cuánto es 8000 bs en $_, _17€ en bs_, _suma 12.030,30 + 26.171,78 + 56.706_, _divide 120$ entre 4_",
+    "• Dividir la cuenta: manda la foto de la factura con _dividir: yo la pizza, Pedro la hamburguesa_ y te digo cuánto paga cada quien",
     "• Pago móvil: mándame la foto de los datos y te los paso listos para copiar en el banco",
     "• Cambios USDT: _cambié 100 usdt a 970_ y tus gastos en Bs salen a esa tasa",
     "• Presupuestos: _cuánto me queda en insumos_",
@@ -1946,6 +1947,152 @@ export function conversion(c: {
       );
   }
   return { type: "text", body: lines.join("\n") };
+}
+
+/**
+ * Resultado de la calculadora de sumas (06/10): cada monto con su signo, el total y, si aplica, el
+ * total en la otra moneda, en USDT a la tasa del último cambio y dividido entre varias personas.
+ */
+export function sumResult(r: {
+  items: { amount: Decimal; subtract: boolean }[];
+  total: Decimal;
+  currency: ConvCurrency;
+  assumedCurrency: boolean;
+  converted: {
+    amount: Decimal;
+    currency: ConvCurrency;
+    rate: { value: Decimal; kind: "bcv" | "euro" | "manual"; effectiveDate: string };
+  } | null;
+  usdt: { amount: Decimal; rate: Decimal } | null;
+  divideBy: number;
+}): Outbound {
+  const lines = ["🧮 *Suma*"];
+  // Con muchos montos no se repiten todos: el total basta.
+  if (r.items.length <= 12)
+    r.items.forEach((i, n) =>
+      lines.push(`${i.subtract ? "−" : n === 0 ? " " : "+"} ${money3(i.amount, r.currency)}`),
+    );
+  lines.push(
+    `= *${money3(r.total, r.currency)}*${r.assumedCurrency ? ` _(asumí ${r.currency === "VES" ? "bolívares" : "dólares"})_` : ""}`,
+  );
+  if (r.converted) {
+    const v = formatMoney(r.converted.rate.value, "VES").replace("Bs ", "");
+    const how =
+      r.converted.rate.kind === "manual"
+        ? `a tasa ${v}`
+        : `${r.converted.rate.kind === "euro" ? "a la tasa euro BCV" : "a la BCV"} (${v})`;
+    lines.push(`💵 ${money3(r.converted.amount, r.converted.currency)} ${how}`);
+  }
+  if (r.usdt)
+    lines.push(
+      `🪙 ${r.usdt.amount.toFixed(2).replace(".", ",")} USDT a tu último cambio (${formatMoney(r.usdt.rate, "VES").replace("Bs ", "")})`,
+    );
+  if (r.divideBy >= 2) {
+    const each = r.total.div(r.divideBy);
+    const eachConv = r.converted ? r.converted.amount.div(r.divideBy) : null;
+    lines.push(
+      `👥 Entre ${r.divideBy}: *${money3(each, r.currency)}* c/u${eachConv && r.converted ? ` (${money3(eachConv, r.converted.currency)})` : ""}`,
+    );
+  }
+  return { type: "text", body: lines.join("\n") };
+}
+
+// ---------------------------------------------------------------- dividir la cuenta (06/10)
+
+type SplitBillView = {
+  vendor: string;
+  currency: "USD" | "VES";
+  items: { name: string; quantity: number; amount: Decimal }[];
+  total: Decimal;
+};
+
+const billHead = (vendor: string, title: string) => `🧾 *${title}*${vendor ? ` · ${vendor}` : ""}`;
+
+/** Renglones leídos y cómo decir quién consumió qué. */
+export function splitAskWho(b: SplitBillView): Outbound {
+  const lines = [billHead(b.vendor, "Dividir la cuenta")];
+  b.items.forEach((i, k) =>
+    lines.push(
+      `${k + 1}. ${i.name}${i.quantity > 1 ? ` ×${i.quantity}` : ""} — ${formatMoney(i.amount, b.currency)}`,
+    ),
+  );
+  lines.push(`Total: *${formatMoney(b.total, b.currency)}*`);
+  lines.push("");
+  lines.push(
+    "¿Quién consumió qué? Escríbeme por ejemplo: _yo 1 y 2, Pedro 3, el 4 a medias_ o _entre 3 partes iguales_.",
+  );
+  return { type: "text", body: lines.join("\n") };
+}
+
+export function splitUnreadable(): Outbound {
+  return {
+    type: "text",
+    body: "No pude leer los renglones de esa cuenta. Mándame una foto más cerca y derecha, con la leyenda *dividir* y quién consumió qué.",
+  };
+}
+
+/** Cuánto paga cada quien; con `saveId`, botones para guardar la parte de quien escribe. */
+export function splitResult(r: {
+  vendor: string;
+  currency: "USD" | "VES";
+  /** Bs por dólar para mostrar el equivalente si la cuenta es en Bs. */
+  usdRate: Decimal | null;
+  result:
+    | { mode: "equal"; parts: number; each: Decimal; total: Decimal }
+    | {
+        mode: "items";
+        people: {
+          name: string;
+          isMe: boolean;
+          items: { name: string; amount: Decimal; shared: boolean }[];
+          total: Decimal;
+        }[];
+        unassigned: { index: number; name: string; amount: Decimal }[];
+        extras: Decimal;
+        total: Decimal;
+      };
+  saveId: string | null;
+  myShare: Decimal | null;
+}): Outbound {
+  const m = (v: Decimal) =>
+    r.currency === "VES" && r.usdRate
+      ? `${formatMoney(v, "VES")} (≈ ${formatMoney(v.div(r.usdRate), "USD")})`
+      : formatMoney(v, r.currency);
+  const lines = [billHead(r.vendor, "Cuenta dividida")];
+  const res = r.result;
+  if (res.mode === "equal") {
+    lines.push(`👥 Entre ${res.parts}: *${m(res.each)}* cada uno`);
+    lines.push(`Total: ${formatMoney(res.total, r.currency)}`);
+  } else {
+    for (const p of res.people) {
+      lines.push(`👤 *${p.name}: ${m(p.total)}*`);
+      lines.push(
+        `    ${p.items.map((i) => (i.shared ? `${i.name} (compartido)` : i.name)).join(", ")}`,
+      );
+    }
+    if (!res.extras.isZero())
+      lines.push(
+        res.extras.isPositive()
+          ? `➕ IVA, servicio o propina (${formatMoney(res.extras, r.currency)}) repartido según lo que consumió cada uno.`
+          : `➖ Descuento (${formatMoney(res.extras.abs(), r.currency)}) repartido según lo que consumió cada uno.`,
+      );
+    if (res.unassigned.length)
+      lines.push(
+        `⚠️ Sin asignar: ${res.unassigned.map((u) => `${u.index}. ${u.name} ${formatMoney(u.amount, r.currency)}`).join(", ")}. Dime de quién son.`,
+      );
+    lines.push(`Total: ${formatMoney(res.total, r.currency)}`);
+  }
+  if (!r.saveId || !r.myShare) return { type: "text", body: lines.join("\n") };
+  lines.push("");
+  lines.push(`¿Guardo tu parte (*${formatMoney(r.myShare, r.currency)}*) como gasto?`);
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: [
+      { id: IDS.confirm(r.saveId), title: "Guardar mi parte" },
+      { id: IDS.cancel(r.saveId), title: "No, gracias" },
+    ],
+  };
 }
 
 /** Saldo de los lotes de cambio tras guardar un gasto en Bs. */

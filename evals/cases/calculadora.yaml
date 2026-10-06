@@ -31,3 +31,31 @@
   expect:
     tool: draft_expense
     tool_not: convert_currency
+
+# Sumas y restas (06/10): la novia de Javier sumaba los Bs de los gastos del día para saber
+# cuántos USDT cambiar.
+- name: suma de varios montos en Bs
+  input: "Suma todos estos montos\n\n12030,30\n\n26171,78\n\n26171,78\n\n56706\n\n13085"
+  expect:
+    tool: sum_amounts
+    reply_contains: ["Bs 134.164,86"]
+    no_draft: true
+
+- name: suma y resta en dólares
+  input: "cuánto es 500$ + 230$ - 80$"
+  expect:
+    tool: sum_amounts
+    reply_contains: ["$650,00"]
+    no_draft: true
+
+- name: dividir un total entre varios
+  input: "divide 120$ entre 4"
+  expect:
+    tool: sum_amounts
+    reply_contains: ["$30,00"]
+    no_draft: true
+
+- name: varios gastos no son una suma
+  input: "gasté 5$ en café y 10$ en almuerzo"
+  expect:
+    tool_not: sum_amounts

@@ -827,3 +827,18 @@ Javier configuró la pantalla de consentimiento y el cliente OAuth en Google Clo
 - `lib/accounts.ts`: el formato de saldo ("250,00 USDT", "Bs 36.400,00") y la línea de tipo se comparten entre Inicio y Cuentas.
 
 QA en navegador (390 px y escritorio) con tres cuentas (Bs, USDT y efectivo $): total y saldos correctos, sin desborde, menú marcado.
+
+### S2 · 06/10/2026 · Calculadora de sumas y dividir la cuenta
+
+**Pedido (Javier):** su novia, probando, quería sumar los montos en Bs de los gastos del día para saber cuántos USDT cambiar, y el bot respondía "eso todavía no lo hago". También: mandar la foto de una factura, decir quién consumió qué y que el bot diga cuánto paga cada uno.
+
+**Sumas (`sum_amounts`, herramienta no estricta; quedan 10 estrictas de 12):** el modelo solo copia los montos (con su signo) y la cuenta la hace el backend con Decimal. Cada monto tiene que estar en el texto del usuario (si no, pregunta). Sin moneda: si hay montos de miles son Bs, si no, dólares (lo dice: "asumí bolívares"). Bs → $ a la BCV y, si hay un cambio USDT registrado en los últimos 30 días, también cuántos USDT a esa tasa ("lo que hay que cambiar"). Admite tasa propia ("a 970"), $ → Bs y "divide 120$ entre 4". Regla 6e del prompt; cuatro evals nuevas (incluida la captura: 134.164,86 Bs).
+
+**Dividir la cuenta (`inbox/split.ts`, `vision/bill.ts`, `domain/split.ts`):**
+- Foto (o PDF) con leyenda "dividir", "repartir", "cuánto paga cada quien", "por persona"… no va como factura: una llamada lee los renglones (nombre, cantidad, importe) y el total; otra traduce lo que escribió el usuario a renglones por persona ("yo" = Tú, a medias, unidades: "yo 2 de las 3 cervezas", "el resto entre todos", "entre 3 iguales").
+- La cuenta la hace `computeSplit` con Decimal: lo que la factura cobra aparte de los renglones (IVA, servicio, propina o un descuento) se reparte en proporción a lo que consumió cada uno; lo que nadie nombró queda "sin asignar" con su parte del servicio.
+- Si la leyenda no dice quién consumió qué: la lista numerada y la pregunta. La respuesta siguiente (30 minutos) reparte; otra respuesta corrige sobre lo dicho ("no, el refresco lo compartimos").
+- Si quien escribe tiene parte: botones "Guardar mi parte" / "No, gracias" sobre un borrador de gasto normal ("Mi parte · Pizzería…", categoría comida fuera, restaurante o salidas si existe); cada corrección reemplaza el borrador anterior. Una cuenta en Bs muestra también el equivalente en $ a la BCV.
+- Ayuda del bot y bienvenida del panel mencionan las dos funciones.
+
+**Tests:** sumas (los montos de la captura, USDT al último cambio, restas y dividir, monto inventado), `computeSplit` (servicio proporcional, a medias, unidades, resto entre todos, sin asignar, partes iguales, índices inválidos) y el flujo por WhatsApp (foto sin reparto → lista; respuesta → reparto con botones; corrección reemplaza el borrador; Guardar registra "Mi parte"; "entre 3" de una vez). 381 tests.
