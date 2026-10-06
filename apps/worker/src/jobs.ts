@@ -1,4 +1,5 @@
 import {
+  type AuthAdmin,
   bcvSource,
   dolarApiSource,
   enforceBilling,
@@ -10,7 +11,9 @@ import {
   type ProcessDeps,
   processInbound,
   refreshRates,
+  retentionSweep,
   sendPaymentNotices,
+  sendRetentionNotices,
   sweepOrphanAttachments,
   type TrialCapped,
 } from "@caja/core";
@@ -48,6 +51,10 @@ export async function registerJobs(opts: {
   /** Negocios que pasaron el límite de mensajes del plan este mes (una vez por mes cada uno). */
   onOverCap?: (items: OverCap[]) => void;
   onTrialCapped?: (items: TrialCapped[]) => void;
+  /** Borra de Supabase Auth a los usuarios del panel de un negocio borrado (0017). */
+  authAdmin?: AuthAdmin | null;
+  /** Plantilla para los avisos de borrado por impago fuera de las 24 h. */
+  retentionTemplate?: { name: string; language: string } | null;
 }) {
   const { boss, db, deps, log } = opts;
   const guarded =
@@ -162,6 +169,33 @@ export async function registerJobs(opts: {
         log.error(
           { err: err instanceof Error ? err.message : String(err) },
           "cobros: ¿falta la migración 0007?",
+        );
+      }
+      // Retención (0017): avisos de impago, papelera a los 90 días, borrado al vencer la papelera.
+      try {
+        const sweep = await retentionSweep(db, now, {
+          store: opts.store ?? null,
+          auth: opts.authAdmin ?? null,
+          log,
+        });
+        if (sweep.purged.length || sweep.trashed.length)
+          log.warn({ purged: sweep.purged, trashed: sweep.trashed }, "retención de datos");
+        if (sweep.errors.length)
+          log.error({ errors: sweep.errors }, "retención: negocios con error");
+        if (sweep.notices.length) {
+          const meta = opts.platformPhoneNumberId ? deps.metaFor(opts.platformPhoneNumberId) : null;
+          const r = await sendRetentionNotices(db, meta, sweep.notices, {
+            now,
+            dashboardUrl: deps.config.dashboardUrl,
+            template: opts.retentionTemplate ?? null,
+            log,
+          });
+          log.info(r, "avisos de borrado por impago");
+        }
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : String(err) },
+          "retención: ¿falta la migración 0017?",
         );
       }
       // Pagos revisados en la consola: avisar al dueño por WhatsApp (si escribió en 24 h).

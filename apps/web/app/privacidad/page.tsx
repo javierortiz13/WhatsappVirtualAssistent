@@ -70,7 +70,14 @@ export default function Privacidad() {
         </li>
         <li>Las fotos de facturas se conservan 12 meses y luego se borran.</li>
         <li>Los movimientos de caja se conservan mientras tu cuenta esté activa.</li>
-        <li>Al cerrar tu cuenta, todos tus datos se eliminan en un plazo de 30 días.</li>
+        <li>
+          Si dejas de pagar, tus datos se conservan 90 días desde la suspensión (te avisamos antes)
+          y luego pasan a la papelera.
+        </li>
+        <li>
+          Al eliminar tu cuenta, queda 15 días en la papelera para que puedas recuperarla si fue un
+          error; no usamos esos datos en ese plazo y al día 15 se borran todos para siempre.
+        </li>
       </ul>
 
       <h2>Tus derechos</h2>

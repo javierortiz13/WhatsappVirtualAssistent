@@ -57,6 +57,8 @@ async function enforceTenant(
       .where(eq(schema.tenant.id, tenantId))
       .for("update");
     if (!t) return;
+    // En la papelera (0017): de eso se encarga retentionSweep.
+    if (t.deletedAt) return;
     if (subscriptionState(t, now).kind === "expired") {
       await setTenantBilling(tx, t, { status: "suspended" }, null, now, "suspend_expired");
       suspended.push(tenantId);

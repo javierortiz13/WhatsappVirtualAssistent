@@ -9,6 +9,7 @@ import {
   eraseTenantAction,
   recordPaymentAction,
   rejectPaymentAction,
+  restoreTenantAction,
 } from "../../actions";
 import { dueClass, dueText, METHOD_LABEL, planClass, STATE, usd, ves } from "../../format";
 
@@ -17,6 +18,8 @@ const OK: Record<string, string> = {
   pago_registrado: "Pago registrado. Queda por verificar.",
   pago_rechazado: "Pago rechazado.",
   guardado: "Cambio guardado.",
+  papelera: "Negocio en la papelera: se borra solo en 15 días.",
+  recuperado: "Negocio recuperado de la papelera.",
 };
 const ERR: Record<string, string> = {
   datos: "Revisa los datos del formulario.",
@@ -34,6 +37,8 @@ const ACTION: Record<string, string> = {
   suspend: "Suspendido a mano",
   reactivate: "Reactivado",
   trial_budget: "Tope de prueba cambiado",
+  request_deletion: "Enviado a la papelera",
+  restore: "Recuperado de la papelera",
   suspend_expired: "Suspendido por vencimiento",
 };
 const PAY_STATUS: Record<string, { label: string; cls: string }> = {
@@ -86,7 +91,11 @@ export default async function AdminTenant({
         <span className="label">{t.name}</span>
         <p className="admin-plan-line" style={{ margin: "var(--space-2) 0" }}>
           <span className={`plan-chip ${planClass(t.plan)}`}>{d.plan.name}</span>
-          <span className={`badge ${STATE[d.state.kind].cls}`}>{STATE[d.state.kind].label}</span>
+          {t.deletedAt ? (
+            <span className="badge late">papelera</span>
+          ) : (
+            <span className={`badge ${STATE[d.state.kind].cls}`}>{STATE[d.state.kind].label}</span>
+          )}
         </p>
         <p className={`kpi ${dueClass(d.state)}`}>{dueText(d.state)}</p>
         <p className="sub num">
@@ -308,19 +317,47 @@ export default async function AdminTenant({
 
       <section className="card stack-sm">
         <span className="label">Eliminar negocio</span>
-        <p className="sub">
-          Borra para siempre sus movimientos, cuentas, fotos, mensajes, números, pagos y el acceso
-          al panel. No se puede deshacer.
-        </p>
+        {t.deletedAt ? (
+          <>
+            <p className="sub">
+              En la papelera desde {day(t.deletedAt)}
+              {t.deletionReason === "unpaid"
+                ? " (90 días con el plan vencido)"
+                : t.deletionReason === "owner"
+                  ? " (lo pidió el dueño)"
+                  : ""}
+              . Se borra para siempre el {t.purgeAfter ? day(t.purgeAfter) : "próximo barrido"}.
+            </p>
+            <form action={restoreTenantAction}>
+              <input type="hidden" name="tenant_id" value={t.id} />
+              <button className="btn block" type="submit">
+                Recuperar
+              </button>
+            </form>
+          </>
+        ) : (
+          <p className="sub">
+            La papelera lo guarda 15 días (el dueño puede recuperarlo); "Borrar ya" lo elimina para
+            siempre al instante: movimientos, cuentas, fotos, mensajes, números, pagos y acceso al
+            panel.
+          </p>
+        )}
         <form action={eraseTenantAction} className="stack-sm">
           <input type="hidden" name="tenant_id" value={t.id} />
           <label className="field">
             <span>Escribe «{t.name}» para confirmar</span>
             <input className="input" name="confirm" autoComplete="off" required />
           </label>
-          <button className="btn block danger" type="submit">
-            Eliminar negocio
-          </button>
+          <div className="grid-2 admin-grid">
+            {t.deletedAt ? null : (
+              <button className="btn secondary danger" type="submit" name="mode" value="trash">
+                A la papelera
+              </button>
+            )}
+            <button className="btn danger" type="submit" name="mode" value="now">
+              Borrar ya
+            </button>
+          </div>
         </form>
       </section>
 

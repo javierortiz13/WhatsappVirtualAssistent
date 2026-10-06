@@ -48,6 +48,8 @@ export type TenantRow = {
   status: string;
   createdAt: Date;
   state: SubscriptionState;
+  /** En la papelera (0017): cuándo se borra para siempre. */
+  purgeAfter: Date | null;
   owner: TenantPhone | null;
   usage: MonthUsage;
   pendingPayments: number;
@@ -102,6 +104,7 @@ export async function loadTenants(now: Date): Promise<TenantRow[]> {
       status: t.status,
       createdAt: t.createdAt,
       state,
+      purgeAfter: t.deletedAt ? t.purgeAfter : null,
       owner: phones.find((p) => p.role === "owner") ?? null,
       usage,
       pendingPayments: pendingCount,

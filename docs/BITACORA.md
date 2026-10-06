@@ -780,17 +780,27 @@ Javier configuró la pantalla de consentimiento y el cliente OAuth en Google Clo
 
 **Tests:** suma de costos (sin reacciones ni envíos fallidos), tope por plan y propio, aviso al administrador una sola vez; en el inbox, sin registro ni LLM, aviso una vez al día, renovar sí y el empleado. QA en navegador: Mi plan y la ficha del administrador con un tope de 2 USD (llegó) y vuelta al del plan.
 
-### S2 · 06/10/2026 · Eliminar un negocio (cuenta) por completo
+### S2 · 06/10/2026 · Eliminar un negocio, papelera de 15 días y retención por impago
 
-**Pedido (Javier):** borrar la cuenta del número 584127806000 ("Cinnamon rolls (piloto 2)", correo jpaxieacademy@gmail.com, vacía) y tener la función para no hacerlo a mano. Además `/eliminar-datos` (la que pide Meta) prometía "eliminar mi cuenta" por WhatsApp y no existía.
+**Pedido (Javier):** borrar la cuenta del número 584127806000 ("Cinnamon rolls (piloto 2)", correo jpaxieacademy@gmail.com, vacía) y tener la función para no hacerlo a mano. Después: que lo eliminado se guarde al menos 15 días por si fue un error, y decidir cuánto guardar los datos de quien deja de pagar. Decisiones: papelera de 15 días; impago, 90 días con avisos y luego papelera; Cinnamon rolls se borra ya. `/eliminar-datos` (la que pide Meta) prometía "eliminar mi cuenta" por WhatsApp y no existía.
 
-**Migración 0017:** `app.erase_tenant(id)` SECURITY DEFINER: el rol de la app no tiene DELETE (todo es borrado lógico), así que la función borra en una transacción todas las filas del negocio en orden de dependencias, los eventos del webhook de sus mensajes y números, los avisos a desconocidos, y los usuarios del panel que quedan sin negocio ni registros. Solo actúa sobre el tenant fijado con `withTenant` (`app.tenant_id`); quién puede pedirlo lo decide la app. Devuelve las fotos del bucket y los usuarios de Supabase Auth a borrar, que se limpian después del commit (`cleanupErased`, uno por uno, lo que falle queda en el log).
+**Migración 0017:**
+- `tenant`: `deleted_at`, `purge_after`, `deletion_reason` (owner | admin | unpaid), `suspended_at`, `retention_notices`.
+- `resolve_phone` y `memberships_for_user` devuelven estado `deleted` para un negocio en la papelera (la columna `status` no cambia, así recuperar lo deja como estaba).
+- `app.erase_tenant(id)` SECURITY DEFINER: el rol de la app no tiene DELETE (todo es borrado lógico), así que la función borra en una transacción todas las filas del negocio en orden de dependencias, los eventos del webhook de sus mensajes y números, los avisos a desconocidos y los usuarios del panel que quedan sin negocio ni registros. Solo actúa sobre el tenant fijado con `withTenant`. Devuelve las fotos y los usuarios de Supabase Auth a borrar, que se limpian después del commit (`cleanupErased`).
+- Aplicada en producción por partes: columnas, restricción y las dos funciones por MCP; `erase_tenant` lleva `DELETE` y el MCP de Supabase retiene toda sentencia destructiva esperando una confirmación que no llega (se cancela a los 60 s, incluso `delete … where false`), así que Javier la pega en el SQL Editor.
 
-**Tres caminos:**
-- WhatsApp: el dueño escribe *eliminar mi cuenta* (o "borrar mis datos"; frase completa, "borrar mi cuenta Zelle" no cuenta). Respuesta con qué se borra, el enlace al Excel y botones "Sí, eliminar todo" / "No, cancelar". El Sí vale 10 minutos. Sin LLM; funciona también con el plan vencido o la prueba en su tope. Un empleado recibe "solo el dueño". Al terminar, la despedida sale sin registrarse (el negocio ya no existe).
-- Panel: Ajustes → Negocio → "Eliminar mi cuenta" (solo dueño), escribiendo el nombre del negocio. Cierra la sesión y lleva a /login con el aviso.
-- Administrador: en la ficha del negocio, "Eliminar negocio" escribiendo su nombre.
+**Papelera (15 días):** pedir la eliminación solo marca el negocio. El bot y el panel dejan de usarlo: el dueño solo puede recuperarlo (*recuperar mi cuenta* por WhatsApp, botón en `/recuperar` del panel o "Recuperar" del administrador); el resto recibe "en proceso de eliminación". Al vencer, el housekeeping lo borra para siempre.
 
-`/eliminar-datos` describe los tres caminos (inmediatos) y el correo (30 días).
+**Impago (90 días):** `setTenantBilling` guarda `suspended_at` al suspender y lo limpia al reactivar. El housekeeping (`retentionSweep`) avisa a los 60 y 83 días y al día 90 lo pasa a la papelera con motivo `unpaid` (recuperarlo lo deja suspendido y los 90 días vuelven a contar). Los avisos van por WhatsApp si el dueño escribió en las últimas 24 h; fuera de esa ventana Meta exige plantilla: si existe `META_RETENTION_TEMPLATE` (plantilla de utilidad aprobada, {{1}} negocio, {{2}} fecha) se usa; si no, el aviso queda en "Mi plan", que muestra hasta cuándo se guardan los datos.
 
-**Tests:** la función borra todo lo del negocio y nada del otro, no corre con otro `app.tenant_id`, conserva al usuario que es miembro de otro negocio; flujo de WhatsApp (empleado, botón sin pedirlo, No, Sí) con limpieza de fotos y usuario. QA en navegador de los caminos del panel y del administrador (nombre mal escrito y bien).
+**Tres caminos para eliminar:**
+- WhatsApp: el dueño escribe *eliminar mi cuenta* (o "borrar mis datos"; frase completa, "borrar mi cuenta Zelle" no cuenta). Respuesta con qué se borra, la papelera, el enlace al Excel y botones "Sí, eliminar" / "No, cancelar" (el Sí vale 10 minutos). Sin LLM. Un empleado recibe "solo el dueño".
+- Panel: Ajustes → Negocio → "Eliminar mi cuenta" (solo dueño), escribiendo el nombre. Cierra la sesión; al volver a entrar ve `/recuperar`.
+- Administrador: en la ficha, escribiendo el nombre, "A la papelera" o "Borrar ya" (para cuentas de prueba); en la papelera, "Recuperar". La lista marca "papelera".
+
+`/eliminar-datos` y `/privacidad` describen la papelera, los 90 días por impago y el correo (30 días).
+
+**Tests:** `erase_tenant` borra todo lo del negocio y nada del otro, no corre con otro `app.tenant_id` y conserva al usuario que es miembro de otro negocio; WhatsApp (empleado, botón sin pedirlo, No, Sí a la papelera, aviso una vez al día, recuperar); retención (avisos a los 60 y 83 una vez cada uno, papelera al 90, borrado al 105, recuperar un impago). QA en navegador: administrador (papelera, recuperar, borrar ya) y dueño (eliminar, /recuperar, recuperar).
+
+**Pendiente visto en la revisión:** `/privacidad` promete borrar el texto de los mensajes a los 90 días y las fotos a los 12 meses; eso todavía no está implementado.

@@ -6,6 +6,7 @@ import {
   quote,
   subscriptionState,
   trialSpend,
+  unpaidTrashDate,
 } from "@caja/core";
 import { businessDateOf, formatShortDate } from "@caja/core/domain";
 import { desc, eq, schema, withTenant } from "@caja/db";
@@ -111,6 +112,14 @@ export default async function MiPlan({
             {trial.reached
               ? "Usaste todo lo incluido en la prueba gratis y el asistente dejó de registrar. Tus datos siguen guardados: paga y repórtalo aquí abajo para seguir."
               : `Prueba gratis: llevas el ${pct} % del uso incluido. Al llegar al 100 % o a la fecha, el asistente deja de registrar hasta que actives el plan.`}
+          </p>
+        ) : null}
+        {t.status === "suspended" && t.suspendedAt ? (
+          <p className="sub">
+            Tu plan está suspendido. Guardamos tus datos hasta el{" "}
+            <strong>{formatShortDate(businessDateOf(unpaidTrashDate(t.suspendedAt)))}</strong>.
+            Después pasan a la papelera y a los 15 días se borran. Renueva abajo o descarga tu Excel
+            en Ajustes → Exportar.
           </p>
         ) : null}
         <p className="sub num">

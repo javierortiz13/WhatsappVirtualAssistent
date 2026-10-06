@@ -1,5 +1,14 @@
 import "server-only";
-import { cleanupErased, eraseTenant, SupabaseAuthAdmin, SupabaseStorage } from "@caja/core";
+import {
+  cleanupErased,
+  type DeletionActor,
+  type DeletionReason,
+  eraseTenant,
+  requestDeletion,
+  restoreTenant,
+  SupabaseAuthAdmin,
+  SupabaseStorage,
+} from "@caja/core";
 import { withTenant } from "@caja/db";
 import { db } from "./db";
 import { env } from "./env";
@@ -10,8 +19,31 @@ export function confirmsName(typed: unknown, name: string): boolean {
   return typeof typed === "string" && typed.trim() !== "" && norm(typed) === norm(name);
 }
 
+/** A la papelera por 15 días (0017). Devuelve la fecha del borrado definitivo. */
+export function trashBusiness(
+  tenantId: string,
+  reason: DeletionReason,
+  actor: DeletionActor,
+  channel: "dashboard" | "admin",
+) {
+  return withTenant(db(), tenantId, (tx) =>
+    requestDeletion(tx, { tenantId, reason, actor, channel, now: new Date() }),
+  );
+}
+
+/** Saca el negocio de la papelera. false si no estaba. */
+export function restoreBusiness(
+  tenantId: string,
+  actor: DeletionActor,
+  channel: "dashboard" | "admin",
+) {
+  return withTenant(db(), tenantId, (tx) =>
+    restoreTenant(tx, { tenantId, actor, channel, now: new Date() }),
+  );
+}
+
 /**
- * Elimina un negocio por completo (0017) y limpia lo que vive fuera de la base: las fotos del
+ * Borra ya un negocio por completo (0017; solo el administrador o al vencer la papelera) y limpia lo que vive fuera de la base: las fotos del
  * bucket y los usuarios del panel que se quedaron sin negocio. Quién puede pedirlo lo decide el
  * que llama (dueño o administrador).
  */

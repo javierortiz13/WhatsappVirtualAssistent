@@ -16,6 +16,9 @@ const Env = z.object({
   META_ACCESS_TOKEN: z.string().min(1),
   META_PHONE_NUMBER_ID: z.string().min(1),
   META_GRAPH_VERSION: z.string().default("v24.0"),
+  /** Plantilla de WhatsApp para avisar de borrado por impago fuera de las 24 h (0017). */
+  META_RETENTION_TEMPLATE: z.string().optional(),
+  META_TEMPLATE_LANGUAGE: z.string().default("es"),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(4),
   ANTHROPIC_API_KEY: z.string().optional(),
   LLM_PRIMARY: z.string().default("anthropic:claude-sonnet-5-5"),

@@ -1,4 +1,10 @@
-import { asIsoDate, formatShortDate, type IsoDate, monthNameEs } from "../domain/dates";
+import {
+  asIsoDate,
+  businessDateOf,
+  formatShortDate,
+  type IsoDate,
+  monthNameEs,
+} from "../domain/dates";
 import { Decimal, formatMoney, parseVenezuelanAmount, type RateOrigin } from "../domain/money";
 import type { PagoMovilData } from "../domain/pago-movil";
 import { IDS, type Outbound, type RenewMethod } from "./outbound";
@@ -143,13 +149,16 @@ export function planExpired(supportHint: string | null): Outbound {
 
 // ---------------------------------------------------------------- eliminar la cuenta (0017)
 
-/** Confirmación de "eliminar mi cuenta": qué se borra, que no se deshace y el Excel antes. */
+/** Día en Caracas de un instante, como "lun 21/10". */
+const dayEs = (d: Date) => formatShortDate(businessDateOf(d));
+
+/** Confirmación de "eliminar mi cuenta": qué se borra, la papelera de 15 días y el Excel antes. */
 export function eraseConfirm(tenantName: string, dashboardUrl: string): Outbound {
   return {
     type: "buttons",
-    body: `⚠️ Vas a eliminar *${tenantName}* por completo: movimientos, cuentas, fotos, mensajes, números y el acceso al panel. *No se puede deshacer.*\n\nSi quieres guardar tus datos, descarga antes el Excel en ${dashboardUrl}/ajustes/exportar\n\n¿Eliminamos todo?`,
+    body: `⚠️ Vas a eliminar *${tenantName}*: movimientos, cuentas, fotos, mensajes, números y el acceso al panel.\n\nQueda 15 días en la papelera por si te equivocaste; después se borra para siempre.\n\nSi quieres guardar tus datos, descarga antes el Excel en ${dashboardUrl}/ajustes/exportar\n\n¿Eliminamos la cuenta?`,
     buttons: [
-      { id: IDS.erase("yes"), title: "Sí, eliminar todo" },
+      { id: IDS.erase("yes"), title: "Sí, eliminar" },
       { id: IDS.erase("no"), title: "No, cancelar" },
     ],
   };
@@ -167,10 +176,37 @@ export function eraseExpired(): Outbound {
   };
 }
 
-export function eraseDone(tenantName: string, dashboardUrl: string): Outbound {
+/** Quedó en la papelera: hasta cuándo y cómo recuperarla. */
+export function deletionScheduled(tenantName: string, purgeAfter: Date): Outbound {
   return {
     type: "text",
-    body: `Listo. Eliminamos *${tenantName}* y todos sus datos. Gracias por probar el asistente. Si algún día quieres volver, te registras en ${dashboardUrl}/registro`,
+    body: `Listo. *${tenantName}* quedó en la papelera y se borra para siempre el *${dayEs(purgeAfter)}*. Si fue un error, escribe *recuperar mi cuenta* antes de esa fecha.`,
+  };
+}
+
+/** Lo que responde el bot a un negocio en la papelera (una vez al día). */
+export function deletionPending(tenantName: string, purgeAfter: Date | null): Outbound {
+  const when = purgeAfter ? ` el *${dayEs(purgeAfter)}*` : " pronto";
+  return {
+    type: "text",
+    body: `La cuenta *${tenantName}* está en la papelera y se borra para siempre${when}. Para recuperarla escribe *recuperar mi cuenta*.`,
+  };
+}
+
+export function deletionPendingEmployee(): Outbound {
+  return {
+    type: "text",
+    body: "La cuenta de este negocio está en proceso de eliminación y por ahora no puedo registrar nada.",
+  };
+}
+
+/** Recuperada. Si había entrado por impago, sigue suspendida: cómo renovar. */
+export function tenantRestored(tenantName: string, stillSuspended: boolean): Outbound {
+  return {
+    type: "text",
+    body: stillSuspended
+      ? `Recuperamos *${tenantName}* con todos sus datos. Tu plan sigue vencido: escribe *renovar* para activarlo.`
+      : `Recuperamos *${tenantName}* con todos sus datos. Todo sigue como estaba.`,
   };
 }
 
@@ -178,6 +214,14 @@ export function eraseOwnerOnly(): Outbound {
   return {
     type: "text",
     body: "Solo el dueño puede eliminar el negocio. Si quieres que quiten tu número, pídeselo al dueño: lo hace en el panel, en Ajustes → Números.",
+  };
+}
+
+/** Aviso de impago (0017) a los 60 y 83 días suspendido, dentro de la ventana de 24 h. */
+export function retentionNotice(tenantName: string, trashOn: Date, dashboardUrl: string): Outbound {
+  return {
+    type: "text",
+    body: `Tu plan de *${tenantName}* sigue vencido. Guardamos tus datos hasta el *${dayEs(trashOn)}*; después pasan a la papelera y a los 15 días se borran. Para conservarlos escribe *renovar*, o descarga tu Excel en ${dashboardUrl}/ajustes/exportar`,
   };
 }
 

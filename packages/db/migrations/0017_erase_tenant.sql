@@ -1,10 +1,55 @@
--- Eliminar un negocio por completo (06/10/2026): lo pide el dueño (por WhatsApp o en Ajustes) o el
--- administrador. Lo promete /eliminar-datos. El rol de la app no tiene DELETE en casi ninguna tabla
--- (todo es borrado lógico), así que esta función SECURITY DEFINER lo hace en una sola transacción.
--- Guarda: solo borra el tenant fijado con `withTenant` (app.tenant_id); quién puede pedirlo lo
--- decide la app (dueño o administrador).
--- Devuelve las claves de las fotos (la app las borra del bucket) y los usuarios del panel que se
--- quedaron sin negocio (la app los borra de Supabase Auth).
+-- Eliminar un negocio (06/10/2026). Lo pide el dueño (por WhatsApp o en Ajustes) o el
+-- administrador, y lo promete /eliminar-datos. Decisiones de Javier:
+-- - Papelera de 15 días: pedir la eliminación solo marca el negocio (`deleted_at`, `purge_after`);
+--   el bot y el panel dejan de usarlo y el dueño puede recuperarlo. Al vencer, el housekeeping lo
+--   borra de verdad con `erase_tenant`. El administrador puede borrar ya (cuentas de prueba).
+-- - Impagos: un negocio suspendido guarda sus datos 90 días (`suspended_at`); avisos a los 60 y 83
+--   días (`retention_notices`) y después pasa a la papelera con motivo `unpaid`.
+
+ALTER TABLE app.tenant
+  ADD COLUMN IF NOT EXISTS deleted_at timestamptz,
+  ADD COLUMN IF NOT EXISTS purge_after timestamptz,
+  ADD COLUMN IF NOT EXISTS deletion_reason text,
+  ADD COLUMN IF NOT EXISTS suspended_at timestamptz,
+  ADD COLUMN IF NOT EXISTS retention_notices integer NOT NULL DEFAULT 0;
+ALTER TABLE app.tenant DROP CONSTRAINT IF EXISTS tenant_deletion_reason_check;
+ALTER TABLE app.tenant ADD CONSTRAINT tenant_deletion_reason_check
+  CHECK (deletion_reason IS NULL OR deletion_reason IN ('owner', 'admin', 'unpaid'));
+-- Los suspendidos de antes cuentan sus 90 días desde la última vez que cambió el negocio.
+UPDATE app.tenant SET suspended_at = updated_at WHERE status = 'suspended' AND suspended_at IS NULL;
+
+-- El bot y el panel ven un negocio en la papelera como estado `deleted` (la columna `status` no
+-- cambia, así recuperar lo deja como estaba).
+CREATE OR REPLACE FUNCTION app.resolve_phone(p_e164 text, p_wa_user_id text)
+RETURNS TABLE (phone_id uuid, tenant_id uuid, role text, status text, tenant_status text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = app, pg_temp
+AS $$
+  SELECT p.id, p.tenant_id, p.role, p.status,
+         CASE WHEN t.deleted_at IS NOT NULL THEN 'deleted' ELSE t.status END
+  FROM app.phone_number p
+  JOIN app.tenant t ON t.id = p.tenant_id
+  WHERE (p_e164 IS NOT NULL AND p.e164 = p_e164)
+     OR (p_wa_user_id IS NOT NULL AND p.wa_user_id = p_wa_user_id)
+  LIMIT 1
+$$;
+
+CREATE OR REPLACE FUNCTION app.memberships_for_user(p_user_id uuid)
+RETURNS TABLE (tenant_id uuid, role text, tenant_name text, tenant_status text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = app, pg_temp
+AS $$
+  SELECT m.tenant_id, m.role, t.name,
+         CASE WHEN t.deleted_at IS NOT NULL THEN 'deleted' ELSE t.status END
+  FROM app.tenant_member m
+  JOIN app.tenant t ON t.id = m.tenant_id
+  WHERE m.user_id = p_user_id
+  ORDER BY t.deleted_at NULLS FIRST, m.created_at;
+$$;
+
+-- Borrado definitivo. El rol de la app no tiene DELETE (todo es borrado lógico), así que esta
+-- función SECURITY DEFINER lo hace en una sola transacción. Solo borra el tenant fijado con
+-- `withTenant` (app.tenant_id); quién y cuándo lo decide la app. Devuelve las claves de las fotos
+-- (la app las borra del bucket) y los usuarios del panel que quedaron sin negocio (la app los borra
+-- de Supabase Auth).
 CREATE OR REPLACE FUNCTION app.erase_tenant(p_tenant uuid)
 RETURNS TABLE (storage_keys text[], orphan_user_ids uuid[])
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = app, pg_temp

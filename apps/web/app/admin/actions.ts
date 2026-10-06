@@ -19,7 +19,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/admin";
 import { db } from "@/lib/db";
-import { confirmsName, eraseBusiness } from "@/lib/erase";
+import { confirmsName, eraseBusiness, restoreBusiness, trashBusiness } from "@/lib/erase";
 
 const DAY = 24 * 60 * 60 * 1000;
 const PlanId = z.enum(PLANS.map((p) => p.id) as ["personal", "negocio", "negocio_plus"]);
@@ -201,12 +201,13 @@ export async function changeTenantAction(formData: FormData): Promise<void> {
 }
 
 /**
- * Eliminar un negocio por completo (0017): hay que escribir su nombre para confirmar. No se puede
- * deshacer; lo de fuera de la base (fotos, usuarios del panel) se limpia después.
+ * Eliminar un negocio (0017), escribiendo su nombre para confirmar: `trash` lo pone 15 días en la
+ * papelera; `now` lo borra ya para siempre (cuentas de prueba). No se puede deshacer.
  */
 export async function eraseTenantAction(formData: FormData): Promise<void> {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const tenantId = String(formData.get("tenant_id") ?? "");
+  const mode = formData.get("mode") === "now" ? "now" : "trash";
   if (!z.string().uuid().safeParse(tenantId).success) redirect("/admin?error=datos");
   const name = await withTenant(db(), tenantId, async (tx) => {
     const [t] = await tx
@@ -218,10 +219,26 @@ export async function eraseTenantAction(formData: FormData): Promise<void> {
   if (name === null) redirect("/admin?error=datos");
   if (!confirmsName(formData.get("confirm"), name)) back(tenantId, "error=confirmar");
   try {
-    await eraseBusiness(tenantId);
+    if (mode === "now") await eraseBusiness(tenantId);
+    else await trashBusiness(tenantId, "admin", { type: "user", id: admin.userId }, "admin");
   } catch (err) {
     fail(tenantId, "servidor", err);
   }
   revalidatePath("/admin");
-  redirect("/admin?ok=eliminado");
+  if (mode === "now") redirect("/admin?ok=eliminado");
+  back(tenantId, "ok=papelera");
+}
+
+/** Saca un negocio de la papelera (0017). */
+export async function restoreTenantAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const tenantId = String(formData.get("tenant_id") ?? "");
+  if (!z.string().uuid().safeParse(tenantId).success) redirect("/admin?error=datos");
+  try {
+    await restoreBusiness(tenantId, { type: "user", id: admin.userId }, "admin");
+  } catch (err) {
+    fail(tenantId, "servidor", err);
+  }
+  revalidatePath("/admin");
+  back(tenantId, "ok=recuperado");
 }

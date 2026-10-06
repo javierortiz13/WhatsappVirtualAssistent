@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
 export default async function Inicio({
   searchParams,
 }: {
-  searchParams: Promise<{ bienvenida?: string }>;
+  searchParams: Promise<{ bienvenida?: string; recuperada?: string }>;
 }) {
   const { tenant } = await requireTenant();
   const sp = await searchParams;
@@ -97,6 +97,9 @@ export default async function Inicio({
       ) : null}
       {rate.stale ? <div className="notice">La tasa BCV puede estar desactualizada.</div> : null}
 
+      {sp.recuperada ? (
+        <div className="notice ok">Recuperamos tu cuenta. Todo sigue como estaba.</div>
+      ) : null}
       {sp.bienvenida ? (
         <section className="card stack welcome">
           <div>

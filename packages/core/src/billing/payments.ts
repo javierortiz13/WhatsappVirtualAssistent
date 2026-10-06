@@ -201,9 +201,16 @@ export async function setTenantBilling(
   now: Date,
   action: string,
 ): Promise<void> {
+  // 0017: los datos de un suspendido se guardan 90 días desde que se suspendió.
+  const suspension =
+    change.status === "suspended" && before.status !== "suspended"
+      ? { suspendedAt: now, retentionNotices: 0 }
+      : change.status && change.status !== "suspended"
+        ? { suspendedAt: null, retentionNotices: 0 }
+        : {};
   const [after] = await tx
     .update(schema.tenant)
-    .set({ ...change, updatedAt: now })
+    .set({ ...change, ...suspension, updatedAt: now })
     .where(eq(schema.tenant.id, before.id))
     .returning();
   await audit(

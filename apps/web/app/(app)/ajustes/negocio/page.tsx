@@ -125,8 +125,9 @@ export default async function Negocio({
         <section className="card stack-sm" id="eliminar">
           <span className="label">Eliminar mi cuenta</span>
           <p className="sub">
-            Borra para siempre todo lo de <strong>{tenant.name}</strong>: movimientos, cuentas,
-            fotos, mensajes, números y tu acceso al panel. No se puede deshacer. Si quieres guardar
+            Elimina todo lo de <strong>{tenant.name}</strong>: movimientos, cuentas, fotos,
+            mensajes, números y tu acceso al panel. Queda 15 días en la papelera por si te
+            equivocaste (entras y la recuperas); después se borra para siempre. Si quieres guardar
             tus datos,{" "}
             <a className="inline-link" href="/ajustes/exportar">
               descarga el Excel

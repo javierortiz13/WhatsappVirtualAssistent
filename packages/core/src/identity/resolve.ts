@@ -6,7 +6,8 @@ export type ResolvedSender = {
   tenantId: string;
   role: "owner" | "employee";
   phoneStatus: "pending" | "active" | "disabled";
-  tenantStatus: "trial" | "active" | "suspended";
+  /** `deleted`: el negocio está en la papelera (0017). */
+  tenantStatus: "trial" | "active" | "suspended" | "deleted";
 };
 
 type ResolveRow = {
@@ -37,7 +38,9 @@ export async function resolveSender(db: Queryable, sender: Sender): Promise<Reso
 }
 
 export function canUse(r: ResolvedSender): boolean {
-  return r.phoneStatus === "active" && r.tenantStatus !== "suspended";
+  return (
+    r.phoneStatus === "active" && r.tenantStatus !== "suspended" && r.tenantStatus !== "deleted"
+  );
 }
 
 /**

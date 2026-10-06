@@ -81,7 +81,7 @@ import {
 } from "../ledger/index";
 import { NoRateError, rateFor } from "../ledger/rate-for";
 import { type Logger, maskPhone, silentLogger } from "../log";
-import { type AuthAdmin, cleanupErased, type ErasedTenant, eraseTenant } from "../onboarding/erase";
+import { requestDeletion, restoreTenant } from "../onboarding/erase";
 import { activatePhone, CODE_RE, verifyCode } from "../onboarding/register";
 import { getRateInfo } from "../rates/current";
 import { es, mergeOutbound, type Outbound, parseReplyId } from "../render/index";
@@ -118,8 +118,6 @@ export type ProcessDeps = {
   store?: ObjectStore | null;
   log?: Logger;
   now?: () => Date;
-  /** Borra de Supabase Auth a los usuarios del panel de un negocio eliminado (0017). */
-  authAdmin?: AuthAdmin | null;
   config: {
     assistantName: string;
     dashboardUrl: string;
@@ -198,14 +196,16 @@ export async function processInbound(
     resolved &&
     resolved.phoneStatus === "pending" &&
     resolved.role === "owner" &&
-    resolved.tenantStatus !== "suspended"
+    resolved.tenantStatus !== "suspended" &&
+    resolved.tenantStatus !== "deleted"
   ) {
     return handlePendingOwner(deps, meta, msg, resolved, event.id, log, now);
   }
   // Plan vencido: el dueño sigue pudiendo renovar por el bot; el resto recibe "tu plan venció".
+  // En la papelera (0017), igual: el dueño puede recuperarla; el resto recibe el aviso.
   const suspendedOwner =
     resolved?.phoneStatus === "active" &&
-    resolved.tenantStatus === "suspended" &&
+    (resolved.tenantStatus === "suspended" || resolved.tenantStatus === "deleted") &&
     resolved.role === "owner";
   if (!resolved || (!canUse(resolved) && !suspendedOwner)) {
     const key = msg.sender.e164 ?? msg.sender.waUserId ?? msg.waMessageId;
@@ -216,13 +216,16 @@ export async function processInbound(
     });
     // Número activo de un negocio suspendido (plan vencido): no es un desconocido.
     const suspended = resolved?.phoneStatus === "active" && resolved.tenantStatus === "suspended";
+    const deleting = resolved?.phoneStatus === "active" && resolved.tenantStatus === "deleted";
     if (reply && msg.sender.e164) {
       try {
         await meta.sendText(
           msg.sender.e164,
           suspended
             ? es.planExpired(deps.config.supportHint).body
-            : es.unknownNumber(`${deps.config.dashboardUrl}/registro`).body,
+            : deleting
+              ? es.deletionPendingEmployee().body
+              : es.unknownNumber(`${deps.config.dashboardUrl}/registro`).body,
         );
       } catch (err) {
         log.warn(
@@ -237,9 +240,11 @@ export async function processInbound(
       "ignored",
       suspended
         ? "negocio suspendido"
-        : resolved
-          ? `número ${resolved.phoneStatus}`
-          : "número desconocido",
+        : deleting
+          ? "negocio en la papelera"
+          : resolved
+            ? `número ${resolved.phoneStatus}`
+            : "número desconocido",
     );
     log.info(
       { from: maskPhone(msg.sender.e164), replied: reply },
@@ -270,7 +275,6 @@ export async function processInbound(
     return "ignored";
   }
 
-  let erased: { result: ErasedTenant; outbound: Outbound[] } | null = null;
   const outcome = await withTenant(deps.db, resolved.tenantId, async (tx) => {
     const [tenant] = await tx
       .select()
@@ -353,9 +357,11 @@ export async function processInbound(
       }
     };
     // Prueba gratis en su tope de gasto (0016): sin LLM ni transcripción hasta activar el plan.
-    const trialCapped = tenant.status === "trial" && (await trialSpend(tx, tenant)).reached;
+    const trialCapped =
+      !tenant.deletedAt && tenant.status === "trial" && (await trialSpend(tx, tenant)).reached;
     const route = await routeMessage(tx, deps, msg, {
       suspended: resolved.tenantStatus === "suspended",
+      deleted: tenant.deletedAt ? { purgeAfter: tenant.purgeAfter } : null,
       trialCapped,
       tenantId: resolved.tenantId,
       tenantName: tenant.name,
@@ -369,11 +375,6 @@ export async function processInbound(
       ack,
       mediaFollows: (waitMs) => mediaFollows(tx, event.id, event.receivedAt, msg.sender, waitMs),
     });
-
-    if (route.erased) {
-      erased = { result: route.erased, outbound: route.outbound };
-      return "done" as const;
-    }
 
     // Una respuesta = un mensaje (ADR-014): la bienvenida viaja en el mismo envío que la respuesta.
     const first = welcome[0];
@@ -448,24 +449,6 @@ export async function processInbound(
     return "done" as const;
   });
 
-  if (erased) {
-    // El negocio ya no existe: la despedida no se registra y lo de fuera de la base se limpia.
-    const { result, outbound } = erased as { result: ErasedTenant; outbound: Outbound[] };
-    for (const out of outbound) {
-      try {
-        await sendOutbound(meta, to, out);
-      } catch (err) {
-        log.warn({ err: errMsg(err), to: maskPhone(to) }, "despedida sin enviar");
-      }
-    }
-    const cleaned = await cleanupErased(result, {
-      store: deps.store ?? null,
-      auth: deps.authAdmin ?? null,
-      log,
-    });
-    log.info({ tenantId: resolved.tenantId, ...cleaned }, "negocio eliminado por el dueño");
-    return "done";
-  }
   if (outcome === "duplicate") {
     await markEvent(deps.db, event.id, "done", null);
     log.info({ waMessageId: msg.waMessageId }, "ya respondido; se cierra el job");
@@ -545,6 +528,8 @@ type RouteCtx = {
   suspended: boolean;
   /** Prueba gratis que llegó a su tope de gasto: igual que suspendido, con su propio aviso. */
   trialCapped?: boolean;
+  /** En la papelera (0017): solo "recuperar mi cuenta"; lo demás, cuándo se borra. */
+  deleted?: { purgeAfter: Date | null } | null;
   tenantId: string;
   tenantName: string;
   phoneId: string;
@@ -564,8 +549,6 @@ type RouteCtx = {
 
 type RouteResult = {
   outbound: Outbound[];
-  /** El dueño eliminó el negocio (0017): la respuesta sale después del commit y no se registra. */
-  erased?: ErasedTenant;
   toolCalls: { name: string; args: unknown }[];
   tokensIn: number;
   tokensOut: number;
@@ -674,8 +657,52 @@ async function routeErase(
   const since = new Date(now.getTime() - ERASE_WINDOW_MS);
   if (!(await markSentSince(tx, ctx.phoneId, ERASE_PROMPT, since)))
     return none([es.eraseExpired()]);
-  const erased = await eraseTenant(tx, ctx.tenantId);
-  return { ...none([es.eraseDone(ctx.tenantName, dashboard)]), erased };
+  const purgeAfter = await requestDeletion(tx, {
+    tenantId: ctx.tenantId,
+    reason: "owner",
+    actor: { type: "phone", id: ctx.phoneId },
+    channel: "whatsapp",
+    now,
+  });
+  return none([es.deletionScheduled(ctx.tenantName, purgeAfter)]);
+}
+
+/** "recuperar mi cuenta" y parecidas, como mensaje completo. */
+export const RESTORE_WORDS =
+  /^\s*(?:quiero\s+)?(?:recuperar|restaurar|reactivar)\s+(?:mi\s+cuenta|mis\s+datos|mi\s+negocio)\s*[.!]*\s*$/i;
+const DELETION_NOTICE = "deletion_pending";
+
+/**
+ * Negocio en la papelera (0017; solo llega el dueño): "recuperar mi cuenta" lo saca; cualquier otra
+ * cosa recibe una vez al día cuándo se borra. Sin LLM.
+ */
+async function routeDeleted(
+  tx: Tx,
+  deps: ProcessDeps,
+  msg: InboundMessage,
+  ctx: RouteCtx,
+  deleted: { purgeAfter: Date | null },
+): Promise<RouteResult> {
+  const now = (deps.now ?? (() => new Date()))();
+  if (msg.kind === "text" && RESTORE_WORDS.test(msg.text)) {
+    await restoreTenant(tx, {
+      tenantId: ctx.tenantId,
+      actor: { type: "phone", id: ctx.phoneId },
+      channel: "whatsapp",
+      now,
+    });
+    const [t] = await tx
+      .select({ status: schema.tenant.status })
+      .from(schema.tenant)
+      .where(eq(schema.tenant.id, ctx.tenantId));
+    return none([es.tenantRestored(ctx.tenantName, t?.status === "suspended")]);
+  }
+  if (await markSentSince(tx, ctx.phoneId, DELETION_NOTICE, new Date(now.getTime() - DAY_MS)))
+    return none([]);
+  return {
+    ...none([es.deletionPending(ctx.tenantName, deleted.purgeAfter)]),
+    toolCalls: [{ name: DELETION_NOTICE, args: {} }],
+  };
 }
 
 /** Renovación sin LLM (botones, referencia del pago, "renovar"); null si el mensaje no es eso. */
@@ -706,6 +733,7 @@ async function routeMessage(
   msg: InboundMessage,
   ctx: RouteCtx,
 ): Promise<RouteResult> {
+  if (ctx.deleted) return routeDeleted(tx, deps, msg, ctx, ctx.deleted);
   const erase = await routeErase(tx, deps, msg, ctx);
   if (erase) return erase;
   if (ctx.suspended || ctx.trialCapped) return routeSuspended(tx, deps, msg, ctx);

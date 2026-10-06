@@ -13,7 +13,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { confirmsName, eraseBusiness } from "@/lib/erase";
+import { confirmsName, trashBusiness } from "@/lib/erase";
 import { toE164 } from "@/lib/phone";
 import { requireTenant } from "@/lib/session";
 import { supabaseServer } from "@/lib/supabase/server";
@@ -103,16 +103,16 @@ export async function updateSettingsAction(formData: FormData): Promise<void> {
 }
 
 /**
- * Eliminar mi cuenta (0017, lo promete /eliminar-datos): el dueño borra el negocio por completo
- * escribiendo su nombre. Después se cierra la sesión: el usuario del panel ya no existe.
+ * Eliminar mi cuenta (0017, lo promete /eliminar-datos): el dueño escribe el nombre del negocio y
+ * queda 15 días en la papelera; puede recuperarlo entrando de nuevo. Se cierra la sesión.
  */
 export async function eraseMyBusinessAction(formData: FormData): Promise<void> {
-  const { tenant } = await requireTenant();
+  const { user, tenant } = await requireTenant();
   if (tenant.role !== "owner") redirect("/ajustes/negocio?error=permiso");
   if (!confirmsName(formData.get("confirm"), tenant.name))
     redirect("/ajustes/negocio?error=confirmar#eliminar");
   try {
-    await eraseBusiness(tenant.id);
+    await trashBusiness(tenant.id, "owner", { type: "user", id: user.id }, "dashboard");
   } catch (err) {
     console.error(JSON.stringify({ level: "error", msg: "eliminar negocio", detail: String(err) }));
     redirect("/ajustes/negocio?error=servidor#eliminar");
@@ -120,7 +120,7 @@ export async function eraseMyBusinessAction(formData: FormData): Promise<void> {
   try {
     await (await supabaseServer()).auth.signOut();
   } catch {
-    // El usuario ya no existe en Auth: basta con que se borren las cookies.
+    // Ya quedó en la papelera; si cerrar la sesión falla, al volver verá /recuperar.
   }
   redirect("/login?eliminada=1");
 }

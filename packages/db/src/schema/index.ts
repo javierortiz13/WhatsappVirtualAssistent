@@ -103,6 +103,14 @@ export const tenant = app.table(
     /** Tope de gasto de la prueba (0016); null = el del plan. */
     trialBudgetUsd: numeric("trial_budget_usd", { precision: 8, scale: 2 }),
     trialCapNotifiedAt: timestamp("trial_cap_notified_at", { withTimezone: true }),
+    /** Papelera (0017): pidió eliminarse; se borra de verdad en `purge_after`. */
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    purgeAfter: timestamp("purge_after", { withTimezone: true }),
+    deletionReason: text("deletion_reason"),
+    /** Desde cuándo está suspendido: a los 90 días sus datos pasan a la papelera (0017). */
+    suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+    /** Avisos de borrado por impago ya enviados: 0, 1 (día 60) o 2 (día 83). */
+    retentionNotices: integer("retention_notices").notNull().default(0),
     /** De dónde sale la tasa de los gastos en Bs (0012): BCV, los lotes de cambio, o preguntar. */
     bsRateMode: text("bs_rate_mode").notNull().default("bcv"),
     ...timestamps,
@@ -117,6 +125,10 @@ export const tenant = app.table(
     ),
     check("tenant_status_check", inList("status", TENANT_STATUSES)),
     check("tenant_bs_rate_mode_check", inList("bs_rate_mode", BS_RATE_MODES)),
+    check(
+      "tenant_deletion_reason_check",
+      sql.raw("deletion_reason IS NULL OR deletion_reason IN ('owner', 'admin', 'unpaid')"),
+    ),
     check(
       "tenant_trial_budget_check",
       sql.raw("trial_budget_usd IS NULL OR trial_budget_usd >= 0"),

@@ -5,14 +5,17 @@ import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { stubAgent } from "../src/agent/stub";
 import { ingestWebhook } from "../src/inbox/ingest";
-import { ERASE_WORDS, type ProcessDeps, processInbound } from "../src/inbox/process";
+import { ERASE_WORDS, type ProcessDeps, processInbound, RESTORE_WORDS } from "../src/inbox/process";
 import { MemoryObjectStore } from "../src/storage/index";
 import { MetaClient } from "../src/whatsapp/client";
 import * as fx from "./fixtures";
 
 type Sent = { url: string; body: Record<string, unknown> };
 
-/** "eliminar mi cuenta" por WhatsApp (0017): solo el dueño, con confirmación por botón. */
+/**
+ * "eliminar mi cuenta" por WhatsApp (0017): solo el dueño, con confirmación por botón. Queda 15
+ * días en la papelera y "recuperar mi cuenta" la saca.
+ */
 describe("eliminar la cuenta por WhatsApp", () => {
   let t: Awaited<ReturnType<typeof createTestDb>>;
   let tenantId: string;
@@ -24,7 +27,6 @@ describe("eliminar la cuenta por WhatsApp", () => {
   const jobs: ProcessMessageJob[] = [];
   const sent: Sent[] = [];
   const store = new MemoryObjectStore();
-  const deletedUsers: string[] = [];
   let n = 0;
 
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -43,7 +45,6 @@ describe("eliminar la cuenta por WhatsApp", () => {
     agent: stubAgent,
     now,
     store,
-    authAdmin: { deleteUser: async (id) => void deletedUsers.push(id) },
     config: {
       assistantName: "Asistente de Caja",
       dashboardUrl: "https://caja.test",
@@ -151,7 +152,7 @@ describe("eliminar la cuenta por WhatsApp", () => {
     await send(button("erase:yes", "Sí, eliminar todo"));
     expect(lastText()).toContain("ya venció");
     await send(text(OWNER, "eliminar mi cuenta"));
-    expect(lastText()).toContain("No se puede deshacer");
+    expect(lastText()).toContain("15 días en la papelera");
     const ids = (
       (last()?.interactive as { action?: { buttons?: { reply: { id: string } }[] } } | undefined)
         ?.action?.buttons ?? []
@@ -163,18 +164,36 @@ describe("eliminar la cuenta por WhatsApp", () => {
     expect(row).toBeDefined();
   });
 
-  it("confirmado: borra todo, se despide y limpia fotos y usuario del panel", async () => {
+  it("confirmado: a la papelera 15 días; el bot solo ofrece recuperarla", async () => {
+    expect(RESTORE_WORDS.test("Recuperar mi cuenta")).toBe(true);
     await send(text(OWNER, "eliminar mi cuenta"));
-    expect(await send(button("erase:yes", "Sí, eliminar todo"))).toBe("done");
-    expect(lastText()).toContain("Eliminamos *Cinnamon rolls*");
-    expect(await t.db.select().from(schema.tenant)).toEqual([]);
-    expect(await t.db.select().from(schema.phoneNumber)).toEqual([]);
-    expect(await t.db.select().from(schema.message)).toEqual([]);
-    expect(await t.db.select().from(schema.webhookEvent)).toEqual([]);
-    expect(store.objects.size).toBe(0);
-    expect(deletedUsers).toEqual([userId]);
-    // Después es un número desconocido: recibe el enlace de registro.
-    expect(await send(text(OWNER, "hola"))).toBe("ignored");
-    expect(lastText()).toContain("/registro");
+    expect(await send(button("erase:yes", "Sí, eliminar"))).toBe("done");
+    expect(lastText()).toContain("quedó en la papelera");
+    const [row] = await t.db.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId));
+    expect(row?.deletionReason).toBe("owner");
+    const days =
+      ((row?.purgeAfter?.getTime() ?? 0) - (row?.deletedAt?.getTime() ?? 0)) / 86_400_000;
+    expect(days).toBe(15);
+    // Nada se borró todavía.
+    expect(await t.db.select().from(schema.phoneNumber)).toHaveLength(2);
+    expect(store.objects.size).toBe(1);
+
+    // Cualquier otra cosa: cuándo se borra (una vez al día) y sin registrar.
+    const count = sent.length;
+    await send(text(OWNER, "gasté 5$ en café"));
+    expect(lastText()).toContain("está en la papelera");
+    await send(text(OWNER, "gasté 3$ en pan"));
+    expect(sent).toHaveLength(count + 1);
+    expect(await t.db.select().from(schema.movement)).toEqual([]);
+    // El empleado: aviso, sin pasar.
+    expect(await send(text(EMPLOYEE, "vendí 20$"))).toBe("ignored");
+    expect(lastText()).toContain("proceso de eliminación");
+
+    // Recuperar.
+    await send(text(OWNER, "recuperar mi cuenta"));
+    expect(lastText()).toContain("Recuperamos *Cinnamon rolls*");
+    const [back] = await t.db.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId));
+    expect(back?.deletedAt).toBeNull();
+    expect(back?.purgeAfter).toBeNull();
   });
 });

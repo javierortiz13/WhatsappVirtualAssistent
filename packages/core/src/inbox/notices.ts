@@ -1,5 +1,6 @@
 import { type Db, everyTenantId, schema, withTenant } from "@caja/db";
 import { takePaymentNotices } from "../billing/renew";
+import type { RetentionNotice } from "../billing/retention";
 import { businessDateOf } from "../domain/dates";
 import { type Logger, maskPhone, silentLogger } from "../log";
 import { es } from "../render/index";
@@ -66,6 +67,66 @@ export async function sendPaymentNotices(
     } catch (err) {
       // Un negocio con error no frena los avisos de los demás.
       log.error({ err: err instanceof Error ? err.message : String(err) }, "avisos de pago");
+    }
+  }
+  return { sent, skipped };
+}
+
+/**
+ * Avisos de borrado por impago (0017, a los 60 y 83 días suspendido). Dentro de las 24 h desde el
+ * último mensaje del dueño va texto libre; fuera, la plantilla de `template` si está configurada
+ * ({{1}} negocio, {{2}} fecha); si no, se omite y el aviso queda en "Mi plan" del panel.
+ */
+export async function sendRetentionNotices(
+  db: Db,
+  meta: MetaClient | null,
+  notices: RetentionNotice[],
+  opts: {
+    now: Date;
+    dashboardUrl: string;
+    template?: { name: string; language: string } | null;
+    log?: Logger;
+  },
+): Promise<{ sent: number; skipped: number }> {
+  const log = opts.log ?? silentLogger;
+  let sent = 0;
+  let skipped = 0;
+  for (const n of notices) {
+    const owner = n.owner;
+    const inWindow =
+      n.lastInboundAt !== null && opts.now.getTime() - n.lastInboundAt.getTime() < 23 * 3_600_000;
+    if (!meta || !owner || (!inWindow && !opts.template)) {
+      skipped += 1;
+      continue;
+    }
+    try {
+      const out = es.retentionNotice(n.tenantName, n.trashOn, opts.dashboardUrl);
+      const r = inWindow
+        ? await sendOutbound(meta, owner.e164, out)
+        : await meta.sendTemplate(
+            owner.e164,
+            opts.template?.name ?? "",
+            opts.template?.language ?? "es",
+            [n.tenantName, businessDateOf(n.trashOn).split("-").reverse().join("/")],
+          );
+      await withTenant(db, n.tenantId, (tx) =>
+        tx.insert(schema.message).values({
+          tenantId: n.tenantId,
+          phoneId: owner.phoneId,
+          direction: "out",
+          kind: inWindow ? out.type : "template",
+          body: inWindow ? out.body : `plantilla ${opts.template?.name}`,
+          status: "ok",
+          waMessageId: r.waMessageId,
+        }),
+      );
+      sent += 1;
+    } catch (err) {
+      skipped += 1;
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err), to: maskPhone(owner.e164) },
+        "aviso de borrado sin enviar",
+      );
     }
   }
   return { sent, skipped };

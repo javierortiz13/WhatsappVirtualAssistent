@@ -77,7 +77,8 @@ export default async function LoginPage({
               {error ? <div className="notice err">{error}</div> : null}
               {sp.eliminada ? (
                 <div className="notice ok">
-                  Eliminamos tu cuenta y todos sus datos. Gracias por probar el asistente.
+                  Tu cuenta quedó en la papelera y se borra para siempre en 15 días. Si fue un
+                  error, entra con tu correo y recupérala.
                 </div>
               ) : null}
               {google ? (

@@ -95,6 +95,32 @@ export class MetaClient {
     });
   }
 
+  /**
+   * Plantilla aprobada en WhatsApp Manager: la única forma de escribir fuera de la ventana de 24 h
+   * (0017, avisos de borrado por impago). `params` llena {{1}}, {{2}}… del cuerpo.
+   */
+  async sendTemplate(
+    to: string,
+    name: string,
+    languageCode: string,
+    params: string[],
+  ): Promise<SendResult> {
+    return this.#sendMessage(to, {
+      type: "template",
+      template: {
+        name,
+        language: { code: languageCode },
+        ...(params.length
+          ? {
+              components: [
+                { type: "body", parameters: params.map((text) => ({ type: "text", text })) },
+              ],
+            }
+          : {}),
+      },
+    });
+  }
+
   async sendButtons(
     to: string,
     body: string,

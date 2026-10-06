@@ -79,14 +79,6 @@ async function main() {
     vision,
     store,
     log,
-    // Para "eliminar mi cuenta" (0017): borra del panel a los usuarios que quedan sin negocio.
-    authAdmin:
-      env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY
-        ? new SupabaseAuthAdmin({
-            url: env.SUPABASE_URL,
-            serviceKey: env.SUPABASE_SERVICE_ROLE_KEY,
-          })
-        : null,
     config: {
       assistantName: env.ASSISTANT_NAME,
       dashboardUrl: env.DASHBOARD_URL,
@@ -119,6 +111,17 @@ async function main() {
     log,
     concurrency: env.WORKER_CONCURRENCY,
     platformPhoneNumberId: env.META_PHONE_NUMBER_ID,
+    // Borrado definitivo (0017): usuarios del panel que quedan sin negocio.
+    authAdmin:
+      env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY
+        ? new SupabaseAuthAdmin({
+            url: env.SUPABASE_URL,
+            serviceKey: env.SUPABASE_SERVICE_ROLE_KEY,
+          })
+        : null,
+    retentionTemplate: env.META_RETENTION_TEMPLATE
+      ? { name: env.META_RETENTION_TEMPLATE, language: env.META_TEMPLATE_LANGUAGE }
+      : null,
     onError: (err, queue) => captureError(err, { queue }),
     // Aviso al administrador por Sentry (sin números ni mensajes): el bot sigue funcionando.
     onOverCap: (items) => {
