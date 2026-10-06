@@ -72,9 +72,10 @@ describe("sum_amounts", () => {
 
   it("los montos de la captura: total exacto en Bs, en $ a la BCV y sin borrador", async () => {
     const r = await sum({ items: items("12030,30", "26171,78", "26171,78", "56706", "13085") });
-    expect(r.body).toContain("= *Bs 134.164,86* _(asumí bolívares)_");
-    expect(r.body).toContain("💵 $153,79 a la BCV (872,39)");
-    expect(r.body).toContain("+ Bs 56.706,00");
+    expect(r.body).toContain("🧮 *Suma* · tasa BCV 872,39");
+    expect(r.body).toContain("+ Bs 56.706,00 = $65,00");
+    // El total en $ es la suma de las líneas redondeadas.
+    expect(r.body).toContain("*Total: Bs 134.164,86 = $153,79* _(asumí bolívares)_");
     expect(r.drafts).toBe(0);
   });
 
@@ -91,7 +92,7 @@ describe("sum_amounts", () => {
       }),
     );
     const r = await sum({ items: items("12030,30", "26171,78"), currency: "VES" });
-    expect(r.body).toContain("= *Bs 38.202,08*");
+    expect(r.body).toContain("*Total: Bs 38.202,08 =");
     expect(r.body).toContain("🪙 39,38 USDT a tu último cambio (970,00)");
   });
 
@@ -108,10 +109,26 @@ describe("sum_amounts", () => {
       },
       "cuánto es 500$ + 230$ - 80$ entre 4",
     );
-    expect(r.body).toContain("− $80,00");
-    expect(r.body).toContain("= *$650,00*");
-    expect(r.body).toContain("Bs 567.053,50");
+    expect(r.body).toContain("− $80,00 = Bs 69.791,20");
+    expect(r.body).toContain("*Total: $650,00 = Bs 567.053,50*");
     expect(r.body).toContain("👥 Entre 4: *$162,50* c/u");
+  });
+
+  it("la prueba del 06/10: cada monto en $ pasado a Bs y la suma final en Bs", async () => {
+    const r = await sum(
+      { items: items("13,70", "15", "60", "65"), currency: "USD", to: "VES" },
+      "Necesito que me calcules a tasa $ bcv estos montos y luego me sumes todo para darme un monto final en Bs 13,70$ 15$ 60$ 65$",
+    );
+    expect(r.body).toBe(
+      [
+        "🧮 *Suma* · tasa BCV 872,39",
+        "  $13,70 = Bs 11.951,74",
+        "+ $15,00 = Bs 13.085,85",
+        "+ $60,00 = Bs 52.343,40",
+        "+ $65,00 = Bs 56.705,35",
+        "*Total: $153,70 = Bs 134.086,34*",
+      ].join("\n"),
+    );
   });
 
   it("un monto que no escribió el usuario: pregunta en vez de inventar", async () => {

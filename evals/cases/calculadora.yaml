@@ -59,3 +59,22 @@
   input: "gasté 5$ en café y 10$ en almuerzo"
   expect:
     tool_not: sum_amounts
+
+# Prueba de Javier (06/10): pidió cada monto en Bs y la suma; el bot convertía uno por mensaje.
+- name: varios montos en $ a Bs con su suma
+  input: "Necesito que me calcules a tasa $ bcv estos montos y luego me sumes todo para darme un monto final en Bs\n\n13,70$\n15$\n60$\n65$"
+  expect:
+    tool: sum_amounts
+    tool_not: convert_currency
+    reply_contains: ["$13,70 = Bs 11.754,60", "Bs 131.874,60"]
+    no_draft: true
+
+- name: pide el desglose de los montos anteriores
+  history:
+    - { role: in, body: "súmame 13,70$ 15$ 60$ 65$" }
+    - { role: out, body: "🧮 Suma\n  $13,70\n+ $15,00\n+ $60,00\n+ $65,00\n= $153,70" }
+  input: "Claro pero quiero que los desgloses más, quiero todos los montos en bs y la suma final"
+  expect:
+    tool: sum_amounts
+    tool_not: convert_currency
+    reply_contains: ["Bs 131.874,60"]

@@ -1531,7 +1531,7 @@ const rejectOutOfScope: ToolSpec<typeof RejectOutOfScopeInput> = {
 const sumAmounts: ToolSpec<typeof SumAmountsInput> = {
   name: "sum_amounts",
   description:
-    "Calculadora de sumas y restas: suma o resta varios montos (y opcionalmente divide el total entre varias personas) sin registrar nada. Úsala cuando pida sumar, restar, totalizar o dividir montos ('suma estos montos', 'cuánto es 500 + 230 - 80', 'cuánto da todo esto en $', 'divide 120$ entre 4').",
+    "Calculadora de varios montos: los suma o resta, convierte CADA UNO y el total a la otra moneda, y opcionalmente divide el total entre varias personas, sin registrar nada. Úsala cuando haya DOS O MÁS montos: sumar, restar, totalizar, pasar una lista de montos a Bs o $, desglosar ('suma estos montos', 'pásame a bs estos montos y súmalos', 'cuánto es 500 + 230 - 80', 'divide 120$ entre 4'). Si pide el desglose de montos de un mensaje anterior ('y los demás', 'desglósalos'), cópialos de ese mensaje.",
   schema: SumAmountsInput,
   roles: ["owner", "employee"],
   strict: false,
@@ -1580,6 +1580,7 @@ const sumAmounts: ToolSpec<typeof SumAmountsInput> = {
             : input.to;
     let converted: { amount: Decimal; currency: "USD" | "VES" | "EUR"; rate: Rate } | null = null;
     let usdt: { amount: Decimal; rate: Decimal } | null = null;
+    let lines: Decimal[] | null = null;
     if (to) {
       const override = await rateOverride(run.tx, nz(input.rate), run.ctx.today);
       if (override === "invalid" || override === "no_eur") return rateError(override);
@@ -1596,10 +1597,21 @@ const sumAmounts: ToolSpec<typeof SumAmountsInput> = {
           throw err;
         }
       }
-      // EUR ↔ USD no se cruza aquí: con euros la cuenta va contra bolívares.
-      const amount =
-        from === "VES" ? total.div(rate.value) : to === "VES" ? total.mul(rate.value) : null;
-      if (amount) converted = { amount, currency: to, rate };
+      // EUR ↔ USD no se cruza aquí: con euros la cuenta va contra bolívares. Cada monto se pasa
+      // y se redondea; el total convertido es la suma de esas líneas, para que cuadre a la vista.
+      const conv = (v: Decimal) =>
+        (from === "VES" ? v.div(rate.value) : v.mul(rate.value)).toDecimalPlaces(
+          2,
+          Decimal.ROUND_HALF_UP,
+        );
+      if (from === "VES" || to === "VES") {
+        lines = items.map((i) => conv(i.amount));
+        const amount = items.reduce((t, i, k) => {
+          const line = lines?.[k] ?? new Decimal(0);
+          return i.subtract ? t.minus(line) : t.plus(line);
+        }, new Decimal(0));
+        converted = { amount, currency: to, rate };
+      }
       // Bs → $: también en USDT a la tasa del último cambio registrado (30 días).
       if (from === "VES" && to === "USD" && !override) {
         const last = await lastExchangeRate(run.tx, run.ctx.tenantId, run.now);
@@ -1631,6 +1643,7 @@ const sumAmounts: ToolSpec<typeof SumAmountsInput> = {
             },
           },
           usdt,
+          lines,
           divideBy: parts,
         }),
       ],
@@ -1666,7 +1679,7 @@ async function lastExchangeRate(tx: Tx, tenantId: string, now: Date): Promise<De
 const convertCurrency: ToolSpec<typeof ConvertCurrencyInput> = {
   name: "convert_currency",
   description:
-    "Calculadora de monedas: convierte un monto entre bolívares, dólares y euros sin registrar nada. Úsala cuando pregunte cuánto es, a cuánto sale o cuánto da un monto en otra moneda ('cuánto es 8000 bs en $', '17€ en bs', 'pásame 15$ a bolívares', '20$ a 220 cuánto es').",
+    "Calculadora de monedas para UN solo monto (con dos o más montos usa sum_amounts): convierte un monto entre bolívares, dólares y euros sin registrar nada. Úsala cuando pregunte cuánto es, a cuánto sale o cuánto da un monto en otra moneda ('cuánto es 8000 bs en $', '17€ en bs', 'pásame 15$ a bolívares', '20$ a 220 cuánto es').",
   schema: ConvertCurrencyInput,
   roles: ["owner", "employee"],
   strict: false,

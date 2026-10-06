@@ -842,3 +842,12 @@ QA en navegador (390 px y escritorio) con tres cuentas (Bs, USDT y efectivo $): 
 - Ayuda del bot y bienvenida del panel mencionan las dos funciones.
 
 **Tests:** sumas (los montos de la captura, USDT al último cambio, restas y dividir, monto inventado), `computeSplit` (servicio proporcional, a medias, unidades, resto entre todos, sin asignar, partes iguales, índices inválidos) y el flujo por WhatsApp (foto sin reparto → lista; respuesta → reparto con botones; corrección reemplaza el borrador; Guardar registra "Mi parte"; "entre 3" de una vez). 381 tests.
+
+### S2 · 06/10/2026 · Calculadora: cada monto convertido y nunca uno por uno
+
+**Prueba de Javier:** "calcúlame a tasa BCV estos montos (13,70$ 15$ 60$ 65$) y súmame todo en Bs". La suma salía en $ con el total en Bs, sin cada monto en Bs. Al pedir "quiero todos los montos en bs", el modelo usó `convert_currency` (un solo monto) y respondió uno por mensaje ("y los demás?" → el segundo).
+
+**Arreglo:**
+- `sum_amounts`, cuando convierte, muestra cada monto en las dos monedas ("$13,70 = Bs 11.951,74") y el total como suma de esas líneas redondeadas, para que cuadre al céntimo con lo que se ve.
+- `convert_currency` es para UN monto; con dos o más, `sum_amounts` (descripciones y reglas 6b y 6e del prompt). Si pide el desglose de montos de un mensaje anterior, los copia todos de ahí (la validación ya acepta números del historial reciente).
+- Test con los montos exactos de la captura; dos evals nuevas (la pregunta de un solo mensaje y el desglose pedido después).

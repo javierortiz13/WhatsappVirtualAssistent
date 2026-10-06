@@ -1964,17 +1964,44 @@ export function sumResult(r: {
     rate: { value: Decimal; kind: "bcv" | "euro" | "manual"; effectiveDate: string };
   } | null;
   usdt: { amount: Decimal; rate: Decimal } | null;
+  /** Cada monto ya convertido (mismo orden que `items`), si hubo conversión. */
+  lines?: Decimal[] | null;
   divideBy: number;
 }): Outbound {
+  const assumed = r.assumedCurrency
+    ? ` _(asumí ${r.currency === "VES" ? "bolívares" : "dólares"})_`
+    : "";
+  const sign = (i: { subtract: boolean }, n: number) => (i.subtract ? "−" : n === 0 ? " " : "+");
+  // Con conversión, cada monto en las dos monedas y el total como suma de esas líneas.
+  if (r.converted && r.lines && r.items.length <= 12) {
+    const c = r.converted;
+    const v = formatMoney(c.rate.value, "VES").replace("Bs ", "");
+    const how =
+      c.rate.kind === "manual"
+        ? `tasa ${v}`
+        : `${c.rate.kind === "euro" ? "tasa euro BCV" : "tasa BCV"} ${v}`;
+    const out = [`🧮 *Suma* · ${how}`];
+    r.items.forEach((i, n) =>
+      out.push(
+        `${sign(i, n)} ${money3(i.amount, r.currency)} = ${money3(r.lines?.[n] ?? new Decimal(0), c.currency)}`,
+      ),
+    );
+    out.push(`*Total: ${money3(r.total, r.currency)} = ${money3(c.amount, c.currency)}*${assumed}`);
+    if (r.usdt)
+      out.push(
+        `🪙 ${r.usdt.amount.toFixed(2).replace(".", ",")} USDT a tu último cambio (${formatMoney(r.usdt.rate, "VES").replace("Bs ", "")})`,
+      );
+    if (r.divideBy >= 2)
+      out.push(
+        `👥 Entre ${r.divideBy}: *${money3(r.total.div(r.divideBy), r.currency)}* c/u (${money3(c.amount.div(r.divideBy), c.currency)})`,
+      );
+    return { type: "text", body: out.join("\n") };
+  }
   const lines = ["🧮 *Suma*"];
   // Con muchos montos no se repiten todos: el total basta.
   if (r.items.length <= 12)
-    r.items.forEach((i, n) =>
-      lines.push(`${i.subtract ? "−" : n === 0 ? " " : "+"} ${money3(i.amount, r.currency)}`),
-    );
-  lines.push(
-    `= *${money3(r.total, r.currency)}*${r.assumedCurrency ? ` _(asumí ${r.currency === "VES" ? "bolívares" : "dólares"})_` : ""}`,
-  );
+    r.items.forEach((i, n) => lines.push(`${sign(i, n)} ${money3(i.amount, r.currency)}`));
+  lines.push(`= *${money3(r.total, r.currency)}*${assumed}`);
   if (r.converted) {
     const v = formatMoney(r.converted.rate.value, "VES").replace("Bs ", "");
     const how =
