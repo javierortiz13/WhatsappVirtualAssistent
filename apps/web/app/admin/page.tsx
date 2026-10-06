@@ -7,6 +7,7 @@ import { dueClass, dueText, METHOD_LABEL, planClass, STATE, usd, ves } from "./f
 const OK: Record<string, string> = {
   pago_aprobado: "Pago aprobado. El negocio quedó activo.",
   pago_rechazado: "Pago rechazado.",
+  eliminado: "Negocio eliminado con todos sus datos.",
 };
 
 /** Resumen de la plataforma: ingresos, costos del mes, pagos por verificar y negocios. */

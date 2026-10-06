@@ -8,11 +8,15 @@ export default function EliminarDatos() {
     <main className="legal">
       <h1>Eliminar mis datos</h1>
       <p className="updated">Asistente de Caja</p>
-      <p>Puedes pedir la eliminación completa de tus datos de dos formas:</p>
+      <p>Puedes eliminar todos tus datos de tres formas:</p>
       <ul>
         <li>
           Desde WhatsApp: escribe <strong>eliminar mi cuenta</strong> al asistente desde el número
-          registrado. Te pediremos una confirmación.
+          del dueño y confirma con el botón. Se borra al instante.
+        </li>
+        <li>
+          Desde el panel: <strong>Ajustes → Negocio → Eliminar mi cuenta</strong>, escribiendo el
+          nombre del negocio para confirmar. Se borra al instante.
         </li>
         <li>
           Por correo: escribe a{" "}
@@ -21,8 +25,9 @@ export default function EliminarDatos() {
         </li>
       </ul>
       <p>
-        En un plazo máximo de 30 días borramos tu número, tus mensajes, tus movimientos, tus fotos y
-        tu cuenta del panel, y te confirmamos por el mismo medio. Los registros contables que la ley
+        Se borran tu número, tus mensajes, tus movimientos, tus cuentas, tus fotos y tu acceso al
+        panel. Por correo lo hacemos en un plazo máximo de 30 días y te confirmamos por el mismo
+        medio. Los registros contables que la ley
         te obligue a conservar puedes exportarlos antes desde el panel.
       </p>
       <p>

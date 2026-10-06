@@ -6,6 +6,7 @@ import { formatE164 } from "@/lib/phone";
 import {
   approvePaymentAction,
   changeTenantAction,
+  eraseTenantAction,
   recordPaymentAction,
   rejectPaymentAction,
 } from "../../actions";
@@ -21,6 +22,7 @@ const ERR: Record<string, string> = {
   datos: "Revisa los datos del formulario.",
   monto: "El monto no se entiende. Escríbelo como 19,99 o 19.527,03.",
   sin_vigencia: "No queda vigencia: primero registra un pago o extiende la fecha.",
+  confirmar: "Para eliminar, escribe el nombre del negocio exactamente.",
   servidor: "No se pudo guardar. Revisa los logs.",
 };
 const ACTION: Record<string, string> = {
@@ -302,6 +304,24 @@ export default async function AdminTenant({
             </button>
           </form>
         </div>
+      </section>
+
+      <section className="card stack-sm">
+        <span className="label">Eliminar negocio</span>
+        <p className="sub">
+          Borra para siempre sus movimientos, cuentas, fotos, mensajes, números, pagos y el acceso
+          al panel. No se puede deshacer.
+        </p>
+        <form action={eraseTenantAction} className="stack-sm">
+          <input type="hidden" name="tenant_id" value={t.id} />
+          <label className="field">
+            <span>Escribe «{t.name}» para confirmar</span>
+            <input className="input" name="confirm" autoComplete="off" required />
+          </label>
+          <button className="btn block danger" type="submit">
+            Eliminar negocio
+          </button>
+        </form>
       </section>
 
       <section className="card tight">

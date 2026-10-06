@@ -141,6 +141,46 @@ export function planExpired(supportHint: string | null): Outbound {
   };
 }
 
+// ---------------------------------------------------------------- eliminar la cuenta (0017)
+
+/** Confirmación de "eliminar mi cuenta": qué se borra, que no se deshace y el Excel antes. */
+export function eraseConfirm(tenantName: string, dashboardUrl: string): Outbound {
+  return {
+    type: "buttons",
+    body: `⚠️ Vas a eliminar *${tenantName}* por completo: movimientos, cuentas, fotos, mensajes, números y el acceso al panel. *No se puede deshacer.*\n\nSi quieres guardar tus datos, descarga antes el Excel en ${dashboardUrl}/ajustes/exportar\n\n¿Eliminamos todo?`,
+    buttons: [
+      { id: IDS.erase("yes"), title: "Sí, eliminar todo" },
+      { id: IDS.erase("no"), title: "No, cancelar" },
+    ],
+  };
+}
+
+export function eraseCancelled(): Outbound {
+  return { type: "text", body: "Listo, no borré nada. Tus datos siguen como estaban." };
+}
+
+/** La confirmación venció (más de 10 minutos) o no la pidió este número. */
+export function eraseExpired(): Outbound {
+  return {
+    type: "text",
+    body: "Esa confirmación ya venció. Si quieres eliminar tu cuenta, escribe *eliminar mi cuenta* otra vez.",
+  };
+}
+
+export function eraseDone(tenantName: string, dashboardUrl: string): Outbound {
+  return {
+    type: "text",
+    body: `Listo. Eliminamos *${tenantName}* y todos sus datos. Gracias por probar el asistente. Si algún día quieres volver, te registras en ${dashboardUrl}/registro`,
+  };
+}
+
+export function eraseOwnerOnly(): Outbound {
+  return {
+    type: "text",
+    body: "Solo el dueño puede eliminar el negocio. Si quieres que quiten tu número, pídeselo al dueño: lo hace en el panel, en Ajustes → Números.",
+  };
+}
+
 /** Prueba gratis que llegó a su tope de gasto (0016): sin LLM, con cómo activar el plan. */
 export function trialLimit(supportHint: string | null): Outbound {
   const contact = supportHint ? ` Si necesitas ayuda: ${supportHint}` : "";

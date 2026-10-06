@@ -4,6 +4,7 @@ import {
   createReceiptReader,
   DeepgramClient,
   type ProcessDeps,
+  SupabaseAuthAdmin,
   SupabaseStorage,
   stubAgent,
   whatsapp,
@@ -78,6 +79,14 @@ async function main() {
     vision,
     store,
     log,
+    // Para "eliminar mi cuenta" (0017): borra del panel a los usuarios que quedan sin negocio.
+    authAdmin:
+      env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY
+        ? new SupabaseAuthAdmin({
+            url: env.SUPABASE_URL,
+            serviceKey: env.SUPABASE_SERVICE_ROLE_KEY,
+          })
+        : null,
     config: {
       assistantName: env.ASSISTANT_NAME,
       dashboardUrl: env.DASHBOARD_URL,

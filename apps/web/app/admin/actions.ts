@@ -19,6 +19,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/admin";
 import { db } from "@/lib/db";
+import { confirmsName, eraseBusiness } from "@/lib/erase";
 
 const DAY = 24 * 60 * 60 * 1000;
 const PlanId = z.enum(PLANS.map((p) => p.id) as ["personal", "negocio", "negocio_plus"]);
@@ -197,4 +198,30 @@ export async function changeTenantAction(formData: FormData): Promise<void> {
   }
   revalidatePath("/admin");
   back(f.tenant_id, outcome);
+}
+
+/**
+ * Eliminar un negocio por completo (0017): hay que escribir su nombre para confirmar. No se puede
+ * deshacer; lo de fuera de la base (fotos, usuarios del panel) se limpia después.
+ */
+export async function eraseTenantAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const tenantId = String(formData.get("tenant_id") ?? "");
+  if (!z.string().uuid().safeParse(tenantId).success) redirect("/admin?error=datos");
+  const name = await withTenant(db(), tenantId, async (tx) => {
+    const [t] = await tx
+      .select({ name: schema.tenant.name })
+      .from(schema.tenant)
+      .where(eq(schema.tenant.id, tenantId));
+    return t?.name ?? null;
+  });
+  if (name === null) redirect("/admin?error=datos");
+  if (!confirmsName(formData.get("confirm"), name)) back(tenantId, "error=confirmar");
+  try {
+    await eraseBusiness(tenantId);
+  } catch (err) {
+    fail(tenantId, "servidor", err);
+  }
+  revalidatePath("/admin");
+  redirect("/admin?ok=eliminado");
 }

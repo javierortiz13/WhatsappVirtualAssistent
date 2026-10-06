@@ -81,6 +81,7 @@ import {
 } from "../ledger/index";
 import { NoRateError, rateFor } from "../ledger/rate-for";
 import { type Logger, maskPhone, silentLogger } from "../log";
+import { type AuthAdmin, cleanupErased, type ErasedTenant, eraseTenant } from "../onboarding/erase";
 import { activatePhone, CODE_RE, verifyCode } from "../onboarding/register";
 import { getRateInfo } from "../rates/current";
 import { es, mergeOutbound, type Outbound, parseReplyId } from "../render/index";
@@ -117,6 +118,8 @@ export type ProcessDeps = {
   store?: ObjectStore | null;
   log?: Logger;
   now?: () => Date;
+  /** Borra de Supabase Auth a los usuarios del panel de un negocio eliminado (0017). */
+  authAdmin?: AuthAdmin | null;
   config: {
     assistantName: string;
     dashboardUrl: string;
@@ -267,6 +270,7 @@ export async function processInbound(
     return "ignored";
   }
 
+  let erased: { result: ErasedTenant; outbound: Outbound[] } | null = null;
   const outcome = await withTenant(deps.db, resolved.tenantId, async (tx) => {
     const [tenant] = await tx
       .select()
@@ -366,6 +370,11 @@ export async function processInbound(
       mediaFollows: (waitMs) => mediaFollows(tx, event.id, event.receivedAt, msg.sender, waitMs),
     });
 
+    if (route.erased) {
+      erased = { result: route.erased, outbound: route.outbound };
+      return "done" as const;
+    }
+
     // Una respuesta = un mensaje (ADR-014): la bienvenida viaja en el mismo envío que la respuesta.
     const first = welcome[0];
     const second = route.outbound[0];
@@ -439,6 +448,24 @@ export async function processInbound(
     return "done" as const;
   });
 
+  if (erased) {
+    // El negocio ya no existe: la despedida no se registra y lo de fuera de la base se limpia.
+    const { result, outbound } = erased as { result: ErasedTenant; outbound: Outbound[] };
+    for (const out of outbound) {
+      try {
+        await sendOutbound(meta, to, out);
+      } catch (err) {
+        log.warn({ err: errMsg(err), to: maskPhone(to) }, "despedida sin enviar");
+      }
+    }
+    const cleaned = await cleanupErased(result, {
+      store: deps.store ?? null,
+      auth: deps.authAdmin ?? null,
+      log,
+    });
+    log.info({ tenantId: resolved.tenantId, ...cleaned }, "negocio eliminado por el dueño");
+    return "done";
+  }
   if (outcome === "duplicate") {
     await markEvent(deps.db, event.id, "done", null);
     log.info({ waMessageId: msg.waMessageId }, "ya respondido; se cierra el job");
@@ -537,6 +564,8 @@ type RouteCtx = {
 
 type RouteResult = {
   outbound: Outbound[];
+  /** El dueño eliminó el negocio (0017): la respuesta sale después del commit y no se registra. */
+  erased?: ErasedTenant;
   toolCalls: { name: string; args: unknown }[];
   tokensIn: number;
   tokensOut: number;
@@ -575,7 +604,12 @@ async function routeSuspended(
 ): Promise<RouteResult> {
   if (ctx.trialCapped) {
     const notice = async (out: Outbound): Promise<RouteResult> =>
-      (await trialNoticeSentToday(tx, ctx.phoneId, renewCtx(deps, ctx).now))
+      (await markSentSince(
+        tx,
+        ctx.phoneId,
+        TRIAL_CAP,
+        new Date(renewCtx(deps, ctx).now.getTime() - DAY_MS),
+      ))
         ? none([])
         : { ...none([out]), toolCalls: [{ name: TRIAL_CAP, args: {} }] };
     if (ctx.role !== "owner") return notice(es.trialLimitEmployee(ctx.tenantName));
@@ -591,7 +625,8 @@ async function routeSuspended(
 const TRIAL_CAP = "trial_cap";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-async function trialNoticeSentToday(tx: Tx, phoneId: string, now: Date): Promise<boolean> {
+/** ¿Este número recibió, desde `since`, un saliente con la marca `name` en `tool_calls`? */
+async function markSentSince(tx: Tx, phoneId: string, name: string, since: Date): Promise<boolean> {
   const [hit] = await tx
     .select({ id: schema.message.id })
     .from(schema.message)
@@ -599,12 +634,48 @@ async function trialNoticeSentToday(tx: Tx, phoneId: string, now: Date): Promise
       and(
         eq(schema.message.phoneId, phoneId),
         eq(schema.message.direction, "out"),
-        gt(schema.message.createdAt, new Date(now.getTime() - DAY_MS)),
-        sql`${schema.message.toolCalls} @> ${JSON.stringify([{ name: TRIAL_CAP }])}::jsonb`,
+        gt(schema.message.createdAt, since),
+        sql`${schema.message.toolCalls} @> ${JSON.stringify([{ name }])}::jsonb`,
       ),
     )
     .limit(1);
   return !!hit;
+}
+
+/** "eliminar mi cuenta" y parecidas, como mensaje completo (no "borrar mi cuenta Zelle"). */
+export const ERASE_WORDS =
+  /^\s*(?:quiero\s+)?(?:eliminar|borrar)\s+(?:mi\s+cuenta|mis\s+datos|mi\s+negocio)\s*[.!]*\s*$/i;
+const ERASE_PROMPT = "erase_prompt";
+const ERASE_WINDOW_MS = 10 * 60_000;
+
+/**
+ * Eliminar la cuenta por WhatsApp (0017, lo promete /eliminar-datos): solo el dueño, con
+ * confirmación por botón dentro de 10 minutos. Funciona también con el plan vencido o la prueba en
+ * su tope. Sin LLM.
+ */
+async function routeErase(
+  tx: Tx,
+  deps: ProcessDeps,
+  msg: InboundMessage,
+  ctx: RouteCtx,
+): Promise<RouteResult | null> {
+  const asked = msg.kind === "text" && ERASE_WORDS.test(msg.text);
+  const parsed = msg.kind === "interactive" ? parseReplyId(msg.replyId) : null;
+  if (!asked && parsed?.kind !== "erase") return null;
+  if (ctx.role !== "owner") return none([es.eraseOwnerOnly()]);
+  const dashboard = deps.config.dashboardUrl;
+  if (asked)
+    return {
+      ...none([es.eraseConfirm(ctx.tenantName, dashboard)]),
+      toolCalls: [{ name: ERASE_PROMPT, args: {} }],
+    };
+  if (parsed?.kind === "erase" && parsed.answer === "no") return none([es.eraseCancelled()]);
+  const now = (deps.now ?? (() => new Date()))();
+  const since = new Date(now.getTime() - ERASE_WINDOW_MS);
+  if (!(await markSentSince(tx, ctx.phoneId, ERASE_PROMPT, since)))
+    return none([es.eraseExpired()]);
+  const erased = await eraseTenant(tx, ctx.tenantId);
+  return { ...none([es.eraseDone(ctx.tenantName, dashboard)]), erased };
 }
 
 /** Renovación sin LLM (botones, referencia del pago, "renovar"); null si el mensaje no es eso. */
@@ -635,6 +706,8 @@ async function routeMessage(
   msg: InboundMessage,
   ctx: RouteCtx,
 ): Promise<RouteResult> {
+  const erase = await routeErase(tx, deps, msg, ctx);
+  if (erase) return erase;
   if (ctx.suspended || ctx.trialCapped) return routeSuspended(tx, deps, msg, ctx);
   switch (msg.kind) {
     case "interactive":

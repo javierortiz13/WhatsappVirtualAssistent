@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { requireTenant } from "@/lib/session";
 import { IconChevronDown, IconChevronLeft } from "../../icons";
-import { updateSettingsAction } from "../actions";
+import { eraseMyBusinessAction, updateSettingsAction } from "../actions";
 
 export const metadata: Metadata = { title: "Negocio" };
 export const dynamic = "force-dynamic";
@@ -13,6 +13,7 @@ const ERRORS: Record<string, string> = {
   datos: "Revisa los datos del formulario.",
   permiso: "Solo el dueño puede cambiar los datos del negocio.",
   servidor: "No pudimos guardar el cambio. Inténtalo en unos minutos.",
+  confirmar: "Para eliminar tu cuenta, escribe el nombre exactamente como aparece.",
 };
 
 /** Nombre, tipo y moneda por defecto de los gastos (US-E7). Solo el dueño edita. */
@@ -120,6 +121,29 @@ export default async function Negocio({
           <p className="sub center-text">Solo el dueño puede cambiar estos datos.</p>
         )}
       </form>
+      {isOwner ? (
+        <section className="card stack-sm" id="eliminar">
+          <span className="label">Eliminar mi cuenta</span>
+          <p className="sub">
+            Borra para siempre todo lo de <strong>{tenant.name}</strong>: movimientos, cuentas,
+            fotos, mensajes, números y tu acceso al panel. No se puede deshacer. Si quieres guardar
+            tus datos,{" "}
+            <a className="inline-link" href="/ajustes/exportar">
+              descarga el Excel
+            </a>{" "}
+            antes.
+          </p>
+          <form action={eraseMyBusinessAction} className="stack-sm">
+            <label className="field">
+              <span>Escribe «{tenant.name}» para confirmar</span>
+              <input className="input" name="confirm" autoComplete="off" required />
+            </label>
+            <button className="btn block danger" type="submit">
+              Eliminar mi cuenta
+            </button>
+          </form>
+        </section>
+      ) : null}
     </div>
   );
 }

@@ -779,3 +779,18 @@ Javier configuró la pantalla de consentimiento y el cliente OAuth en Google Clo
 **Usuario:** en Ajustes → Mi plan, durante la prueba la barra muestra el uso incluido ("llevas el 59 %") y, al llegar, que el asistente dejó de registrar y cómo pagar.
 
 **Tests:** suma de costos (sin reacciones ni envíos fallidos), tope por plan y propio, aviso al administrador una sola vez; en el inbox, sin registro ni LLM, aviso una vez al día, renovar sí y el empleado. QA en navegador: Mi plan y la ficha del administrador con un tope de 2 USD (llegó) y vuelta al del plan.
+
+### S2 · 06/10/2026 · Eliminar un negocio (cuenta) por completo
+
+**Pedido (Javier):** borrar la cuenta del número 584127806000 ("Cinnamon rolls (piloto 2)", correo jpaxieacademy@gmail.com, vacía) y tener la función para no hacerlo a mano. Además `/eliminar-datos` (la que pide Meta) prometía "eliminar mi cuenta" por WhatsApp y no existía.
+
+**Migración 0017:** `app.erase_tenant(id)` SECURITY DEFINER: el rol de la app no tiene DELETE (todo es borrado lógico), así que la función borra en una transacción todas las filas del negocio en orden de dependencias, los eventos del webhook de sus mensajes y números, los avisos a desconocidos, y los usuarios del panel que quedan sin negocio ni registros. Solo actúa sobre el tenant fijado con `withTenant` (`app.tenant_id`); quién puede pedirlo lo decide la app. Devuelve las fotos del bucket y los usuarios de Supabase Auth a borrar, que se limpian después del commit (`cleanupErased`, uno por uno, lo que falle queda en el log).
+
+**Tres caminos:**
+- WhatsApp: el dueño escribe *eliminar mi cuenta* (o "borrar mis datos"; frase completa, "borrar mi cuenta Zelle" no cuenta). Respuesta con qué se borra, el enlace al Excel y botones "Sí, eliminar todo" / "No, cancelar". El Sí vale 10 minutos. Sin LLM; funciona también con el plan vencido o la prueba en su tope. Un empleado recibe "solo el dueño". Al terminar, la despedida sale sin registrarse (el negocio ya no existe).
+- Panel: Ajustes → Negocio → "Eliminar mi cuenta" (solo dueño), escribiendo el nombre del negocio. Cierra la sesión y lleva a /login con el aviso.
+- Administrador: en la ficha del negocio, "Eliminar negocio" escribiendo su nombre.
+
+`/eliminar-datos` describe los tres caminos (inmediatos) y el correo (30 días).
+
+**Tests:** la función borra todo lo del negocio y nada del otro, no corre con otro `app.tenant_id`, conserva al usuario que es miembro de otro negocio; flujo de WhatsApp (empleado, botón sin pedirlo, No, Sí) con limpieza de fotos y usuario. QA en navegador de los caminos del panel y del administrador (nombre mal escrito y bien).

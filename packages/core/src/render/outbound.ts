@@ -37,6 +37,8 @@ export const IDS = {
   renewRef: (method: RenewMethod, reference: string) => `renewref:${method}:${reference}`,
   /** De dónde sale la tasa de los gastos en Bs (0012): BCV, los cambios USDT o preguntar. */
   bsMode: (mode: BsMode) => `bsmode:${mode}`,
+  /** Confirmar o no "eliminar mi cuenta" (0017). */
+  erase: (answer: "yes" | "no") => `erase:${answer}`,
 } as const;
 
 export const BS_MODES = ["bcv", "usdt", "ask"] as const;
@@ -60,6 +62,7 @@ export type ParsedReplyId =
   | { kind: "renew"; method: RenewMethod; plan: string; months: number }
   | { kind: "renew_ref"; method: RenewMethod; reference: string }
   | { kind: "bs_mode"; mode: BsMode }
+  | { kind: "erase"; answer: "yes" | "no" }
   | { kind: "unknown"; raw: string };
 
 export function parseReplyId(raw: string): ParsedReplyId {
@@ -104,6 +107,9 @@ export function parseReplyId(raw: string): ParsedReplyId {
         return { kind: "renew_ref", method, reference };
       break;
     }
+    case "erase":
+      if (value === "yes" || value === "no") return { kind: "erase", answer: value };
+      break;
     case "bsmode":
       if ((BS_MODES as readonly string[]).includes(value))
         return { kind: "bs_mode", mode: value as BsMode };

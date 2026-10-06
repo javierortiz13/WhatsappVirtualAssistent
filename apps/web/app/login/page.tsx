@@ -16,7 +16,7 @@ const ERRORS: Record<string, string> = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ enviado?: string; error?: string }>;
+  searchParams: Promise<{ enviado?: string; error?: string; eliminada?: string }>;
 }) {
   const sp = await searchParams;
   const error = sp.error ? ERRORS[sp.error] : null;
@@ -75,6 +75,11 @@ export default async function LoginPage({
                 </p>
               </div>
               {error ? <div className="notice err">{error}</div> : null}
+              {sp.eliminada ? (
+                <div className="notice ok">
+                  Eliminamos tu cuenta y todos sus datos. Gracias por probar el asistente.
+                </div>
+              ) : null}
               {google ? (
                 <>
                   <form action={signInWithGoogle}>

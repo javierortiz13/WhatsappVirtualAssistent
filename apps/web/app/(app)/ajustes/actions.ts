@@ -13,8 +13,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { confirmsName, eraseBusiness } from "@/lib/erase";
 import { toE164 } from "@/lib/phone";
 import { requireTenant } from "@/lib/session";
+import { supabaseServer } from "@/lib/supabase/server";
 
 const AddForm = z.object({
   country: z.string().min(1).max(4),
@@ -98,4 +100,27 @@ export async function updateSettingsAction(formData: FormData): Promise<void> {
   }
   revalidatePath("/", "layout");
   redirect("/ajustes/negocio?ok=negocio");
+}
+
+/**
+ * Eliminar mi cuenta (0017, lo promete /eliminar-datos): el dueño borra el negocio por completo
+ * escribiendo su nombre. Después se cierra la sesión: el usuario del panel ya no existe.
+ */
+export async function eraseMyBusinessAction(formData: FormData): Promise<void> {
+  const { tenant } = await requireTenant();
+  if (tenant.role !== "owner") redirect("/ajustes/negocio?error=permiso");
+  if (!confirmsName(formData.get("confirm"), tenant.name))
+    redirect("/ajustes/negocio?error=confirmar#eliminar");
+  try {
+    await eraseBusiness(tenant.id);
+  } catch (err) {
+    console.error(JSON.stringify({ level: "error", msg: "eliminar negocio", detail: String(err) }));
+    redirect("/ajustes/negocio?error=servidor#eliminar");
+  }
+  try {
+    await (await supabaseServer()).auth.signOut();
+  } catch {
+    // El usuario ya no existe en Auth: basta con que se borren las cookies.
+  }
+  redirect("/login?eliminada=1");
 }
