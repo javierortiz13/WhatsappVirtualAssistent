@@ -17,6 +17,7 @@ import {
   IconPhone,
   IconShield,
   IconTags,
+  IconWallet,
 } from "./icons";
 
 export type SidebarProps = {
@@ -46,6 +47,8 @@ const TITLES: [string, string][] = [
   ["/ajustes/numeros", "Números"],
   ["/ajustes/negocio", "Negocio"],
   ["/ajustes/exportar", "Exportar"],
+  ["/ajustes/cuentas", "Cuentas"],
+  ["/ajustes/cambios", "Cambios USDT"],
   ["/ajustes", "Ajustes"],
 ];
 
@@ -68,10 +71,12 @@ export function Shell({ children, ...p }: SidebarProps & { children: ReactNode }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
-  // "Mi plan" vive bajo /ajustes: no marcar los dos a la vez.
+  // "Mi plan" y "Cuentas" viven bajo /ajustes: no marcar los dos a la vez.
+  const ownItem = ["/ajustes/plan", "/ajustes/cuentas"];
   const is = (href: string) =>
     path === href ||
-    (path.startsWith(`${href}/`) && !(href === "/ajustes" && path.startsWith("/ajustes/plan")));
+    (path.startsWith(`${href}/`) &&
+      !(href === "/ajustes" && ownItem.some((o) => path.startsWith(o))));
   const item = (href: string, label: string, icon: ReactNode, badge?: ReactNode) => (
     <Link
       className="menu-item"
@@ -112,6 +117,7 @@ export function Shell({ children, ...p }: SidebarProps & { children: ReactNode }
         </div>
         {item("/inicio", "Inicio", <IconHome />)}
         {item("/movimientos", "Movimientos", <IconList />)}
+        {item("/ajustes/cuentas", "Cuentas", <IconWallet />)}
         {item("/cierres", "Cierres", <IconBars />)}
         <span className="sect">Negocio</span>
         {item("/ajustes/categorias", "Categorías", <IconTags />)}

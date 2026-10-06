@@ -817,3 +817,13 @@ Javier configuró la pantalla de consentimiento y el cliente OAuth en Google Clo
 - Los movimientos no se tocan. Nada de esto necesita migración. Las notas de voz ya no se guardaban (se transcriben en memoria).
 
 **Tests:** texto viejo borrado y reciente intacto, nombres de herramientas conservados, borradores resueltos vaciados y pendientes no, foto de 366 días borrada y de 300 no, segunda vuelta sin cambios, eventos del webhook cerrados vaciados y en cola no.
+
+### S2 · 06/10/2026 · Saldos de las cuentas en Inicio y "Cuentas" en el menú
+
+**Pedido (Javier):** Inicio solo mostraba ventas y gastos; faltaba cuánto hay en cada cuenta, y las cuentas no tenían acceso directo en el menú.
+
+- Inicio: tarjeta "Mis cuentas" después de la cifra de hoy, con "Tienes en total" (los Bs a la BCV de hoy), el desglose en dólares y bolívares, y cada cuenta con su saldo (toca para ver su estado de cuenta). Solo aparece si hay cuentas; si no, "Crear una cuenta" sigue en los primeros pasos.
+- Menú: "Cuentas" entre Movimientos y Cierres; el título de la página dice "Cuentas" (antes "Ajustes") y "Ajustes" no se marca a la vez. La página de cuentas ya no tiene "‹ Ajustes" porque ahora está en el menú.
+- `lib/accounts.ts`: el formato de saldo ("250,00 USDT", "Bs 36.400,00") y la línea de tipo se comparten entre Inicio y Cuentas.
+
+QA en navegador (390 px y escritorio) con tres cuentas (Bs, USDT y efectivo $): total y saldos correctos, sin desborde, menú marcado.

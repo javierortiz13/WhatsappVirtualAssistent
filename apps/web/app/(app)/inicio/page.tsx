@@ -1,27 +1,36 @@
 import {
+  type AccountView,
+  accountBalances,
   BUDGET_WARN_PCT,
   type BudgetStatus,
   budgetStatuses,
+  type Decimal,
   dailyClose,
   formatMoney,
   formatShortDate,
   getRateInfo,
+  netWorth,
   ownerPhone,
 } from "@caja/core";
 import { monthNameEs } from "@caja/core/domain";
 import { rows, schema, sql, withTenant } from "@caja/db";
 import type { Metadata } from "next";
+import { accountKindLine, accountMoney } from "@/lib/accounts";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { BOT_FEATURES } from "@/lib/onboarding";
 import { monthBounds, movementsBetween, todayInCaracas, totalsBetween } from "@/lib/queries";
 import { requireTenant } from "@/lib/session";
+import { IconWallet } from "../icons";
 import { MovementRowView } from "../movements-list";
 
 export const metadata: Metadata = { title: "Inicio" };
 export const dynamic = "force-dynamic";
 
-/** Una cifra grande (el neto de hoy), dos tarjetas del mes y los últimos movimientos. */
+/**
+ * Una cifra grande (el neto de hoy), cuánto hay en cada cuenta, dos tarjetas del mes y los últimos
+ * movimientos.
+ */
 export default async function Inicio({
   searchParams,
 }: {
@@ -31,10 +40,14 @@ export default async function Inicio({
   const sp = await searchParams;
   const today = todayInCaracas();
   const month = monthBounds(today);
-  const [rate, [close, budgets], monthTotals, recent, owner] = await Promise.all([
+  const [rate, [close, budgets, accounts], monthTotals, recent, owner] = await Promise.all([
     getRateInfo(db(), today),
     withTenant(db(), tenant.id, (tx) =>
-      Promise.all([dailyClose(tx, tenant.id, today), budgetStatuses(tx, tenant.id, today)]),
+      Promise.all([
+        dailyClose(tx, tenant.id, today),
+        budgetStatuses(tx, tenant.id, today),
+        accountBalances(tx, tenant.id),
+      ]),
     ),
     totalsBetween(tenant.id, month.from, month.to),
     movementsBetween(tenant.id, month.from, month.to, 6),
@@ -181,6 +194,8 @@ export default async function Inicio({
         </div>
       </section>
 
+      {accounts.length ? <Accounts list={accounts} bcv={rate.current?.value ?? null} /> : null}
+
       <div className="grid-2">
         <div className="card">
           <span className="label">{monthNameEs(today)}</span>
@@ -218,6 +233,46 @@ export default async function Inicio({
         </div>
       )}
     </div>
+  );
+}
+
+/** Saldo de cada cuenta y el total en dólares (los Bs a la BCV de hoy). */
+function Accounts({ list, bcv }: { list: AccountView[]; bcv: Decimal | null }) {
+  const nw = netWorth(list, bcv);
+  return (
+    <section className="card stack-sm">
+      <div className="day">
+        <h2>Mis cuentas</h2>
+        <a className="sub" href="/ajustes/cuentas">
+          Ver todas ›
+        </a>
+      </div>
+      <div>
+        <span className="label">Tienes en total</span>
+        <p className="kpi num">{formatMoney(nw.totalUsd ?? nw.usd, "USD")}</p>
+        <p className="kpi-sub num">
+          {formatMoney(nw.usd, "USD")} en dólares · {formatMoney(nw.ves, "VES")}
+        </p>
+      </div>
+      <div className="tight">
+        {list.map((a) => (
+          <a className="row" key={a.id} href={`/ajustes/cuentas/${a.id}`}>
+            <span className="ico lg">
+              <IconWallet />
+            </span>
+            <span className="what">
+              <strong>{a.name}</strong>
+              <span className="sub">{accountKindLine(a)}</span>
+            </span>
+            <span className="amts">
+              <strong className={`num ${a.balance.isNegative() ? "neg" : ""}`}>
+                {accountMoney(a, a.balance)}
+              </strong>
+            </span>
+          </a>
+        ))}
+      </div>
+    </section>
   );
 }
 

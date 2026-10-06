@@ -1,18 +1,17 @@
 import {
   ACCOUNT_KIND_LABELS,
-  type AccountView,
   accountBalances,
-  type Decimal,
   formatMoney,
   getRateInfo,
   netWorth,
 } from "@caja/core";
 import { withTenant } from "@caja/db";
 import type { Metadata } from "next";
+import { accountKindLine as kindLine, accountMoney as money } from "@/lib/accounts";
 import { db } from "@/lib/db";
 import { todayInCaracas } from "@/lib/queries";
 import { requireTenant } from "@/lib/session";
-import { IconChevronDown, IconChevronLeft, IconWallet } from "../../icons";
+import { IconChevronDown, IconWallet } from "../../icons";
 import {
   archiveAccountAction,
   createAccountAction,
@@ -42,19 +41,6 @@ const MSG: Record<string, string> = {
   fecha: "La fecha no puede ser futura.",
 };
 
-/** "Bs 12.300,00", "$40,00" o "85,00 USDT". */
-function money(a: Pick<AccountView, "currency" | "kind">, v: Decimal): string {
-  if (a.currency === "USD" && a.kind === "crypto")
-    return `${formatMoney(v, "USD").replace("$", "")} USDT`;
-  return formatMoney(v, a.currency);
-}
-
-/** "Banco · Bs", "Efectivo · $", "USDT". */
-function kindLine(a: Pick<AccountView, "currency" | "kind">): string {
-  if (a.currency === "USD" && a.kind === "crypto") return "USDT";
-  return `${ACCOUNT_KIND_LABELS[a.kind]} · ${a.currency === "VES" ? "Bs" : "$"}`;
-}
-
 /**
  * Cuentas (0013): dónde vive el dinero. Cada gasto o venta por el chat dice de qué cuenta salió
  * o a cuál entró; el total pasa los bolívares a dólares a la BCV de hoy.
@@ -76,12 +62,6 @@ export default async function Cuentas({
   const notice = sp.ok ? MSG[sp.ok] : sp.error ? MSG[sp.error] : null;
   return (
     <div className="stack">
-      <div className="rate">
-        <a className="iconbtn" href="/ajustes" aria-label="Volver a ajustes">
-          <IconChevronLeft />
-        </a>
-        <span className="sub">Ajustes</span>
-      </div>
       {notice ? <div className={`notice ${sp.error ? "err" : "ok"}`}>{notice}</div> : null}
       {accounts.length ? (
         <section className="card stack">
