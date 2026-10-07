@@ -12,7 +12,15 @@ export type Plan = {
   tagline: string;
   /** Mensajes del usuario al asistente por mes (los del bot y las reacciones no cuentan). */
   messagesPerMonth: number;
-  /** Tope de gasto de la prueba gratis en USD (IA + Meta + voz); al llegar, el bot para. */
+  /**
+   * Mensajes de la prueba gratis (07/10/2026, decisión de Javier): al pasarlos, Rocco deja de
+   * registrar y ofrece activar el plan. Menos que un mes pagado.
+   */
+  trialMessages: number;
+  /**
+   * Red de seguridad de la prueba en USD (IA + Meta + voz), por si alguien manda muchas fotos:
+   * ~2 veces lo que cuestan sus mensajes. Al llegar, el bot también para.
+   */
   trialBudgetUsd: number;
   numbers: number;
   employees: number;
@@ -27,7 +35,8 @@ export const PLANS: Plan[] = [
     priceUsd: 5.99,
     tagline: "Un asistente para tu plata de todos los días, sin abrir una app.",
     messagesPerMonth: 120,
-    trialBudgetUsd: 1.5,
+    trialMessages: 100,
+    trialBudgetUsd: 4,
     numbers: 1,
     employees: 0,
     features: [
@@ -45,7 +54,8 @@ export const PLANS: Plan[] = [
     priceUsd: 19.99,
     tagline: "Hace la parte de la caja que hoy hace una persona. Tú y un empleado.",
     messagesPerMonth: 400,
-    trialBudgetUsd: 4,
+    trialMessages: 200,
+    trialBudgetUsd: 8,
     numbers: 2,
     employees: 1,
     features: [
@@ -64,7 +74,8 @@ export const PLANS: Plan[] = [
     priceUsd: 39.99,
     tagline: "Varios turnos o varias personas registrando. Mismo asistente.",
     messagesPerMonth: 1000,
-    trialBudgetUsd: 8,
+    trialMessages: 300,
+    trialBudgetUsd: 12,
     numbers: 4,
     employees: 3,
     features: [
@@ -91,10 +102,23 @@ export function planById(id: string): Plan {
 }
 
 /**
- * Recarga (07/10/2026): al llegar al tope del mes, +100 mensajes por $4 que valen hasta fin de
- * mes. Precio = unas 2 veces el costo en el peor caso (~$0,021 por mensaje: IA + Meta).
+ * Recargas (07/10/2026): al llegar al tope del mes, mensajes extra que valen hasta fin de mes.
+ * Precio ≥ 2 veces el costo en el peor caso (~$0,021 por mensaje: IA + Meta). La grande sale más
+ * barata por mensaje para empujarla.
  */
-export const RECHARGE = { messages: 100, priceUsd: 4 } as const;
+export type RechargePack = { id: "s" | "m"; messages: number; priceUsd: number };
+export const RECHARGES: readonly RechargePack[] = [
+  { id: "s", messages: 20, priceUsd: 1 },
+  { id: "m", messages: 100, priceUsd: 4 },
+];
+/** La recarga grande: la que regala el administrador y la de los botones viejos. */
+export const RECHARGE = RECHARGES[1] as RechargePack;
+export function rechargeById(id: string | null | undefined): RechargePack {
+  return RECHARGES.find((r) => r.id === id) ?? RECHARGE;
+}
+
+/** Aviso único cuando la prueba gratis llega a este porcentaje de sus mensajes. */
+export const TRIAL_WARN_PCT = 80;
 
 /**
  * Precio fundador (07/10/2026): los primeros 50 negocios (los amigos de la beta) pagan 40 %

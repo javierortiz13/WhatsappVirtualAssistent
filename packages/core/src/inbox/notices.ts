@@ -36,7 +36,7 @@ export async function sendPaymentNotices(
         const out =
           n.status === "approved"
             ? n.kind === "recharge"
-              ? es.rechargeVerified(RECHARGE.messages)
+              ? es.rechargeVerified(n.extraMessages ?? RECHARGE.messages)
               : es.paymentVerified(n.plan.name, n.paidUntil ? businessDateOf(n.paidUntil) : null)
             : es.paymentRejected({
                 reference: n.reference,

@@ -115,9 +115,11 @@ export default async function AdminTenant({
         </p>
         {t.status === "trial" ? (
           <p className={`sub num ${d.trial.reached ? "neg" : ""}`}>
-            Prueba: {usd(d.trial.spentUsd)} de {usd(d.trial.budgetUsd)}
-            {t.trialBudgetUsd === null ? " (tope del plan)" : ""} · IA {usd(d.trial.aiUsd)} · Meta{" "}
-            {usd(d.trial.metaUsd)} ({d.trial.replies} respuestas) · voz {usd(d.trial.voiceUsd)}
+            Prueba: {d.trial.messages} de {d.trial.messageCap} mensajes · gasto{" "}
+            {usd(d.trial.spentUsd)} de {usd(d.trial.budgetUsd)}
+            {t.trialBudgetUsd === null ? " (red de seguridad del plan)" : ""} · IA{" "}
+            {usd(d.trial.aiUsd)} · Meta {usd(d.trial.metaUsd)} ({d.trial.replies} respuestas) · voz{" "}
+            {usd(d.trial.voiceUsd)}
             {d.trial.reached ? " · llegó al tope: el bot no registra" : ""}
           </p>
         ) : null}

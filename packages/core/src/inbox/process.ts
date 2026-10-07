@@ -13,15 +13,17 @@ import {
   planById,
   planCapStatus,
   planFromName,
-  RECHARGE,
   RECHARGE_WORDS,
+  RECHARGES,
   RENEW_WORDS,
   type RenewChatCtx,
+  rechargeMethodsReply,
   rechargeOfferReply,
   rechargePayToReply,
   renewOfferReply,
   renewPayToReply,
   renewReferenceReply,
+  TRIAL_WARN_PCT,
   trialSpend,
 } from "../billing/index";
 import {
@@ -379,15 +381,18 @@ export async function processInbound(
         log.debug({ err: errMsg(err) }, "acuse falló");
       }
     };
-    // Prueba gratis en su tope de gasto (0016): sin LLM ni transcripción hasta activar el plan.
-    const trialCapped =
-      !tenant.deletedAt && tenant.status === "trial" && (await trialSpend(tx, tenant)).reached;
+    // Prueba gratis (07/10): al pasar sus mensajes (o la red de seguridad en dólares), sin LLM ni
+    // transcripción hasta activar el plan.
+    const trial =
+      !tenant.deletedAt && tenant.status === "trial" ? await trialSpend(tx, tenant) : null;
+    const trialCapped = trial?.reached ?? false;
     // Límite duro del plan pagado (0019): pasado el tope del mes, solo recargar o cambiar de plan.
     const cap = trialCapped ? null : await planCapStatus(tx, tenant, started);
     const route = await routeMessage(tx, deps, msg, {
       suspended: resolved.tenantStatus === "suspended",
       deleted: tenant.deletedAt ? { purgeAfter: tenant.purgeAfter } : null,
       trialCapped,
+      trialMessages: trial?.byMessages ? trial.messageCap : null,
       monthCapped: cap?.reached ? { ...cap, planName: planById(tenant.plan).name } : null,
       inTrial: tenant.status === "trial",
       tenantId: resolved.tenantId,
@@ -403,6 +408,23 @@ export async function processInbound(
       mediaFollows: (waitMs) => mediaFollows(tx, event.id, event.receivedAt, msg.sender, waitMs),
     });
 
+    // Aviso único al 80 % de los mensajes de la prueba, después de la respuesta (solo al dueño).
+    if (
+      trial &&
+      !trial.reached &&
+      resolved.role === "owner" &&
+      route.outbound.length &&
+      trial.messages * 100 >= trial.messageCap * TRIAL_WARN_PCT &&
+      tenant.capWarnedMonth !== "trial"
+    ) {
+      route.outbound.push(
+        es.trialWarning({ left: trial.messageCap - trial.messages, cap: trial.messageCap }),
+      );
+      await tx
+        .update(schema.tenant)
+        .set({ capWarnedMonth: "trial" })
+        .where(eq(schema.tenant.id, resolved.tenantId));
+    }
     // Aviso único al 80 % del mes, después de la respuesta (solo al dueño).
     if (cap?.warn && resolved.role === "owner" && route.outbound.length) {
       route.outbound.push(es.capWarning({ used: cap.used, cap: cap.cap, month: cap.month }));
@@ -627,6 +649,8 @@ type RouteCtx = {
   suspended: boolean;
   /** Prueba gratis que llegó a su tope de gasto: igual que suspendido, con su propio aviso. */
   trialCapped?: boolean;
+  /** Mensajes que incluye la prueba (para el aviso). */
+  trialMessages?: number | null;
   /** Plan pagado que pasó sus mensajes del mes (0019): recargar o cambiar de plan. */
   monthCapped?: (CapStatus & { planName: string }) | null;
   /** En la prueba gratis: "recargar" ofrece activar el plan, no una recarga. */
@@ -708,7 +732,7 @@ async function routeSuspended(
           planName: capped.planName,
           cap: capped.cap,
           month: capped.month,
-          recharge: RECHARGE,
+          recharges: RECHARGES,
         }),
       )
     );
@@ -725,7 +749,7 @@ async function routeSuspended(
         : { ...none([out]), toolCalls: [{ name: TRIAL_CAP, args: {} }] };
     if (ctx.role !== "owner") return notice(es.trialLimitEmployee(ctx.tenantName));
     const routed = await routeRenewOnly(tx, deps, msg, ctx);
-    return routed ?? notice(es.trialLimit(deps.config.supportHint));
+    return routed ?? notice(es.trialLimit(deps.config.supportHint, ctx.trialMessages ?? null));
   }
   return (
     (await routeRenewOnly(tx, deps, msg, ctx)) ?? none([es.planExpired(deps.config.supportHint)])
@@ -845,7 +869,7 @@ async function routeRenewOnly(
   const c = renewCtx(deps, ctx);
   if (msg.kind === "interactive") {
     const parsed = parseReplyId(msg.replyId);
-    if (parsed.kind === "renew" || parsed.kind === "renew_ref")
+    if (parsed.kind === "renew" || parsed.kind === "renew_ref" || parsed.kind === "recharge")
       return routeInteractive(tx, deps, msg.replyId, ctx);
   }
   if (msg.kind === "text") {
@@ -854,9 +878,7 @@ async function routeRenewOnly(
     if (reference) return none([await renewReferenceReply(tx, c, reference)]);
     if (RECHARGE_WORDS.test(msg.text) && ctx.role === "owner")
       return none([
-        ctx.trialCapped || ctx.inTrial
-          ? await renewOfferReply(tx, c)
-          : await rechargeOfferReply(tx, c),
+        ctx.trialCapped || ctx.inTrial ? await renewOfferReply(tx, c) : rechargeOfferReply(c),
       ]);
     if (RENEW_WORDS.test(msg.text)) return none([await renewOfferReply(tx, c)]);
   }
@@ -900,7 +922,7 @@ async function routeMessage(
         return none([
           ctx.inTrial
             ? await renewOfferReply(tx, renewCtx(deps, ctx))
-            : await rechargeOfferReply(tx, renewCtx(deps, ctx)),
+            : rechargeOfferReply(renewCtx(deps, ctx)),
         ]);
       if (keyword === "menu") return none([es.menu(await getRateInfo(tx, ctx.today))]);
       if (keyword === "rate") return none([es.rate(await getRateInfo(tx, ctx.today))]);
@@ -1733,8 +1755,15 @@ async function routeInteractive(
     }
     case "renew": {
       if (ctx.role !== "owner") return none([es.renewOwnerOnly()]);
-      if (parsed.plan === "recharge")
-        return none([await rechargePayToReply(tx, renewCtx(deps, ctx), parsed.method)]);
+      if (parsed.plan === "recharge" || parsed.plan.startsWith("recharge-"))
+        return none([
+          await rechargePayToReply(
+            tx,
+            renewCtx(deps, ctx),
+            parsed.method,
+            parsed.plan.startsWith("recharge-") ? parsed.plan.slice(9) : null,
+          ),
+        ]);
       const plan = planFromName(parsed.plan);
       if (!plan) return none([await renewOfferReply(tx, renewCtx(deps, ctx))]);
       return none([
@@ -1776,6 +1805,10 @@ async function routeInteractive(
         kind: "text",
         text: `Respuesta al botón de categoría: ${JSON.stringify(cat.name)}. Aplícala a lo del mensaje anterior.`,
       });
+    }
+    case "recharge": {
+      if (ctx.role !== "owner") return none([es.renewOwnerOnly()]);
+      return none([await rechargeMethodsReply(tx, renewCtx(deps, ctx), parsed.id)]);
     }
     case "survey": {
       // Encuesta del día 10 y resumen del día 12 (0019): solo el dueño responde.

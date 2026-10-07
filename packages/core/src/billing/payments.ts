@@ -28,6 +28,8 @@ export type NewPayment = {
   notes: string | null;
   /** Plan (por defecto) o recarga de mensajes del mes (0019). */
   kind?: "plan" | "recharge" | undefined;
+  /** Recarga (0020): mensajes que suma al aprobarse. */
+  extraMessages?: number | null | undefined;
 };
 
 export async function recordPayment(
@@ -55,6 +57,7 @@ export async function recordPayment(
       reference: p.reference,
       notes: p.notes,
       kind: p.kind ?? "plan",
+      extraMessages: p.extraMessages ?? null,
     })
     .returning({ id: schema.payment.id });
   if (!row) throw new Error("no se pudo registrar el pago");
@@ -97,6 +100,7 @@ export async function reportPayment(
       reference: p.reference,
       notes: p.notes,
       kind: p.kind ?? "plan",
+      extraMessages: p.extraMessages ?? null,
     })
     .returning({ id: schema.payment.id });
   if (!row) throw new Error("no se pudo registrar el pago");
@@ -145,7 +149,8 @@ export async function approvePayment(
     .for("update");
   if (!pay) throw new Error("pago no encontrado");
   if (pay.status !== "pending") throw new Error(`el pago ya está ${pay.status}`);
-  if (pay.kind === "recharge") return approveRecharge(tx, t, pay.id, reviewer, now);
+  if (pay.kind === "recharge")
+    return approveRecharge(tx, t, pay.id, pay.extraMessages ?? RECHARGE.messages, reviewer, now);
   const paidUntil = extendPaidUntil(t, pay.months, now, PERIOD_DAYS);
   const done = await tx
     .update(schema.payment)
@@ -165,13 +170,14 @@ export async function approvePayment(
 }
 
 /**
- * Recarga aprobada (0019): +100 mensajes que valen hasta fin de mes. Si la recarga anterior era
+ * Recarga aprobada (0019, 0020): +20 o +100 mensajes que valen hasta fin de mes. Si la recarga anterior era
  * de otro mes, se empieza de cero. No toca el plan ni la vigencia.
  */
 async function approveRecharge(
   tx: Tx,
   t: typeof schema.tenant.$inferSelect,
   paymentId: string,
+  messages: number,
   reviewer: Reviewer,
   now: Date,
 ): Promise<{ paidUntil: Date }> {
@@ -181,7 +187,7 @@ async function approveRecharge(
     .where(and(eq(schema.payment.id, paymentId), eq(schema.payment.status, "pending")))
     .returning({ id: schema.payment.id });
   if (done.length === 0) throw new Error("el pago ya fue revisado");
-  await addExtraMessages(tx, t, RECHARGE.messages, reviewer, now, "approve_recharge");
+  await addExtraMessages(tx, t, messages, reviewer, now, "approve_recharge");
   return { paidUntil: t.paidUntil ?? now };
 }
 

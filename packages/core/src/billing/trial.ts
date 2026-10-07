@@ -3,8 +3,10 @@ import { Decimal } from "../domain/money";
 import { planById } from "./plans";
 
 /**
- * Tope de gasto de la prueba gratis (0016, 06/10/2026). Mientras el negocio está en prueba se suma
- * lo que costó desde que se registró:
+ * Límites de la prueba gratis. Desde el 07/10/2026 la prueba se mide en MENSAJES del usuario (100
+ * en Personal, 200 en Negocio, 300 en Plus; `plan.trialMessages`). El tope de gasto (0016) queda
+ * como red de seguridad. Mientras el negocio está en prueba se suma lo que costó desde que se
+ * registró:
  * - IA: `message.cost_usd` de cada turno (agente y lectura de fotos), exacto;
  * - Meta: cada respuesta entregada (sin reacciones) a la tarifa de servicio (ADR-014). Se cuenta
  *   aunque caiga en las 1.000 gratis del mes: el tope es el peor caso;
@@ -29,8 +31,13 @@ export type TrialSpend = {
   metaUsd: Decimal;
   voiceUsd: Decimal;
   replies: number;
+  /** Mensajes del usuario desde el registro y los que incluye la prueba. */
+  messages: number;
+  messageCap: number;
   /** Ya llegó al tope: el bot no registra más hasta activar el plan. */
   reached: boolean;
+  /** Pasó los mensajes (no la red de seguridad en dólares). */
+  byMessages: boolean;
 };
 
 export function trialBudget(t: Pick<TrialTenant, "plan" | "trialBudgetUsd">): Decimal {
@@ -45,12 +52,18 @@ export async function trialSpend(
   opts: { metaRateUsd?: number } = {},
 ): Promise<TrialSpend> {
   const m = schema.message;
-  const [r] = rows<{ ai: string | null; replies: number | string; voice: number | string }>(
+  const [r] = rows<{
+    ai: string | null;
+    replies: number | string;
+    voice: number | string;
+    inbound: number | string;
+  }>(
     await tx.execute(sql`
       select coalesce(sum(${m.costUsd}), 0)::text as ai,
              count(*) filter (where ${m.direction} = 'out' and ${m.kind} <> 'reaction'
                               and ${m.status} <> 'failed') as replies,
-             count(*) filter (where ${m.direction} = 'in' and ${m.kind} = 'audio') as voice
+             count(*) filter (where ${m.direction} = 'in' and ${m.kind} = 'audio') as voice,
+             count(*) filter (where ${m.direction} = 'in') as inbound
       from ${m}
       where ${and(eq(m.tenantId, t.id), gte(m.createdAt, t.createdAt))}
     `),
@@ -61,6 +74,10 @@ export async function trialSpend(
   const voiceUsd = new Decimal(VOICE_NOTE_USD).mul(Number(r?.voice ?? 0));
   const spentUsd = aiUsd.plus(metaUsd).plus(voiceUsd);
   const budgetUsd = trialBudget(t);
+  const messages = Number(r?.inbound ?? 0);
+  const messageCap = planById(t.plan).trialMessages;
+  // El mensaje que llega ya está guardado: con 100 incluidos, el 101 es el que para.
+  const byMessages = messages > messageCap;
   return {
     budgetUsd,
     spentUsd,
@@ -68,6 +85,9 @@ export async function trialSpend(
     metaUsd,
     voiceUsd,
     replies,
-    reached: t.status === "trial" && spentUsd.gte(budgetUsd),
+    messages,
+    messageCap,
+    byMessages: t.status === "trial" && byMessages,
+    reached: t.status === "trial" && (byMessages || spentUsd.gte(budgetUsd)),
   };
 }

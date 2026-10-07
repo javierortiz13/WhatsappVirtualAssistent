@@ -69,11 +69,17 @@ export default async function MiPlan({
   if (!t) return null;
   const plan = planById(t.plan);
   const state = subscriptionState(t, now);
-  // En la prueba la barra es el tope de gasto (0016): al 100 % el asistente deja de registrar.
+  // En la prueba la barra son sus mensajes (07/10); el tope en dólares es solo red de seguridad.
   const pct = trial
-    ? trial.budgetUsd.isZero()
-      ? 100
-      : Math.min(100, Math.round(trial.spentUsd.div(trial.budgetUsd).toNumber() * 100))
+    ? Math.min(
+        100,
+        Math.round(
+          Math.max(
+            trial.messageCap ? trial.messages / trial.messageCap : 1,
+            trial.budgetUsd.isZero() ? 1 : trial.spentUsd.div(trial.budgetUsd).toNumber(),
+          ) * 100,
+        ),
+      )
     : Math.min(100, Math.round((usage.inbound / plan.messagesPerMonth) * 100));
   const e = env();
   const dest = {
@@ -115,8 +121,8 @@ export default async function MiPlan({
         {trial ? (
           <p className="sub">
             {trial.reached
-              ? "Usaste todo lo incluido en la prueba gratis y Rocco dejó de registrar. Tus datos siguen guardados: paga y repórtalo aquí abajo para seguir."
-              : `Prueba gratis: llevas el ${pct} % del uso incluido. Al llegar al 100 % o a la fecha, Rocco deja de registrar hasta que actives el plan.`}
+              ? `Usaste los ${trial.messageCap} mensajes de tu prueba gratis y Rocco dejó de registrar. Tus datos siguen guardados: activa tu plan para seguir.`
+              : `Prueba gratis: llevas ${Math.min(trial.messages, trial.messageCap)} de ${trial.messageCap} mensajes. Al terminarlos o al pasar los 14 días, Rocco deja de registrar hasta que actives el plan.`}
           </p>
         ) : null}
         {t.status === "suspended" && t.suspendedAt ? (

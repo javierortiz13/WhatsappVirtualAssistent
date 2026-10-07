@@ -489,6 +489,8 @@ export const payment = app.table(
     notifiedAt: timestamp("notified_at", { withTimezone: true }),
     /** Plan (extiende la vigencia) o recarga de mensajes del mes (0019). */
     kind: text("kind").notNull().default("plan"),
+    /** Recarga (0020): mensajes que suma al aprobarse (+20 o +100). */
+    extraMessages: integer("extra_messages"),
     ...timestamps,
   },
   (t) => [

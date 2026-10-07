@@ -3,7 +3,15 @@ import { z } from "zod";
 import { businessDateOf } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import { reportPayment, TooManyPendingError } from "./payments";
-import { FOUNDER, PLANS, type Plan, type PlanId, planById, RECHARGE } from "./plans";
+import {
+  FOUNDER,
+  PLANS,
+  type Plan,
+  type PlanId,
+  planById,
+  type RechargePack,
+  rechargeById,
+} from "./plans";
 import { type BillingMethod, latestRates, type Quote, quote, quoteUsd } from "./pricing";
 import { type SubscriptionState, subscriptionState } from "./subscription";
 
@@ -31,6 +39,8 @@ export const RenewIntent = z.object({
   rateValue: z.string().nullable(),
   /** Plan (extiende la vigencia) o recarga de mensajes del mes (0019). */
   kind: z.enum(["plan", "recharge"]).default("plan"),
+  /** Recarga: cuántos mensajes compra (+20 o +100). */
+  messages: z.number().int().positive().optional(),
 });
 export type RenewIntent = z.infer<typeof RenewIntent>;
 
@@ -90,10 +100,14 @@ export async function renewalOffer(
 }
 
 /** Lo que cuesta una recarga de mensajes por cada método configurado. */
-export async function rechargeQuotes(tx: Tx, dest: PaymentDest): Promise<Quote[]> {
+export async function rechargeQuotes(
+  tx: Tx,
+  dest: PaymentDest,
+  pack: RechargePack,
+): Promise<Quote[]> {
   const rates = await latestRates(tx);
   return BILLING_METHODS.filter((m) => dest[m])
-    .map((m) => quoteUsd(new Decimal(RECHARGE.priceUsd), m, rates))
+    .map((m) => quoteUsd(new Decimal(pack.priceUsd), m, rates))
     .filter((q): q is Quote => q !== null);
 }
 
@@ -101,17 +115,25 @@ export async function rechargeQuotes(tx: Tx, dest: PaymentDest): Promise<Quote[]
 export async function startRenewal(
   tx: Tx,
   ref: { tenantId: string; phoneId: string },
-  input: { method: BillingMethod; plan: PlanId; months: number; kind?: "plan" | "recharge" },
+  input: {
+    method: BillingMethod;
+    plan: PlanId;
+    months: number;
+    kind?: "plan" | "recharge";
+    /** Recarga: "s" (+20) o "m" (+100). */
+    rechargeId?: string;
+  },
   now: Date,
 ): Promise<{ intent: RenewIntent; plan: Plan } | null> {
   const t = await tenantRow(tx, ref.tenantId);
   const recharge = input.kind === "recharge";
+  const pack = rechargeById(input.rechargeId);
   // La recarga queda a nombre del plan actual; no cambia el plan ni la vigencia.
   const plan = planById(recharge ? t.plan : input.plan);
   const months = recharge ? 1 : clampMonths(input.months);
   const rates = await latestRates(tx);
   const q = recharge
-    ? quoteUsd(new Decimal(RECHARGE.priceUsd), input.method, rates)
+    ? quoteUsd(new Decimal(pack.priceUsd), input.method, rates)
     : quote(plan, input.method, months, rates, "bcv_eur", founderDiscount(t, now));
   if (!q) return null;
   const intent: RenewIntent = {
@@ -124,6 +146,7 @@ export async function startRenewal(
     rateKind: q.rateKind,
     rateValue: q.rateValue ? q.rateValue.toString() : null,
     kind: recharge ? "recharge" : "plan",
+    ...(recharge ? { messages: pack.messages } : {}),
   };
   await tx
     .update(schema.pendingAction)
@@ -233,6 +256,7 @@ export async function reportRenewal(
         reference: reference.slice(0, 60),
         notes: i.kind === "recharge" ? "Recarga reportada por WhatsApp" : "Reportado por WhatsApp",
         kind: i.kind,
+        extraMessages: i.kind === "recharge" ? (i.messages ?? rechargeById(null).messages) : null,
       },
       { phoneId: ref.phoneId },
       now,
@@ -258,6 +282,8 @@ export type PaymentNotice = {
   paymentId: string;
   status: "approved" | "rejected";
   kind: "plan" | "recharge";
+  /** Recarga: mensajes que suma. */
+  extraMessages: number | null;
   plan: Plan;
   amount: string;
   currency: "VES" | "USD" | "USDT";
@@ -330,6 +356,7 @@ export async function takePaymentNotices(
     paymentId: p.id,
     status: p.status as "approved" | "rejected",
     kind: p.kind === "recharge" ? "recharge" : "plan",
+    extraMessages: p.extraMessages,
     plan: planById(p.plan),
     amount: p.amount,
     currency: p.currency as PaymentNotice["currency"],

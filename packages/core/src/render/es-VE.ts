@@ -247,12 +247,23 @@ export function retentionNotice(tenantName: string, trashOn: Date, dashboardUrl:
   };
 }
 
-/** Prueba gratis que llegó a su tope de gasto (0016): sin LLM, con cómo activar el plan. */
-export function trialLimit(supportHint: string | null): Outbound {
+/** Prueba gratis que llegó a su límite (mensajes o red de seguridad): sin LLM, activar el plan. */
+export function trialLimit(supportHint: string | null, messages: number | null = null): Outbound {
   const contact = supportHint ? ` Si necesitas ayuda: ${supportHint}` : "";
+  const what = messages
+    ? `los *${messages} mensajes* de tu prueba gratis`
+    : "el límite de uso de tu prueba gratis";
   return {
     type: "text",
-    body: `Llegaste al límite de uso de tu prueba gratis, así que por ahora no puedo registrar nada. Tus datos siguen guardados. Para seguir, activa tu plan: escribe *renovar* y te digo cómo pagar.${contact}`,
+    body: `Usaste ${what}, así que por ahora no puedo registrar nada. Tus datos siguen guardados. Para seguir, activa tu plan: escribe *renovar* y te digo cómo pagar.${contact}`,
+  };
+}
+
+/** Aviso único al 80 % de los mensajes de la prueba. */
+export function trialWarning(v: { left: number; cap: number }): Outbound {
+  return {
+    type: "text",
+    body: `Ojo: te quedan *${v.left} de ${v.cap} mensajes* de tu prueba gratis. Para rendirlos, mándame varios gastos en un solo mensaje: _pan 3$, queso 8$, refresco 2$_.`,
   };
 }
 
@@ -2373,6 +2384,8 @@ export function signupDone(v: {
   budgets: { category: string; amountUsd: string }[];
   /** Precio fundador (0019): hasta cuándo, si le tocó. */
   founderUntil?: string | null | undefined;
+  /** Mensajes que incluye la prueba (07/10). */
+  trialMessages?: number | null | undefined;
 }): Outbound {
   const lines = [
     `✅ ¡Listo, ${v.name}! ${v.businessName ? `*${v.businessName}* ya está conmigo.` : "Tu cuenta quedó creada."}`,
@@ -2387,7 +2400,12 @@ export function signupDone(v: {
     lines.push(
       `• Presupuesto: ${v.budgets.map((b) => `${b.category} ${formatMoney(b.amountUsd, "USD")} al mes`).join(" · ")}`,
     );
-  lines.push("", "Tienes *14 días gratis* para probarme.");
+  lines.push(
+    "",
+    v.trialMessages
+      ? `Tienes *14 días gratis* con *${v.trialMessages} mensajes* para probarme.`
+      : "Tienes *14 días gratis* para probarme.",
+  );
   if (v.founderUntil)
     lines.push(
       "🎁 Y como eres de los primeros, tienes *precio de fundador*: 40 % menos cuando actives tu plan.",
@@ -2467,13 +2485,14 @@ export function monthLimit(v: {
   planName: string;
   cap: number;
   month: string;
-  recharge: { messages: number; priceUsd: number };
+  recharges: readonly { messages: number; priceUsd: number }[];
 }): Outbound {
+  const options = v.recharges.map((r) => `+${r.messages} por $${r.priceUsd}`).join(" o ");
   return {
     type: "text",
     body: [
       `Llegaste a los *${v.cap} mensajes* de tu plan ${v.planName} este mes, así que por ahora no puedo registrar más. Tus datos siguen guardados.`,
-      `Para seguir: escribe *recargar* (+${v.recharge.messages} mensajes por $${v.recharge.priceUsd}) o *cambiar de plan*. Tu mes se reinicia el ${nextMonthStart(v.month)}.`,
+      `Para seguir: escribe *recargar* (${options}) o *cambiar de plan*. Tu mes se reinicia el ${nextMonthStart(v.month)}.`,
     ].join("\n"),
   };
 }
@@ -2493,14 +2512,20 @@ export function capWarning(v: { used: number; cap: number; month: string }): Out
   };
 }
 
+type RechargeView = { id: string; messages: number; priceUsd: number };
+const rechargeLabel = (r: RechargeView) => `+${r.messages} mensajes por $${r.priceUsd}`;
+
+/** "recargar": primero cuál recarga (botones), después cómo pagar. */
 export function rechargeOffer(v: {
-  messages: number;
-  priceUsd: number;
-  quotes: RenewQuoteView[];
+  recharges: readonly RechargeView[];
   supportHint: string | null;
+  hasMethods: boolean;
 }): Outbound {
-  const lines = [`*Recarga: +${v.messages} mensajes* por $${v.priceUsd}. Valen hasta fin de mes.`];
-  if (v.quotes.length === 0) {
+  const lines = [
+    "*Recargas* · valen hasta fin de mes:",
+    ...v.recharges.map((r) => `• ${rechargeLabel(r)}`),
+  ];
+  if (!v.hasMethods) {
     lines.push(
       v.supportHint
         ? `Para recargar escríbenos: ${v.supportHint}`
@@ -2508,13 +2533,27 @@ export function rechargeOffer(v: {
     );
     return { type: "text", body: lines.join("\n") };
   }
+  lines.push("¿Cuál quieres?");
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: v.recharges.map((r) => ({
+      id: IDS.recharge(r.id),
+      title: `+${r.messages} por $${r.priceUsd}`.slice(0, 20),
+    })),
+  };
+}
+
+/** Eligió la recarga: monto por método y un botón por método. */
+export function rechargeMethods(v: { recharge: RechargeView; quotes: RenewQuoteView[] }): Outbound {
+  const lines = [`*Recarga: ${rechargeLabel(v.recharge)}*`];
   for (const q of v.quotes) lines.push(`• ${RENEW_METHOD_LABELS[q.method]}: ${renewAmount(q)}`);
   lines.push("¿Cómo vas a pagar?");
   return {
     type: "buttons",
     body: lines.join("\n"),
     buttons: v.quotes.map((q) => ({
-      id: IDS.renew(q.method, "recharge", 1),
+      id: IDS.renew(q.method, `recharge-${v.recharge.id}`, 1),
       title: RENEW_METHOD_LABELS[q.method],
     })),
   };

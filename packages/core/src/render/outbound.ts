@@ -43,6 +43,8 @@ export const IDS = {
   signup: (value: string) => `signup:${value}`,
   /** Encuesta del día 10 y resumen del día 12 (0019): "survey:fair:5-8", "survey:continue:yes". */
   survey: (question: string, answer: string) => `survey:${question}:${answer}`,
+  /** Recarga elegida (07/10): "recharge:s" (+20 por $1) o "recharge:m" (+100 por $4). */
+  recharge: (id: string) => `recharge:${id}`,
 } as const;
 
 export const BS_MODES = ["bcv", "usdt", "ask"] as const;
@@ -69,6 +71,7 @@ export type ParsedReplyId =
   | { kind: "erase"; answer: "yes" | "no" }
   | { kind: "signup"; value: string }
   | { kind: "survey"; question: "fair" | "expensive" | "continue"; answer: string }
+  | { kind: "recharge"; id: string }
   | { kind: "unknown"; raw: string };
 
 export function parseReplyId(raw: string): ParsedReplyId {
@@ -118,6 +121,9 @@ export function parseReplyId(raw: string): ParsedReplyId {
       break;
     case "signup":
       if (value) return { kind: "signup", value };
+      break;
+    case "recharge":
+      if (/^[a-z]{1,4}$/.test(value)) return { kind: "recharge", id: value };
       break;
     case "survey": {
       const [question, answer] = rest;

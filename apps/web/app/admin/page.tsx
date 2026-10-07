@@ -210,7 +210,7 @@ export default async function AdminHome({
                   {METHOD_LABEL[p.method]} · {p.currency === "VES" ? ves(p.amount) : usd(p.amount)}
                   {p.reference ? ` · ref ${p.reference}` : ""} · plan {p.plan}
                   {p.months > 1 ? ` × ${p.months} meses` : ""}
-                  {p.kind === "recharge" ? " · recarga +100 mensajes" : ""}
+                  {p.kind === "recharge" ? ` · recarga +${p.extraMessages ?? 100} mensajes` : ""}
                   {p.notes?.includes("por WhatsApp") ? " · por WhatsApp" : ""}
                 </span>
               </span>

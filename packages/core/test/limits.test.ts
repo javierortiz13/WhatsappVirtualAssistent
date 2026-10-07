@@ -186,19 +186,24 @@ describe("límite del mes y recargas por WhatsApp", () => {
     await send("gasté 5$ en café");
     expect(agentCalls).toBe(calls);
     expect(textOf(sent.at(-1))).toContain("Llegaste a los *120 mensajes* de tu plan Personal");
-    expect(textOf(sent.at(-1))).toContain("+100 mensajes por $4");
+    expect(textOf(sent.at(-1))).toContain("*recargar* (+20 por $1 o +100 por $4)");
     const before = sent.length;
     await send("y otro gasto");
     expect(sent.slice(before)).toEqual([]);
   });
 
-  it("'recargar' → montos por método; método → datos; referencia → pago de recarga pendiente", async () => {
+  it("'recargar' → elige recarga; montos por método; método → datos; referencia → pago pendiente", async () => {
     await send("recargar");
     const offer = sent.at(-1);
-    expect(textOf(offer)).toContain("*Recarga: +100 mensajes* por $4");
-    expect(textOf(offer)).toContain("• Zelle: *$4,00*");
-    expect(buttonsOf(offer)).toEqual(["renew:zelle:recharge:1", "renew:binance:recharge:1"]);
-    await tap("renew:zelle:recharge:1", "Zelle");
+    expect(textOf(offer)).toContain("• +20 mensajes por $1");
+    expect(textOf(offer)).toContain("• +100 mensajes por $4");
+    expect(buttonsOf(offer)).toEqual(["recharge:s", "recharge:m"]);
+    await tap("recharge:m", "+100 por $4");
+    const methods = sent.at(-1);
+    expect(textOf(methods)).toContain("*Recarga: +100 mensajes por $4*");
+    expect(textOf(methods)).toContain("• Zelle: *$4,00*");
+    expect(buttonsOf(methods)).toEqual(["renew:zelle:recharge-m:1", "renew:binance:recharge-m:1"]);
+    await tap("renew:zelle:recharge-m:1", "Zelle");
     expect(textOf(sent.at(-1))).toContain("*Zelle* · Recarga de 100 mensajes");
     await send("ref 778899");
     expect(textOf(sent.at(-1))).toContain("Recibí tu pago: recarga de 100 mensajes");
@@ -207,9 +212,18 @@ describe("límite del mes y recargas por WhatsApp", () => {
       kind: "recharge",
       plan: "personal",
       amountUsd: "4.00",
+      extraMessages: 100,
       status: "pending",
       reference: "778899",
     });
+  });
+
+  it("la recarga chica: +20 por $1", async () => {
+    await tap("recharge:s", "+20 por $1");
+    expect(textOf(sent.at(-1))).toContain("*Recarga: +20 mensajes por $1*");
+    expect(textOf(sent.at(-1))).toContain("• Zelle: *$1,00*");
+    await tap("renew:zelle:recharge-s:1", "Zelle");
+    expect(textOf(sent.at(-1))).toContain("*Zelle* · Recarga de 20 mensajes");
   });
 
   it("aprobada la recarga: +100 este mes, sin tocar la vigencia; Rocco vuelve a responder", async () => {
@@ -224,6 +238,31 @@ describe("límite del mes y recargas por WhatsApp", () => {
     expect(tn?.paidUntil?.toISOString()).toBe(paidUntil.toISOString());
     await send("gasté algo más");
     expect(textOf(sent.at(-1))).toBe("¿Cuánto fue?");
+  });
+
+  it("prueba por mensajes: aviso al 80 % y el 101 ya no llama a la IA", async () => {
+    await t.db.delete(schema.message);
+    await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .update(schema.tenant)
+        .set({
+          status: "trial",
+          createdAt: new Date(clock.getTime() - 86_400_000),
+          capWarnedMonth: null,
+        })
+        .where(eq(schema.tenant.id, tenantId)),
+    );
+    await used(79); // con el siguiente van 80 de 100
+    await send("gasté algo");
+    expect(textOf(sent.at(-2))).toBe("¿Cuánto fue?");
+    expect(textOf(sent.at(-1))).toContain("te quedan *20 de 100 mensajes*");
+    await used(19); // 99; el siguiente es el 100, todavía incluido
+    await send("otro gasto");
+    expect(textOf(sent.at(-1))).toBe("¿Cuánto fue?");
+    const calls = agentCalls;
+    await send("y uno más");
+    expect(agentCalls).toBe(calls);
+    expect(textOf(sent.at(-1))).toContain("Usaste los *100 mensajes* de tu prueba gratis");
   });
 
   it("renovar con precio fundador: 40 % menos y la línea que lo explica", async () => {

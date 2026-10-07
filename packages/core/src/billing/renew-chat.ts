@@ -1,7 +1,7 @@
 import type { Tx } from "@caja/db";
 import { businessDateOf } from "../domain/dates";
 import { es, type Outbound } from "../render/index";
-import { type PlanId, planById, RECHARGE } from "./plans";
+import { type PlanId, planById, RECHARGES, rechargeById } from "./plans";
 import type { BillingMethod, Quote } from "./pricing";
 import {
   BILLING_METHODS,
@@ -56,15 +56,25 @@ export async function renewOfferReply(
   });
 }
 
-/** Recarga de mensajes (0019): +100 por $4, un botón por método. */
-export async function rechargeOfferReply(tx: Tx, c: RenewChatCtx): Promise<Outbound> {
-  const quotes = await rechargeQuotes(tx, c.dest);
+/** "recargar" (0019, 07/10): las dos recargas con un botón cada una. */
+export function rechargeOfferReply(c: RenewChatCtx): Outbound {
   return es.rechargeOffer({
-    messages: RECHARGE.messages,
-    priceUsd: RECHARGE.priceUsd,
-    quotes: quotes.map(view),
+    recharges: RECHARGES,
     supportHint: c.supportHint,
+    hasMethods: BILLING_METHODS.some((m) => c.dest[m]),
   });
+}
+
+/** Eligió la recarga: monto por cada método y un botón por método. */
+export async function rechargeMethodsReply(
+  tx: Tx,
+  c: RenewChatCtx,
+  rechargeId: string,
+): Promise<Outbound> {
+  const pack = rechargeById(rechargeId);
+  const quotes = await rechargeQuotes(tx, c.dest, pack);
+  if (!quotes.length) return rechargeOfferReply(c);
+  return es.rechargeMethods({ recharge: pack, quotes: quotes.map(view) });
 }
 
 /** Eligió método para la recarga: datos y monto; queda la intención esperando la referencia. */
@@ -72,17 +82,19 @@ export async function rechargePayToReply(
   tx: Tx,
   c: RenewChatCtx,
   method: BillingMethod,
+  rechargeId: string | null = null,
 ): Promise<Outbound> {
   const dest = c.dest[method];
-  if (!dest) return rechargeOfferReply(tx, c);
+  if (!dest) return rechargeOfferReply(c);
+  const pack = rechargeById(rechargeId);
   const r = await startRenewal(
     tx,
     c,
-    { method, plan: "personal", months: 1, kind: "recharge" },
+    { method, plan: "personal", months: 1, kind: "recharge", rechargeId: pack.id },
     c.now,
   );
   if (!r) return es.renewUnavailable(c.supportHint);
-  return es.rechargePayTo({ quote: view(r.intent), dest, messages: RECHARGE.messages });
+  return es.rechargePayTo({ quote: view(r.intent), dest, messages: pack.messages });
 }
 
 /** Eligió método: datos de pago y monto exacto; queda la intención esperando la referencia. */
@@ -120,7 +132,7 @@ export async function renewReferenceReply(
   if (r.intent.kind === "recharge")
     return es.rechargeReported({
       quote: view(r.intent),
-      messages: RECHARGE.messages,
+      messages: r.intent.messages ?? rechargeById(null).messages,
       reference: r.reference,
     });
   return es.renewReported({

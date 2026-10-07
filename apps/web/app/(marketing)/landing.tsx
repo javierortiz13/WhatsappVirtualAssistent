@@ -133,7 +133,7 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
                 <div className="price num">
                   {BETA ? (
                     <>
-                      14 días gratis <small>en la beta</small>
+                      14 días gratis <small>{p.trialMessages} mensajes</small>
                     </>
                   ) : (
                     <>

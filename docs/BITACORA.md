@@ -985,3 +985,24 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - Los precios de `PLANS` siguen definidos para el cobro (renovar por chat, panel). Para publicarlos se apaga `BETA`.
 
 **Ajuste (Javier):** la beta es "14 días gratis" contados desde el día que cada quien empieza: la prueba de siempre. La web lo dice así en la landing (planes, pregunta de precio, cierre y chat), el registro, "Mi plan" y el login. Al terminar la prueba, Rocco ofrece el plan con su precio (fundador para los primeros 50).
+
+### S2 · 07/10/2026 · Prueba por mensajes y recargas de $1 y $4
+
+**Pedido (Javier):** medir la prueba en mensajes, no en dólares, y vender recargas: +20 mensajes por $1 y +100 por $4. Nada ilimitado: quien usa más paga lo que usa.
+
+**Hecho:**
+- **Prueba gratis:** 14 días o hasta *100 mensajes* (Personal), *200* (Negocio) o *300* (Plus), lo que llegue primero (`plan.trialMessages`).
+  - Al 80 % Rocco avisa una vez ("te quedan 20 de 100") y sugiere juntar varios gastos en un mensaje.
+  - El mensaje 101 ya no llama a la IA: "Usaste los 100 mensajes de tu prueba gratis…" y ofrece activar el plan.
+  - El tope en dólares se queda como red de seguridad ($4 / $8 / $12) por si alguien manda muchas fotos. Si para por ahí, el texto es el genérico.
+  - "Mi plan" muestra "llevas X de 100 mensajes".
+- **Recargas:** "recargar" muestra dos botones, +20 por $1 y +100 por $4. Después vienen el método, los datos y la referencia, igual que antes.
+  - El pago guarda cuántos mensajes compra (`payment.extra_messages`). Al aprobarlo se suman al mes en curso.
+  - El aviso del tope del mes lista las dos opciones.
+  - El regalo del administrador sigue siendo de +100.
+- **Margen en el peor caso** (~$0,021 por mensaje): recarga chica 57 %, recarga grande 47 %. Una prueba Personal usada completa cuesta ~$2,13 y una de Negocio ~$4,26.
+- **Excel** (`docs/finanzas/rocco-modelo-financiero.xlsx`): prueba en mensajes, fila de la recarga chica y recomendaciones al día.
+
+**Migración 0020 (aplicada en producción):** `payment.extra_messages` con check > 0.
+
+**Tests:** prueba por mensajes (aviso al 80 % y corte en el 101 sin IA), elegir recarga, recarga chica de $1 y pago con 100 mensajes. 404 tests en core.
