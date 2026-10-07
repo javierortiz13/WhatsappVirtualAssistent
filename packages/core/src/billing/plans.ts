@@ -76,6 +76,12 @@ export const PLANS: Plan[] = [
   },
 ];
 
+/**
+ * Beta (07/10/2026, decisión de Javier): la web no muestra precios; dice "Gratis durante la beta".
+ * Los precios de `PLANS` siguen definidos para el cobro y se publican al apagar esto.
+ */
+export const BETA = true;
+
 export const PILOT_NOTE =
   "Durante la beta no se cobra. Estos son los precios al salir de la beta, y se avisan con 30 días de anticipación.";
 

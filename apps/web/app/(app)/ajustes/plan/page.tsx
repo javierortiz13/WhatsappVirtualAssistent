@@ -1,4 +1,5 @@
 import {
+  BETA,
   founderDiscount,
   latestRates,
   monthUsage,
@@ -152,13 +153,21 @@ export default async function MiPlan({
               <span className={`plan-chip ${planClass(p.id)}`}>{p.name}</span>
               {current ? <span className="badge ok">tu plan</span> : null}
             </div>
-            <p className="plan-price">
-              {usd(p.priceUsd)} <span className="sub">al mes</span>
-            </p>
-            <p className="sub num">
-              {pm ? `${ves(pm.amount)} por pago móvil` : ""}
-              {pm?.rateKind === "bcv_eur" ? " (tasa euro BCV del día)" : ""}
-            </p>
+            {BETA && t.status === "trial" ? (
+              <p className="plan-price">
+                Gratis <span className="sub">durante la beta</span>
+              </p>
+            ) : (
+              <>
+                <p className="plan-price">
+                  {usd(p.priceUsd)} <span className="sub">al mes</span>
+                </p>
+                <p className="sub num">
+                  {pm ? `${ves(pm.amount)} por pago móvil` : ""}
+                  {pm?.rateKind === "bcv_eur" ? " (tasa euro BCV del día)" : ""}
+                </p>
+              </>
+            )}
             <p className="sub">{p.tagline}</p>
             <ul>
               {p.features.map((f) => (

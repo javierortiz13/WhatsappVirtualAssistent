@@ -1,4 +1,4 @@
-import { PILOT_NOTE, PLANS } from "@/lib/plans";
+import { BETA, PILOT_NOTE, PLANS } from "@/lib/plans";
 import { Effects } from "./effects";
 import { type Scene, Story } from "./story";
 
@@ -118,8 +118,9 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
             <span className="eyebrow">Planes</span>
             <h2>Un plan para tu bolsillo y otro para tu negocio.</h2>
             <p className="lead">
-              Empiezas con 14 días gratis. Los primeros 50 tienen precio de fundador: 40 % menos.{" "}
-              {PILOT_NOTE}
+              {BETA
+                ? "Durante la beta, Rocco es gratis. Antes de cobrar te avisamos con 30 días de anticipación, y los primeros 50 tendrán precio de fundador."
+                : `Empiezas con 14 días gratis. Los primeros 50 tienen precio de fundador: 40 % menos. ${PILOT_NOTE}`}
             </p>
           </div>
           <div className="plans" style={{ marginTop: 36 }}>
@@ -130,7 +131,15 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
                   {p.highlight ? <span className="badge ok">Más elegido</span> : null}
                 </div>
                 <div className="price num">
-                  {money(p.priceUsd)} <small>/ mes</small>
+                  {BETA ? (
+                    <>
+                      Gratis <small>durante la beta</small>
+                    </>
+                  ) : (
+                    <>
+                      {money(p.priceUsd)} <small>/ mes</small>
+                    </>
+                  )}
                 </div>
                 <p className="tag">{p.tagline}</p>
                 <ul>
@@ -175,7 +184,7 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
             <h2>Hoy mismo, que las cuentas las lleve Rocco.</h2>
             <p className="lead" style={{ margin: "12px auto 24px" }}>
               Escríbele <strong>hola</strong> por WhatsApp y crea tu cuenta en el mismo chat. Toma
-              dos minutos y tienes 14 días gratis.
+              dos minutos y durante la beta es gratis.
             </p>
             <div className="ctas" style={{ justifyContent: "center" }}>
               <a
@@ -349,7 +358,7 @@ function scenes(waUrl: string | null): Scene[] {
       bot: (
         <>
           ¡Dale! Escríbeme <strong>hola</strong> desde tu WhatsApp y creamos tu cuenta aquí mismo en
-          dos minutos. Tienes 14 días gratis para probarme.
+          dos minutos. Durante la beta soy gratis.
           <div className="btns">
             {waUrl ? <span>Escribirle a Rocco</span> : null}
             <span>Crear cuenta en la web</span>
@@ -358,7 +367,7 @@ function scenes(waUrl: string | null): Scene[] {
       ),
       caption: {
         title: "Empieza hoy, sin instalar nada.",
-        text: "Sin tarjeta. Durante la beta no se cobra, y los primeros 50 tienen precio de fundador.",
+        text: "Sin tarjeta y sin pagar: durante la beta Rocco es gratis.",
       },
     },
   ];
@@ -386,8 +395,8 @@ const FAQ = [
     a: "Sí, en el plan Negocio. Lo agregas con su número y registra gastos y ventas; los cierres y los totales los ves solo tú.",
   },
   {
-    q: "¿Cómo se paga?",
-    a: "Pago móvil en bolívares, Zelle o USDT por Binance, desde el mismo chat: escribes renovar y Rocco te dice cuánto. Durante la beta no se cobra y los precios se avisan con 30 días de anticipación.",
+    q: "¿Cuánto cuesta?",
+    a: "Durante la beta, nada: Rocco es gratis. Cuando salgamos de la beta te avisamos los precios con 30 días de anticipación, y los primeros 50 tendrán precio de fundador. Se pagará por pago móvil, Zelle o USDT desde el mismo chat.",
   },
 ];
 

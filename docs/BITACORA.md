@@ -970,3 +970,18 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - **Rocco en el resto de la web:** título, manifiesto, login (con el chat de ejemplo actualizado a la tasa 866,56), confirmación del correo, privacidad, eliminar datos, Excel exportado y textos del panel ("el asistente" → "Rocco"). "Piloto" pasa a "beta".
 
 **Pendiente:** el asunto y el remitente del correo de acceso (plantilla de Supabase Auth) todavía dicen el nombre viejo, y falta el dominio holarocco.com.
+
+### S2 · 07/10/2026 · Web sin precios: gratis durante la beta
+
+**Pedido (Javier):** no mostrar precios; "gratis durante la beta".
+
+**Hecho:**
+- `BETA = true` en `billing/plans.ts`.
+- Mientras esté encendido:
+  - La landing muestra "Gratis durante la beta" en cada plan.
+  - La pregunta "¿Cuánto cuesta?" responde que es gratis y que los precios se avisarán con 30 días de anticipación (con precio de fundador para los primeros 50).
+  - El registro web dice "Gratis en la beta".
+  - "Mi plan" muestra "Gratis" a quien está en prueba.
+- Los precios de `PLANS` siguen definidos para el cobro (renovar por chat, panel). Para publicarlos se apaga `BETA`.
+
+**Ojo:** la prueba sigue siendo de 14 días y al vencer el negocio se suspende. Si la beta dura más, hay que extender las pruebas desde /admin o cambiar `TRIAL_DAYS`.

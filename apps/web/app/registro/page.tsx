@@ -16,6 +16,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { formatE164 } from "@/lib/phone";
+import { BETA } from "@/lib/plans";
 import { currentSession } from "@/lib/session";
 import { newCodeAction } from "./actions";
 import { LINK_COOKIE } from "./cookie";
@@ -72,7 +73,8 @@ export default async function Registro({
           suggestions={SUGGESTED_EXPENSE_CATEGORIES}
           maxCategories={MAX_ACTIVE_CATEGORIES}
           maxAccounts={ONBOARDING_MAX_ACCOUNTS}
-          pilotNote="Durante la beta no se cobra: empiezas con 14 días de prueba y te avisamos antes de cobrar."
+          pilotNote="Durante la beta Rocco es gratis. Te avisamos con 30 días de anticipación antes de cobrar."
+          beta={BETA}
         />
       </>
     );

@@ -28,6 +28,8 @@ type Props = {
   maxCategories: number;
   maxAccounts: number;
   pilotNote: string;
+  /** Beta (07/10): sin precios, "Gratis en la beta". */
+  beta?: boolean;
 };
 
 type AccountDraft = { template: string; name: string; opening: string };
@@ -164,7 +166,11 @@ export function RegistroWizard(props: Props) {
                   <span className="choice-text">
                     <strong className="choice-title">
                       {p.name}
-                      <span className="price">${p.priceUsd.toFixed(2).replace(".", ",")}/mes</span>
+                      <span className="price">
+                        {props.beta
+                          ? "Gratis en la beta"
+                          : `$${p.priceUsd.toFixed(2).replace(".", ",")}/mes`}
+                      </span>
                     </strong>
                     <span>{p.tagline}</span>
                     {plan === p.id ? (
