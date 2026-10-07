@@ -60,9 +60,9 @@ export function Landing({
               con tus <span className="accent">finanzas</span>.
             </h1>
             <p className="lead">
-              Rocco te lleva las cuentas por WhatsApp. Le escribes como a un pana, le mandas una
-              nota de voz o la foto de la factura, y él anota tus gastos y ventas en bolívares y
-              dólares con la tasa del día. Sin apps, sin Excel, sin cuaderno.
+              Rocco es tu pana en WhatsApp para moverte en la economía venezolana. Le escribes, le
+              hablas o le mandas la foto de la factura, y él anota todo en bolívares y dólares,
+              pendiente de la tasa del BCV por ti. Sin apps, sin Excel, sin cuaderno.
             </p>
             <div className="ctas">
               <a
@@ -80,7 +80,7 @@ export function Landing({
             </div>
             <div className="trust">
               <span className="pill">Tu cuenta se crea en el mismo chat</span>
-              <span className="pill">Bs, $ y USDT con tasa BCV</span>
+              <span className="pill">Pendiente de la tasa BCV por ti</span>
               <span className="pill">Texto, voz y foto</span>
             </div>
           </div>
@@ -190,9 +190,9 @@ export function Landing({
       <section className="lp-final">
         <div className="wrap">
           <div className="card reveal">
-            <h2>Hoy mismo, que las cuentas las lleve Rocco.</h2>
+            <h2>Deja que Rocco te lleve las cuentas.</h2>
             <p className="lead" style={{ margin: "12px auto 24px" }}>
-              Escríbele <strong>hola</strong> por WhatsApp y crea tu cuenta en el mismo chat. Toma
+              Escríbele <strong>hola</strong> por WhatsApp y arma tu cuenta en el mismo chat. Son
               dos minutos y tienes 14 días gratis.
             </p>
             <div className="ctas" style={{ justifyContent: "center" }}>
@@ -233,14 +233,12 @@ function Compare() {
       <div className="card cmp">
         <span className="label">Sin Rocco</span>
         <p className="big num amber">3 apps</p>
-        <p className="sub">
-          cuaderno, calculadora y Excel para cada gasto, y la tasa en otra pestaña
-        </p>
+        <p className="sub">cuaderno, calculadora, Excel y la tasa en otra pestaña. Un rollo.</p>
       </div>
       <div className="card cmp hi">
         <span className="label">Con Rocco</span>
         <p className="big num mint">1 chat</p>
-        <p className="sub">le escribes como a un pana y él anota, convierte y suma por ti</p>
+        <p className="sub">le escribes como a un pana; él anota, convierte y suma. Tú tranqui.</p>
       </div>
     </div>
   );
@@ -252,8 +250,8 @@ function scenes(waUrl: string | null): Scene[] {
       user: "hola Rocco",
       bot: (
         <>
-          ¡Hola! Soy Rocco 🐾, tu amigo fiel con tus finanzas. Te llevo los gastos, las ventas y tus
-          cuentas desde este chat. ¿Qué quieres saber?
+          ¡Epa! Soy Rocco 🐾, tu pana con las finanzas. Te llevo los gastos, las ventas y tus
+          cuentas desde este chat, y estoy pendiente de la tasa por ti. ¿Qué quieres saber?
           <div className="btns">
             <span>Qué sabes hacer</span>
             <span>Cómo empiezo</span>
@@ -262,7 +260,7 @@ function scenes(waUrl: string | null): Scene[] {
       ),
       caption: {
         title: "Un pana que nunca se olvida de anotar.",
-        text: "Responde en segundos, de día y de noche, desde el mismo WhatsApp que ya usas todos los días.",
+        text: "Te responde al toque, de día y de noche, en el mismo WhatsApp que ya usas todo el día.",
       },
     },
     {
@@ -270,15 +268,15 @@ function scenes(waUrl: string | null): Scene[] {
       bot: (
         <>
           Anoto cada gasto y cada venta. Me escribes, me mandas una nota de voz o la foto de la
-          factura, y yo le pongo la categoría y la tasa BCV del día.
+          factura, y yo le pongo la categoría y la tasa BCV del momento.
           <br />
           <br />
-          También llevo tus cuentas (banco, Binance, Zelle, efectivo), te hago las cuentas en Bs y
-          $, divido la cuenta del restaurante y te digo cómo vas en el mes.
+          También llevo tus cuentas (banco, Binance, Zelle, efectivo), echo los números en Bs y $,
+          divido la cuenta del restaurante y te digo cómo vas en el mes.
         </>
       ),
       caption: {
-        title: "Lo que anotabas en el cuaderno, ahora se lo dices a Rocco.",
+        title: "Lo del cuaderno, ahora se lo dices a Rocco.",
         text: "Texto, nota de voz o foto. Bolívares, dólares y USDT, cada uno con su tasa.",
       },
     },
@@ -302,7 +300,7 @@ function scenes(waUrl: string | null): Scene[] {
       ),
       caption: {
         title: "Nada se guarda sin tu OK.",
-        text: "Rocco te muestra el monto, la categoría y la tasa. Guardas, corriges o cancelas con un toque.",
+        text: "Rocco te muestra el monto, la categoría y la tasa del día. Guardas, corriges o cancelas con un toque.",
       },
     },
     {
@@ -310,7 +308,7 @@ function scenes(waUrl: string | null): Scene[] {
       bot: <>✅ Guardado. Gastos de hoy: $15,00 (1 registro).</>,
       caption: {
         title: "Y queda anotado, con fecha, tasa y cuenta.",
-        text: 'Si te equivocaste, le dices "no, eran 25" y Rocco lo corrige al toque.',
+        text: 'Si te equivocaste, le dices "no, eran 25" y Rocco lo arregla al toque.',
       },
     },
     {
@@ -323,8 +321,8 @@ function scenes(waUrl: string | null): Scene[] {
         </>
       ),
       caption: {
-        title: "La calculadora que habla en bolívares.",
-        text: "Convierte, suma varios montos y divide la cuenta con la foto de la factura: «yo la pizza, Pedro la hamburguesa».",
+        title: "La tasa, que la vigile Rocco.",
+        text: "Él está pendiente de la tasa oficial en cada movimiento. Tú pregúntale cuánto es en Bs o en $, suma montos o divide la cuenta con la foto de la factura: «yo la pizza, Pedro la hamburguesa».",
       },
     },
     {
@@ -352,9 +350,9 @@ function scenes(waUrl: string | null): Scene[] {
       user: "¿y mis datos?",
       bot: (
         <>
-          Son tuyos. Tu cuenta está separada de las demás, exportas todo a Excel cuando quieras y la
-          puedes borrar escribiéndome <strong>eliminar mi cuenta</strong>. Las notas de voz las
-          escucho y las descarto: nunca se guardan.
+          Son tuyos y de nadie más. Tu cuenta está separada de las demás, exportas todo a Excel
+          cuando quieras y la puedes borrar escribiéndome <strong>eliminar mi cuenta</strong>. Las
+          notas de voz las escucho y las descarto: nunca se guardan.
         </>
       ),
       caption: {
@@ -366,7 +364,7 @@ function scenes(waUrl: string | null): Scene[] {
       user: "quiero empezar",
       bot: (
         <>
-          ¡Dale! Escríbeme <strong>hola</strong> desde tu WhatsApp y creamos tu cuenta aquí mismo en
+          ¡Dale! Escríbeme <strong>hola</strong> desde tu WhatsApp y armamos tu cuenta aquí mismo en
           dos minutos. Tienes 14 días gratis para probarme.
           <div className="btns">
             {waUrl ? <span>Escribirle a Rocco</span> : null}
@@ -385,7 +383,7 @@ function scenes(waUrl: string | null): Scene[] {
 const FAQ = [
   {
     q: "¿Quién es Rocco?",
-    a: "Rocco es un asistente automático por WhatsApp. Se llama así por el pug de la familia: fiel, siempre contigo y nunca se le olvida nada. No es una persona, pero le escribes como a un pana y él lleva tus cuentas.",
+    a: "Rocco es tu pana en WhatsApp para las finanzas: un asistente automático que se llama así por el pug de la familia, fiel y siempre pendiente. No es una persona, pero le escribes como a un amigo y él te lleva las cuentas.",
   },
   {
     q: "¿Es para mis finanzas personales o para mi negocio?",
@@ -396,8 +394,8 @@ const FAQ = [
     a: "No. Rocco es un número de WhatsApp: le escribes hola y creas tu cuenta en el mismo chat. Si prefieres, también la puedes crear en la web. Para ver todo en grande tienes un dashboard.",
   },
   {
-    q: "¿Y si la tasa cambia a mitad de día?",
-    a: 'Rocco usa la tasa oficial del BCV vigente para la fecha de cada movimiento: lo de ayer va con la de ayer. Si cambiaste USDT a otra tasa, se la dices ("cambié 100 usdt a 970") y tus gastos en Bs salen a esa.',
+    q: "¿Tengo que estar pendiente de la tasa?",
+    a: 'No, de eso se encarga Rocco. Usa la tasa oficial del BCV vigente en la fecha de cada movimiento: lo de ayer va con la de ayer. Si cambiaste USDT a otra tasa, se la dices ("cambié 100 usdt a 970") y tus gastos en Bs salen a esa.',
   },
   {
     q: "¿Mi empleado puede usarlo?",

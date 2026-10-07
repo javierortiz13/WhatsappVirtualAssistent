@@ -213,7 +213,7 @@ describe("processInbound", () => {
       await ingest(message("wamid.F1", "584121234567", "gasté 15$ en champú")),
     );
     const body = sent[0]?.body as { interactive: { body: { text: string } } };
-    expect(body.interactive.body.text).toContain("yo me encargo de tu plata");
+    expect(body.interactive.body.text).toContain("lo mío es tu plata");
   });
 
   it("LLM caído: responde el texto fijo y el job termina sin reintentar", async () => {

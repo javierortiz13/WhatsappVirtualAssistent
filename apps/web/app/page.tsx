@@ -9,7 +9,7 @@ import "./landing.css";
 export const metadata: Metadata = {
   title: "Rocco · Tu amigo fiel con tus finanzas",
   description:
-    "Rocco lleva tus gastos, ventas y cuentas por WhatsApp: texto, voz o foto, en bolívares y dólares con la tasa BCV del día. Para tus finanzas personales y tu negocio, en Venezuela.",
+    "Rocco es tu pana en WhatsApp para las finanzas: anota tus gastos, ventas y cuentas en bolívares y dólares, y está pendiente de la tasa BCV por ti. Para lo personal y para tu negocio, en Venezuela.",
   openGraph: {
     title: "Rocco · Tu amigo fiel con tus finanzas",
     description:

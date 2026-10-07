@@ -283,7 +283,7 @@ describe("agent loop", () => {
     );
     expect(r.status).toBe("ok");
     const body = (r.outbound[0] as { body: string }).body;
-    expect(body).toContain("esto es lo que sé hacer:");
+    expect(body).toContain("Esto es todo lo que puedo hacer por ti:");
     expect(body).toContain("• Cuentas:");
     expect(body).toContain("• Transferencias:");
   });

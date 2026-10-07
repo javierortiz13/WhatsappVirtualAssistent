@@ -1042,3 +1042,23 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - **Excel:** la prueba única baja el costo por cliente conseguido entre dueños de negocio de ~$11 a ~$5,7 (peor caso).
 
 **Tests:** el tope único, el regalo que sube el tope de la prueba y vuelve a responder, y la beta con 100 mensajes. 409 en core.
+
+### S2 · 07/10/2026 · Voz más casual: Rocco, tu pana que está pendiente por ti
+
+**Pedido (Javier):** un copy más casual, sin caer en lo coloquial pesado. Rocco tiene que ser el punto medio entre un administrador profesional y tu pana: el que está en todos lados, pendiente de la tasa oficial en cada movimiento para que tú no te preocupes. El público tiene menos de 45 años: la nueva generación de dueños de negocio y gente que quiere que algo se lo haga todo.
+
+**Hecho:**
+- **Guía de marca** (`docs/marca/rocco.md`):
+  - A quién le habla y la promesa: "Rocco está pendiente por ti".
+  - El punto medio, con palabras que sí van ("epa", "pana", "dale", "al toque", "tranqui", "arrancamos") y que no van ("vaina", "pa' chao", groserías).
+  - Cómo se presenta: "tu pana con las finanzas".
+- **Web:**
+  - El hero: "tu pana en WhatsApp para moverte en la economía venezolana… pendiente de la tasa del BCV por ti".
+  - Las insignias: "Pendiente de la tasa BCV por ti".
+  - La comparación: "Un rollo" / "Tú tranqui".
+  - La escena de la tasa: "La tasa, que la vigile Rocco".
+  - La pregunta "¿Tengo que estar pendiente de la tasa?" ("No, de eso se encarga Rocco").
+  - El cierre "Deja que Rocco te lleve las cuentas" y la descripción para buscadores.
+- **Bot:** la bienvenida, el registro, la ayuda, el número desconocido, el empleado y "fuera de tema" usan "¡Epa!", "tu pana con las finanzas" y "pendiente de la tasa por ti". Pagos, errores y límites siguen serios.
+- **IA:** la regla de las preguntas de aclaración pide la voz casual, sin "vaina" ni groserías.
+- El eslogan y la frase de la marca no cambian: "Fiel a tus cuentas" y "Tu amigo fiel con tus finanzas".

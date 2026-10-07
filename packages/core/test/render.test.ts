@@ -36,7 +36,7 @@ describe("plantillas es-VE", () => {
     const w = es.welcomeOwner("Autolavado El Rápido", "Asistente de Caja", rate);
     expect(w.body).toContain("*Autolavado El Rápido*");
     expect(w.body).toContain("asistente automático");
-    expect(es.welcomeEmployee("Carlos", "Autolavado").body).toContain("¡Hola, Carlos! Soy Rocco");
+    expect(es.welcomeEmployee("Carlos", "Autolavado").body).toContain("¡Epa, Carlos! Soy Rocco");
   });
   it("ayuda incluye el enlace del dashboard y el soporte si existe", () => {
     expect(es.help("https://caja.app", null).body).toContain("https://caja.app");

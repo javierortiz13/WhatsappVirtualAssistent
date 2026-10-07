@@ -45,7 +45,7 @@ export function welcomeOwner(tenantName: string, assistantName: string, r: RateI
     type: "buttons",
     body:
       `✅ Listo, tu número quedó vinculado a *${tenantName}*.\n\n` +
-      `¡Hola! Soy *${assistantName}* 🐾, tu amigo fiel con tus finanzas. Soy un asistente automático: me escribes como le escribirías a un pana y yo llevo la cuenta:\n` +
+      `¡Epa! Soy *${assistantName}* 🐾, tu pana con las finanzas. Soy un asistente automático: me escribes como a un amigo y yo te llevo la cuenta, pendiente de la tasa por ti:\n` +
       "• _gasté 15$ en champú_\n" +
       "• _hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto_\n" +
       "• _cómo va el mes_\n\n" +
@@ -56,7 +56,7 @@ export function welcomeOwner(tenantName: string, assistantName: string, r: RateI
 }
 
 export function welcomeEmployee(displayName: string | null, tenantName: string): Outbound {
-  const hi = displayName ? `¡Hola, ${displayName}! Soy Rocco 🐾.` : "¡Hola! Soy Rocco 🐾.";
+  const hi = displayName ? `¡Epa, ${displayName}! Soy Rocco 🐾.` : "¡Epa! Soy Rocco 🐾.";
   return {
     type: "text",
     body:
@@ -90,11 +90,11 @@ export function rate(r: RateInfo): Outbound {
 
 export function help(dashboardUrl: string, supportHint: string | null): Outbound {
   const lines = [
-    "Soy Rocco 🐾 y esto es lo que sé hacer:",
+    "Soy Rocco 🐾. Esto es todo lo que puedo hacer por ti:",
     "• Registrar gastos: _gasté 15$ en champú_, o nota de voz, o la factura en foto o PDF",
     "• Registrar ventas: _hoy vendí 350$: 200 efectivo, 150 pago móvil_",
     "• Cierre: _cierre de hoy_, _cómo va el mes_, _cuánto gasté en insumos esta semana_",
-    "• Tasa: _tasa_",
+    "• Tasa: _tasa_ (igual yo estoy pendiente de ella en cada movimiento)",
     "• Calculadora: _cuánto es 8000 bs en $_, _17€ en bs_, _suma 12.030,30 + 26.171,78 + 56.706_, _divide 120$ entre 4_",
     "• Dividir la cuenta: manda la foto de la factura con _dividir: yo la pizza, Pedro la hamburguesa_ y te digo cuánto paga cada quien",
     "• Pago móvil: mándame la foto de los datos y te los paso listos para copiar en el banco",
@@ -144,7 +144,7 @@ export function dashboardLink(
 export function unknownNumber(registerUrl: string): Outbound {
   return {
     type: "text",
-    body: `¡Hola! Soy Rocco 🐾, tu amigo fiel con tus finanzas. Todavía no nos conocemos: crea tu cuenta aquí y empezamos: ${registerUrl}`,
+    body: `¡Epa! Soy Rocco 🐾, tu pana con las finanzas. Todavía no nos conocemos: crea tu cuenta aquí y arrancamos: ${registerUrl}`,
   };
 }
 
@@ -521,7 +521,7 @@ export function codeExpired(registerUrl: string): Outbound {
 export function outOfScope(): Outbound {
   return {
     type: "buttons",
-    body: "Eso se me escapa: yo me encargo de tu plata. Gastos, ventas, cierres, tasa, calculadora, cambios USDT y cuentas. Escribe *ayuda* y te enseño todo lo que sé hacer. ¿Qué hacemos?",
+    body: "Eso se me escapa, pana: lo mío es tu plata. Gastos, ventas, cierres, tasa, calculadora, cambios USDT y cuentas. Escribe *ayuda* y te enseño todo lo que sé hacer. ¿Qué hacemos?",
     buttons: MENU_BUTTONS,
   };
 }
@@ -2241,10 +2241,10 @@ function askNameOutbound(body: string, profile: string | null): Outbound {
 export function signupIntro(dashboardUrl: string, profile: string | null): Outbound {
   return askNameOutbound(
     [
-      "¡Hola! Soy *Rocco* 🐾, tu amigo fiel con tus finanzas.",
-      "Te ayudo a llevar tus gastos, ventas y cuentas desde este chat, en bolívares y en dólares, con la tasa del día. Soy un asistente automático.",
+      "¡Epa! Soy *Rocco* 🐾, tu pana con las finanzas.",
+      "Te llevo los gastos, las ventas y las cuentas desde este chat, en bolívares y en dólares, y estoy pendiente de la tasa del BCV para que tú no tengas que estarlo. Soy un asistente automático.",
       "",
-      "Creamos tu cuenta aquí mismo en 2 minutos y tienes *14 días gratis* para probarme.",
+      "Armamos tu cuenta aquí mismo en 2 minutos y tienes *14 días gratis* para probarme.",
       `_Al seguir aceptas la política de privacidad: ${dashboardUrl}/privacidad_`,
       "",
       "Para empezar, ¿cómo te llamas?",
@@ -2267,7 +2267,7 @@ export function signupNameUnclear(profile: string | null): Outbound {
 export function signupAskKind(name: string): Outbound {
   return {
     type: "buttons",
-    body: `Mucho gusto, ${name}. ¿Me quieres para *tus finanzas personales* o para *tu negocio*?`,
+    body: `¡Mucho gusto, ${name}! ¿Me quieres para *tus finanzas personales* o para *tu negocio*?`,
     buttons: [
       { id: IDS.signup("kind:personal"), title: "Para mí" },
       { id: IDS.signup("kind:business"), title: "Para mi negocio" },
@@ -2469,7 +2469,7 @@ export function signupTour(dashboardUrl: string, kind: "personal" | "business"):
     "",
     `📊 *Tu dashboard* (ver, corregir y exportar a Excel): entra en ${dashboardUrl}/login con tu correo y mándame aquí el código que te aparezca.`,
     "",
-    "Empecemos: escríbeme tu primer gasto, por ejemplo _gasté 5$ en café_.",
+    "Arranquemos: escríbeme tu primer gasto, por ejemplo _gasté 5$ en café_.",
   );
   return { type: "text", body: lines.join("\n") };
 }
