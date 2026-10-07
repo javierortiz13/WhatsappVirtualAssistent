@@ -1006,3 +1006,25 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 **Migración 0020 (aplicada en producción):** `payment.extra_messages` con check > 0.
 
 **Tests:** prueba por mensajes (aviso al 80 % y corte en el 101 sin IA), elegir recarga, recarga chica de $1 y pago con 100 mensajes. 404 tests en core.
+
+### S2 · 07/10/2026 · Modo beta y modo live (interruptor en /admin)
+
+**Pedido (Javier):** en la beta, el bot no debe dar precios. Si alguien escribe "recargar" o "¿cuántos mensajes me quedan?", Rocco debe decir los días y los mensajes que le quedan. Al terminar los 14 días, sí le muestra los precios y le pregunta si quiere seguir. Cuando termine la beta se pasa a "live".
+
+**Hecho:**
+- **Interruptor en /admin ("Modo de lanzamiento"):** Beta o Live, más el día de la encuesta de precio y el del resumen "¿seguimos?". Se guarda en `app.app_setting` (migración 0021). Rocco lo lee en cada mensaje, así que no hace falta redesplegar.
+- **Beta, durante la prueba:**
+  - "renovar", "recargar", "mi plan", "¿cuántos mensajes me quedan?" (herramienta `renew_plan`) y los botones viejos de pago responden: "*Tu prueba gratis* · beta de Rocco / Te quedan *6 días* (hasta el mar 13/10) y *150 de 200 mensajes*. Durante la prueba no pagas nada…".
+  - No muestra montos ni botones, y no se abre ningún cobro.
+- **Al terminar la prueba (beta o live):**
+  - Aviso único por la ventana de 24 h: "Se terminó tu prueba gratis…" con el plan, el precio de fundador y un botón por método de pago.
+  - Si escribe con la prueba ya suspendida y nunca pagó: "Tu prueba gratis terminó…" con la misma oferta. Antes decía "tu plan venció".
+  - Si se acaban los mensajes antes de los 14 días, también se muestran los precios.
+- **Live:** los precios se muestran siempre, como antes. La oferta ahora dice "Llevas X de Y mensajes", así que "¿cuántos mensajes me quedan?" se responde también en live.
+- **Web:**
+  - La portada y el registro siguen el interruptor. La portada se relee cada 5 minutos y al guardar.
+  - En "Mi plan", durante la prueba en beta, se ocultan los precios, cómo pagar y "Ya pagué".
+
+**Migración 0021 (aplicada en producción):** `app.app_setting` (global, como `bcv_rate`), con `launch = {beta: true, surveyDay: 10, valueDay: 12}`.
+
+**Tests:** beta sin precios (texto y botón viejo), fin de la prueba con precios (una sola vez), prueba suspendida sin pago, días configurables. 410 tests en core.

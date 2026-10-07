@@ -13,6 +13,7 @@ import {
   RECHARGE,
   recordPayment,
   rejectPayment,
+  saveLaunchSettings,
   setTenantBilling,
   subscriptionState,
 } from "@caja/core";
@@ -331,4 +332,36 @@ export async function giftRechargeAction(formData: FormData): Promise<void> {
   }
   revalidatePath("/admin");
   back(tenantId, "ok=recarga");
+}
+
+const LaunchForm = z.object({
+  mode: z.enum(["beta", "live"]),
+  survey_day: z.coerce.number().int().min(1).max(13),
+  value_day: z.coerce.number().int().min(1).max(13),
+});
+
+/** Modo beta/live (0021) y días de la encuesta y del resumen de la prueba. */
+export async function saveLaunchAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const parsed = LaunchForm.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) redirect("/admin?error=datos");
+  try {
+    await saveLaunchSettings(
+      db(),
+      {
+        beta: parsed.data.mode === "beta",
+        surveyDay: parsed.data.survey_day,
+        valueDay: parsed.data.value_day,
+      },
+      admin.email,
+      new Date(),
+    );
+  } catch (err) {
+    console.error(
+      JSON.stringify({ level: "error", msg: "admin lanzamiento", detail: String(err) }),
+    );
+    redirect("/admin?error=servidor");
+  }
+  revalidatePath("/", "layout");
+  redirect("/admin?ok=lanzamiento");
 }

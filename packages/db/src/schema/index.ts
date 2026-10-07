@@ -245,6 +245,14 @@ export const bcvRate = app.table("bcv_rate", {
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Ajustes globales (0021): modo beta/live y días del ciclo de la prueba. Sin RLS, como bcv_rate. */
+export const appSetting = app.table("app_setting", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: text("updated_by"),
+});
+
 export const attachment = app.table("attachment", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   tenantId: uuid("tenant_id")

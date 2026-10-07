@@ -395,6 +395,7 @@ export async function processInbound(
       trialMessages: trial?.byMessages ? trial.messageCap : null,
       monthCapped: cap?.reached ? { ...cap, planName: planById(tenant.plan).name } : null,
       inTrial: tenant.status === "trial",
+      neverPaid: tenant.paidUntil === null,
       tenantId: resolved.tenantId,
       tenantName: tenant.name,
       phoneId: resolved.phoneId,
@@ -655,6 +656,8 @@ type RouteCtx = {
   monthCapped?: (CapStatus & { planName: string }) | null;
   /** En la prueba gratis: "recargar" ofrece activar el plan, no una recarga. */
   inTrial?: boolean;
+  /** Nunca pagó: si está suspendido es porque terminó la prueba (y se le muestran los precios). */
+  neverPaid?: boolean;
   /** En la papelera (0017): solo "recuperar mi cuenta"; lo demás, cuándo se borra. */
   deleted?: { purgeAfter: Date | null } | null;
   tenantId: string;
@@ -751,9 +754,14 @@ async function routeSuspended(
     const routed = await routeRenewOnly(tx, deps, msg, ctx);
     return routed ?? notice(es.trialLimit(deps.config.supportHint, ctx.trialMessages ?? null));
   }
-  return (
-    (await routeRenewOnly(tx, deps, msg, ctx)) ?? none([es.planExpired(deps.config.supportHint)])
-  );
+  const routed = await routeRenewOnly(tx, deps, msg, ctx);
+  if (routed) return routed;
+  // Terminó la prueba sin pagar: el aviso va con los precios y los botones para pagar.
+  if (ctx.neverPaid) {
+    const offer = await renewOfferReply(tx, renewCtx(deps, ctx));
+    return none([{ ...offer, body: `${es.trialOver()}\n\n${offer.body}` } as Outbound]);
+  }
+  return none([es.planExpired(deps.config.supportHint)]);
 }
 
 /** Marca, en el saliente, del aviso de "la prueba llegó a su límite". */

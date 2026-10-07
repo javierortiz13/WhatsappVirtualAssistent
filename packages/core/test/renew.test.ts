@@ -5,6 +5,7 @@ import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { LlmClient, LlmResponse } from "../src/agent/llm";
 import { createAgent } from "../src/agent/loop";
+import { saveLaunchSettings } from "../src/billing/launch";
 import { approvePayment, rejectPayment } from "../src/billing/payments";
 import { extractReference } from "../src/billing/renew";
 import { Decimal } from "../src/domain/money";
@@ -205,11 +206,26 @@ describe("renovar el plan por WhatsApp", () => {
       tx.select().from(schema.payment).orderBy(schema.payment.createdAt),
     );
 
+  it("beta: en la prueba no hay precios; solo los días y los mensajes que quedan", async () => {
+    const { sent, client } = fakeMeta();
+    await send(client, "quiero renovar");
+    expect(textOf(sent[0])).toMatch(
+      /^\*Tu prueba gratis\* · beta de Rocco\nTe quedan \*10 días\* \(hasta el mar 13\/10\) y \*\d+ de 200 mensajes\*\.\nDurante la prueba no pagas nada\./,
+    );
+    expect(buttonsOf(sent[0])).toEqual([]);
+    // Un botón viejo de pago tampoco abre el cobro.
+    await tap(client, "renew:zelle:negocio:1", "Zelle");
+    expect(textOf(sent[1])).toContain("*Tu prueba gratis* · beta de Rocco");
+    expect(await payments()).toEqual([]);
+    // De aquí en adelante, modo live: los precios se muestran siempre.
+    await saveLaunchSettings(t.db, { beta: false, surveyDay: 10, valueDay: 12 }, "test", clock);
+  });
+
   it("plan activo: oferta con montos y un botón por método; el método guarda la intención", async () => {
     const { sent, client } = fakeMeta();
     await send(client, "quiero renovar");
     expect(textOf(sent[0])).toBe(
-      "*Tu plan: Negocio*\nTu prueba gratis termina el mar 13/10 (faltan 10 días).\nRenovar 1 mes:\n• Pago móvil: *Bs 19.468,86* (tasa euro 973,93)\n• Zelle: *$19,99*\n• Binance: *19,99 USDT*\n¿Cómo vas a pagar?",
+      "*Tu plan: Negocio*\nTu prueba gratis termina el mar 13/10 (faltan 10 días).\nLlevas *3 de 200 mensajes* de tu prueba.\nRenovar 1 mes:\n• Pago móvil: *Bs 19.468,86* (tasa euro 973,93)\n• Zelle: *$19,99*\n• Binance: *19,99 USDT*\n¿Cómo vas a pagar?",
     );
     expect(buttonsOf(sent[0])).toEqual([
       { id: "renew:pago_movil:negocio:1", title: "Pago móvil" },
@@ -279,7 +295,7 @@ describe("renovar el plan por WhatsApp", () => {
     await withTenant(t.db, tenantId, async (tx) => {
       await tx
         .update(schema.tenant)
-        .set({ status: "suspended" })
+        .set({ status: "suspended", paidUntil: new Date("2026-09-20T15:00:00Z") })
         .where(eq(schema.tenant.id, tenantId));
       // Los pagos de los casos anteriores no cuentan para este (tope de 3 pendientes).
       await tx.delete(schema.payment);

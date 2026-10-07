@@ -362,7 +362,10 @@ describe("processInbound", () => {
   it("negocio suspendido por plan vencido: responde que venció, sin LLM, y no guarda nada", async () => {
     const { sent, client } = fakeMeta();
     await withTenant(t.db, tenantId, (tx) =>
-      tx.update(schema.tenant).set({ status: "suspended" }).where(eq(schema.tenant.id, tenantId)),
+      tx
+        .update(schema.tenant)
+        .set({ status: "suspended", paidUntil: new Date(Date.now() - 10 * 86_400_000) })
+        .where(eq(schema.tenant.id, tenantId)),
     );
     try {
       const before = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));

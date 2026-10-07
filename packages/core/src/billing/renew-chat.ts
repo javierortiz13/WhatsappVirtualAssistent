@@ -1,6 +1,8 @@
-import type { Tx } from "@caja/db";
+import { eq, schema, type Tx } from "@caja/db";
 import { businessDateOf } from "../domain/dates";
 import { es, type Outbound } from "../render/index";
+import { betaTrialStatus } from "./launch";
+import { planCapStatus } from "./limits";
 import { type PlanId, planById, RECHARGES, rechargeById } from "./plans";
 import type { BillingMethod, Quote } from "./pricing";
 import {
@@ -14,6 +16,7 @@ import {
   reportRenewal,
   startRenewal,
 } from "./renew";
+import { trialSpend } from "./trial";
 
 /**
  * Las respuestas del bot para renovar el plan (03/10). Las usan el router determinista (botones,
@@ -41,8 +44,12 @@ export async function renewOfferReply(
   c: RenewChatCtx,
   opts: { plan?: PlanId | null; months?: number | null } = {},
 ): Promise<Outbound> {
+  // Beta (0021): mientras dura la prueba, sin precios; solo lo que le queda.
+  const beta = await betaTrialStatus(tx, c.tenantId, c.now);
+  if (beta) return betaReply(beta);
   const o = await renewalOffer(tx, c.tenantId, c.now, c.dest, opts);
   return es.renewOffer({
+    usage: await usageOf(tx, c.tenantId, c.now),
     planName: o.plan.name,
     planId: o.plan.id,
     fromPlanName: o.plan.id === o.currentPlanId ? null : planById(o.currentPlanId).name,
@@ -54,6 +61,31 @@ export async function renewOfferReply(
     supportHint: c.supportHint,
     founder: o.founder,
   });
+}
+
+function betaReply(b: NonNullable<Awaited<ReturnType<typeof betaTrialStatus>>>): Outbound {
+  return es.betaTrial({
+    endsAt: b.endsAt ? businessDateOf(b.endsAt) : null,
+    daysLeft: b.daysLeft,
+    used: b.messages,
+    cap: b.messageCap,
+  });
+}
+
+/** Mensajes usados y el tope: los de la prueba o los del mes del plan (con recargas). */
+async function usageOf(
+  tx: Tx,
+  tenantId: string,
+  now: Date,
+): Promise<{ used: number; cap: number; trial: boolean } | null> {
+  const [t] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId));
+  if (!t) return null;
+  if (t.status === "trial") {
+    const s = await trialSpend(tx, t);
+    return { used: Math.min(s.messages, s.messageCap), cap: s.messageCap, trial: true };
+  }
+  const cap = await planCapStatus(tx, t, now);
+  return cap ? { used: Math.min(cap.used, cap.cap), cap: cap.cap, trial: false } : null;
 }
 
 /** "recargar" (0019, 07/10): las dos recargas con un botón cada una. */
@@ -71,6 +103,8 @@ export async function rechargeMethodsReply(
   c: RenewChatCtx,
   rechargeId: string,
 ): Promise<Outbound> {
+  const beta = await betaTrialStatus(tx, c.tenantId, c.now);
+  if (beta) return betaReply(beta);
   const pack = rechargeById(rechargeId);
   const quotes = await rechargeQuotes(tx, c.dest, pack);
   if (!quotes.length) return rechargeOfferReply(c);
@@ -84,6 +118,8 @@ export async function rechargePayToReply(
   method: BillingMethod,
   rechargeId: string | null = null,
 ): Promise<Outbound> {
+  const beta = await betaTrialStatus(tx, c.tenantId, c.now);
+  if (beta) return betaReply(beta);
   const dest = c.dest[method];
   if (!dest) return rechargeOfferReply(c);
   const pack = rechargeById(rechargeId);
@@ -103,6 +139,8 @@ export async function renewPayToReply(
   c: RenewChatCtx,
   input: { method: BillingMethod; plan: PlanId; months: number },
 ): Promise<Outbound> {
+  const beta = await betaTrialStatus(tx, c.tenantId, c.now);
+  if (beta) return betaReply(beta);
   const dest = c.dest[input.method];
   if (!dest) return renewOfferReply(tx, c, { plan: input.plan, months: input.months });
   const r = await startRenewal(tx, c, input, c.now);

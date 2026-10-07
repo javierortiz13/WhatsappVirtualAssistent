@@ -1,4 +1,4 @@
-import { BETA, PILOT_NOTE, PLANS } from "@/lib/plans";
+import { PILOT_NOTE, PLANS } from "@/lib/plans";
 import { Effects } from "./effects";
 import { type Scene, Story } from "./story";
 
@@ -10,7 +10,16 @@ const money = (n: number | undefined) => `$${(n ?? 0).toFixed(2).replace(".", ",
  * conversación: el visitante "le escribe" a Rocco al hacer scroll y las respuestas son el
  * servicio. Colores de siempre; cambia el texto (guía de voz: docs/marca/rocco.md).
  */
-export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto: string | null }) {
+export function Landing({
+  waUrl,
+  heroPhoto,
+  beta,
+}: {
+  waUrl: string | null;
+  heroPhoto: string | null;
+  /** Modo beta (0021, /admin): sin precios, "14 días gratis". */
+  beta: boolean;
+}) {
   const primary = waUrl ?? "/registro";
   return (
     <div className="lp">
@@ -118,7 +127,7 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
             <span className="eyebrow">Planes</span>
             <h2>Un plan para tu bolsillo y otro para tu negocio.</h2>
             <p className="lead">
-              {BETA
+              {beta
                 ? "Durante la beta pruebas Rocco gratis por 14 días, contados desde el día que empiezas a usarlo. Y los primeros 50 tendrán precio de fundador."
                 : `Empiezas con 14 días gratis. Los primeros 50 tienen precio de fundador: 40 % menos. ${PILOT_NOTE}`}
             </p>
@@ -131,7 +140,7 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
                   {p.highlight ? <span className="badge ok">Más elegido</span> : null}
                 </div>
                 <div className="price num">
-                  {BETA ? (
+                  {beta ? (
                     <>
                       14 días gratis <small>{p.trialMessages} mensajes</small>
                     </>

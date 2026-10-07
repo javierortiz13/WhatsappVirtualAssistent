@@ -316,6 +316,8 @@ export type RenewOfferView = {
   supportHint: string | null;
   /** Precio fundador (0019): ya va descontado en los montos. */
   founder?: { pct: number; until: string } | null | undefined;
+  /** Mensajes usados y el tope (de la prueba o del mes). */
+  usage?: { used: number; cap: number; trial: boolean } | null | undefined;
 };
 
 function renewStateLine(v: RenewOfferView): string {
@@ -330,6 +332,10 @@ function renewStateLine(v: RenewOfferView): string {
     case "active":
       return when ? `Vence el ${when}${left}.` : "Tu plan está activo.";
     case "grace":
+      if (v.usage?.trial)
+        return when
+          ? `Tu prueba terminó el ${when}. Tienes 3 días para activar tu plan sin dejar de registrar.`
+          : "Tu prueba terminó.";
       return when
         ? `Venció el ${when}; tienes 3 días de gracia antes de que se suspenda.`
         : "Tu plan venció.";
@@ -338,12 +344,45 @@ function renewStateLine(v: RenewOfferView): string {
   }
 }
 
+/**
+ * Beta (0021): durante la prueba Rocco no habla de precios. A "renovar", "recargar", "mi plan" o
+ * "¿cuántos mensajes me quedan?" responde lo que queda.
+ */
+export function betaTrial(v: {
+  endsAt: IsoDate | null;
+  daysLeft: number | null;
+  used: number;
+  cap: number;
+}): Outbound {
+  const left = Math.max(0, v.cap - v.used);
+  const msgs = `*${left} de ${v.cap} mensajes*`;
+  const until = v.endsAt ? ` (hasta el ${formatShortDate(v.endsAt)})` : "";
+  const line =
+    v.daysLeft !== null && v.daysLeft > 1
+      ? `Te quedan *${v.daysLeft} días*${until} y ${msgs}.`
+      : v.daysLeft === 1
+        ? `Te queda *1 día*${until} y ${msgs}.`
+        : `Hoy es el último día de tu prueba y te quedan ${msgs}.`;
+  return {
+    type: "text",
+    body: [
+      "*Tu prueba gratis* · beta de Rocco",
+      line,
+      "Durante la prueba no pagas nada. Cuando termine te cuento cómo seguir conmigo.",
+    ].join("\n"),
+  };
+}
+
 /** Plan, vencimiento y cuánto cuesta renovar por cada método, con un botón por método. */
 export function renewOffer(v: RenewOfferView): Outbound {
   const head = v.fromPlanName
     ? `*Cambiar a ${v.planName}* (hoy tienes ${v.fromPlanName})`
     : `*Tu plan: ${v.planName}*`;
   const lines = [head, renewStateLine(v)];
+  if (v.usage && (v.stateKind === "trial" || v.stateKind === "active"))
+    lines.push(
+      `Llevas *${v.usage.used} de ${v.usage.cap} mensajes* ${v.usage.trial ? "de tu prueba" : "este mes"}.`,
+    );
   if (v.founder)
     lines.push(
       `🎁 Precio de fundador: ${v.founder.pct} % menos hasta el ${formatShortDate(asIsoDate(v.founder.until))}. Ya va descontado.`,
@@ -2619,10 +2658,10 @@ function priceList(question: "fair" | "expensive", body: string): Outbound {
 }
 
 /** Día 10: la primera pregunta de la encuesta de precio. */
-export function surveyFair(): Outbound {
+export function surveyFair(days = 10): Outbound {
   return priceList(
     "fair",
-    "¡Epa! Ya llevamos 10 días juntos. Una pregunta rápida para hacer a Rocco mejor (y a un precio justo): ¿cuánto te parecería *justo* pagar al mes por mí?",
+    `¡Epa! Ya llevamos ${days} días juntos. Una pregunta rápida para hacer a Rocco mejor (y a un precio justo): ¿cuánto te parecería *justo* pagar al mes por mí?`,
   );
 }
 
@@ -2668,8 +2707,18 @@ export function valueSummary(v: {
 export function valueYes(): Outbound {
   return {
     type: "text",
-    body: "¡Buenísimo! Antes de que termine tu prueba te escribo con tu precio. Cuando quieras activarlo, escribe *renovar*.",
+    body: "¡Buenísimo! Cuando termine tu prueba te escribo con tu precio y cómo activarlo.",
   };
+}
+
+/** Encabezado del aviso de fin de la prueba; abajo va la oferta con precios y botones. */
+export function trialEndedLead(): string {
+  return "Se terminó tu prueba gratis. ¡Gracias por probarme en la beta! 🐶 Tus datos siguen guardados. Si quieres seguir conmigo, este es tu plan:";
+}
+
+/** Escribió con la prueba terminada y nunca pagó: lo mismo, con la oferta debajo. */
+export function trialOver(): string {
+  return "Tu prueba gratis terminó y por ahora no puedo registrar nada. Tus datos siguen guardados. Para seguir conmigo, este es tu plan:";
 }
 
 export function valueDoubts(supportHint: string | null): Outbound {

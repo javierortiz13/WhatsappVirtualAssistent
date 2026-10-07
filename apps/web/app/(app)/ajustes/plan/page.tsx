@@ -1,7 +1,7 @@
 import {
-  BETA,
   founderDiscount,
   latestRates,
+  launchSettings,
   monthUsage,
   PLANS,
   planById,
@@ -49,7 +49,7 @@ export default async function MiPlan({
   const { tenant } = await requireTenant();
   const sp = await searchParams;
   const now = new Date();
-  const [{ t, usage, trial, payments }, rates] = await Promise.all([
+  const [{ t, usage, trial, payments }, rates, launch] = await Promise.all([
     withTenant(db(), tenant.id, async (tx) => {
       const [t] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenant.id));
       return {
@@ -65,7 +65,10 @@ export default async function MiPlan({
       };
     }),
     latestRates(db()),
+    launchSettings(db()),
   ]);
+  // Beta (0021): durante la prueba, sin precios ni cómo pagar; igual que Rocco en el chat.
+  const hidePrices = launch.beta && t?.status === "trial" && !trial?.reached;
   if (!t) return null;
   const plan = planById(t.plan);
   const state = subscriptionState(t, now);
@@ -159,7 +162,7 @@ export default async function MiPlan({
               <span className={`plan-chip ${planClass(p.id)}`}>{p.name}</span>
               {current ? <span className="badge ok">tu plan</span> : null}
             </div>
-            {BETA && t.status === "trial" ? (
+            {hidePrices ? (
               <p className="plan-price">
                 Gratis <span className="sub">durante tu prueba de 14 días</span>
               </p>
@@ -184,93 +187,105 @@ export default async function MiPlan({
         );
       })}
 
-      <span className="sect">Cómo pagar el plan {plan.name}</span>
-      <section className="card stack-sm">
-        {(["pago_movil", "zelle", "binance"] as const).map((m) => {
-          const qm = q(m);
-          return (
-            <div className="pay-method" key={m}>
-              <span className="label">{METHOD_LABEL[m]}</span>
-              <strong>
-                {qm
-                  ? m === "pago_movil"
-                    ? ves(qm.amount)
-                    : m === "zelle"
-                      ? usd(qm.amount)
-                      : `${qm.amount.toFixed(2)} USDT`
-                  : "sin tasa del día"}
-              </strong>
-              <span className="sub">
-                {dest[m] ??
-                  (support
-                    ? `Pídenos los datos: ${support}`
-                    : "Pídele los datos a Rocco por WhatsApp.")}
-              </span>
-            </div>
-          );
-        })}
-        <p className="hint">
-          El pago móvil se calcula con la tasa euro del BCV de hoy, porque nuestros servicios se
-          pagan en dólares. Si pagas varios meses, multiplica el monto.
-        </p>
-      </section>
-
-      <section className="card" id="reportar">
-        <span className="label">Ya pagué</span>
-        <form
-          action={reportPaymentAction}
-          className="stack-sm"
-          style={{ marginTop: "var(--space-2)" }}
-        >
-          <div className="grid-2 admin-grid">
-            <label className="field">
-              <span>Plan</span>
-              <select className="input" name="plan" defaultValue={plan.id}>
-                {PLANS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} · {usd(p.priceUsd)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>Método</span>
-              <select className="input" name="method" defaultValue="pago_movil">
-                <option value="pago_movil">Pago móvil (Bs)</option>
-                <option value="zelle">Zelle (USD)</option>
-                <option value="binance">Binance (USDT)</option>
-              </select>
-            </label>
-          </div>
-          <div className="grid-3 admin-grid">
-            <label className="field">
-              <span>Meses</span>
-              <input
-                className="input"
-                name="months"
-                type="number"
-                min={1}
-                max={12}
-                defaultValue={1}
-              />
-            </label>
-            <label className="field">
-              <span>Monto pagado</span>
-              <input className="input num" name="amount" inputMode="decimal" required />
-            </label>
-            <label className="field">
-              <span>Referencia</span>
-              <input className="input" name="reference" minLength={3} maxLength={80} required />
-            </label>
-          </div>
-          <button className="btn block" type="submit">
-            Reportar pago
-          </button>
-          <p className="hint">
-            Lo verificamos a mano, normalmente el mismo día. Tu plan se activa al aprobarlo.
+      {hidePrices ? (
+        <section className="card">
+          <span className="label">Beta</span>
+          <p className="sub">
+            Durante tu prueba gratis no pagas nada. Cuando termine, Rocco te escribe con el precio
+            de tu plan y cómo activarlo.
           </p>
-        </form>
-      </section>
+        </section>
+      ) : (
+        <>
+          <span className="sect">Cómo pagar el plan {plan.name}</span>
+          <section className="card stack-sm">
+            {(["pago_movil", "zelle", "binance"] as const).map((m) => {
+              const qm = q(m);
+              return (
+                <div className="pay-method" key={m}>
+                  <span className="label">{METHOD_LABEL[m]}</span>
+                  <strong>
+                    {qm
+                      ? m === "pago_movil"
+                        ? ves(qm.amount)
+                        : m === "zelle"
+                          ? usd(qm.amount)
+                          : `${qm.amount.toFixed(2)} USDT`
+                      : "sin tasa del día"}
+                  </strong>
+                  <span className="sub">
+                    {dest[m] ??
+                      (support
+                        ? `Pídenos los datos: ${support}`
+                        : "Pídele los datos a Rocco por WhatsApp.")}
+                  </span>
+                </div>
+              );
+            })}
+            <p className="hint">
+              El pago móvil se calcula con la tasa euro del BCV de hoy, porque nuestros servicios se
+              pagan en dólares. Si pagas varios meses, multiplica el monto.
+            </p>
+          </section>
+
+          <section className="card" id="reportar">
+            <span className="label">Ya pagué</span>
+            <form
+              action={reportPaymentAction}
+              className="stack-sm"
+              style={{ marginTop: "var(--space-2)" }}
+            >
+              <div className="grid-2 admin-grid">
+                <label className="field">
+                  <span>Plan</span>
+                  <select className="input" name="plan" defaultValue={plan.id}>
+                    {PLANS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} · {usd(p.priceUsd)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Método</span>
+                  <select className="input" name="method" defaultValue="pago_movil">
+                    <option value="pago_movil">Pago móvil (Bs)</option>
+                    <option value="zelle">Zelle (USD)</option>
+                    <option value="binance">Binance (USDT)</option>
+                  </select>
+                </label>
+              </div>
+              <div className="grid-3 admin-grid">
+                <label className="field">
+                  <span>Meses</span>
+                  <input
+                    className="input"
+                    name="months"
+                    type="number"
+                    min={1}
+                    max={12}
+                    defaultValue={1}
+                  />
+                </label>
+                <label className="field">
+                  <span>Monto pagado</span>
+                  <input className="input num" name="amount" inputMode="decimal" required />
+                </label>
+                <label className="field">
+                  <span>Referencia</span>
+                  <input className="input" name="reference" minLength={3} maxLength={80} required />
+                </label>
+              </div>
+              <button className="btn block" type="submit">
+                Reportar pago
+              </button>
+              <p className="hint">
+                Lo verificamos a mano, normalmente el mismo día. Tu plan se activa al aprobarlo.
+              </p>
+            </form>
+          </section>
+        </>
+      )}
 
       <section className="card tight" id="pagos">
         <span className="sect">Tus pagos</span>

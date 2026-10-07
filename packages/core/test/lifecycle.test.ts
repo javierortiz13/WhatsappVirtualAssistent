@@ -5,6 +5,7 @@ import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { LlmClient } from "../src/agent/llm";
 import { createAgent } from "../src/agent/loop";
+import { saveLaunchSettings } from "../src/billing/launch";
 import { Decimal } from "../src/domain/money";
 import { ingestWebhook } from "../src/inbox/ingest";
 import { sendLifecycleNotices } from "../src/inbox/lifecycle";
@@ -77,8 +78,17 @@ describe("ciclo de la prueba gratis", () => {
       maxEventAgeMs: 12 * 3_600_000,
       maxTextLength: 500,
       knownMax: 1000,
+      paymentDest: { zelle: "pagos@x.com" },
     },
   });
+  async function say(body: string) {
+    const p = JSON.parse(JSON.stringify(fx.textMessage(`wamid.LCT${++seq}`, body)));
+    p.entry[0].changes[0].value.messages[0].from = OWNER;
+    p.entry[0].changes[0].value.contacts[0].wa_id = OWNER;
+    jobs.length = 0;
+    await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
+    return processInbound(deps(), jobs[0] as ProcessMessageJob);
+  }
   async function tap(id: string, list = true) {
     const p = JSON.parse(JSON.stringify(list ? fx.listReply : fx.buttonReply));
     const m = p.entry[0].changes[0].value.messages[0];
@@ -131,6 +141,7 @@ describe("ciclo de la prueba gratis", () => {
     expect(await sendLifecycleNotices(t.db, client, { now: clock })).toEqual({
       survey: 0,
       value: 0,
+      trialEnd: 0,
       failed: 0,
     });
     await setTenant({ createdAt: new Date(clock.getTime() - 10 * DAY) });
@@ -196,5 +207,40 @@ describe("ciclo de la prueba gratis", () => {
     await tap("survey:continue:doubts", false);
     expect(bodyOf(sent.at(-1))).toContain("WhatsApp +58 424 0000000");
     expect((await tenant())?.survey).toMatchObject({ continue: "doubts" });
+  });
+  it("terminó la prueba: un aviso con los precios y los botones para pagar", async () => {
+    await setTenant({ trialEndsAt: new Date(clock.getTime() - 60 * 60_000) });
+    await wroteAgo(30 * 60_000);
+    const opts = { now: clock, dest: { zelle: "pagos@x.com" }, supportHint: null };
+    expect((await sendLifecycleNotices(t.db, client, opts)).trialEnd).toBe(1);
+    const body = bodyOf(sent.at(-1));
+    expect(body).toContain("Se terminó tu prueba gratis. ¡Gracias por probarme en la beta!");
+    expect(body).toContain("*Tu plan: Negocio*\nTu prueba terminó el");
+    expect(body).toContain("Precio de fundador: 40 % menos");
+    expect(body).toContain("• Zelle: *$11,99*");
+    expect(idsOf(sent.at(-1))).toEqual(["renew:zelle:negocio:1"]);
+    // Una sola vez.
+    expect((await sendLifecycleNotices(t.db, client, opts)).trialEnd).toBe(0);
+  });
+
+  it("los días de la encuesta y del resumen se cambian en /admin", async () => {
+    await setTenant({
+      createdAt: new Date(clock.getTime() - 7 * DAY),
+      trialEndsAt: new Date(clock.getTime() + 7 * DAY),
+      surveySentAt: null,
+      valueSentAt: null,
+    });
+    expect((await sendLifecycleNotices(t.db, client, { now: clock })).survey).toBe(0);
+    await saveLaunchSettings(t.db, { beta: true, surveyDay: 7, valueDay: 12 }, "test", clock);
+    expect((await sendLifecycleNotices(t.db, client, { now: clock })).survey).toBe(1);
+    expect(bodyOf(sent.at(-1))).toContain("Ya llevamos 7 días juntos");
+  });
+  it("suspendido sin haber pagado nunca: 'terminó tu prueba' con los precios, sin IA", async () => {
+    await setTenant({ status: "suspended", suspendedAt: clock, paidUntil: null });
+    await say("gasté 5$ en café");
+    const body = bodyOf(sent.at(-1));
+    expect(body).toContain("Tu prueba gratis terminó y por ahora no puedo registrar nada.");
+    expect(body).toContain("• Zelle: *$11,99*");
+    expect(idsOf(sent.at(-1))).toEqual(["renew:zelle:negocio:1"]);
   });
 });

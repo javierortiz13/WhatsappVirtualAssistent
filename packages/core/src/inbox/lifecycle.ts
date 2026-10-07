@@ -11,6 +11,9 @@ import {
   type Tx,
   withTenant,
 } from "@caja/db";
+import { launchSettings } from "../billing/launch";
+import type { PaymentDest } from "../billing/renew";
+import { renewOfferReply } from "../billing/renew-chat";
 import { businessDateOf } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import { type Logger, maskPhone, silentLogger } from "../log";
@@ -23,12 +26,15 @@ import { sendOutbound } from "./process";
  * - Día 10: encuesta de precio (precio justo y precio caro, con listas): mide la disposición a
  *   pagar antes de fijar los precios.
  * - Día 12: resumen de lo que Rocco anotó en la prueba y "¿seguimos?" (Sí / Tengo dudas).
+ * - Al terminar la prueba (07/10): "terminó tu prueba" con los precios y cómo pagar. En beta es
+ *   la primera vez que Rocco habla de precios.
+ * Los días de la encuesta y del resumen se cambian en /admin (`app_setting`, 0021).
  * Solo dentro de la ventana de 24 h de Meta (desde el último mensaje del dueño): fuera de ella
  * haría falta una plantilla aprobada. Si no escribe, se intenta en la próxima vuelta mientras
  * siga en prueba. Las respuestas quedan en `tenant.survey` y se ven en el CRM.
  */
-export const SURVEY_DAY = 10;
-export const VALUE_DAY = 12;
+/** Marca, en el saliente, del aviso de fin de la prueba (uno por negocio). */
+const TRIAL_END = "lifecycle_trial_end";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type TrialValue = {
@@ -68,19 +74,35 @@ type Pending = {
   tenantId: string;
   phoneId: string;
   e164: string;
-  kind: "survey" | "value";
+  kind: "survey" | "value" | "trialEnd";
   out: Outbound;
 };
 
+export type LifecycleOpts = {
+  now: Date;
+  log?: Logger;
+  /** Datos de pago para el aviso de fin de la prueba (los mismos del chat). */
+  dest?: PaymentDest;
+  supportHint?: string | null;
+};
+
 /** Qué le toca a un negocio en prueba hoy (si le toca algo y está en la ventana). Lo marca. */
-async function takeLifecycle(tx: Tx, tenantId: string, now: Date): Promise<Pending | null> {
+async function takeLifecycle(
+  tx: Tx,
+  tenantId: string,
+  opts: LifecycleOpts,
+): Promise<Pending | null> {
+  const now = opts.now;
   const [t] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId));
   if (t?.status !== "trial" || t.deletedAt) return null;
+  const ended = t.trialEndsAt !== null && t.trialEndsAt.getTime() <= now.getTime();
+  const { surveyDay, valueDay } = await launchSettings(tx);
   const age = Math.floor((now.getTime() - t.createdAt.getTime()) / DAY_MS);
-  const kind =
-    age >= VALUE_DAY && !t.valueSentAt
+  const kind = ended
+    ? "trialEnd"
+    : age >= valueDay && !t.valueSentAt
       ? "value"
-      : age >= SURVEY_DAY && !t.surveySentAt
+      : age >= surveyDay && !t.surveySentAt
         ? "survey"
         : null;
   if (!kind) return null;
@@ -110,8 +132,29 @@ async function takeLifecycle(tx: Tx, tenantId: string, now: Date): Promise<Pendi
     .limit(1);
   if (!recent) return null;
   let out: Outbound;
-  if (kind === "survey") {
-    out = es.surveyFair();
+  if (kind === "trialEnd") {
+    const [sent] = await tx
+      .select({ id: schema.message.id })
+      .from(schema.message)
+      .where(
+        and(
+          eq(schema.message.tenantId, tenantId),
+          eq(schema.message.direction, "out"),
+          sql`${schema.message.toolCalls} @> ${JSON.stringify([{ name: TRIAL_END }])}::jsonb`,
+        ),
+      )
+      .limit(1);
+    if (sent) return null;
+    const offer = await renewOfferReply(tx, {
+      tenantId,
+      phoneId: owner.id,
+      now,
+      dest: opts.dest ?? {},
+      supportHint: opts.supportHint ?? null,
+    });
+    out = { ...offer, body: `${es.trialEndedLead()}\n\n${offer.body}` } as Outbound;
+  } else if (kind === "survey") {
+    out = es.surveyFair(age);
     await tx.update(schema.tenant).set({ surveySentAt: now }).where(eq(schema.tenant.id, tenantId));
   } else {
     const v = await trialValue(tx, tenantId, t.createdAt, now);
@@ -133,15 +176,15 @@ async function takeLifecycle(tx: Tx, tenantId: string, now: Date): Promise<Pendi
 export async function sendLifecycleNotices(
   db: Db,
   meta: MetaClient | null,
-  opts: { now: Date; log?: Logger },
-): Promise<{ survey: number; value: number; failed: number }> {
+  opts: LifecycleOpts,
+): Promise<{ survey: number; value: number; trialEnd: number; failed: number }> {
   const log = opts.log ?? silentLogger;
-  const result = { survey: 0, value: 0, failed: 0 };
+  const result = { survey: 0, value: 0, trialEnd: 0, failed: 0 };
   if (!meta) return result;
   for (const tenantId of await everyTenantId(db)) {
     try {
       // Se marca y se confirma primero; se envía después. Un fallo no repite el aviso.
-      const p = await withTenant(db, tenantId, (tx) => takeLifecycle(tx, tenantId, opts.now));
+      const p = await withTenant(db, tenantId, (tx) => takeLifecycle(tx, tenantId, opts));
       if (!p) continue;
       try {
         const r = await sendOutbound(meta, p.e164, p.out);
@@ -154,7 +197,9 @@ export async function sendLifecycleNotices(
             body: p.out.body,
             status: "ok",
             waMessageId: r.waMessageId,
-            toolCalls: [{ name: `lifecycle_${p.kind}`, args: {} }],
+            toolCalls: [
+              { name: p.kind === "trialEnd" ? TRIAL_END : `lifecycle_${p.kind}`, args: {} },
+            ],
           }),
         );
         result[p.kind] += 1;

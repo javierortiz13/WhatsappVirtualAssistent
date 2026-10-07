@@ -1,6 +1,8 @@
 import {
   BUSINESS_TYPE_LABELS,
   CODE_TTL_MS,
+  LAUNCH_DEFAULTS,
+  launchSettings,
   ONBOARDING_MAX_ACCOUNTS,
   ownerPhone,
   PLANS,
@@ -16,7 +18,6 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { formatE164 } from "@/lib/phone";
-import { BETA } from "@/lib/plans";
 import { currentSession } from "@/lib/session";
 import { newCodeAction } from "./actions";
 import { LINK_COOKIE } from "./cookie";
@@ -74,7 +75,7 @@ export default async function Registro({
           maxCategories={MAX_ACTIVE_CATEGORIES}
           maxAccounts={ONBOARDING_MAX_ACCOUNTS}
           pilotNote="Durante la beta tienes 14 días gratis, contados desde hoy."
-          beta={BETA}
+          beta={(await launchSettings(db()).catch(() => LAUNCH_DEFAULTS)).beta}
         />
       </>
     );

@@ -1,4 +1,4 @@
-import { Decimal, es, PLANS, premiumOverUsd, quote } from "@caja/core";
+import { Decimal, es, launchSettings, PLANS, premiumOverUsd, quote } from "@caja/core";
 import { businessDateOf, formatShortDate } from "@caja/core/domain";
 import {
   type Health,
@@ -9,8 +9,9 @@ import {
   requireAdmin,
   surveyTally,
 } from "@/lib/admin";
+import { db } from "@/lib/db";
 import { formatE164 } from "@/lib/phone";
-import { approvePaymentAction, rejectPaymentAction } from "./actions";
+import { approvePaymentAction, rejectPaymentAction, saveLaunchAction } from "./actions";
 import { dueClass, dueText, METHOD_LABEL, planClass, STATE, usd, ves } from "./format";
 
 /** Semáforo del CRM: cuándo escribió por última vez. */
@@ -37,6 +38,7 @@ const OK: Record<string, string> = {
   pago_rechazado: "Pago rechazado.",
   eliminado: "Negocio borrado para siempre con todos sus datos.",
   papelera: "Negocio en la papelera: se borra solo en 15 días.",
+  lanzamiento: "Modo de lanzamiento guardado. Rocco lo usa desde el próximo mensaje.",
 };
 
 /** Resumen de la plataforma: ingresos, costos del mes, pagos por verificar y negocios. */
@@ -48,10 +50,11 @@ export default async function AdminHome({
   await requireAdmin();
   const sp = await searchParams;
   const now = new Date();
-  const [tenants, pending, rates] = await Promise.all([
+  const [tenants, pending, rates, launch] = await Promise.all([
     loadTenants(now),
     loadPendingPayments(),
     loadRates(),
+    launchSettings(db()),
   ]);
   const sum = (f: (t: (typeof tenants)[number]) => Decimal) =>
     tenants.reduce((acc, t) => acc.plus(f(t)), new Decimal(0));
@@ -103,6 +106,51 @@ export default async function AdminHome({
             </strong>
           </div>
         </div>
+      </section>
+
+      <section className="card">
+        <span className="sect">Modo de lanzamiento</span>
+        <p className="sub">
+          {launch.beta
+            ? 'Beta: durante la prueba gratis Rocco no da precios; solo dice cuántos días y mensajes quedan. Al terminar la prueba muestra los precios y cómo pagar. La web dice "14 días gratis".'
+            : "Live: Rocco y la web muestran los precios siempre."}
+        </p>
+        <form action={saveLaunchAction} className="stack-sm">
+          <div className="grid-3 admin-grid">
+            <label className="field">
+              <span>Modo</span>
+              <select className="input" name="mode" defaultValue={launch.beta ? "beta" : "live"}>
+                <option value="beta">Beta (sin precios en la prueba)</option>
+                <option value="live">Live (con precios)</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Encuesta de precio (día)</span>
+              <input
+                className="input"
+                name="survey_day"
+                type="number"
+                min={1}
+                max={13}
+                defaultValue={launch.surveyDay}
+              />
+            </label>
+            <label className="field">
+              <span>Resumen y "¿seguimos?" (día)</span>
+              <input
+                className="input"
+                name="value_day"
+                type="number"
+                min={1}
+                max={13}
+                defaultValue={launch.valueDay}
+              />
+            </label>
+          </div>
+          <button className="btn" type="submit">
+            Guardar
+          </button>
+        </form>
       </section>
 
       <section className="card tight">

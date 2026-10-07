@@ -1183,7 +1183,7 @@ const getBudgets: ToolSpec<typeof GetBudgetsInput> = {
 const renewPlan: ToolSpec<typeof RenewPlanInput> = {
   name: "renew_plan",
   description:
-    "El plan del ASISTENTE (la suscripción a este servicio): cuándo vence, cuánto cuesta, renovarlo, cambiarse de plan o reportar que ya lo pagó ('quiero renovar', '¿cuándo se me vence el plan?', 'pásame a negocio plus', 'ya pagué el plan, ref 123456'). No es para gastos del negocio.",
+    "El plan del ASISTENTE (la suscripción a este servicio): cuándo vence, cuántos mensajes o días le quedan, cuánto cuesta, renovarlo, cambiarse de plan o reportar que ya lo pagó ('quiero renovar', '¿cuándo se me vence el plan?', 'pásame a negocio plus', 'ya pagué el plan, ref 123456'). No es para gastos del negocio.",
   schema: RenewPlanInput,
   roles: ["owner", "employee"],
   async run(input, run) {
