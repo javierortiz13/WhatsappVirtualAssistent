@@ -876,3 +876,32 @@ Datos del negocio en Meta: nombre comercial JP Software Dev, Venezuela, sin veri
 - Plantillas de Meta con la voz nueva.
 - Presentación para clientes con la marca.
 - Registro en el SAPI.
+
+### S2 · 07/10/2026 · Registro por WhatsApp con Rocco
+
+**Pedido (Javier):** compartir el número de Rocco y que cada quien cree su cuenta en el chat, sin ir a la web ("la gente es floja"), con un registro tan completo como el del asistente web. Que cueste unos 10 mensajes no importa frente a lo que vale un usuario nuevo.
+
+**Flujo (`onboarding/chat-signup.ts`, sin IA y con botones donde se puede):**
+1. Presentación de Rocco, 14 días gratis, aviso de privacidad y "¿cómo te llamas?". Si hay nombre de perfil, el botón "Llámame Javier".
+2. "¿Para ti o para tu negocio?" (botones).
+3. Negocio: nombre y tipo (lista: autolavado, comida, tienda, servicios, otro). Personal: el nombre de la persona.
+4. Moneda principal (botones).
+5. Categorías sugeridas según el tipo, con "Usar estas" o "Escribir las mías". También se pueden sumar: "agrega Gimnasio, Mascotas". Se avisa que se cambian en el dashboard.
+6. Cuentas escritas ("Banesco 5.000 bs, Binance 120 usdt, efectivo 40$"). Rocco deduce tipo y moneda y pide confirmar con "Así está bien" / "Corregir", o se salta.
+7. Presupuesto mensual en dólares por categoría ("Mercado 200, comida 80"), o "Ahora no".
+8. Resumen de la cuenta creada y un recorrido corto de funciones (ventas solo para negocios), el dashboard y la invitación al primer gasto.
+
+Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *ayuda*. Notas de voz y fotos durante el registro reciben "respóndeme con texto". El paso vive en `app.signup`: si la persona vuelve otro día, sigue donde quedó. Límites: el de mensajes de un conocido (30 cada 5 min) y 60 registros nuevos por hora en toda la plataforma (después, el texto fijo de siempre).
+
+**Al terminar (`registerFromChat`):** negocio en prueba con `signup_channel = whatsapp`, categorías, número del dueño ya activo (escribirle a Rocco prueba que es suyo), cuentas con saldo inicial y presupuestos. Cada cuenta va en un punto de guardado: si una falla, el registro sigue.
+
+**Dashboard para quien se registró por chat:** entra en /login con su correo y luego en /registro toca "Ya me registré con Rocco" (/registro/conectar). La web da un código de 6 dígitos (15 min, solo el hash en `app.dashboard_link`) y la persona se lo manda a Rocco desde su número. Eso prueba el correo (enlace mágico) y el número (WhatsApp), y su usuario queda como dueño. "link del dashboard" explica estos pasos si el negocio todavía no tiene a nadie en el panel.
+
+**Migración 0018:**
+- Tablas `app.signup` y `app.dashboard_link`, globales, sin llaves foráneas para no estorbar a `erase_tenant`.
+- `tenant.signup_channel` para el CRM.
+- Aplicada en producción antes del push. El MCP de Supabase no acepta la palabra DELETE, así que el permiso es SELECT/INSERT/UPDATE.
+
+**Pendiente:** purgar los registros abandonados a los 90 días (guardan nombre y cuentas) junto con la purga de privacidad.
+
+**Tests:** lectores de nombre, tipo, cuentas, categorías y presupuestos; flujo de negocio completo con la base revisada; flujo personal con saltos, audio y "empezar de nuevo"; conectar el dashboard con código (y que no sirva dos veces). 393 tests.

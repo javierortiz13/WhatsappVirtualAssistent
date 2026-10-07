@@ -81,6 +81,12 @@ import {
 } from "../ledger/index";
 import { NoRateError, rateFor } from "../ledger/rate-for";
 import { type Logger, maskPhone, silentLogger } from "../log";
+import {
+  canStartSignup,
+  handleSignup,
+  hasDashboardMember,
+  redeemDashboardLink,
+} from "../onboarding/chat-signup";
 import { requestDeletion, restoreTenant } from "../onboarding/erase";
 import { activatePhone, CODE_RE, verifyCode } from "../onboarding/register";
 import { getRateInfo } from "../rates/current";
@@ -211,6 +217,11 @@ export async function processInbound(
     resolved?.phoneStatus === "active" &&
     (resolved.tenantStatus === "suspended" || resolved.tenantStatus === "deleted") &&
     resolved.role === "owner";
+  // Número nuevo (0018): crea su cuenta en el chat con Rocco, sin LLM. Mismo límite de mensajes
+  // que un conocido; con demasiados registros nuevos en la hora, el texto fijo de siempre.
+  if (!resolved && msg.sender.e164 && (await canStartSignup(deps.db, msg.sender.e164, now()))) {
+    return handleSignupMessage(deps, meta, msg, msg.sender.e164, event.id, log, now);
+  }
   if (!resolved || (!canUse(resolved) && !suspendedOwner)) {
     const key = msg.sender.e164 ?? msg.sender.waUserId ?? msg.waMessageId;
     const reply = await allowUnknownReply(deps.db, key, {
@@ -459,6 +470,69 @@ export async function processInbound(
     return "duplicate";
   }
   await markEvent(deps.db, event.id, "done", null);
+  return "done";
+}
+
+/**
+ * Un mensaje de alguien sin cuenta, dentro del registro por WhatsApp (0018). No se guarda en
+ * `message` (no hay negocio todavía): lo respondido vive en `app.signup`.
+ */
+async function handleSignupMessage(
+  deps: ProcessDeps,
+  meta: MetaClient,
+  msg: InboundMessage,
+  e164: string,
+  eventId: string,
+  log: Logger,
+  now: () => Date,
+): Promise<ProcessOutcome> {
+  const limit = await checkKnownLimit(deps.db, e164, {
+    max: deps.config.knownMax ?? KNOWN_MAX,
+    windowMs: deps.config.knownWindowMs ?? KNOWN_WINDOW_MS,
+    now: now(),
+  });
+  if (limit !== "ok") {
+    if (limit === "notify") {
+      try {
+        await meta.sendText(e164, es.tooFast().body);
+      } catch (err) {
+        log.warn({ err: errMsg(err), from: maskPhone(e164) }, "aviso de límite falló");
+      }
+    }
+    await markEvent(deps.db, eventId, "ignored", "registro: límite de mensajes");
+    return "ignored";
+  }
+  try {
+    await meta.markReadWithTyping(msg.waMessageId);
+  } catch (err) {
+    log.debug({ err: errMsg(err) }, "indicador de escritura falló");
+  }
+  const text = msg.kind === "text" ? msg.text.slice(0, deps.config.maxTextLength) : null;
+  const replyId = msg.kind === "interactive" ? msg.replyId : null;
+  const result = await handleSignup(
+    deps.db,
+    {
+      e164,
+      waUserId: msg.sender.waUserId,
+      profileName: msg.sender.displayName,
+      text,
+      replyId,
+    },
+    { dashboardUrl: deps.config.dashboardUrl },
+    now(),
+  );
+  for (const out of result.outbound) {
+    try {
+      await sendOutbound(meta, e164, out);
+    } catch (err) {
+      log.warn({ err: errMsg(err), from: maskPhone(e164) }, "registro: no se pudo responder");
+    }
+  }
+  await markEvent(deps.db, eventId, "done", `registro: ${result.step}`);
+  log.info(
+    { from: maskPhone(e164), step: result.step, created: Boolean(result.created) },
+    "registro por WhatsApp",
+  );
   return "done";
 }
 
@@ -745,6 +819,17 @@ async function routeMessage(
     case "interactive":
       return routeInteractive(tx, deps, msg.replyId, ctx);
     case "text": {
+      // Código del panel (0018): conecta el dashboard de quien se registró por WhatsApp.
+      const linkCode = ctx.role === "owner" ? CODE_RE.exec(msg.text)?.[1] : undefined;
+      if (linkCode) {
+        const linked = await redeemDashboardLink(
+          tx,
+          { tenantId: ctx.tenantId, phoneId: ctx.phoneId },
+          linkCode,
+          (deps.now ?? (() => new Date()))(),
+        );
+        if (linked) return none([es.dashboardLinked(linked.email)]);
+      }
       // Referencia de un pago del plan con la intención abierta ("ref 123456"): sin LLM.
       if (ctx.role === "owner") {
         const paid = await maybeRenewReference(tx, renewCtx(deps, ctx), msg.text);
@@ -756,7 +841,13 @@ async function routeMessage(
       if (keyword === "help")
         return none([es.help(deps.config.dashboardUrl, deps.config.supportHint)]);
       if (keyword === "dashboard")
-        return none([es.dashboardLink(deps.config.dashboardUrl, ctx.role)]);
+        return none([
+          es.dashboardLink(
+            deps.config.dashboardUrl,
+            ctx.role,
+            ctx.role !== "owner" || (await hasDashboardMember(tx, ctx.tenantId)),
+          ),
+        ]);
       if (keyword === "close") return closeToday(tx, deps, ctx);
       if (keyword === "delete") return deleteLast(tx, deps, ctx, msg);
       if (msg.text.length > deps.config.maxTextLength) return none([es.tooLong()]);

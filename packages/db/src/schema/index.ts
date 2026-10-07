@@ -111,6 +111,8 @@ export const tenant = app.table(
     suspendedAt: timestamp("suspended_at", { withTimezone: true }),
     /** Avisos de borrado por impago ya enviados: 0, 1 (día 60) o 2 (día 83). */
     retentionNotices: integer("retention_notices").notNull().default(0),
+    /** Por dónde se registró (0018): el asistente web o el chat con Rocco. */
+    signupChannel: text("signup_channel").notNull().default("dashboard"),
     /** De dónde sale la tasa de los gastos en Bs (0012): BCV, los lotes de cambio, o preguntar. */
     bsRateMode: text("bs_rate_mode").notNull().default("bcv"),
     ...timestamps,
@@ -408,6 +410,35 @@ export const unknownSenderHit = app.table("unknown_sender_hit", {
   e164: text("e164").primaryKey(),
   hits: integer("hits").notNull().default(0),
   windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Registro por WhatsApp en curso (0018): un número, su paso y lo respondido. Global: el tenant
+ * existe solo al terminar. También mide el embudo.
+ */
+export const signup = app.table("signup", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  e164: text("e164").notNull().unique(),
+  waUserId: text("wa_user_id"),
+  profileName: text("profile_name"),
+  step: text("step").notNull(),
+  data: jsonb("data").notNull().default({}),
+  messages: integer("messages").notNull().default(0),
+  tenantId: uuid("tenant_id"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  ...timestamps,
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Código para conectar el panel a un negocio creado por WhatsApp (0018). Solo el hash. */
+export const dashboardLink = app.table("dashboard_link", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id").notNull(),
+  codeHash: text("code_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  tenantId: uuid("tenant_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type Tenant = typeof tenant.$inferSelect;

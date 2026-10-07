@@ -117,15 +117,22 @@ describe("processInbound", () => {
     return p;
   }
 
-  it("número desconocido: texto fijo con enlace de registro, sin guardar mensaje, evento ignorado", async () => {
+  it("número desconocido: Rocco empieza el registro por chat, sin guardar el mensaje (0018)", async () => {
     const { sent, client } = fakeMeta();
     const job = await ingest(message("wamid.U1", "580000000009", "hola"));
-    expect(await processInbound(deps(client), job)).toBe("ignored");
+    expect(await processInbound(deps(client), job)).toBe("done");
     expect(sent).toHaveLength(1);
-    expect(sent[0]?.body).toMatchObject({ to: "580000000009", type: "text" });
-    expect(textOf(sent[0])).toContain("https://caja.test/registro");
+    expect(sent[0]?.body).toMatchObject({ to: "580000000009" });
+    const intro = JSON.stringify(sent[0]?.body);
+    expect(intro).toContain("Soy *Rocco*");
+    expect(intro).toContain("¿cómo te llamas?");
     const msgs = await t.db.select().from(schema.message);
     expect(msgs).toHaveLength(0);
+    const [signup] = await t.db
+      .select()
+      .from(schema.signup)
+      .where(eq(schema.signup.e164, "580000000009"));
+    expect(signup?.step).toBe("name");
   });
 
   it("'hola' responde el menú con la tasa y 3 botones, y registra entrada y salida", async () => {

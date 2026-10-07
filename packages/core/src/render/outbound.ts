@@ -39,6 +39,8 @@ export const IDS = {
   bsMode: (mode: BsMode) => `bsmode:${mode}`,
   /** Confirmar o no "eliminar mi cuenta" (0017). */
   erase: (answer: "yes" | "no") => `erase:${answer}`,
+  /** Registro por WhatsApp (0018): "signup:kind:personal", "signup:cur:USD", "signup:type:food"… */
+  signup: (value: string) => `signup:${value}`,
 } as const;
 
 export const BS_MODES = ["bcv", "usdt", "ask"] as const;
@@ -63,6 +65,7 @@ export type ParsedReplyId =
   | { kind: "renew_ref"; method: RenewMethod; reference: string }
   | { kind: "bs_mode"; mode: BsMode }
   | { kind: "erase"; answer: "yes" | "no" }
+  | { kind: "signup"; value: string }
   | { kind: "unknown"; raw: string };
 
 export function parseReplyId(raw: string): ParsedReplyId {
@@ -109,6 +112,9 @@ export function parseReplyId(raw: string): ParsedReplyId {
     }
     case "erase":
       if (value === "yes" || value === "no") return { kind: "erase", answer: value };
+      break;
+    case "signup":
+      if (value) return { kind: "signup", value };
       break;
     case "bsmode":
       if ((BS_MODES as readonly string[]).includes(value))

@@ -111,7 +111,21 @@ export function help(dashboardUrl: string, supportHint: string | null): Outbound
 }
 
 /** "link del dashboard" (03/10): el enlace y cómo entrar. El empleado no tiene dashboard. */
-export function dashboardLink(dashboardUrl: string, role: "owner" | "employee"): Outbound {
+export function dashboardLink(
+  dashboardUrl: string,
+  role: "owner" | "employee",
+  /** false: se registró por WhatsApp y todavía no conectó el panel a un correo (0018). */
+  panelLinked = true,
+): Outbound {
+  if (role === "owner" && !panelLinked)
+    return {
+      type: "text",
+      body: [
+        `📊 Tu dashboard: ${dashboardUrl}/login`,
+        "Ahí ves, corriges y exportas todos tus movimientos, y pones presupuestos por categoría.",
+        "Entra con tu correo, toca *Ya me registré con Rocco* y mándame aquí el código de 6 dígitos que te aparezca. Así queda conectado a tu número.",
+      ].join("\n"),
+    };
   if (role === "employee")
     return {
       type: "text",
@@ -1996,11 +2010,11 @@ export function sumResult(r: {
         ? `tasa ${v}`
         : `${c.rate.kind === "euro" ? "tasa euro BCV" : "tasa BCV"} ${v}`;
     const out = [`🧮 *Suma* · ${how}`];
-    r.items.forEach((i, n) =>
+    r.items.forEach((i, n) => {
       out.push(
         `${sign(i, n)} ${money3(i.amount, r.currency)} = ${money3(r.lines?.[n] ?? new Decimal(0), c.currency)}`,
-      ),
-    );
+      );
+    });
     out.push(`*Total: ${money3(r.total, r.currency)} = ${money3(c.amount, c.currency)}*${assumed}`);
     if (r.usdt)
       out.push(
@@ -2015,7 +2029,9 @@ export function sumResult(r: {
   const lines = ["🧮 *Suma*"];
   // Con muchos montos no se repiten todos: el total basta.
   if (r.items.length <= 12)
-    r.items.forEach((i, n) => lines.push(`${sign(i, n)} ${money3(i.amount, r.currency)}`));
+    r.items.forEach((i, n) => {
+      lines.push(`${sign(i, n)} ${money3(i.amount, r.currency)}`);
+    });
   lines.push(`= *${money3(r.total, r.currency)}*${assumed}`);
   if (r.converted) {
     const v = formatMoney(r.converted.rate.value, "VES").replace("Bs ", "");
@@ -2053,11 +2069,11 @@ const billHead = (vendor: string, title: string) => `🧾 *${title}*${vendor ? `
 /** Renglones leídos y cómo decir quién consumió qué. */
 export function splitAskWho(b: SplitBillView): Outbound {
   const lines = [billHead(b.vendor, "Dividir la cuenta")];
-  b.items.forEach((i, k) =>
+  b.items.forEach((i, k) => {
     lines.push(
       `${k + 1}. ${i.name}${i.quantity > 1 ? ` ×${i.quantity}` : ""} — ${formatMoney(i.amount, b.currency)}`,
-    ),
-  );
+    );
+  });
   lines.push(`Total: *${formatMoney(b.total, b.currency)}*`);
   lines.push("");
   lines.push(
@@ -2148,5 +2164,279 @@ export function noRate(): Outbound {
   return {
     type: "text",
     body: "No tengo la tasa BCV para esa fecha, así que no puedo convertir. Inténtalo más tarde.",
+  };
+}
+
+// ---------------------------------------------------------------- registro por WhatsApp (0018)
+
+/** Primer nombre de perfil, ya limpio, para el botón "Llámame Javier" (máximo 20 caracteres). */
+function nameButton(profile: string | null): { id: string; title: string }[] {
+  if (!profile) return [];
+  const title = `Llámame ${profile}`;
+  return title.length <= 20 ? [{ id: IDS.signup("name:profile"), title }] : [];
+}
+
+function askNameOutbound(body: string, profile: string | null): Outbound {
+  const buttons = nameButton(profile);
+  return buttons.length ? { type: "buttons", body, buttons } : { type: "text", body };
+}
+
+/** Lo primero que ve alguien sin cuenta: quién es Rocco, que es gratis, privacidad y su nombre. */
+export function signupIntro(dashboardUrl: string, profile: string | null): Outbound {
+  return askNameOutbound(
+    [
+      "¡Hola! Soy *Rocco* 🐾, tu amigo fiel con tus finanzas.",
+      "Te ayudo a llevar tus gastos, ventas y cuentas desde este chat, en bolívares y en dólares, con la tasa del día. Soy un asistente automático.",
+      "",
+      "Creamos tu cuenta aquí mismo en 2 minutos y tienes *14 días gratis* para probarme.",
+      `_Al seguir aceptas la política de privacidad: ${dashboardUrl}/privacidad_`,
+      "",
+      "Para empezar, ¿cómo te llamas?",
+    ].join("\n"),
+    profile,
+  );
+}
+
+export function signupAskName(profile: string | null): Outbound {
+  return askNameOutbound("¿Cómo te llamas?", profile);
+}
+
+export function signupNameUnclear(profile: string | null): Outbound {
+  return askNameOutbound(
+    "No te entendí el nombre. Escríbeme solo cómo te llamo, por ejemplo: _María_",
+    profile,
+  );
+}
+
+export function signupAskKind(name: string): Outbound {
+  return {
+    type: "buttons",
+    body: `Mucho gusto, ${name}. ¿Me quieres para *tus finanzas personales* o para *tu negocio*?`,
+    buttons: [
+      { id: IDS.signup("kind:personal"), title: "Para mí" },
+      { id: IDS.signup("kind:business"), title: "Para mi negocio" },
+    ],
+  };
+}
+
+export function signupAskBusinessName(): Outbound {
+  return { type: "text", body: "¡Buenísimo! ¿Cómo se llama tu negocio?" };
+}
+
+const SIGNUP_TYPES: { id: string; title: string; description: string }[] = [
+  { id: "car_wash", title: "Autolavado", description: "Lavado de carros y motos" },
+  { id: "food", title: "Comida y bebidas", description: "Restaurante, arepera, dulces, café" },
+  { id: "retail", title: "Tienda o bodega", description: "Ropa, abasto, farmacia, ferretería" },
+  { id: "services", title: "Servicios", description: "Taller, peluquería, clases, técnico" },
+  { id: "other", title: "Otro", description: "Cualquier otro tipo de negocio" },
+];
+
+export function signupAskBusinessType(businessName: string): Outbound {
+  return {
+    type: "list",
+    body: `¿A qué se dedica *${businessName}*? Así te sugiero las categorías de gastos que más se usan.`,
+    buttonLabel: "Elegir tipo",
+    sections: [
+      {
+        rows: SIGNUP_TYPES.map((t) => ({
+          id: IDS.signup(`type:${t.id}`),
+          title: t.title,
+          description: t.description,
+        })),
+      },
+    ],
+  };
+}
+
+export function signupAskCurrency(business: boolean): Outbound {
+  return {
+    type: "buttons",
+    body: `¿En qué moneda manejas más ${business ? "los gastos del negocio" : "tu plata"}? Cuando no me digas la moneda, uso esta. Igual te muestro todo en las dos.`,
+    buttons: [
+      { id: IDS.signup("cur:USD"), title: "Dólares" },
+      { id: IDS.signup("cur:VES"), title: "Bolívares" },
+    ],
+  };
+}
+
+export function signupAskCategories(suggested: string[], business: boolean): Outbound {
+  return {
+    type: "buttons",
+    body: [
+      `Ahora tus *categorías de gastos*: así sabrás en qué se va ${business ? "la plata del negocio" : "tu plata"}. Te sugiero estas:`,
+      ...suggested.map((c) => `• ${c}`),
+      "",
+      "¿Te sirven? Si prefieres otras, escríbemelas separadas por coma. Para sumar a estas: _agrega Gimnasio, Mascotas_",
+    ].join("\n"),
+    buttons: [
+      { id: IDS.signup("cat:ok"), title: "Usar estas" },
+      { id: IDS.signup("cat:edit"), title: "Escribir las mías" },
+    ],
+  };
+}
+
+export function signupCategoriesWrite(): Outbound {
+  return {
+    type: "text",
+    body: "Dale, escríbeme tus categorías separadas por coma. Ejemplo: _Mercado, Gasolina, Comida fuera, Gimnasio_",
+  };
+}
+
+export function signupCategoriesSet(categories: string[], dashboardUrl: string): Outbound {
+  return {
+    type: "text",
+    body: `✅ Listo, tus categorías: ${categories.join(", ")}.\n_Puedes agregar o cambiar categorías cuando quieras en el dashboard: ${dashboardUrl}/ajustes/categorias_`,
+  };
+}
+
+export function signupAskAccounts(business: boolean): Outbound {
+  return {
+    type: "buttons",
+    body: [
+      `Ahora tus *cuentas*: dónde tienes la plata${business ? " del negocio" : ""}. Así te digo cuánto te queda en cada una.`,
+      "Escríbemelas con lo que tienes hoy, una por línea o separadas por coma:",
+      "_Banesco 5.000 bs_",
+      "_Binance 120 usdt_",
+      "_Efectivo 40$_",
+      "",
+      "Si no quieres usar cuentas ahora, toca *Saltar*. Las puedes crear después.",
+    ].join("\n"),
+    buttons: [{ id: IDS.signup("acc:skip"), title: "Saltar" }],
+  };
+}
+
+export function signupAccountsUnclear(): Outbound {
+  return {
+    type: "buttons",
+    body: "No entendí las cuentas. Escríbelas así, una por línea: _Banesco 5.000 bs_ · _Binance 120 usdt_ · _Efectivo 40$_",
+    buttons: [{ id: IDS.signup("acc:skip"), title: "Saltar" }],
+  };
+}
+
+export function signupAccountsConfirm(
+  accounts: { name: string; currency: string; kind: string; openingBalance: string }[],
+): Outbound {
+  return {
+    type: "buttons",
+    body: [
+      "Entendí estas cuentas:",
+      ...accounts.map((a) => `• ${a.name}: *${accountMoney(a, a.openingBalance)}*`),
+      "",
+      "¿Está bien? Si algo quedó mal, escríbelas de nuevo.",
+    ].join("\n"),
+    buttons: [
+      { id: IDS.signup("acc:ok"), title: "Así está bien" },
+      { id: IDS.signup("acc:edit"), title: "Corregir" },
+    ],
+  };
+}
+
+export function signupAskBudget(categories: string[], business: boolean): Outbound {
+  const examples = categories.filter((c) => c !== "Otros").slice(0, 2);
+  const sample =
+    examples.length >= 2
+      ? `_${examples[0]} 200, ${examples[1]} 80_`
+      : examples.length === 1
+        ? `_${examples[0]} 200_`
+        : "_Mercado 200_";
+  return {
+    type: "buttons",
+    body: [
+      `Último paso: ¿en qué ${business ? "se va más la plata del negocio" : "se te va más la plata"}?`,
+      "Ponle un *tope mensual en dólares* a una o varias categorías y te aviso cuánto te queda cada vez que anotes un gasto.",
+      `Ejemplo: ${sample}`,
+    ].join("\n"),
+    buttons: [{ id: IDS.signup("bud:skip"), title: "Ahora no" }],
+  };
+}
+
+export function signupBudgetUnclear(categories: string[]): Outbound {
+  return {
+    type: "buttons",
+    body: `No encontré esa categoría o el monto. Escríbelo así: _categoría monto en $_. Tus categorías: ${categories.join(", ")}.`,
+    buttons: [{ id: IDS.signup("bud:skip"), title: "Ahora no" }],
+  };
+}
+
+export function signupDone(v: {
+  name: string;
+  businessName: string | null;
+  currency: "USD" | "VES";
+  categories: string[];
+  accounts: { name: string; currency: string; kind: string; openingBalance: string }[];
+  budgets: { category: string; amountUsd: string }[];
+}): Outbound {
+  const lines = [
+    `✅ ¡Listo, ${v.name}! ${v.businessName ? `*${v.businessName}* ya está conmigo.` : "Tu cuenta quedó creada."}`,
+    `• Moneda principal: ${v.currency === "USD" ? "dólares" : "bolívares"}`,
+    `• ${v.categories.length} categorías de gastos`,
+  ];
+  if (v.accounts.length)
+    lines.push(
+      `• Cuentas: ${v.accounts.map((a) => `${a.name} ${accountMoney(a, a.openingBalance)}`).join(" · ")}`,
+    );
+  if (v.budgets.length)
+    lines.push(
+      `• Presupuesto: ${v.budgets.map((b) => `${b.category} ${formatMoney(b.amountUsd, "USD")} al mes`).join(" · ")}`,
+    );
+  lines.push("", "Tienes *14 días gratis* para probarme.");
+  return { type: "text", body: lines.join("\n") };
+}
+
+/** Recorrido corto de lo que sabe hacer, el dashboard y la invitación al primer gasto. */
+export function signupTour(dashboardUrl: string, kind: "personal" | "business"): Outbound {
+  const lines = [
+    "Así me usas, como si le escribieras a un pana:",
+    "• *Gastos:* _gasté 15$ en champú_, una nota de voz o la foto de la factura",
+  ];
+  if (kind === "business") lines.push("• *Ventas:* _hoy vendí 350$: 200 efectivo, 150 pago móvil_");
+  lines.push(
+    "• *¿Cómo voy?:* _cierre de hoy_, _cómo va el mes_",
+    "• *Tasa y calculadora:* _tasa_, _cuánto es 8000 bs en $_",
+    "• *Cuentas:* _mis cuentas_, _pasé 100$ de Zelle a Binance_",
+    "• *Dividir la cuenta:* la foto de la factura con _dividir: yo la pizza, Pedro la hamburguesa_",
+    "• *Corregir:* _no, eran 25_ · _bórralo_",
+    "Escribe *ayuda* cuando quieras ver todo.",
+    "",
+    `📊 *Tu dashboard* (ver, corregir y exportar a Excel): entra en ${dashboardUrl}/login con tu correo y mándame aquí el código que te aparezca.`,
+    "",
+    "Empecemos: escríbeme tu primer gasto, por ejemplo _gasté 5$ en café_.",
+  );
+  return { type: "text", body: lines.join("\n") };
+}
+
+export function signupWeb(dashboardUrl: string): Outbound {
+  return {
+    type: "text",
+    body: `Dale. Crea tu cuenta aquí: ${dashboardUrl}/registro\nSi prefieres seguir por el chat, respóndeme la última pregunta y seguimos donde quedamos.`,
+  };
+}
+
+export function signupTextOnly(): Outbound {
+  return {
+    type: "text",
+    body: "Para crear tu cuenta respóndeme con texto o con los botones. Las notas de voz y las fotos las leo apenas terminemos.",
+  };
+}
+
+export function signupHelp(): Outbound {
+  return {
+    type: "text",
+    body: "Estamos creando tu cuenta: te hago unas preguntas cortas y listo. Si te equivocas, escribe *empezar de nuevo*. Si prefieres la web, escribe *web*.",
+  };
+}
+
+export function signupTaken(dashboardUrl: string): Outbound {
+  return {
+    type: "text",
+    body: `Este número ya tiene una cuenta. Entra al dashboard en ${dashboardUrl}/login o escríbeme *ayuda*.`,
+  };
+}
+
+/** El dueño mandó el código del panel y quedó conectado. */
+export function dashboardLinked(email: string): Outbound {
+  return {
+    type: "text",
+    body: `✅ Listo, tu dashboard quedó conectado${email ? ` a *${email}*` : ""}. Ya puedes ver, corregir y exportar todo desde la web.`,
   };
 }

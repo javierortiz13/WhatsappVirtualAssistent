@@ -383,3 +383,135 @@ async function audit(
     channel: "dashboard",
   });
 }
+
+export type ChatRegisterInput = {
+  /** E.164 sin '+': el número que le escribió a Rocco. WhatsApp ya probó que es suyo. */
+  e164: string;
+  waUserId: string | null;
+  /** Nombre de la persona (dueño o usuario personal). */
+  ownerName: string;
+  /** Nombre del negocio; en el tipo personal, el de la persona. */
+  name: string;
+  businessType: BusinessType;
+  defaultExpenseCurrency: "USD" | "VES";
+  categories?: string[] | undefined;
+  accounts?:
+    | {
+        name: string;
+        currency: "USD" | "VES";
+        kind: AccountKind;
+        openingBalance: string;
+      }[]
+    | undefined;
+  /** Topes mensuales en dólares por nombre de categoría (de las elegidas). */
+  budgets?: { category: string; amountUsd: string }[] | undefined;
+};
+
+/** Hasta 5 cuentas en el registro por chat; las demás con "crea la cuenta…" o en el panel. */
+export const CHAT_SIGNUP_MAX_ACCOUNTS = 5;
+
+/**
+ * Registro por WhatsApp (0018): el mismo negocio que crea el asistente web, pero sin usuario del
+ * panel (se conecta después con `dashboard_link`) y con el número ya activo: escribirle a Rocco
+ * prueba que es suyo. Cuentas y presupuestos que fallen no tumban el registro.
+ */
+export async function registerFromChat(
+  db: Db,
+  input: ChatRegisterInput,
+  now: Date = new Date(),
+): Promise<{ tenantId: string; phoneId: string }> {
+  if (await phoneIsTaken(db, input.e164)) throw new PhoneTakenError(input.e164);
+  const tenantId = crypto.randomUUID();
+  return withTenant(db, tenantId, async (tx) => {
+    await tx.insert(schema.tenant).values({
+      id: tenantId,
+      name: input.name.trim(),
+      businessType: input.businessType,
+      defaultExpenseCurrency: input.defaultExpenseCurrency,
+      status: "trial",
+      plan: input.businessType === "personal" ? "personal" : "negocio",
+      signupChannel: "whatsapp",
+    });
+    const names = onboardingCategories(input.categories, input.businessType);
+    const cats = names.length
+      ? await tx
+          .insert(schema.category)
+          .values(names.map((name, i) => ({ tenantId, name, kind: "expense", sortOrder: i })))
+          .returning({ id: schema.category.id, name: schema.category.name })
+      : [];
+    const [phone] = await tx
+      .insert(schema.phoneNumber)
+      .values({
+        tenantId,
+        e164: input.e164,
+        role: "owner",
+        status: "active",
+        verifiedAt: now,
+        waUserId: input.waUserId,
+        displayName: input.ownerName.trim() || null,
+      })
+      .returning({ id: schema.phoneNumber.id });
+    if (!phone) throw new Error("no se pudo crear el número del dueño");
+    await tx.insert(schema.auditLog).values({
+      tenantId,
+      actorType: "phone",
+      actorId: phone.id,
+      action: "create",
+      entity: "tenant",
+      entityId: tenantId,
+      before: null,
+      after: { name: input.name.trim(), businessType: input.businessType },
+      channel: "whatsapp",
+    });
+    for (const a of (input.accounts ?? []).slice(0, CHAT_SIGNUP_MAX_ACCOUNTS)) {
+      const opening = new Decimal(a.openingBalance || "0");
+      try {
+        // Punto de guardado: si la cuenta falla (tasa, repetida), el registro sigue.
+        await tx.transaction((sp) =>
+          createAccount(sp, {
+            tenantId,
+            name: a.name,
+            currency: a.currency,
+            kind: a.kind,
+            openingBalance: opening.isFinite() ? opening : new Decimal(0),
+            openingDate: businessDateOf(now),
+            actor: { phoneId: phone.id },
+            channel: "whatsapp",
+          }),
+        );
+      } catch {
+        // Repetida o inválida: se omite; la puede crear después por chat.
+      }
+    }
+    const byName = new Map(cats.map((c) => [plainName(c.name), c.id]));
+    for (const b of input.budgets ?? []) {
+      const categoryId = byName.get(plainName(b.category));
+      const amount = new Decimal(b.amountUsd || "0");
+      if (!categoryId || !amount.isFinite() || amount.lte(0)) continue;
+      const next = { period: "monthly", amountUsd: amount.toFixed(2) };
+      const [row] = await tx
+        .insert(schema.budget)
+        .values({ tenantId, categoryId, ...next })
+        .onConflictDoNothing()
+        .returning({ id: schema.budget.id });
+      if (row)
+        await tx.insert(schema.auditLog).values({
+          tenantId,
+          actorType: "phone",
+          actorId: phone.id,
+          action: "create",
+          entity: "budget",
+          entityId: row.id,
+          before: null,
+          after: next,
+          channel: "whatsapp",
+        });
+    }
+    return { tenantId, phoneId: phone.id };
+  });
+}
+
+/** Nombre sin mayúsculas ni acentos, para comparar categorías. */
+export function plainName(n: string): string {
+  return n.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+}

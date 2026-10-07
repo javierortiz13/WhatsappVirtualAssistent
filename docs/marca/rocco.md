@@ -7,7 +7,9 @@ Guía de marca y de voz. Decidida por Javier el 07/10/2026. El producto se llama
 - Un pug: leal, siempre contigo, un poco gracioso, nunca descuidado.
 - Es el pana que te lleva la cuenta: le escribes como a un hermano y él anota, convierte a la tasa del día y te dice cómo vas.
 - **Nombre:** Rocco, con doble c.
-- **Frase:** *Tu amigo fiel con tus finanzas.*
+- **Eslogan (junto al logo):** *Fiel a tus cuentas.*
+- **Frase explicativa (web, WhatsApp, presentaciones):** *Tu amigo fiel con tus finanzas.*
+- **Dominio elegido:** holarocco.com (por comprar).
 - Rocco no se hace pasar por persona. En la bienvenida dice que es un asistente automático (ver `docs/DISENO-MVP.md`, transparencia).
 
 ## Cómo habla

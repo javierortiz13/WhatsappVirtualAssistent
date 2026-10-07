@@ -51,6 +51,12 @@ export default async function Registro({
         {sp.error && ERRORS[sp.error] ? (
           <div className="notice err wizard-flash">{ERRORS[sp.error]}</div>
         ) : null}
+        <div className="notice wizard-flash">
+          ¿Ya creaste tu cuenta chateando con Rocco por WhatsApp?{" "}
+          <a href="/registro/conectar">
+            <strong>Ya me registré con Rocco ›</strong>
+          </a>
+        </div>
         <RegistroWizard
           plans={PLANS.map((p) => ({
             id: p.id,
