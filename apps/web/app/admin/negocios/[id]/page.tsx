@@ -1,4 +1,4 @@
-import { es, latestRates, PLANS, quote, RECHARGE } from "@caja/core";
+import { es, latestRates, launchSettings, PLANS, quote, RECHARGE } from "@caja/core";
 import { businessDateOf, formatShortDate } from "@caja/core/domain";
 import { loadTenantDetail, requireAdmin } from "@/lib/admin";
 import { db } from "@/lib/db";
@@ -63,6 +63,46 @@ const PHONE_STATUS: Record<string, string> = {
 
 const day = (d: Date) => formatShortDate(businessDateOf(d));
 
+/** Usado de un tope, con barra (ámbar al 80 %, roja al pasarlo). */
+function Meter({
+  label,
+  used,
+  cap,
+  note,
+}: {
+  label: string;
+  used: number;
+  cap: number;
+  note?: string | null;
+}) {
+  const pct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
+  return (
+    <div className="tile">
+      <span className="label">{label}</span>
+      <strong className="num tile-n">
+        {used} <span className="sub">de {cap}</span>
+      </strong>
+      <div className="usage" aria-hidden="true">
+        <span
+          style={{ width: `${pct}%` }}
+          className={used > cap ? "over" : pct >= 80 ? "warn" : ""}
+        />
+      </div>
+      {note ? <span className="hint">{note}</span> : null}
+    </div>
+  );
+}
+
+/** Fila etiqueta / valor. */
+function Line({ label, value, cls }: { label: string; value: string; cls?: string }) {
+  return (
+    <div className="line">
+      <span className="sub">{label}</span>
+      <strong className={`num ${cls ?? ""}`}>{value}</strong>
+    </div>
+  );
+}
+
 /** Ficha de un negocio: vigencia, uso del mes, números, pagos y acciones del administrador. */
 export default async function AdminTenant({
   params,
@@ -74,7 +114,11 @@ export default async function AdminTenant({
   await requireAdmin();
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const now = new Date();
-  const [d, rates] = await Promise.all([loadTenantDetail(id, now), latestRates(db())]);
+  const [d, rates, launch] = await Promise.all([
+    loadTenantDetail(id, now),
+    latestRates(db()),
+    launchSettings(db()),
+  ]);
   const t = d.tenant;
   const extra = t.extraMonth === d.usage.month ? t.extraMessages : 0;
   const survey = (t.survey ?? {}) as Record<string, string | undefined>;
@@ -108,76 +152,117 @@ export default async function AdminTenant({
           )}
         </p>
         <p className={`kpi ${dueClass(d.state)}`}>{dueText(d.state)}</p>
-        <p className="sub num">
-          Este mes: {d.usage.inbound}/{d.plan.messagesPerMonth + extra} mensajes
-          {extra ? ` (incluye +${extra} de recarga)` : ""} · {d.usage.outbound} respuestas · IA{" "}
-          {usd(d.usage.aiCostUsd)} en {d.usage.aiTurns} turnos
-        </p>
-        {t.status === "trial" ? (
-          <p className={`sub num ${d.trial.reached ? "neg" : ""}`}>
-            Prueba: {d.trial.messages} de {d.trial.messageCap} mensajes · gasto{" "}
-            {usd(d.trial.spentUsd)} de {usd(d.trial.budgetUsd)}
-            {t.trialBudgetUsd === null ? " (red de seguridad del plan)" : ""} · IA{" "}
-            {usd(d.trial.aiUsd)} · Meta {usd(d.trial.metaUsd)} ({d.trial.replies} respuestas) · voz{" "}
-            {usd(d.trial.voiceUsd)}
-            {d.trial.reached ? " · llegó al tope: el bot no registra" : ""}
-          </p>
-        ) : null}
         <p className="sub">
           Alta: {day(t.createdAt)} ·{" "}
           {t.signupChannel === "whatsapp" ? "por WhatsApp" : "por la web"}
+          {t.crmTags.length ? ` · ${t.crmTags.join(", ")}` : ""}
         </p>
+        <div className="grid-2 admin-meters">
+          {t.status === "trial" ? (
+            <Meter
+              label="Prueba gratis"
+              used={d.trial.messages}
+              cap={d.trial.messageCap}
+              note={
+                d.trial.reached ? "Llegó al tope: el bot no registra" : "mensajes desde el alta"
+              }
+            />
+          ) : null}
+          <Meter
+            label="Este mes"
+            used={d.usage.inbound}
+            cap={d.plan.messagesPerMonth + extra}
+            note={extra ? `incluye +${extra} de recarga` : "mensajes del plan"}
+          />
+        </div>
+      </section>
+
+      <section className="card">
+        <span className="label">Uso y costos</span>
+        <p className="sub admin-sub">Este mes</p>
+        <Line label="Respuestas de Rocco" value={String(d.usage.outbound)} />
+        <Line label={`IA (${d.usage.aiTurns} turnos)`} value={usd(d.usage.aiCostUsd)} />
+        {t.status === "trial" ? (
+          <>
+            <p className="sub admin-sub">Prueba gratis, desde el alta</p>
+            <Line
+              label={`Gasto total (tope ${usd(d.trial.budgetUsd)}${t.trialBudgetUsd === null ? ", red de seguridad" : ", propio"})`}
+              value={usd(d.trial.spentUsd)}
+              cls={d.trial.reached ? "neg" : ""}
+            />
+            <Line label="IA" value={usd(d.trial.aiUsd)} />
+            <Line label={`Meta (${d.trial.replies} respuestas)`} value={usd(d.trial.metaUsd)} />
+            <Line label="Notas de voz" value={usd(d.trial.voiceUsd)} />
+          </>
+        ) : null}
       </section>
 
       <section className="card">
         <span className="label">CRM</span>
-        <div className="stack-sm">
-          <p className="sub">
-            {t.founderUntil
-              ? `Fundador: 40 % de descuento hasta el ${formatShortDate(t.founderUntil as never)}.`
-              : "Sin precio de fundador."}
-          </p>
+        <p className="sub admin-sub">Precio fundador</p>
+        <Line
+          label={t.founderUntil ? "40 % de descuento hasta el" : "Sin precio de fundador"}
+          value={t.founderUntil ? formatShortDate(t.founderUntil as never) : "—"}
+        />
+        <p className="sub admin-sub">Encuesta y resumen</p>
+        <Line
+          label={`Encuesta de precio (día ${launch.surveyDay})`}
+          value={t.surveySentAt ? `enviada ${day(t.surveySentAt)}` : "sin enviar"}
+        />
+        <Line label="Precio justo" value={bucket(survey.fair)} />
+        <Line label="Precio caro" value={bucket(survey.expensive)} />
+        <Line
+          label={`Resumen (día ${launch.valueDay})`}
+          value={t.valueSentAt ? `enviado ${day(t.valueSentAt)}` : "sin enviar"}
+        />
+        <Line
+          label="¿Seguimos?"
+          value={
+            survey.continue === "yes"
+              ? "sí"
+              : survey.continue === "doubts"
+                ? "tiene dudas"
+                : "sin respuesta"
+          }
+        />
+        <div className="grid-2 admin-grid admin-actions">
           <form action={setFounderAction}>
             <input type="hidden" name="tenant_id" value={t.id} />
             <input type="hidden" name="founder" value={t.founderUntil ? "off" : "on"} />
-            <button className="btn small secondary" type="submit">
-              {t.founderUntil ? "Quitar precio fundador" : "Dar precio fundador (7 meses)"}
+            <button className="btn small secondary block" type="submit">
+              {t.founderUntil ? "Quitar fundador" : "Dar fundador (7 meses)"}
             </button>
           </form>
           <form action={giftRechargeAction}>
             <input type="hidden" name="tenant_id" value={t.id} />
-            <button className="btn small secondary" type="submit">
-              Regalar recarga (+{RECHARGE.messages} mensajes este mes)
-            </button>
-          </form>
-          <p className="sub">
-            Encuesta (día 10): {t.surveySentAt ? `enviada el ${day(t.surveySentAt)}` : "sin enviar"}{" "}
-            · justo: {bucket(survey.fair)} · caro: {bucket(survey.expensive)}
-          </p>
-          <p className="sub">
-            Resumen (día 12): {t.valueSentAt ? `enviado el ${day(t.valueSentAt)}` : "sin enviar"} ·
-            ¿seguimos?:{" "}
-            {survey.continue === "yes"
-              ? "sí"
-              : survey.continue === "doubts"
-                ? "tiene dudas"
-                : "sin respuesta"}
-          </p>
-          <form action={saveCrmAction} className="stack-sm">
-            <input type="hidden" name="tenant_id" value={t.id} />
-            <label className="field">
-              <span>Etiquetas (separadas por coma)</span>
-              <input name="tags" defaultValue={t.crmTags.join(", ")} placeholder="amigo, piloto" />
-            </label>
-            <label className="field">
-              <span>Notas internas</span>
-              <textarea name="notes" rows={4} defaultValue={t.crmNotes ?? ""} />
-            </label>
-            <button className="btn small" type="submit">
-              Guardar notas
+            <button className="btn small secondary block" type="submit">
+              Regalar +{RECHARGE.messages} mensajes
             </button>
           </form>
         </div>
+        <form
+          action={saveCrmAction}
+          className="stack-sm admin-days"
+          style={{ marginTop: "var(--space-3)" }}
+        >
+          <input type="hidden" name="tenant_id" value={t.id} />
+          <label className="field">
+            <span>Etiquetas (separadas por coma)</span>
+            <input
+              className="input"
+              name="tags"
+              defaultValue={t.crmTags.join(", ")}
+              placeholder="amigo, piloto"
+            />
+          </label>
+          <label className="field">
+            <span>Notas internas</span>
+            <textarea className="input" name="notes" rows={4} defaultValue={t.crmNotes ?? ""} />
+          </label>
+          <button className="btn small" type="submit">
+            Guardar notas
+          </button>
+        </form>
       </section>
 
       <section className="card tight">

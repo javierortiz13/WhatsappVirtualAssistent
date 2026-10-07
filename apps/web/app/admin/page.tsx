@@ -108,24 +108,39 @@ export default async function AdminHome({
         </div>
       </section>
 
-      <section className="card">
-        <span className="sect">Modo de lanzamiento</span>
+      <section className="card stack-sm">
+        <div className="admin-head">
+          <span className="label">Modo de lanzamiento</span>
+          <span className={`badge ${launch.beta ? "warn" : "ok"}`}>
+            {launch.beta ? "BETA" : "LIVE"}
+          </span>
+        </div>
+        <form action={saveLaunchAction}>
+          <input type="hidden" name="survey_day" value={launch.surveyDay} />
+          <input type="hidden" name="value_day" value={launch.valueDay} />
+          <fieldset className="switch2" aria-label="Modo de lanzamiento">
+            <button type="submit" name="mode" value="beta" aria-pressed={launch.beta}>
+              <strong className="sw-t">Beta</strong>
+              <small>Sin precios en la prueba</small>
+            </button>
+            <button type="submit" name="mode" value="live" aria-pressed={!launch.beta}>
+              <strong className="sw-t">Live</strong>
+              <small>Con precios siempre</small>
+            </button>
+          </fieldset>
+        </form>
         <p className="sub">
           {launch.beta
-            ? 'Beta: durante la prueba gratis Rocco no da precios; solo dice cuántos días y mensajes quedan. Al terminar la prueba muestra los precios y cómo pagar. La web dice "14 días gratis".'
-            : "Live: Rocco y la web muestran los precios siempre."}
+            ? 'Durante la prueba gratis Rocco no da precios: solo cuántos días y mensajes quedan. Al terminar la prueba muestra los precios y cómo pagar. La web dice "14 días gratis".'
+            : "Rocco y la web muestran los precios siempre."}{" "}
+          Toca el otro botón para cambiar; aplica desde el próximo mensaje.
         </p>
-        <form action={saveLaunchAction} className="stack-sm">
-          <div className="grid-3 admin-grid">
+        <form action={saveLaunchAction} className="stack-sm admin-days">
+          <input type="hidden" name="mode" value={launch.beta ? "beta" : "live"} />
+          <span className="label">Ciclo de la prueba</span>
+          <div className="grid-2 admin-grid">
             <label className="field">
-              <span>Modo</span>
-              <select className="input" name="mode" defaultValue={launch.beta ? "beta" : "live"}>
-                <option value="beta">Beta (sin precios en la prueba)</option>
-                <option value="live">Live (con precios)</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>Encuesta de precio (día)</span>
+              <span>Encuesta de precio, día</span>
               <input
                 className="input"
                 name="survey_day"
@@ -136,7 +151,7 @@ export default async function AdminHome({
               />
             </label>
             <label className="field">
-              <span>Resumen y "¿seguimos?" (día)</span>
+              <span>Resumen y "¿seguimos?", día</span>
               <input
                 className="input"
                 name="value_day"
@@ -147,8 +162,8 @@ export default async function AdminHome({
               />
             </label>
           </div>
-          <button className="btn" type="submit">
-            Guardar
+          <button className="btn small secondary" type="submit">
+            Guardar días
           </button>
         </form>
       </section>

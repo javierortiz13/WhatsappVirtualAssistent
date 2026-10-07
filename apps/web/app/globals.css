@@ -1986,3 +1986,82 @@ figure.chat-mock {
 .btn.wa svg {
   flex: none;
 }
+
+/* /admin: cabecera con insignia, interruptor de dos opciones y ficha del negocio. */
+.admin-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+}
+.switch2 {
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 4px;
+  border-radius: var(--radius-2);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.switch2 button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--space-3) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.switch2 .sw-t {
+  font-size: 16px;
+}
+.switch2 button small {
+  font-size: 12px;
+}
+.switch2 button[aria-pressed="true"] {
+  background: var(--mint-soft);
+  border-color: rgba(63, 224, 176, 0.5);
+  color: var(--mint);
+  cursor: default;
+}
+.admin-days {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.admin-meters {
+  margin-top: var(--space-4);
+}
+.admin-meters .usage {
+  margin: var(--space-2) 0 0;
+}
+.admin-meters .tile-n .sub {
+  font-size: 13px;
+  font-weight: 400;
+}
+.admin-sub {
+  margin: 0 0 var(--space-1);
+  padding-top: var(--space-4);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mint);
+}
+.label + .admin-sub {
+  padding-top: var(--space-2);
+}
+.admin-actions {
+  margin-top: var(--space-4);
+}
+.admin-meters {
+  gap: var(--space-2);
+}
+.line strong.neg {
+  color: var(--amber);
+}
