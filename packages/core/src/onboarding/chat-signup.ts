@@ -1,7 +1,7 @@
 import { createHash, randomInt } from "node:crypto";
 import { and, type Db, eq, gt, isNull, schema, sql, type Tx } from "@caja/db";
 import { DEFAULT_EXPENSE_CATEGORIES } from "@caja/db/seed-data";
-import { planById } from "../billing/plans";
+import { TRIAL_MESSAGES } from "../billing/plans";
 import { Decimal, parseVenezuelanAmount } from "../domain/money";
 import type { AccountKind } from "../ledger/accounts";
 import { es, type Outbound, parseReplyId } from "../render/index";
@@ -346,9 +346,7 @@ export async function handleSignup(
             es.signupDone({
               ...doneView(final),
               founderUntil: created.founderUntil,
-              trialMessages: planById(
-                (final.businessType ?? "personal") === "personal" ? "personal" : "negocio",
-              ).trialMessages,
+              trialMessages: TRIAL_MESSAGES,
             }),
             es.signupTour(cfg.dashboardUrl, final.kind ?? "personal"),
           ],

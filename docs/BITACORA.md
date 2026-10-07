@@ -1028,3 +1028,17 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 **Migración 0021 (aplicada en producción):** `app.app_setting` (global, como `bcv_rate`), con `launch = {beta: true, surveyDay: 10, valueDay: 12}`.
 
 **Tests:** beta sin precios (texto y botón viejo), fin de la prueba con precios (una sola vez), prueba suspendida sin pago, días configurables. 410 tests en core.
+
+### S2 · 07/10/2026 · Una sola prueba gratis: 14 días o 100 mensajes para todos
+
+**Pedido (Javier):** que nadie pueda elegir Plus para tener más prueba gratis. Una sola prueba, cuidando el capital.
+
+**Hecho:**
+- **Prueba única:** `TRIAL_MESSAGES = 100` y una red de seguridad de $4 (`TRIAL_BUDGET_USD`), iguales para todos los planes. Antes eran 100/200/300 y $4/$8/$12 según el plan. El plan se elige al pagar.
+- **Mensajes regalados en la prueba:** "Regalar +100 mensajes" en /admin ahora sube el tope de la prueba (100 + regalados) y la red de seguridad en proporción. En la prueba, los regalos se acumulan aunque cambie el mes. En un plan pagado siguen valiendo para el mes.
+- **Registro web:** el primer paso ya no pide plan. Pregunta "¿Cómo lo vas a usar?" (finanzas personales o negocio) y explica "14 días o 100 mensajes gratis; el plan lo eliges cuando termine". El servidor solo acepta personal o negocio.
+- **Landing:** "14 días o 100 mensajes gratis, lo que llegue primero".
+- **Pilotos en prueba:** el autolavado (133 mensajes) y "Finanzas personales" (87) empezaron con 200. Se les regalaron +100 en producción, con registro en `audit_log`, para que mantengan 200.
+- **Excel:** la prueba única baja el costo por cliente conseguido entre dueños de negocio de ~$11 a ~$5,7 (peor caso).
+
+**Tests:** el tope único, el regalo que sube el tope de la prueba y vuelve a responder, y la beta con 100 mensajes. 409 en core.

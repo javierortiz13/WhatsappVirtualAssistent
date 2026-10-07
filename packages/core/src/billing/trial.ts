@@ -1,10 +1,10 @@
 import { and, eq, gte, rows, schema, sql, type Tx } from "@caja/db";
 import { Decimal } from "../domain/money";
-import { planById } from "./plans";
+import { TRIAL_BUDGET_USD, TRIAL_MESSAGES } from "./plans";
 
 /**
  * Límites de la prueba gratis. Desde el 07/10/2026 la prueba se mide en MENSAJES del usuario (100
- * en Personal, 200 en Negocio, 300 en Plus; `plan.trialMessages`). El tope de gasto (0016) queda
+ * para todos, `TRIAL_MESSAGES`). El tope de gasto (0016) queda
  * como red de seguridad. Mientras el negocio está en prueba se suma lo que costó desde que se
  * registró:
  * - IA: `message.cost_usd` de cada turno (agente y lectura de fotos), exacto;
@@ -22,6 +22,8 @@ export type TrialTenant = {
   status: string;
   createdAt: Date;
   trialBudgetUsd: string | null;
+  /** Mensajes regalados desde /admin: en la prueba suben su tope (07/10). */
+  extraMessages?: number;
 };
 
 export type TrialSpend = {
@@ -40,10 +42,18 @@ export type TrialSpend = {
   byMessages: boolean;
 };
 
-export function trialBudget(t: Pick<TrialTenant, "plan" | "trialBudgetUsd">): Decimal {
+/** Mensajes de la prueba: los 100 de todos más los que regaló el administrador. */
+export function trialMessageCap(t: Pick<TrialTenant, "extraMessages">): number {
+  return TRIAL_MESSAGES + Math.max(0, t.extraMessages ?? 0);
+}
+
+/** Red de seguridad en USD: la propia del negocio o $4 por cada 100 mensajes de su prueba. */
+export function trialBudget(
+  t: Pick<TrialTenant, "plan" | "trialBudgetUsd" | "extraMessages">,
+): Decimal {
   return t.trialBudgetUsd !== null
     ? new Decimal(t.trialBudgetUsd)
-    : new Decimal(planById(t.plan).trialBudgetUsd);
+    : new Decimal(TRIAL_BUDGET_USD).mul(trialMessageCap(t)).div(TRIAL_MESSAGES);
 }
 
 export async function trialSpend(
@@ -75,7 +85,7 @@ export async function trialSpend(
   const spentUsd = aiUsd.plus(metaUsd).plus(voiceUsd);
   const budgetUsd = trialBudget(t);
   const messages = Number(r?.inbound ?? 0);
-  const messageCap = planById(t.plan).trialMessages;
+  const messageCap = trialMessageCap(t);
   // El mensaje que llega ya está guardado: con 100 incluidos, el 101 es el que para.
   const byMessages = messages > messageCap;
   return {

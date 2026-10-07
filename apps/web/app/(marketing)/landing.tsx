@@ -128,8 +128,8 @@ export function Landing({
             <h2>Un plan para tu bolsillo y otro para tu negocio.</h2>
             <p className="lead">
               {beta
-                ? "Durante la beta pruebas Rocco gratis por 14 días, contados desde el día que empiezas a usarlo. Y los primeros 50 tendrán precio de fundador."
-                : `Empiezas con 14 días gratis. Los primeros 50 tienen precio de fundador: 40 % menos. ${PILOT_NOTE}`}
+                ? "Durante la beta pruebas Rocco gratis: 14 días o 100 mensajes, lo que llegue primero, contados desde el día que empiezas. El plan lo eliges al terminar. Y los primeros 50 tendrán precio de fundador."
+                : `Empiezas con 14 días o 100 mensajes gratis. Los primeros 50 tienen precio de fundador: 40 % menos. ${PILOT_NOTE}`}
             </p>
           </div>
           <div className="plans" style={{ marginTop: 36 }}>
@@ -142,7 +142,7 @@ export function Landing({
                 <div className="price num">
                   {beta ? (
                     <>
-                      14 días gratis <small>{p.trialMessages} mensajes</small>
+                      14 días gratis <small>100 mensajes</small>
                     </>
                   ) : (
                     <>
@@ -376,7 +376,7 @@ function scenes(waUrl: string | null): Scene[] {
       ),
       caption: {
         title: "Empieza hoy, sin instalar nada.",
-        text: "Sin tarjeta: durante la beta tienes 14 días gratis desde el día que empiezas.",
+        text: "Sin tarjeta: durante la beta tienes 14 días o 100 mensajes gratis, lo que llegue primero, desde el día que empiezas.",
       },
     },
   ];

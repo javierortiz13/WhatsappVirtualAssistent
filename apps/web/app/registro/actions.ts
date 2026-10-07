@@ -30,7 +30,8 @@ const Account = z.object({
 });
 
 const WizardForm = z.object({
-  plan: z.enum(["personal", "negocio", "negocio_plus"]),
+  // Prueba única (07/10): se entra como personal o negocio; Plus se elige al pagar.
+  plan: z.enum(["personal", "negocio"]),
   name: z.string().trim().min(2).max(80),
   business_type: z.enum(Object.keys(BUSINESS_TYPE_LABELS) as [string, ...string[]]),
   currency: z.enum(["USD", "VES"]),

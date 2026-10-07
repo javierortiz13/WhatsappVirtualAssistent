@@ -1,4 +1,12 @@
-import { es, latestRates, launchSettings, PLANS, quote, RECHARGE } from "@caja/core";
+import {
+  es,
+  latestRates,
+  launchSettings,
+  PLANS,
+  quote,
+  RECHARGE,
+  TRIAL_BUDGET_USD,
+} from "@caja/core";
 import { businessDateOf, formatShortDate } from "@caja/core/domain";
 import { loadTenantDetail, requireAdmin } from "@/lib/admin";
 import { db } from "@/lib/db";
@@ -23,7 +31,7 @@ const OK: Record<string, string> = {
   guardado: "Cambio guardado.",
   papelera: "Negocio en la papelera: se borra solo en 15 días.",
   recuperado: "Negocio recuperado de la papelera.",
-  recarga: `Recarga regalada: +${RECHARGE.messages} mensajes este mes.`,
+  recarga: `Regalados +${RECHARGE.messages} mensajes: en la prueba suben su tope; en un plan pagado valen este mes.`,
 };
 const bucket = (id: string | undefined) =>
   id ? (es.PRICE_BUCKETS.find((b) => b.id === id)?.title ?? id) : "sin respuesta";
@@ -442,7 +450,7 @@ export default async function AdminTenant({
                 name="budget"
                 inputMode="decimal"
                 defaultValue={t.trialBudgetUsd ?? ""}
-                placeholder={`${d.plan.trialBudgetUsd} (plan)`}
+                placeholder={`${TRIAL_BUDGET_USD} (por defecto)`}
                 aria-label="Tope de gasto de la prueba en USD"
               />
               <button className="btn secondary small" type="submit">

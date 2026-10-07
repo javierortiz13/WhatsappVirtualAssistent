@@ -5,7 +5,7 @@ import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { LlmClient } from "../src/agent/llm";
 import { createAgent } from "../src/agent/loop";
-import { approvePayment } from "../src/billing/payments";
+import { addExtraMessages, approvePayment } from "../src/billing/payments";
 import { founderUntilFrom } from "../src/billing/plans";
 import { withDiscount } from "../src/billing/pricing";
 import { renewOfferReply } from "../src/billing/renew-chat";
@@ -249,6 +249,7 @@ describe("límite del mes y recargas por WhatsApp", () => {
           status: "trial",
           createdAt: new Date(clock.getTime() - 86_400_000),
           capWarnedMonth: null,
+          extraMessages: 0,
         })
         .where(eq(schema.tenant.id, tenantId)),
     );
@@ -263,9 +264,21 @@ describe("límite del mes y recargas por WhatsApp", () => {
     await send("y uno más");
     expect(agentCalls).toBe(calls);
     expect(textOf(sent.at(-1))).toContain("Usaste los *100 mensajes* de tu prueba gratis");
+    // El administrador le regala +100: el tope de la prueba sube y Rocco vuelve a responder.
+    await withTenant(t.db, tenantId, async (tx) => {
+      const [tn] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId));
+      if (tn)
+        await addExtraMessages(tx, { ...tn, extraMessages: 0 }, 100, ADMIN, clock, "admin_gift");
+    });
+    await send("gasté en pan");
+    expect(agentCalls).toBe(calls + 1);
+    expect(textOf(sent.at(-1))).toBe("¿Cuánto fue?");
   });
 
   it("renovar con precio fundador: 40 % menos y la línea que lo explica", async () => {
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.update(schema.tenant).set({ status: "active" }).where(eq(schema.tenant.id, tenantId)),
+    );
     const out = await withTenant(t.db, tenantId, (tx) =>
       renewOfferReply(tx, {
         tenantId,

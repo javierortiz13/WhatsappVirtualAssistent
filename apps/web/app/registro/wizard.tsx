@@ -34,13 +34,20 @@ type Props = {
 
 type AccountDraft = { template: string; name: string; opening: string };
 
-const STEPS = ["Plan", "Perfil", "Categorías", "Cuentas", "WhatsApp"] as const;
+const STEPS = ["Uso", "Perfil", "Categorías", "Cuentas", "WhatsApp"] as const;
 const OTHERS = "Otros";
 
 const PLAN_ICON: Record<PlanView["id"], string> = {
   personal: "🙋",
   negocio: "🏪",
   negocio_plus: "🏢",
+};
+
+/** Paso 1 (07/10): para qué es, no qué plan. La prueba es la misma; el plan se elige al pagar. */
+const USE_TITLE: Record<PlanView["id"], string> = {
+  personal: "Para mis finanzas personales",
+  negocio: "Para mi negocio",
+  negocio_plus: "Para mi negocio",
 };
 
 /**
@@ -152,7 +159,10 @@ export function RegistroWizard(props: Props) {
         {step === 0 ? (
           <>
             <h1>¿Cómo lo vas a usar?</h1>
-            <p className="lead">Elige tu plan. Puedes cambiarlo cuando quieras.</p>
+            <p className="lead">
+              La prueba es igual para todos: 14 días o 100 mensajes gratis. El plan lo eliges cuando
+              termine.
+            </p>
             <div className="choice-list">
               {props.plans.map((p) => (
                 <button
@@ -165,12 +175,12 @@ export function RegistroWizard(props: Props) {
                   <span className="choice-icon">{PLAN_ICON[p.id]}</span>
                   <span className="choice-text">
                     <strong className="choice-title">
-                      {p.name}
-                      <span className="price">
-                        {props.beta
-                          ? "14 días gratis"
-                          : `$${p.priceUsd.toFixed(2).replace(".", ",")}/mes`}
-                      </span>
+                      {USE_TITLE[p.id]}
+                      {props.beta ? null : (
+                        <span className="price">
+                          desde ${p.priceUsd.toFixed(2).replace(".", ",")}/mes
+                        </span>
+                      )}
                     </strong>
                     <span>{p.tagline}</span>
                     {plan === p.id ? (
@@ -457,8 +467,8 @@ export function RegistroWizard(props: Props) {
                 <p className="recap-text">
                   <strong>{name.trim() || "Tu cuenta"}</strong>
                   <br />
-                  Plan {props.plans.find((p) => p.id === plan)?.name} · {categories.length}{" "}
-                  categorías · {accounts.length === 1 ? "1 cuenta" : `${accounts.length} cuentas`}
+                  {personal ? "Finanzas personales" : "Negocio"} · {categories.length} categorías ·{" "}
+                  {accounts.length === 1 ? "1 cuenta" : `${accounts.length} cuentas`}
                 </p>
               </div>
             </div>

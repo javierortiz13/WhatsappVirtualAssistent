@@ -12,16 +12,6 @@ export type Plan = {
   tagline: string;
   /** Mensajes del usuario al asistente por mes (los del bot y las reacciones no cuentan). */
   messagesPerMonth: number;
-  /**
-   * Mensajes de la prueba gratis (07/10/2026, decisión de Javier): al pasarlos, Rocco deja de
-   * registrar y ofrece activar el plan. Menos que un mes pagado.
-   */
-  trialMessages: number;
-  /**
-   * Red de seguridad de la prueba en USD (IA + Meta + voz), por si alguien manda muchas fotos:
-   * ~2 veces lo que cuestan sus mensajes. Al llegar, el bot también para.
-   */
-  trialBudgetUsd: number;
   numbers: number;
   employees: number;
   features: string[];
@@ -35,8 +25,6 @@ export const PLANS: Plan[] = [
     priceUsd: 5.99,
     tagline: "Un asistente para tu plata de todos los días, sin abrir una app.",
     messagesPerMonth: 120,
-    trialMessages: 100,
-    trialBudgetUsd: 4,
     numbers: 1,
     employees: 0,
     features: [
@@ -54,8 +42,6 @@ export const PLANS: Plan[] = [
     priceUsd: 19.99,
     tagline: "Hace la parte de la caja que hoy hace una persona. Tú y un empleado.",
     messagesPerMonth: 400,
-    trialMessages: 200,
-    trialBudgetUsd: 8,
     numbers: 2,
     employees: 1,
     features: [
@@ -74,8 +60,6 @@ export const PLANS: Plan[] = [
     priceUsd: 39.99,
     tagline: "Varios turnos o varias personas registrando. Mismo asistente.",
     messagesPerMonth: 1000,
-    trialMessages: 300,
-    trialBudgetUsd: 12,
     numbers: 4,
     employees: 3,
     features: [
@@ -116,6 +100,19 @@ export const RECHARGE = RECHARGES[1] as RechargePack;
 export function rechargeById(id: string | null | undefined): RechargePack {
   return RECHARGES.find((r) => r.id === id) ?? RECHARGE;
 }
+
+/**
+ * Prueba gratis única (07/10/2026, decisión de Javier): 14 días o 100 mensajes, lo que llegue
+ * primero, igual para todos. El plan se elige al pagar: así nadie escoge Plus para tener más
+ * prueba. Quien la agota con uso real es el mejor momento para cobrar; si vale la pena, el
+ * administrador le regala mensajes desde /admin.
+ */
+export const TRIAL_MESSAGES = 100;
+/**
+ * Red de seguridad de la prueba en USD (IA + Meta + voz), por si alguien manda muchas fotos:
+ * ~2 veces lo que cuestan 100 mensajes. Al llegar, el bot también para.
+ */
+export const TRIAL_BUDGET_USD = 4;
 
 /** Aviso único cuando la prueba gratis llega a este porcentaje de sus mensajes. */
 export const TRIAL_WARN_PCT = 80;

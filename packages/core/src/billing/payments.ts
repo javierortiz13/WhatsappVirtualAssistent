@@ -204,7 +204,8 @@ export async function addExtraMessages(
   reason: "approve_recharge" | "admin_gift",
 ): Promise<number> {
   const month = caracasMonth(now).key;
-  const before = t.extraMonth === month ? t.extraMessages : 0;
+  // En la prueba los regalos se acumulan aunque cambie el mes: suben el tope de la prueba.
+  const before = t.status === "trial" || t.extraMonth === month ? t.extraMessages : 0;
   const after = Math.max(0, before + messages);
   await tx
     .update(schema.tenant)

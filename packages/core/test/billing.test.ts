@@ -287,10 +287,10 @@ describe("tope de gasto de la prueba (0016)", () => {
   const spendOf = (r: Parameters<typeof trialSpend>[1]) =>
     withTenant(t.db, tenantId, (tx) => trialSpend(tx, r));
 
-  it("tope por plan, o el propio del negocio", () => {
+  it("tope único de la prueba, o el propio del negocio", () => {
     expect(trialBudget({ plan: "personal", trialBudgetUsd: null }).toFixed(2)).toBe("4.00");
-    expect(trialBudget({ plan: "negocio", trialBudgetUsd: null }).toFixed(2)).toBe("8.00");
-    expect(trialBudget({ plan: "negocio_plus", trialBudgetUsd: null }).toFixed(2)).toBe("12.00");
+    expect(trialBudget({ plan: "negocio", trialBudgetUsd: null }).toFixed(2)).toBe("4.00");
+    expect(trialBudget({ plan: "negocio_plus", trialBudgetUsd: null }).toFixed(2)).toBe("4.00");
     expect(trialBudget({ plan: "personal", trialBudgetUsd: "20.00" }).toFixed(2)).toBe("20.00");
   });
 

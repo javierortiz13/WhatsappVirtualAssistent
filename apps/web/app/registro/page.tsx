@@ -60,7 +60,7 @@ export default async function Registro({
           </a>
         </div>
         <RegistroWizard
-          plans={PLANS.map((p) => ({
+          plans={PLANS.filter((p) => p.id !== "negocio_plus").map((p) => ({
             id: p.id,
             name: p.name,
             priceUsd: p.priceUsd,
@@ -74,7 +74,7 @@ export default async function Registro({
           suggestions={SUGGESTED_EXPENSE_CATEGORIES}
           maxCategories={MAX_ACTIVE_CATEGORIES}
           maxAccounts={ONBOARDING_MAX_ACCOUNTS}
-          pilotNote="Durante la beta tienes 14 días gratis, contados desde hoy."
+          pilotNote="14 días o 100 mensajes gratis, lo que llegue primero. Sin tarjeta."
           beta={(await launchSettings(db()).catch(() => LAUNCH_DEFAULTS)).beta}
         />
       </>
