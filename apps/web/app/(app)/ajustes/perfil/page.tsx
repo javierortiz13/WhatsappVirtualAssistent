@@ -64,7 +64,7 @@ export default async function Perfil({
           <span>Tu nombre</span>
           <input className="input" name="name" defaultValue={name} maxLength={60} required />
         </label>
-        <p className="hint">Así te saluda el asistente por WhatsApp.</p>
+        <p className="hint">Así te saluda Rocco por WhatsApp.</p>
         <button className="btn block" type="submit">
           Guardar
         </button>

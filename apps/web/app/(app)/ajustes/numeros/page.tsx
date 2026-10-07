@@ -50,14 +50,14 @@ export default async function Numeros({
       ) : null}
       {sp.ok === "alta" ? (
         <div className="notice ok">
-          Listo. Cuando ese número le escriba al asistente por primera vez, recibe la bienvenida y
-          ya puede registrar gastos y ventas.
+          Listo. Cuando ese número le escriba a Rocco por primera vez, recibe la bienvenida y ya
+          puede registrar gastos y ventas.
         </div>
       ) : null}
       {owner?.status === "pending" ? (
         <div className="notice err">
           Tu número todavía no está vinculado. <a href="/registro">Vincúlalo aquí</a> para poder
-          escribirle al asistente.
+          escribirle a Rocco.
         </div>
       ) : null}
       <div className="card tight">
@@ -126,7 +126,7 @@ export default async function Numeros({
           />
           <p className="sub">
             El empleado registra gastos y ventas; los cierres los ves solo tú. No necesita código:
-            con escribirle al asistente queda activo.
+            con escribirle a Rocco queda activo.
           </p>
           <div className="center">
             <button className="btn" type="submit">

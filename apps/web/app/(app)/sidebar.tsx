@@ -53,7 +53,7 @@ const TITLES: [string, string][] = [
 ];
 
 function titleFor(path: string): string {
-  return TITLES.find(([p]) => path === p || path.startsWith(p))?.[1] ?? "Caja";
+  return TITLES.find(([p]) => path === p || path.startsWith(p))?.[1] ?? "Rocco";
 }
 
 /**
@@ -147,7 +147,7 @@ export function Shell({ children, ...p }: SidebarProps & { children: ReactNode }
           {p.assistantUrl ? (
             <a className="menu-item" href={p.assistantUrl} target="_blank" rel="noreferrer">
               <IconChat />
-              Abrir el asistente
+              Abrir el chat con Rocco
             </a>
           ) : null}
           <form action="/auth/logout" method="post">

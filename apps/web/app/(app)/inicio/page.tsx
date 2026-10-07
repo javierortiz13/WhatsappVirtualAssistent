@@ -76,7 +76,7 @@ export default async function Inicio({
     {
       done: owner?.status === "active",
       title: "Vincular tu WhatsApp",
-      sub: "Envía el código al asistente",
+      sub: "Envía el código a Rocco",
       href: "/registro",
     },
     {

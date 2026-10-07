@@ -188,7 +188,7 @@ export function RegistroWizard(props: Props) {
             <h1>{personal ? "Cuéntanos de ti" : "Tu negocio"}</h1>
             <p className="lead">
               {personal
-                ? "Así te saluda el asistente y sabe en qué moneda hablas."
+                ? "Así te saluda Rocco y sabe en qué moneda hablas."
                 : "Con esto preparamos tus categorías y tus cierres."}
             </p>
             <div className="panel stack">
@@ -352,8 +352,7 @@ export function RegistroWizard(props: Props) {
           <>
             <h1>¿Dónde tienes tu dinero?</h1>
             <p className="lead">
-              Crea tus cuentas y el asistente te dice cuánto queda en cada una. Puedes saltar este
-              paso.
+              Crea tus cuentas y Rocco te dice cuánto queda en cada una. Puedes saltar este paso.
             </p>
             <div className="tiles">
               {ACCOUNT_TEMPLATES.map((t) => {
@@ -421,8 +420,8 @@ export function RegistroWizard(props: Props) {
           <>
             <h1>Tu WhatsApp</h1>
             <p className="lead">
-              El número desde el que le vas a escribir al asistente. En el siguiente paso lo
-              confirmas con un código.
+              El número desde el que le vas a escribir a Rocco. En el siguiente paso lo confirmas
+              con un código.
             </p>
             <div className="panel stack">
               <div className="phone-row">

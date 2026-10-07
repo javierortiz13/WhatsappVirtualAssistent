@@ -92,8 +92,8 @@ export default async function Categorias({
       {isOwner ? (
         <p className="sub">
           <strong>Presupuesto:</strong> un tope en dólares, mensual o quincenal (del 1 al 15 y del
-          16 al fin de mes). Al guardar un gasto el asistente te dice cuánto te queda. Déjalo vacío
-          para quitarlo.
+          16 al fin de mes). Al guardar un gasto Rocco te dice cuánto te queda. Déjalo vacío para
+          quitarlo.
         </p>
       ) : null}
       <div className="card tight">

@@ -79,8 +79,8 @@ export default async function Cuentas({
           <h2>¿Dónde tienes tu dinero?</h2>
           <p className="sub">
             Crea una cuenta por cada lugar: tu banco en bolívares, Binance, Zelle, el efectivo.
-            Cuando registres un gasto o una venta por el chat, el asistente sabe de qué cuenta salió
-            (<em>pagué 500 Bs de luz con Banesco</em>, <em>me pagaron 30$ por Zelle</em>) y te dice
+            Cuando registres un gasto o una venta por el chat, Rocco sabe de qué cuenta salió (
+            <em>pagué 500 Bs de luz con Banesco</em>, <em>me pagaron 30$ por Zelle</em>) y te dice
             cuánto te queda en cada una.
           </p>
           <p className="sub">Son opcionales: sin cuentas todo sigue igual.</p>

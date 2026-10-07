@@ -2,18 +2,16 @@ import { PILOT_NOTE, PLANS } from "@/lib/plans";
 import { Effects } from "./effects";
 import { type Scene, Story } from "./story";
 
-/** Sueldo de referencia de una administradora de caja en Venezuela (USD/mes). Hipótesis del fundador. */
-const ADMIN_SALARY = 300;
-const NEGOCIO = PLANS.find((p) => p.id === "negocio") ?? PLANS[1];
 const money = (n: number | undefined) => `$${(n ?? 0).toFixed(2).replace(".", ",")}`;
 
 /**
- * Landing pública. Posicionamiento: un asistente administrativo por WhatsApp que hace la parte
- * de la caja que hoy hace una persona, por una fracción del sueldo. La página es una conversación:
- * el visitante "le escribe" al asistente al hacer scroll y las respuestas son el servicio.
+ * Landing pública con la marca Rocco (07/10/2026): "tu amigo fiel con tus finanzas", un pug que
+ * te lleva las cuentas por WhatsApp. Sirve para lo personal y para el negocio. La página es una
+ * conversación: el visitante "le escribe" a Rocco al hacer scroll y las respuestas son el
+ * servicio. Colores de siempre; cambia el texto (guía de voz: docs/marca/rocco.md).
  */
 export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto: string | null }) {
-  const primary = waUrl ?? "/login";
+  const primary = waUrl ?? "/registro";
   return (
     <div className="lp">
       <Effects />
@@ -21,7 +19,7 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
         <div className="wrap">
           <a className="logo" href="/">
             <Logo />
-            Asistente de Caja
+            Rocco
           </a>
           <nav className="links" aria-label="Secciones">
             <a href="#historia">Cómo funciona</a>
@@ -32,8 +30,13 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
           <a className="enter" href="/login">
             Entrar
           </a>
-          <a className="btn small" href="/registro">
-            Crear cuenta
+          <a
+            className="btn small"
+            href={primary}
+            target={waUrl ? "_blank" : undefined}
+            rel="noreferrer"
+          >
+            Probar gratis
           </a>
         </div>
       </header>
@@ -41,15 +44,16 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
       <section className="lp-hero">
         <div className="wrap">
           <div>
-            <span className="eyebrow">Asistente administrativo por WhatsApp</span>
+            <span className="eyebrow">Rocco · Fiel a tus cuentas</span>
             <h1>
-              Una administradora cuesta <span className="accent">${ADMIN_SALARY}</span> al mes.
+              Tu amigo fiel
               <br />
-              Tu asistente, <span className="accent">{money(NEGOCIO?.priceUsd)}</span>.
+              con tus <span className="accent">finanzas</span>.
             </h1>
             <p className="lead">
-              Lleva la caja de tu negocio desde el chat: anota gastos y ventas, cuida la tasa BCV y
-              te da el cierre cada noche. Sin app, sin Excel, sin sueldo.
+              Rocco te lleva las cuentas por WhatsApp. Le escribes como a un pana, le mandas una
+              nota de voz o la foto de la factura, y él anota tus gastos y ventas en bolívares y
+              dólares con la tasa del día. Sin apps, sin Excel, sin cuaderno.
             </p>
             <div className="ctas">
               <a
@@ -59,15 +63,15 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
                 rel="noreferrer"
               >
                 <WaIcon />
-                Probar por WhatsApp
+                Escribirle a Rocco
               </a>
               <a className="btn lg secondary" href="/registro">
-                Crear mi cuenta
+                Crear cuenta en la web
               </a>
             </div>
             <div className="trust">
-              <span className="pill">Responde en segundos, 7 días</span>
-              <span className="pill">Bs y $ con tasa BCV</span>
+              <span className="pill">Tu cuenta se crea en el mismo chat</span>
+              <span className="pill">Bs, $ y USDT con tasa BCV</span>
               <span className="pill">Texto, voz y foto</span>
             </div>
           </div>
@@ -75,7 +79,7 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
             <figure className="hero-photo reveal d1">
               <img
                 src={heroPhoto}
-                alt="Dueño de un negocio registrando un gasto por WhatsApp desde su mostrador"
+                alt="Persona anotando un gasto con Rocco por WhatsApp"
                 width={920}
                 height={1150}
               />
@@ -85,7 +89,7 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
             <Compare />
           )}
           <a className="scroll-hint" href="#historia">
-            Desliza y háblale <span>↓</span>
+            Desliza y háblale a Rocco <span>↓</span>
           </a>
         </div>
       </section>
@@ -93,14 +97,17 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
       <div id="historia" style={{ scrollMarginTop: 72 }}>
         <Story scenes={scenes(waUrl)}>
           <div className="ctas">
-            <a className="btn lg" href="/registro">
-              Crear mi cuenta
+            <a
+              className="btn lg"
+              href={primary}
+              target={waUrl ? "_blank" : undefined}
+              rel="noreferrer"
+            >
+              Escribirle a Rocco
             </a>
-            {waUrl ? (
-              <a className="btn lg secondary" href={waUrl} target="_blank" rel="noreferrer">
-                Escribirle ahora
-              </a>
-            ) : null}
+            <a className="btn lg secondary" href="/registro">
+              Crear cuenta en la web
+            </a>
           </div>
         </Story>
       </div>
@@ -109,8 +116,11 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
         <div className="wrap">
           <div className="reveal">
             <span className="eyebrow">Planes</span>
-            <h2>Lo que cuesta una tarde de trabajo, no un sueldo.</h2>
-            <p className="lead">{PILOT_NOTE}</p>
+            <h2>Un plan para tu bolsillo y otro para tu negocio.</h2>
+            <p className="lead">
+              Empiezas con 14 días gratis. Los primeros 50 tienen precio de fundador: 40 % menos.{" "}
+              {PILOT_NOTE}
+            </p>
           </div>
           <div className="plans" style={{ marginTop: 36 }}>
             {PLANS.map((p, i) => (
@@ -128,8 +138,13 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
                     <li key={f}>{f}</li>
                   ))}
                 </ul>
-                <a className={`btn${p.highlight ? "" : " secondary"}`} href="/registro">
-                  Empezar con {p.name}
+                <a
+                  className={`btn${p.highlight ? "" : " secondary"}`}
+                  href={primary}
+                  target={waUrl ? "_blank" : undefined}
+                  rel="noreferrer"
+                >
+                  Probar gratis
                 </a>
               </div>
             ))}
@@ -141,7 +156,7 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
         <div className="wrap">
           <div className="reveal" style={{ textAlign: "center", marginBottom: 32 }}>
             <span className="eyebrow">Preguntas</span>
-            <h2>Lo que todo el mundo pregunta primero.</h2>
+            <h2>Lo que todo el mundo le pregunta a Rocco primero.</h2>
           </div>
           <div className="faq">
             {FAQ.map((q) => (
@@ -157,20 +172,24 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
       <section className="lp-final">
         <div className="wrap">
           <div className="card reveal">
-            <h2>Esta noche, que la caja la cuadre él.</h2>
+            <h2>Hoy mismo, que las cuentas las lleve Rocco.</h2>
             <p className="lead" style={{ margin: "12px auto 24px" }}>
-              Crea tu cuenta, vincula tu número con un código y escríbele tu primer gasto. Toma tres
-              minutos.
+              Escríbele <strong>hola</strong> por WhatsApp y crea tu cuenta en el mismo chat. Toma
+              dos minutos y tienes 14 días gratis.
             </p>
             <div className="ctas" style={{ justifyContent: "center" }}>
-              <a className="btn lg" href="/registro">
-                Crear mi cuenta
+              <a
+                className="btn lg wa"
+                href={primary}
+                target={waUrl ? "_blank" : undefined}
+                rel="noreferrer"
+              >
+                <WaIcon />
+                Escribirle a Rocco
               </a>
-              {waUrl ? (
-                <a className="btn lg secondary" href={waUrl} target="_blank" rel="noreferrer">
-                  Escribirle al asistente
-                </a>
-              ) : null}
+              <a className="btn lg secondary" href="/registro">
+                Crear cuenta en la web
+              </a>
             </div>
           </div>
         </div>
@@ -178,7 +197,7 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
 
       <footer className="lp-foot">
         <div className="wrap">
-          <span>© {new Date().getFullYear()} Asistente de Caja · JP Software</span>
+          <span>© {new Date().getFullYear()} Rocco · Fiel a tus cuentas · JP Software</span>
           <nav aria-label="Legal">
             <a href="/privacidad">Privacidad</a>
             <a href="/eliminar-datos">Eliminar mis datos</a>
@@ -194,14 +213,16 @@ function Compare() {
   return (
     <div className="hero-compare reveal d1" aria-hidden="true">
       <div className="card cmp">
-        <span className="label">Administradora</span>
-        <p className="big num amber">${ADMIN_SALARY}</p>
-        <p className="sub">al mes · un turno · se enferma, se va de vacaciones</p>
+        <span className="label">Sin Rocco</span>
+        <p className="big num amber">3 apps</p>
+        <p className="sub">
+          cuaderno, calculadora y Excel para cada gasto, y la tasa en otra pestaña
+        </p>
       </div>
       <div className="card cmp hi">
-        <span className="label">Asistente · plan Negocio</span>
-        <p className="big num mint">{money(NEGOCIO?.priceUsd)}</p>
-        <p className="sub">al mes · 24 horas · nunca se le olvida la tasa</p>
+        <span className="label">Con Rocco</span>
+        <p className="big num mint">1 chat</p>
+        <p className="sub">le escribes como a un pana y él anota, convierte y suma por ti</p>
       </div>
     </div>
   );
@@ -210,38 +231,37 @@ function Compare() {
 function scenes(waUrl: string | null): Scene[] {
   return [
     {
-      user: "hola",
+      user: "hola Rocco",
       bot: (
         <>
-          Hola 👋 Soy tu asistente de caja. Hago lo que una administradora hace con la caja: anoto
-          lo que entra y lo que sale, lo cuadro y te aviso. ¿Qué quieres saber?
+          ¡Hola! Soy Rocco 🐾, tu amigo fiel con tus finanzas. Te llevo los gastos, las ventas y tus
+          cuentas desde este chat. ¿Qué quieres saber?
           <div className="btns">
-            <span>Qué haces</span>
-            <span>Cuánto cuestas</span>
+            <span>Qué sabes hacer</span>
+            <span>Cómo empiezo</span>
           </div>
         </>
       ),
       caption: {
-        title: "Siempre en línea. Nunca de reposo.",
-        text: "Responde en segundos, los siete días, desde el mismo WhatsApp que ya usas con tus clientes.",
+        title: "Un pana que nunca se olvida de anotar.",
+        text: "Responde en segundos, de día y de noche, desde el mismo WhatsApp que ya usas todos los días.",
       },
     },
     {
-      user: "¿qué haces?",
+      user: "¿qué sabes hacer?",
       bot: (
         <>
-          Registro cada gasto y cada venta. Me escribes, me dictas una nota de voz o me mandas la
-          foto de la factura. Yo pongo la categoría y la tasa BCV del día, y lo guardo cuando tú
-          confirmas.
+          Anoto cada gasto y cada venta. Me escribes, me mandas una nota de voz o la foto de la
+          factura, y yo le pongo la categoría y la tasa BCV del día.
           <br />
           <br />
-          También llevo las ventas por método de pago, te doy el cierre, y tu empleado puede
-          registrar desde su número.
+          También llevo tus cuentas (banco, Binance, Zelle, efectivo), te hago las cuentas en Bs y
+          $, divido la cuenta del restaurante y te digo cómo vas en el mes.
         </>
       ),
       caption: {
-        title: "Lo que le dictarías a tu administradora, me lo dictas a mí.",
-        text: "Texto, nota de voz o foto. Bolívares y dólares el mismo día, cada uno con su tasa.",
+        title: "Lo que anotabas en el cuaderno, ahora se lo dices a Rocco.",
+        text: "Texto, nota de voz o foto. Bolívares, dólares y USDT, cada uno con su tasa.",
       },
     },
     {
@@ -250,9 +270,11 @@ function scenes(waUrl: string | null): Scene[] {
         <>
           <strong>Gasto por confirmar</strong>
           <br />
-          $15,00 · Bs 547,50 (tasa 36,50)
+          Champú: <strong>$15,00</strong>
           <br />
-          Insumos · hoy
+          Bs 12.998,40 · tasa BCV 866,56
+          <br />
+          Categoría: Cuidado personal · hoy
           <div className="btns">
             <span>Guardar</span>
             <span>Corregir</span>
@@ -261,87 +283,82 @@ function scenes(waUrl: string | null): Scene[] {
         </>
       ),
       caption: {
-        title: "Nada entra sin tu OK.",
-        text: "Te muestra el borrador con el monto, la categoría y la tasa. Guardas, corriges o cancelas con un toque.",
+        title: "Nada se guarda sin tu OK.",
+        text: "Rocco te muestra el monto, la categoría y la tasa. Guardas, corriges o cancelas con un toque.",
       },
     },
     {
       user: "Guardar",
-      bot: <>Listo ✅ Hoy llevas $15,00 en gastos.</>,
+      bot: <>✅ Guardado. Gastos de hoy: $15,00 (1 registro).</>,
       caption: {
-        title: "Y queda guardado con fecha, tasa y quién lo registró.",
-        text: 'Si algo cambia, le dices "no, eran 25" y lo corrige. Todo cambio deja rastro.',
+        title: "Y queda anotado, con fecha, tasa y cuenta.",
+        text: 'Si te equivocaste, le dices "no, eran 25" y Rocco lo corrige al toque.',
       },
     },
     {
-      user: "cierre",
+      user: "cuánto es 8000 bs en $",
       bot: (
         <>
-          <strong>Cierre · jue 01/10</strong>
+          🧮 8.000,00 Bs son <strong>$9,23</strong>
           <br />
-          Ventas $350,00 · Gastos $15,00
-          <br />
-          Neto <strong>$335,00</strong> · Bs 12.227,50
-          <br />
-          Efectivo en caja: $200,00 · Bs 3.650,00
+          Tasa BCV: Bs 866,56 (vigente hoy).
         </>
       ),
       caption: {
-        title: "El cierre, antes de contar la caja.",
-        text: "Ventas por método, gastos por categoría, neto del día y el efectivo que debe haber. Cuentas y ves si cuadra.",
+        title: "La calculadora que habla en bolívares.",
+        text: "Convierte, suma varios montos y divide la cuenta con la foto de la factura: «yo la pizza, Pedro la hamburguesa».",
       },
     },
     {
-      user: "¿cuánto cuestas?",
+      user: "cómo va el mes",
       bot: (
         <>
-          Menos que una tarde de trabajo.
+          <strong>📊 Octubre (1 al 15)</strong>
+          <br />
+          Ventas: $1.240,00
+          <br />
+          Gastos: $385,50
+          <br />
+          Ventas menos gastos: <strong>$854,50</strong>
           <br />
           <br />
-          {PLANS.map((p) => (
-            <span key={p.id} className="planline">
-              <b>{p.name}</b> · {money(p.priceUsd)}/mes · {p.features[0]}
-              <br />
-            </span>
-          ))}
-          <br />
-          Durante el piloto, gratis.
+          Vas bien. ¡Sigue así!
         </>
       ),
       caption: {
-        title: `$${ADMIN_SALARY} de sueldo al mes, o ${money(NEGOCIO?.priceUsd)} de plan.`,
-        text: "El plan Negocio incluye tu número y el de un empleado, ventas, cierre y dashboard. Sin contrato.",
+        title: "Siempre sabes cómo vas.",
+        text: "El cierre del día, el resumen del mes, tus presupuestos y el saldo de cada cuenta, cuando se lo pidas.",
       },
     },
     {
       user: "¿y mis datos?",
       bot: (
         <>
-          Son tuyos. Cada negocio está aislado de los demás, exportas todo a Excel cuando quieras y
-          puedes borrar tu cuenta desde el dashboard. Las notas de voz se transcriben y se
-          descartan: nunca se guardan.
+          Son tuyos. Tu cuenta está separada de las demás, exportas todo a Excel cuando quieras y la
+          puedes borrar escribiéndome <strong>eliminar mi cuenta</strong>. Las notas de voz las
+          escucho y las descarto: nunca se guardan.
         </>
       ),
       caption: {
-        title: "Tu caja es tuya.",
-        text: "Nada se comparte, nada se vende. Y tu contador recibe el Excel que siempre pidió.",
+        title: "Fiel también con tu privacidad.",
+        text: "Nada se comparte, nada se vende. Y tu contador recibe el Excel que siempre te pidió.",
       },
     },
     {
       user: "quiero empezar",
       bot: (
         <>
-          Crea tu cuenta con tu correo, vincula tu número con un código de seis dígitos y escríbeme
-          tu primer gasto. Tres minutos.
+          ¡Dale! Escríbeme <strong>hola</strong> desde tu WhatsApp y creamos tu cuenta aquí mismo en
+          dos minutos. Tienes 14 días gratis para probarme.
           <div className="btns">
-            <span>Crear cuenta</span>
-            {waUrl ? <span>Escribirle ahora</span> : null}
+            {waUrl ? <span>Escribirle a Rocco</span> : null}
+            <span>Crear cuenta en la web</span>
           </div>
         </>
       ),
       caption: {
-        title: "Empieza esta noche.",
-        text: "Sin tarjeta, sin instalar nada. Durante el piloto no se cobra.",
+        title: "Empieza hoy, sin instalar nada.",
+        text: "Sin tarjeta. Durante la beta no se cobra, y los primeros 50 tienen precio de fundador.",
       },
     },
   ];
@@ -349,34 +366,51 @@ function scenes(waUrl: string | null): Scene[] {
 
 const FAQ = [
   {
-    q: "¿De verdad reemplaza a una administradora?",
-    a: "Reemplaza la parte de la caja: anotar, convertir, cuadrar y cerrar. No factura, no lleva inventario ni nómina. Si hoy pagas a alguien solo para que lleve el cuaderno de la caja, sí.",
+    q: "¿Quién es Rocco?",
+    a: "Rocco es un asistente automático por WhatsApp. Se llama así por el pug de la familia: fiel, siempre contigo y nunca se le olvida nada. No es una persona, pero le escribes como a un pana y él lleva tus cuentas.",
+  },
+  {
+    q: "¿Es para mis finanzas personales o para mi negocio?",
+    a: "Para las dos. En lo personal llevas tus gastos, tus cuentas y tus presupuestos. En un negocio, además, las ventas por método de pago, el cierre del día y un empleado que registra desde su número.",
   },
   {
     q: "¿Tengo que instalar algo?",
-    a: "No. El asistente es un número de WhatsApp. Creas la cuenta con tu correo, vinculas tu número con un código de seis dígitos y empiezas a escribirle.",
+    a: "No. Rocco es un número de WhatsApp: le escribes hola y creas tu cuenta en el mismo chat. Si prefieres, también la puedes crear en la web. Para ver todo en grande tienes un dashboard.",
   },
   {
     q: "¿Y si la tasa cambia a mitad de día?",
-    a: 'Usa la tasa oficial del BCV vigente para la fecha del movimiento. Lo de ayer va con la de ayer. Si necesitas otra tasa para un caso puntual, se la dices: "ponlo a tasa 850".',
+    a: 'Rocco usa la tasa oficial del BCV vigente para la fecha de cada movimiento: lo de ayer va con la de ayer. Si cambiaste USDT a otra tasa, se la dices ("cambié 100 usdt a 970") y tus gastos en Bs salen a esa.',
   },
   {
     q: "¿Mi empleado puede usarlo?",
-    a: "Sí. Lo agregas con su número desde Ajustes y registra gastos y ventas; los cierres y los totales los ves solo tú.",
+    a: "Sí, en el plan Negocio. Lo agregas con su número y registra gastos y ventas; los cierres y los totales los ves solo tú.",
   },
   {
     q: "¿Cómo se paga?",
-    a: "Pago Móvil en bolívares a la tasa del día, Zelle o USDT. Durante el piloto no se cobra y los precios se avisan con 30 días de anticipación.",
+    a: "Pago móvil en bolívares, Zelle o USDT por Binance, desde el mismo chat: escribes renovar y Rocco te dice cuánto. Durante la beta no se cobra y los precios se avisan con 30 días de anticipación.",
   },
 ];
 
+/** Rocco provisional: un pug sencillo en los colores de la marca, hasta tener el logo final. */
 function Logo() {
   return (
     <svg viewBox="0 0 64 64" aria-hidden="true">
       <rect width="64" height="64" rx="14" fill="#0f7b5f" />
-      <path d="M16 22h32v22a4 4 0 0 1-4 4H20a4 4 0 0 1-4-4z" fill="#fff" />
-      <path d="M14 20a4 4 0 0 1 4-4h28a4 4 0 0 1 4 4v4H14z" fill="#d9f2e8" />
-      <circle cx="40" cy="35" r="4" fill="#0f7b5f" />
+      <path d="M13 24c-1-7 4-11 10-9l-1 12z" fill="#0a3d30" />
+      <path d="M51 24c1-7-4-11-10-9l1 12z" fill="#0a3d30" />
+      <ellipse cx="32" cy="35" rx="17" ry="15" fill="#f4efe6" />
+      <ellipse cx="32" cy="41.5" rx="9.5" ry="7.5" fill="#0a3d30" />
+      <circle cx="24.5" cy="31.5" r="3.2" fill="#0a3d30" />
+      <circle cx="39.5" cy="31.5" r="3.2" fill="#0a3d30" />
+      <circle cx="25.5" cy="30.5" r="1" fill="#fff" />
+      <circle cx="40.5" cy="30.5" r="1" fill="#fff" />
+      <path
+        d="M28.5 44q3.5 2.2 7 0"
+        stroke="#f4efe6"
+        strokeWidth="1.6"
+        fill="none"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }

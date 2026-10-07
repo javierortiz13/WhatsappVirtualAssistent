@@ -953,3 +953,20 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 **Migración 0019 (aplicada en producción):** columnas en `tenant` (founder_until, extra_messages, extra_month, cap_warned_month, survey_sent_at, value_sent_at, survey, crm_notes, crm_tags) y `payment.kind`. Sin tablas nuevas, así `erase_tenant` las borra con el negocio.
 
 **Tests:** límite al 80 % y al 100 % sin IA, recarga de punta a punta (oferta, método, referencia, aprobación, vuelve a responder), precio fundador, encuesta y resumen con la ventana de 24 h. 402 tests.
+
+### S2 · 07/10/2026 · La web con la marca Rocco
+
+**Pedido (Javier):** cambiar todo el texto de la página a la marca Rocco y que la animación del chat sea hablando con Rocco. Los colores se quedan: van con WhatsApp y con finanzas.
+
+**Hecho:**
+- **Landing:** "Rocco · Fiel a tus cuentas" / "Tu amigo fiel con tus finanzas".
+  - Ya no vende "tu asistente contra una administradora de $300": habla de lo personal y del negocio.
+  - El botón principal "Escribirle a Rocco" abre WhatsApp con "Hola Rocco" y el registro ocurre en el chat. "Crear cuenta en la web" queda como segunda opción.
+  - La comparación es "Sin Rocco: 3 apps / Con Rocco: 1 chat".
+  - Las 8 escenas del chat se rehicieron con la voz y los mensajes reales de Rocco: saludo, qué sabe hacer, borrador con Guardar, guardado, calculadora, resumen del mes, privacidad y cómo empezar.
+  - Preguntas nuevas: quién es Rocco, personal o negocio, cómo se paga desde el chat.
+  - Planes con 14 días gratis, precio fundador y nota de beta.
+- **Logo provisional:** un pug sencillo en los mismos verdes (ícono de la pestaña, landing y login), hasta tener el del ilustrador.
+- **Rocco en el resto de la web:** título, manifiesto, login (con el chat de ejemplo actualizado a la tasa 866,56), confirmación del correo, privacidad, eliminar datos, Excel exportado y textos del panel ("el asistente" → "Rocco"). "Piloto" pasa a "beta".
+
+**Pendiente:** el asunto y el remitente del correo de acceso (plantilla de Supabase Auth) todavía dicen el nombre viejo, y falta el dominio holarocco.com.

@@ -3,10 +3,10 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "Asistente de Caja", template: "%s · Asistente de Caja" },
-  description: "Tu caja, por WhatsApp.",
+  title: { default: "Rocco", template: "%s · Rocco" },
+  description: "Tu amigo fiel con tus finanzas, por WhatsApp.",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, title: "Caja", statusBarStyle: "black-translucent" },
+  appleWebApp: { capable: true, title: "Rocco", statusBarStyle: "black-translucent" },
 };
 
 export const viewport: Viewport = {

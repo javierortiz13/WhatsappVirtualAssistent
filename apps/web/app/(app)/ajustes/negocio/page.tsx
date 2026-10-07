@@ -85,7 +85,7 @@ export default async function Negocio({
             </select>
             <IconChevronDown size={16} />
           </span>
-          <span className="sub">Cuando dices "gasté 20" sin moneda, el asistente asume esta.</span>
+          <span className="sub">Cuando dices "gasté 20" sin moneda, Rocco asume esta.</span>
         </label>
         <label className="field">
           <span>Tasa para tus gastos en bolívares</span>

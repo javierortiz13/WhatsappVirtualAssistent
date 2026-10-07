@@ -114,8 +114,8 @@ export default async function MiPlan({
         {trial ? (
           <p className="sub">
             {trial.reached
-              ? "Usaste todo lo incluido en la prueba gratis y el asistente dejó de registrar. Tus datos siguen guardados: paga y repórtalo aquí abajo para seguir."
-              : `Prueba gratis: llevas el ${pct} % del uso incluido. Al llegar al 100 % o a la fecha, el asistente deja de registrar hasta que actives el plan.`}
+              ? "Usaste todo lo incluido en la prueba gratis y Rocco dejó de registrar. Tus datos siguen guardados: paga y repórtalo aquí abajo para seguir."
+              : `Prueba gratis: llevas el ${pct} % del uso incluido. Al llegar al 100 % o a la fecha, Rocco deja de registrar hasta que actives el plan.`}
           </p>
         ) : null}
         {t.status === "suspended" && t.suspendedAt ? (
@@ -189,7 +189,7 @@ export default async function MiPlan({
                 {dest[m] ??
                   (support
                     ? `Pídenos los datos: ${support}`
-                    : "Pídenos los datos por WhatsApp al asistente.")}
+                    : "Pídele los datos a Rocco por WhatsApp.")}
               </span>
             </div>
           );

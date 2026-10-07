@@ -7,12 +7,12 @@ export default function EliminarDatos() {
   return (
     <main className="legal">
       <h1>Eliminar mis datos</h1>
-      <p className="updated">Asistente de Caja</p>
+      <p className="updated">Rocco</p>
       <p>Puedes eliminar todos tus datos de tres formas:</p>
       <ul>
         <li>
-          Desde WhatsApp: escribe <strong>eliminar mi cuenta</strong> al asistente desde el número
-          del dueño y confirma con el botón.
+          Desde WhatsApp: escríbele <strong>eliminar mi cuenta</strong> a Rocco desde el número del
+          dueño y confirma con el botón.
         </li>
         <li>
           Desde el panel: <strong>Ajustes → Negocio → Eliminar mi cuenta</strong>, escribiendo el

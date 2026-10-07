@@ -32,7 +32,7 @@ export async function buildWorkbook(
   meta: { tenantName: string; from: string; to: string },
 ): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Asistente de Caja";
+  wb.creator = "Rocco";
   const ws = wb.addWorksheet("Movimientos", { views: [{ state: "frozen", ySplit: 1 }] });
   ws.columns = EXPORT_COLUMNS.map((header, i) => ({
     header,

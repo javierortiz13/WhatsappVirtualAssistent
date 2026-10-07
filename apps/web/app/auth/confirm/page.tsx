@@ -20,7 +20,7 @@ export default async function ConfirmPage({
       <div className="card stack">
         <h1 style={{ fontSize: 20, margin: 0 }}>Un toque más</h1>
         <p className="muted" style={{ margin: 0 }}>
-          Confirma que eres tú para entrar a Asistente de Caja.
+          Confirma que eres tú para entrar a Rocco.
         </p>
         <form action="/auth/confirm/verify" method="post" id="verify">
           {sp.token_hash ? <input type="hidden" name="token_hash" value={sp.token_hash} /> : null}

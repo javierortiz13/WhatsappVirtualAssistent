@@ -24,7 +24,7 @@ const MSG: Record<string, string> = {
 const MODE_TEXT: Record<"bcv" | "usdt" | "ask", string> = {
   bcv: "Tus gastos en Bs van a la tasa BCV. Para que salgan de estos cambios, elígelo en Negocio.",
   usdt: "Tus gastos en Bs salen de estos cambios, del más viejo al más nuevo.",
-  ask: "Al registrar un gasto en Bs, el asistente te pregunta si salió de estos cambios o va a la BCV.",
+  ask: "Al registrar un gasto en Bs, Rocco te pregunta si salió de estos cambios o va a la BCV.",
 };
 
 const num = (v: Decimal.Value) => formatMoney(v, "VES").replace("Bs ", "");

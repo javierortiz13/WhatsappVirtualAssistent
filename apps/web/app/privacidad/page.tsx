@@ -8,12 +8,13 @@ export default function Privacidad() {
   return (
     <main className="legal">
       <h1>Política de privacidad</h1>
-      <p className="updated">Asistente de Caja · última actualización: 29 de septiembre de 2026</p>
+      <p className="updated">Rocco · última actualización: 7 de octubre de 2026</p>
 
       <p>
-        Asistente de Caja es un servicio para dueños de negocios pequeños que registra gastos,
-        ventas y cierres de caja a través de WhatsApp y de un panel web. Esta política explica qué
-        datos tratamos, para qué, por cuánto tiempo y cómo puedes ejercer tus derechos.
+        Rocco (antes «Asistente de Caja») es un servicio para personas y dueños de negocios pequeños
+        que registra gastos, ventas, cuentas y cierres a través de WhatsApp y de un panel web. Esta
+        política explica qué datos tratamos, para qué, por cuánto tiempo y cómo puedes ejercer tus
+        derechos.
       </p>
 
       <h2>Responsable</h2>
@@ -29,7 +30,7 @@ export default function Privacidad() {
           el correo con el que entras al panel.
         </li>
         <li>
-          <strong>Mensajes:</strong> el texto de los mensajes que envías al asistente, las notas de
+          <strong>Mensajes:</strong> el texto de los mensajes que le envías a Rocco, las notas de
           voz y las fotos de facturas que decides compartir, y las respuestas que te enviamos.
         </li>
         <li>

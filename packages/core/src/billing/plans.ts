@@ -77,7 +77,7 @@ export const PLANS: Plan[] = [
 ];
 
 export const PILOT_NOTE =
-  "Durante el piloto no se cobra. Los precios de arriba son los que se activarán al salir del piloto, y se avisan con 30 días de anticipación.";
+  "Durante la beta no se cobra. Estos son los precios al salir de la beta, y se avisan con 30 días de anticipación.";
 
 export function planById(id: string): Plan {
   return PLANS.find((p) => p.id === id) ?? (PLANS[1] as Plan);

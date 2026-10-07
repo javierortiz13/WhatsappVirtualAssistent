@@ -145,7 +145,7 @@ export function Story({ scenes, children }: { scenes: Scene[]; children?: ReactN
           <p className="lead">{caption?.text}</p>
         </div>
 
-        <div className="iphone" role="img" aria-label="Conversación de ejemplo con el asistente">
+        <div className="iphone" role="img" aria-label="Conversación de ejemplo con Rocco">
           <span className="side power" />
           <span className="side vol1" />
           <span className="side vol2" />
@@ -184,9 +184,11 @@ export function Story({ scenes, children }: { scenes: Scene[]; children?: ReactN
             </div>
             <div className="chat-head">
               <span className="back">‹</span>
-              <span className="av">C</span>
+              <span className="av" aria-hidden="true">
+                🐶
+              </span>
               <div className="who">
-                Asistente de Caja
+                Rocco
                 <small>en línea</small>
               </div>
               <span className="acts">

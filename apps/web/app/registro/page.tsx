@@ -72,7 +72,7 @@ export default async function Registro({
           suggestions={SUGGESTED_EXPENSE_CATEGORIES}
           maxCategories={MAX_ACTIVE_CATEGORIES}
           maxAccounts={ONBOARDING_MAX_ACCOUNTS}
-          pilotNote="Durante el piloto no se cobra: empiezas con 14 días de prueba y te avisamos antes de cobrar."
+          pilotNote="Durante la beta no se cobra: empiezas con 14 días de prueba y te avisamos antes de cobrar."
         />
       </>
     );
@@ -133,7 +133,7 @@ function Step2(props: {
               </a>
             ) : (
               <p className="notice" style={{ margin: 0, fontSize: 14 }}>
-                Abre WhatsApp y envía el código al número del asistente.
+                Abre WhatsApp y envía el código al número de Rocco.
               </p>
             )}
             <ol className="howto">
