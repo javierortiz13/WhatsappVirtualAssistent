@@ -227,7 +227,7 @@ describe("onboarding por código de vinculación", () => {
     // Un solo envío: bienvenida + menú con la tasa (ADR-014).
     expect(sent).toHaveLength(1);
     expect(textOf(sent[0])).toContain(
-      "Hola, Carlos. Quedaste registrado como empleado de *Autolavado El Rápido*. Puedes registrar gastos y ventas; los cierres los ve el dueño.\nEjemplo: _gasté 5$ en hielo_\n\nTasa BCV hoy:",
+      "¡Hola, Carlos! Soy Rocco 🐾. Quedaste registrado como empleado de *Autolavado El Rápido*. Me puedes pasar gastos y ventas; los cierres los ve el dueño.\nEjemplo: _gasté 5$ en hielo_\n\nTasa BCV hoy:",
     );
     expect(textOf(sent[0])).toContain("¿Qué quieres hacer?");
     expect(sent[0]?.body.type).toBe("interactive");
@@ -253,7 +253,7 @@ describe("onboarding por código de vinculación", () => {
     ).toBe(false);
     const { sent, client } = fakeMeta();
     expect(await send(client, EMPLOYEE, "gasté 5$ en hielo")).toBe("ignored");
-    expect(textOf(sent[0])).toContain("Este número no está registrado");
+    expect(textOf(sent[0])).toContain("Todavía no nos conocemos");
     // Reactivar no repite la bienvenida.
     await setPhoneStatus(t.db, { tenantId, userId: USER_ID }, emp?.id as string, "active");
     const again = fakeMeta();

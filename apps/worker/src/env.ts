@@ -6,7 +6,7 @@ const Env = z.object({
   DATABASE_URL: z.string().min(1),
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error"]).default("info"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  ASSISTANT_NAME: z.string().default("Asistente de Caja"),
+  ASSISTANT_NAME: z.string().default("Rocco"),
   DASHBOARD_URL: z.string().url().default("http://localhost:3000"),
   SUPPORT_HINT: z.string().optional(),
   /** Datos de cobro que el bot manda al renovar el plan (mismos valores que en Vercel). */

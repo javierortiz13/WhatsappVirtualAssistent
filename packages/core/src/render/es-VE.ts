@@ -10,8 +10,11 @@ import type { PagoMovilData } from "../domain/pago-movil";
 import { IDS, type Outbound, type RenewMethod } from "./outbound";
 
 /**
- * Todo texto que ve el usuario vive aquí (Fase 4). Español venezolano, tuteo, corto, un emoji
- * funcional como máximo. Las cifras llegan ya calculadas por el backend; aquí solo se formatean.
+ * Todo texto que ve el usuario vive aquí (Fase 4). Habla Rocco, "tu amigo fiel con tus finanzas"
+ * (guía de voz: `docs/marca/rocco.md`): español venezolano, tuteo, corto, cercano como un hermano.
+ * La chispa va solo en saludos, ayuda y momentos buenos; en pagos, errores, límites y borrados habla
+ * claro y serio. Un emoji funcional como máximo; 🐾 solo cuando Rocco se presenta.
+ * Las cifras llegan ya calculadas por el backend; aquí solo se formatean.
  */
 
 export type RateInfo = {
@@ -42,7 +45,7 @@ export function welcomeOwner(tenantName: string, assistantName: string, r: RateI
     type: "buttons",
     body:
       `✅ Listo, tu número quedó vinculado a *${tenantName}*.\n\n` +
-      `Soy *${assistantName}*, un asistente automático. Me escribes como le escribirías a tu cajera:\n` +
+      `¡Hola! Soy *${assistantName}* 🐾, tu amigo fiel con tus finanzas. Soy un asistente automático: me escribes como le escribirías a un pana y yo llevo la cuenta:\n` +
       "• _gasté 15$ en champú_\n" +
       "• _hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto_\n" +
       "• _cómo va el mes_\n\n" +
@@ -53,11 +56,11 @@ export function welcomeOwner(tenantName: string, assistantName: string, r: RateI
 }
 
 export function welcomeEmployee(displayName: string | null, tenantName: string): Outbound {
-  const hi = displayName ? `Hola, ${displayName}.` : "Hola.";
+  const hi = displayName ? `¡Hola, ${displayName}! Soy Rocco 🐾.` : "¡Hola! Soy Rocco 🐾.";
   return {
     type: "text",
     body:
-      `${hi} Quedaste registrado como empleado de *${tenantName}*. Puedes registrar gastos y ventas; los cierres los ve el dueño.\n` +
+      `${hi} Quedaste registrado como empleado de *${tenantName}*. Me puedes pasar gastos y ventas; los cierres los ve el dueño.\n` +
       "Ejemplo: _gasté 5$ en hielo_",
   };
 }
@@ -87,7 +90,7 @@ export function rate(r: RateInfo): Outbound {
 
 export function help(dashboardUrl: string, supportHint: string | null): Outbound {
   const lines = [
-    "Esto es lo que puedo hacer:",
+    "Soy Rocco 🐾 y esto es lo que sé hacer:",
     "• Registrar gastos: _gasté 15$ en champú_, o nota de voz, o la factura en foto o PDF",
     "• Registrar ventas: _hoy vendí 350$: 200 efectivo, 150 pago móvil_",
     "• Cierre: _cierre de hoy_, _cómo va el mes_, _cuánto gasté en insumos esta semana_",
@@ -102,7 +105,8 @@ export function help(dashboardUrl: string, supportHint: string | null): Outbound
     "• Corregir o borrar lo último: _no, eran 25_, _bórralo_",
     `Para ver, corregir o exportar todo: ${dashboardUrl}`,
   ];
-  if (supportHint) lines.push(`Si algo no funciona, escribe a una persona: ${supportHint}`);
+  if (supportHint)
+    lines.push(`Si algo no funciona, escríbele a una persona del equipo: ${supportHint}`);
   return { type: "text", body: lines.join("\n") };
 }
 
@@ -126,7 +130,7 @@ export function dashboardLink(dashboardUrl: string, role: "owner" | "employee"):
 export function unknownNumber(registerUrl: string): Outbound {
   return {
     type: "text",
-    body: `Este número no está registrado. Crea tu cuenta aquí: ${registerUrl}`,
+    body: `¡Hola! Soy Rocco 🐾, tu amigo fiel con tus finanzas. Todavía no nos conocemos: crea tu cuenta aquí y empezamos: ${registerUrl}`,
   };
 }
 
@@ -134,7 +138,7 @@ export function unknownNumber(registerUrl: string): Outbound {
 export function tooFast(): Outbound {
   return {
     type: "text",
-    body: "Me llegaron muchos mensajes seguidos. Espera unos minutos y me escribes de nuevo.",
+    body: "Epa, me llegaron muchos mensajes seguidos. Dame unos minutos y seguimos.",
   };
 }
 
@@ -144,7 +148,7 @@ export function planExpired(supportHint: string | null): Outbound {
   const contact = supportHint ? ` Si necesitas ayuda: ${supportHint}` : "";
   return {
     type: "text",
-    body: `Tu plan del asistente venció y por ahora no puedo registrar nada. Tus datos siguen guardados. Para renovarlo escribe *renovar* y te digo cómo pagar.${contact}`,
+    body: `Tu plan venció y por ahora no puedo registrar nada. Tus datos siguen guardados. Para renovarlo escribe *renovar* y te digo cómo pagar.${contact}`,
   };
 }
 
@@ -166,7 +170,10 @@ export function eraseConfirm(tenantName: string, dashboardUrl: string): Outbound
 }
 
 export function eraseCancelled(): Outbound {
-  return { type: "text", body: "Listo, no borré nada. Tus datos siguen como estaban." };
+  return {
+    type: "text",
+    body: "Listo, no borré nada. Tus datos siguen como estaban y yo sigo aquí.",
+  };
 }
 
 /** La confirmación venció (más de 10 minutos) o no la pidió este número. */
@@ -207,7 +214,7 @@ export function tenantRestored(tenantName: string, stillSuspended: boolean): Out
     type: "text",
     body: stillSuspended
       ? `Recuperamos *${tenantName}* con todos sus datos. Tu plan sigue vencido: escribe *renovar* para activarlo.`
-      : `Recuperamos *${tenantName}* con todos sus datos. Todo sigue como estaba.`,
+      : `Recuperamos *${tenantName}* con todos sus datos. Todo sigue como estaba. ¡Qué bueno tenerte de vuelta!`,
   };
 }
 
@@ -401,7 +408,7 @@ export function renewUnavailable(supportHint: string | null): Outbound {
 export function paymentVerified(planName: string, paidUntil: IsoDate | null): Outbound {
   return {
     type: "text",
-    body: `✅ Pago verificado. Tu plan ${planName} quedó activo${paidUntil ? ` hasta el ${formatShortDate(paidUntil)}` : ""}. ¡Gracias!`,
+    body: `✅ Pago verificado. Tu plan ${planName} quedó activo${paidUntil ? ` hasta el ${formatShortDate(paidUntil)}` : ""}. ¡Gracias por la confianza!`,
   };
 }
 
@@ -444,7 +451,7 @@ export function codeExpired(registerUrl: string): Outbound {
 export function outOfScope(): Outbound {
   return {
     type: "buttons",
-    body: "Solo te ayudo con tu caja: gastos, ventas, cierres, tasa, calculadora, cambios USDT y cuentas. Escribe *ayuda* para ver todo lo que hago. ¿Qué quieres hacer?",
+    body: "Eso se me escapa: yo me encargo de tu plata. Gastos, ventas, cierres, tasa, calculadora, cambios USDT y cuentas. Escribe *ayuda* y te enseño todo lo que sé hacer. ¿Qué hacemos?",
     buttons: MENU_BUTTONS,
   };
 }
@@ -453,7 +460,7 @@ export function outOfScope(): Outbound {
 export function comingSoon(): Outbound {
   return {
     type: "text",
-    body: "Eso todavía no lo hago por chat. Lo que sí: _gasté 15$ en champú_ · _hoy vendí 350$: 200 efectivo, 150 pago móvil_ · _cierre_ · _cómo va el mes_ · _mis cuentas_ · _no, eran 25_ · _bórralo_. Escribe *ayuda* para ver todo.",
+    body: "Eso todavía no lo sé hacer por chat. Lo que sí: _gasté 15$ en champú_ · _hoy vendí 350$: 200 efectivo, 150 pago móvil_ · _cierre_ · _cómo va el mes_ · _mis cuentas_ · _no, eran 25_ · _bórralo_. Escribe *ayuda* para ver todo.",
   };
 }
 
@@ -492,7 +499,10 @@ export function cancelled(inboundId: string): Outbound {
 }
 
 export function llmDown(): Outbound {
-  return { type: "text", body: "Ahora mismo no puedo procesar esto. Inténtalo en unos minutos." };
+  return {
+    type: "text",
+    body: "Se me enredó algo y ahora mismo no puedo procesar esto. Inténtalo en unos minutos.",
+  };
 }
 
 export function mediaNotYet(kind: "audio" | "image"): Outbound {
@@ -525,7 +535,7 @@ export function audioTooLong(): Outbound {
 }
 
 export function audioUnclear(): Outbound {
-  return { type: "text", body: "No pude escuchar bien la nota de voz. ¿Me lo escribes?" };
+  return { type: "text", body: "No pude escuchar bien la nota de voz. ¿Me lo escribes, porfa?" };
 }
 
 // ---------------------------------------------------------------- fotos de facturas (US-B6)
@@ -1655,13 +1665,16 @@ export function dailyClose(v: DailyCloseView): Outbound {
   lines.push(
     `${v.count === 1 ? "1 movimiento" : `${v.count} movimientos`} · Dashboard: ${v.dashboardUrl}`,
   );
+  // La chispa de Rocco solo en un día bueno: vendió más de lo que gastó.
+  if (new Decimal(v.netUsd).gt(0) && new Decimal(v.salesUsd).gt(0))
+    lines.push("", "Buen día. ¡Sigue así!");
   return { type: "text", body: lines.join("\n") };
 }
 
 export function noMovements(label: string): Outbound {
   return {
     type: "text",
-    body: `No tengo movimientos registrados ${label}. Si vendiste o gastaste algo, dímelo y lo anoto.`,
+    body: `No tengo movimientos registrados ${label}. Si vendiste o gastaste algo, dímelo y lo anoto al toque.`,
   };
 }
 
@@ -1689,6 +1702,8 @@ export function periodSummary(v: PeriodSummaryView): Outbound {
   lines.push(
     `${v.daysWithMovements === 1 ? "1 día" : `${v.daysWithMovements} días`} con movimientos · Dashboard: ${v.dashboardUrl}`,
   );
+  if (new Decimal(v.netUsd).gt(0) && new Decimal(v.salesUsd).gt(0))
+    lines.push("", "Vas bien. ¡Sigue así!");
   return { type: "text", body: lines.join("\n") };
 }
 

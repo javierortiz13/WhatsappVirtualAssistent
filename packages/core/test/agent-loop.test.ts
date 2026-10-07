@@ -283,7 +283,7 @@ describe("agent loop", () => {
     );
     expect(r.status).toBe("ok");
     const body = (r.outbound[0] as { body: string }).body;
-    expect(body).toContain("Esto es lo que puedo hacer:");
+    expect(body).toContain("esto es lo que sé hacer:");
     expect(body).toContain("• Cuentas:");
     expect(body).toContain("• Transferencias:");
   });
@@ -299,7 +299,9 @@ describe("agent loop", () => {
       fakeLlm([call("reject_out_of_scope", { reason: "other_business_task" })]).client,
       "vendí 200$",
     );
-    expect((soon.outbound[0] as { body: string }).body).toContain("todavía no lo hago por chat");
+    expect((soon.outbound[0] as { body: string }).body).toContain(
+      "todavía no lo sé hacer por chat",
+    );
     const rate = await run(fakeLlm([call("get_bcv_rate", {})]).client, "a cuánto está el dólar");
     expect(rate.status).toBe("ok");
     expect((rate.outbound[0] as { body: string }).body).toContain("Bs 858,00");

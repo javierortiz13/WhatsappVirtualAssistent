@@ -206,7 +206,7 @@ describe("processInbound", () => {
       await ingest(message("wamid.F1", "584121234567", "gasté 15$ en champú")),
     );
     const body = sent[0]?.body as { interactive: { body: { text: string } } };
-    expect(body.interactive.body.text).toContain("Solo te ayudo con tu caja");
+    expect(body.interactive.body.text).toContain("yo me encargo de tu plata");
   });
 
   it("LLM caído: responde el texto fijo y el job termina sin reintentar", async () => {
@@ -362,7 +362,7 @@ describe("processInbound", () => {
       // El dueño pasa (puede renovar por el bot, 03/10); un gasto recibe "tu plan venció".
       const job = await ingest(message("wamid.SUSP1", "584121234567", "gasté 15$ en champú"));
       expect(await processInbound(deps(client), job)).toBe("done");
-      expect(textOf(sent[0])).toContain("Tu plan del asistente venció");
+      expect(textOf(sent[0])).toContain("Tu plan venció");
       expect(textOf(sent[0])).toContain("escribe *renovar*");
       const after = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));
       expect(after).toHaveLength(before.length);

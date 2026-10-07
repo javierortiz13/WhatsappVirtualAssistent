@@ -288,7 +288,7 @@ describe("renovar el plan por WhatsApp", () => {
     llmCalls.length = 0;
     await send(client, "hola, gasté 10$ en champú");
     expect(textOf(sent[0])).toBe(
-      "Tu plan del asistente venció y por ahora no puedo registrar nada. Tus datos siguen guardados. Para renovarlo escribe *renovar* y te digo cómo pagar. Si necesitas ayuda: WhatsApp +58 424 0000000",
+      "Tu plan venció y por ahora no puedo registrar nada. Tus datos siguen guardados. Para renovarlo escribe *renovar* y te digo cómo pagar. Si necesitas ayuda: WhatsApp +58 424 0000000",
     );
     await send(client, "renovar");
     expect(textOf(sent[1])).toContain("*Tu plan: Negocio*");
@@ -331,7 +331,9 @@ describe("renovar el plan por WhatsApp", () => {
     const bodies = sent.map(textOf);
     expect(
       bodies.some((b) =>
-        /^✅ Pago verificado\. Tu plan Negocio quedó activo hasta el .+\. ¡Gracias!$/.test(b),
+        /^✅ Pago verificado\. Tu plan Negocio quedó activo hasta el .+\. ¡Gracias por la confianza!$/.test(
+          b,
+        ),
       ),
     ).toBe(true);
     expect(bodies).toContain(

@@ -36,11 +36,33 @@ describe("plantillas es-VE", () => {
     const w = es.welcomeOwner("Autolavado El Rápido", "Asistente de Caja", rate);
     expect(w.body).toContain("*Autolavado El Rápido*");
     expect(w.body).toContain("asistente automático");
-    expect(es.welcomeEmployee("Carlos", "Autolavado").body).toContain("Hola, Carlos.");
+    expect(es.welcomeEmployee("Carlos", "Autolavado").body).toContain("¡Hola, Carlos! Soy Rocco");
   });
   it("ayuda incluye el enlace del dashboard y el soporte si existe", () => {
     expect(es.help("https://caja.app", null).body).toContain("https://caja.app");
     expect(es.help("https://caja.app", "wa.me/58412").body).toContain("wa.me/58412");
+  });
+  it("Rocco se presenta en la ayuda y celebra solo un día con ganancia", () => {
+    expect(es.help("https://x", null).body).toContain("Soy Rocco 🐾");
+    const day = (sales: string, expenses: string) =>
+      es.dailyClose({
+        date: "2026-10-07",
+        today: "2026-10-07",
+        salesUsd: sales,
+        salesByMethod: [],
+        expensesUsd: expenses,
+        expensesByCategory: [],
+        netUsd: new Decimal(sales).minus(expenses),
+        netVes: null,
+        rateValue: null,
+        cashUsd: 0,
+        cashVes: 0,
+        count: 2,
+        dashboardUrl: "https://x",
+      }).body;
+    expect(day("100", "40")).toContain("Buen día. ¡Sigue así!");
+    expect(day("20", "40")).not.toContain("Sigue así");
+    expect(day("0", "40")).not.toContain("Sigue así");
   });
   it("parseReplyId enruta por prefijo", () => {
     expect(parseReplyId("menu:expense")).toEqual({ kind: "menu", action: "expense" });

@@ -857,3 +857,22 @@ QA en navegador (390 px y escritorio) con tres cuentas (Bs, USDT y efectivo $): 
 Javier compró la línea Movistar **+58 424-699-5167** y la agregó en Meta con el panel nuevo (casos de uso → Configuración básica → Paso 2: Configuración de producción). Cuenta de WhatsApp Business **Rocco** (2338829886855969, portafolio Just Travel), número registrado con PIN desde el panel, webhooks suscritos, método de pago asignado y acceso de `caja-worker`. Cambios: Railway `META_PHONE_NUMBER_ID=1448159538369862`, Vercel `PLATFORM_WA_NUMBER=584246995167`. El número de prueba deja de responder. La guía `docs/runbooks/numero-real.md` se reescribió con el flujo real de octubre de 2026 (el botón "Agregar número" de la cuenta de prueba sale gris; la API queda como alternativa).
 
 Datos del negocio en Meta: nombre comercial JP Software Dev, Venezuela, sin verificar (hasta 2 números). La verificación queda para cuando haya documento (RNE o el registro mercantil ampliado).
+
+### S2 · 07/10/2026 · Marca Rocco: voz del bot
+
+**Decisión (Javier y su novia):** el asistente se llama **Rocco**, como su pug, con la frase *Tu amigo fiel con tus finanzas*. El tono es el de un hermano: cercano y venezolano. La chispa va solo a veces, y en lo que toca dinero habla serio. Pocos emojis.
+
+**Hecho:**
+- Guía de marca y de voz en `docs/marca/rocco.md`.
+- Mensajes del bot con la voz de Rocco: bienvenida del dueño y del empleado, ayuda, número desconocido, fuera de tema, "todavía no lo sé hacer", mensajes seguidos, IA caída, nota de voz que no se oyó, sin movimientos, cancelar el borrado, recuperar la cuenta, pago verificado y plan vencido.
+- 🐾 solo cuando Rocco se presenta. Cierre del día y resumen del período con ganancia terminan con "Buen día. ¡Sigue así!" o "Vas bien. ¡Sigue así!".
+- Prompt: Rocco como identidad; las preguntas de aclaración (lo único que redacta la IA) en su voz, sin emojis ni chistes.
+- `ASSISTANT_NAME` del worker pasa a "Rocco" por defecto.
+
+**Pendiente:**
+- Logo del pug y paleta.
+- Web y dominio (holarocco.com o rocco.lat, por confirmar).
+- Nombre visible "Rocco" en WhatsApp (revisión de Meta, después de la web) y foto de perfil.
+- Plantillas de Meta con la voz nueva.
+- Presentación para clientes con la marca.
+- Registro en el SAPI.
