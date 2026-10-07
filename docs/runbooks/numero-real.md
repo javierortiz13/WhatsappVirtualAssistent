@@ -34,61 +34,66 @@ Para el piloto el tope de 250 no molesta: el bot casi nunca inicia conversacione
 - La verificación del negocio **no es obligatoria** para empezar (ver límites arriba), pero
   solicítala ya si no está: Configuración del negocio → Centro de seguridad.
 
-## 3. Agregar el número
+## 3. Agregar el número (panel de Meta de octubre de 2026)
 
-1. developers.facebook.com → app **Asistente de Caja** → WhatsApp → **Configuración de la API**
-   (API Setup) → **Agregar número de teléfono**.
-2. Perfil: nombre visible **Asistente de Caja** (debe tener relación con el negocio; Meta lo
-   revisa), categoría *Servicios financieros* o *Software*, descripción corta.
-3. Escribe el número con +58, elige SMS o llamada, pon el código.
-4. Anota el nuevo **Identificador del número de teléfono** (Phone number ID) y el
-   **Identificador de la cuenta de WhatsApp Business** (WABA ID) que aparecen arriba en esa
-   pantalla. Si el WABA ID es distinto al del número de prueba, sigue el paso 5; si es el mismo,
-   sáltalo.
+El panel cambió: ya no hay "Configuración de la API" con el botón. La **Test WhatsApp Business
+Account** no admite números reales (el botón "Agregar número" sale gris); el número va en una
+cuenta de WhatsApp Business real que se crea en este flujo.
 
-## 4. Registrar el número en la Cloud API (PIN de dos pasos)
+1. developers.facebook.com → **Mis apps** → **Asistente de Caja** → caso de uso **Conectar en
+   WhatsApp** → menú izquierdo **Configuración básica** → **Paso 2: Configuración de
+   producción**.
+2. "Registra tu número de teléfono de WhatsApp" → **Agregar número nuevo**:
+   - *Información de la empresa*: elige el portafolio existente si aparece; si no, nombre
+     comercial (**JP Software Dev**), sitio `https://caja.jpsoftwaredev.com`, país **Venezuela**,
+     dirección vacía hasta la verificación. Lo que se ponga aquí debe coincidir después con el
+     documento de la verificación del negocio (RNE o RIF).
+   - *Perfil de WhatsApp*: nombre visible **Asistente de Caja**, categoría Finanzas.
+   - *Agregar número*: +58 sin el 0 inicial, verificación por SMS.
+3. En la misma pantalla aparece la cuenta (WABA) con el número en *No registrado*:
+   - **Registrar** → pide el PIN de 6 dígitos de la verificación en dos pasos (guárdalo). Hace lo
+     mismo que la llamada `/register` a la API.
+   - Interruptor **Suscribir webhooks** de esa cuenta: activado (equivale a `subscribed_apps`).
+   - **Agrega la información de pago**: asigna el método de pago del portafolio.
+4. Acceso del bot: business.facebook.com → Configuración → **Usuarios del sistema** →
+   `caja-worker` → **Asignar activos** → Cuentas de WhatsApp → la cuenta nueva → **Control
+   total**. (O desde la cuenta: Configuración → Cuentas → Cuentas de WhatsApp → la cuenta →
+   Asignar personas. En el celular: Business assets → la cuenta → Access.) Sin esto el bot no
+   puede responder desde el número.
+5. Anota el **Identificador del número de teléfono** (Phone number ID) que sale debajo del
+   número.
 
-En tu terminal (el token va en una variable, **nunca en el chat**):
+Sin verificar el negocio se pueden tener hasta 2 números; verificado, hasta 20.
+
+Hecho el 07/10/2026: cuenta **Rocco** (WABA 2338829886855969, portafolio Just Travel), número
+**+58 424-699-5167** (Phone number ID 1448159538369862).
+
+### Por API, si el panel falla
 
 ```bash
-export META_ACCESS_TOKEN=...   # el token permanente del usuario de sistema caja-worker
-export PHONE_ID=...            # el Phone number ID del paso 3.4
+export META_ACCESS_TOKEN=...   # token de caja-worker, nunca en el chat
+export PHONE_ID=...  WABA_ID=...
 curl -s -X POST "https://graph.facebook.com/v21.0/$PHONE_ID/register" \
   -H "Authorization: Bearer $META_ACCESS_TOKEN" -H "Content-Type: application/json" \
   -d '{"messaging_product":"whatsapp","pin":"123456"}'
-```
-
-Cambia `123456` por un PIN de 6 dígitos que inventes y guárdalo en tu gestor de contraseñas
-(es la verificación en dos pasos del número). Debe responder `{"success":true}`.
-
-Si responde error de permisos: Business Manager → Usuarios del sistema → `caja-worker` →
-**Asignar activos** → agrega la cuenta de WhatsApp Business nueva con control total, y repite.
-Si sigue fallando, genera un token nuevo (mismos permisos, caducidad Nunca) y úsalo también en
-el paso 6.
-
-## 5. Solo si el WABA es nuevo: suscribir la app a sus webhooks
-
-```bash
-export WABA_ID=...
 curl -s -X POST "https://graph.facebook.com/v21.0/$WABA_ID/subscribed_apps" \
   -H "Authorization: Bearer $META_ACCESS_TOKEN"
 ```
 
-Debe responder `{"success":true}`. Sin esto el número recibe mensajes pero al bot no le llegan.
-La URL del webhook y el token de verificación ya están en la app y no cambian.
+Los dos deben responder `{"success":true}`.
 
-## 6. Cambiar la configuración del bot (me avisas y lo hago yo)
+## 4. Cambiar la configuración del bot (me avisas y lo hago yo)
 
 | Dónde | Variable | Valor nuevo |
 |---|---|---|
-| Railway (worker) | `META_PHONE_NUMBER_ID` | el Phone number ID del paso 3.4 |
-| Railway (worker) | `META_ACCESS_TOKEN` | solo si generaste uno nuevo en el paso 4 (lo pegas tú) |
+| Railway (worker) | `META_PHONE_NUMBER_ID` | el Phone number ID del paso 3.5 |
+| Railway (worker) | `META_ACCESS_TOKEN` | solo si hubo que generar uno nuevo (lo pegas tú) |
 | Vercel (web) | `PLATFORM_WA_NUMBER` | el número sin + ni espacios, ej. `584121234567` |
 
 Después se redespliegan los dos. Los números de los clientes no cambian: cada negocio está
 identificado por el teléfono del usuario, no por el del bot.
 
-## 7. Probar
+## 5. Probar
 
 1. Desde tu teléfono, escríbele `hola` al número nuevo: debe llegar el menú.
 2. `gasté 5$ en café` → Guardar.
@@ -96,7 +101,7 @@ identificado por el teléfono del usuario, no por el del bot.
    código. Debe vincular.
 4. WhatsApp Manager → el número → **Calidad: verde**.
 
-## 8. Después
+## 6. Después
 
 - Avisa a los usuarios del piloto el número nuevo (guárdenlo como "Asistente de Caja").
 - WhatsApp Manager → Perfil: foto (logo), descripción y horario.

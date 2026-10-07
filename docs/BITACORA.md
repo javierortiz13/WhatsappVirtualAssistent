@@ -851,3 +851,9 @@ QA en navegador (390 px y escritorio) con tres cuentas (Bs, USDT y efectivo $): 
 - `sum_amounts`, cuando convierte, muestra cada monto en las dos monedas ("$13,70 = Bs 11.951,74") y el total como suma de esas líneas redondeadas, para que cuadre al céntimo con lo que se ve.
 - `convert_currency` es para UN monto; con dos o más, `sum_amounts` (descripciones y reglas 6b y 6e del prompt). Si pide el desglose de montos de un mensaje anterior, los copia todos de ahí (la validación ya acepta números del historial reciente).
 - Test con los montos exactos de la captura; dos evals nuevas (la pregunta de un solo mensaje y el desglose pedido después).
+
+### S2 · 07/10/2026 · Número real del bot
+
+Javier compró la línea Movistar **+58 424-699-5167** y la agregó en Meta con el panel nuevo (casos de uso → Configuración básica → Paso 2: Configuración de producción). Cuenta de WhatsApp Business **Rocco** (2338829886855969, portafolio Just Travel), número registrado con PIN desde el panel, webhooks suscritos, método de pago asignado y acceso de `caja-worker`. Cambios: Railway `META_PHONE_NUMBER_ID=1448159538369862`, Vercel `PLATFORM_WA_NUMBER=584246995167`. El número de prueba deja de responder. La guía `docs/runbooks/numero-real.md` se reescribió con el flujo real de octubre de 2026 (el botón "Agregar número" de la cuenta de prueba sale gris; la API queda como alternativa).
+
+Datos del negocio en Meta: nombre comercial JP Software Dev, Venezuela, sin verificar (hasta 2 números). La verificación queda para cuando haya documento (RNE o el registro mercantil ampliado).
