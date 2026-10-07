@@ -984,4 +984,4 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
   - "Mi plan" muestra "Gratis" a quien está en prueba.
 - Los precios de `PLANS` siguen definidos para el cobro (renovar por chat, panel). Para publicarlos se apaga `BETA`.
 
-**Ojo:** la prueba sigue siendo de 14 días y al vencer el negocio se suspende. Si la beta dura más, hay que extender las pruebas desde /admin o cambiar `TRIAL_DAYS`.
+**Ajuste (Javier):** la beta es "14 días gratis" contados desde el día que cada quien empieza: la prueba de siempre. La web lo dice así en la landing (planes, pregunta de precio, cierre y chat), el registro, "Mi plan" y el login. Al terminar la prueba, Rocco ofrece el plan con su precio (fundador para los primeros 50).

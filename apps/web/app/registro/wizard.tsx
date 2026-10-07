@@ -28,7 +28,7 @@ type Props = {
   maxCategories: number;
   maxAccounts: number;
   pilotNote: string;
-  /** Beta (07/10): sin precios, "Gratis en la beta". */
+  /** Beta (07/10): sin precios, "14 días gratis". */
   beta?: boolean;
 };
 
@@ -168,7 +168,7 @@ export function RegistroWizard(props: Props) {
                       {p.name}
                       <span className="price">
                         {props.beta
-                          ? "Gratis en la beta"
+                          ? "14 días gratis"
                           : `$${p.priceUsd.toFixed(2).replace(".", ",")}/mes`}
                       </span>
                     </strong>

@@ -77,7 +77,8 @@ export const PLANS: Plan[] = [
 ];
 
 /**
- * Beta (07/10/2026, decisión de Javier): la web no muestra precios; dice "Gratis durante la beta".
+ * Beta (07/10/2026, decisión de Javier): la web no muestra precios; dice "14 días gratis" (la
+ * prueba de siempre, contada desde el registro).
  * Los precios de `PLANS` siguen definidos para el cobro y se publican al apagar esto.
  */
 export const BETA = true;

@@ -155,7 +155,7 @@ export default async function MiPlan({
             </div>
             {BETA && t.status === "trial" ? (
               <p className="plan-price">
-                Gratis <span className="sub">durante la beta</span>
+                Gratis <span className="sub">durante tu prueba de 14 días</span>
               </p>
             ) : (
               <>

@@ -119,7 +119,7 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
             <h2>Un plan para tu bolsillo y otro para tu negocio.</h2>
             <p className="lead">
               {BETA
-                ? "Durante la beta, Rocco es gratis. Antes de cobrar te avisamos con 30 días de anticipación, y los primeros 50 tendrán precio de fundador."
+                ? "Durante la beta pruebas Rocco gratis por 14 días, contados desde el día que empiezas a usarlo. Y los primeros 50 tendrán precio de fundador."
                 : `Empiezas con 14 días gratis. Los primeros 50 tienen precio de fundador: 40 % menos. ${PILOT_NOTE}`}
             </p>
           </div>
@@ -133,7 +133,7 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
                 <div className="price num">
                   {BETA ? (
                     <>
-                      Gratis <small>durante la beta</small>
+                      14 días gratis <small>en la beta</small>
                     </>
                   ) : (
                     <>
@@ -184,7 +184,7 @@ export function Landing({ waUrl, heroPhoto }: { waUrl: string | null; heroPhoto:
             <h2>Hoy mismo, que las cuentas las lleve Rocco.</h2>
             <p className="lead" style={{ margin: "12px auto 24px" }}>
               Escríbele <strong>hola</strong> por WhatsApp y crea tu cuenta en el mismo chat. Toma
-              dos minutos y durante la beta es gratis.
+              dos minutos y tienes 14 días gratis.
             </p>
             <div className="ctas" style={{ justifyContent: "center" }}>
               <a
@@ -358,7 +358,7 @@ function scenes(waUrl: string | null): Scene[] {
       bot: (
         <>
           ¡Dale! Escríbeme <strong>hola</strong> desde tu WhatsApp y creamos tu cuenta aquí mismo en
-          dos minutos. Durante la beta soy gratis.
+          dos minutos. Tienes 14 días gratis para probarme.
           <div className="btns">
             {waUrl ? <span>Escribirle a Rocco</span> : null}
             <span>Crear cuenta en la web</span>
@@ -367,7 +367,7 @@ function scenes(waUrl: string | null): Scene[] {
       ),
       caption: {
         title: "Empieza hoy, sin instalar nada.",
-        text: "Sin tarjeta y sin pagar: durante la beta Rocco es gratis.",
+        text: "Sin tarjeta: durante la beta tienes 14 días gratis desde el día que empiezas.",
       },
     },
   ];
@@ -396,7 +396,7 @@ const FAQ = [
   },
   {
     q: "¿Cuánto cuesta?",
-    a: "Durante la beta, nada: Rocco es gratis. Cuando salgamos de la beta te avisamos los precios con 30 días de anticipación, y los primeros 50 tendrán precio de fundador. Se pagará por pago móvil, Zelle o USDT desde el mismo chat.",
+    a: "Durante la beta lo pruebas gratis por 14 días, contados desde el día que empiezas a usarlo. Al terminar la prueba, Rocco te dice el precio de tu plan (los primeros 50 con precio de fundador) y pagas por pago móvil, Zelle o USDT desde el mismo chat.",
   },
 ];
 

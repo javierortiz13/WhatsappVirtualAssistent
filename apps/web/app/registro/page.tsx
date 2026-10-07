@@ -73,7 +73,7 @@ export default async function Registro({
           suggestions={SUGGESTED_EXPENSE_CATEGORIES}
           maxCategories={MAX_ACTIVE_CATEGORIES}
           maxAccounts={ONBOARDING_MAX_ACCOUNTS}
-          pilotNote="Durante la beta Rocco es gratis. Te avisamos con 30 días de anticipación antes de cobrar."
+          pilotNote="Durante la beta tienes 14 días gratis, contados desde hoy."
           beta={BETA}
         />
       </>
