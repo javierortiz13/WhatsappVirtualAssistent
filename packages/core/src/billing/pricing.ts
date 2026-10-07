@@ -62,8 +62,26 @@ export function quote(
   months: number,
   rates: LatestRates | null,
   preferred: BillingRateKind = "bcv_eur",
+  /** Precio fundador (0019): porcentaje de descuento sobre el precio del plan. */
+  discountPct = 0,
 ): Quote | null {
-  const usd = new Decimal(plan.priceUsd).mul(months);
+  const usd = withDiscount(new Decimal(plan.priceUsd).mul(months), discountPct);
+  return quoteUsd(usd, method, rates, preferred);
+}
+
+/** Precio con descuento, redondeado al centavo. */
+export function withDiscount(usd: Decimal, pct: number): Decimal {
+  if (!pct) return usd;
+  return usd.mul(new Decimal(100).minus(pct)).div(100).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+}
+
+/** Cuánto pagar un monto en dólares por cada método (plan o recarga). */
+export function quoteUsd(
+  usd: Decimal,
+  method: BillingMethod,
+  rates: LatestRates | null,
+  preferred: BillingRateKind = "bcv_eur",
+): Quote | null {
   if (method === "zelle")
     return {
       method,

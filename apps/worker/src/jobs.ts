@@ -14,6 +14,7 @@ import {
   purgeOldWebhookPayloads,
   refreshRates,
   retentionSweep,
+  sendLifecycleNotices,
   sendPaymentNotices,
   sendRetentionNotices,
   sweepOrphanAttachments,
@@ -239,6 +240,17 @@ export async function registerJobs(opts: {
         log.error(
           { err: err instanceof Error ? err.message : String(err) },
           "avisos de pago: ¿falta la migración 0011?",
+        );
+      }
+      // Prueba gratis (0019): encuesta de precio el día 10 y resumen de valor el día 12.
+      try {
+        const meta = opts.platformPhoneNumberId ? deps.metaFor(opts.platformPhoneNumberId) : null;
+        const life = await sendLifecycleNotices(db, meta, { now, log });
+        if (life.survey || life.value || life.failed) log.info(life, "avisos de la prueba");
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : String(err) },
+          "avisos de la prueba: ¿falta la migración 0019?",
         );
       }
     }),

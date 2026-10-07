@@ -4,6 +4,7 @@ import {
   type Db,
   desc,
   eq,
+  everyTenantId,
   gt,
   isNull,
   type Queryable,
@@ -19,7 +20,7 @@ import {
   MAX_CATEGORY_NAME_LENGTH,
   OTHERS_CATEGORY,
 } from "@caja/db/seed-data";
-import type { PlanId } from "../billing/plans";
+import { FOUNDER, founderUntilFrom, type PlanId } from "../billing/plans";
 import { businessDateOf } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import { type AccountKind, createAccount } from "../ledger/accounts";
@@ -99,6 +100,15 @@ export function onboardingCategories(
 
 export type IssuedCode = { code: string; expiresAt: Date };
 
+/**
+ * Precio fundador (0019): los primeros 50 negocios de la plataforma lo reciben al registrarse.
+ * Devuelve hasta cuándo, o null si ya no quedan cupos.
+ */
+export async function founderUntilForNew(db: Db, now: Date): Promise<string | null> {
+  const count = (await everyTenantId(db)).length;
+  return count < FOUNDER.slots ? founderUntilFrom(businessDateOf(now)) : null;
+}
+
 export async function phoneIsTaken(db: Queryable, e164: string): Promise<boolean> {
   const [r] = rows<{ taken: boolean }>(
     await db.execute(sql`select app.phone_is_taken(${e164}) as taken`),
@@ -117,6 +127,7 @@ export async function registerBusiness(
 ): Promise<{ tenantId: string; phoneId: string } & IssuedCode> {
   if (await phoneIsTaken(db, input.ownerPhone)) throw new PhoneTakenError(input.ownerPhone);
   const tenantId = crypto.randomUUID();
+  const founderUntil = await founderUntilForNew(db, now);
   return withTenant(db, tenantId, async (tx) => {
     await tx.insert(schema.tenant).values({
       id: tenantId,
@@ -125,6 +136,7 @@ export async function registerBusiness(
       defaultExpenseCurrency: input.defaultExpenseCurrency,
       status: "trial",
       plan: input.plan ?? (input.businessType === "personal" ? "personal" : "negocio"),
+      founderUntil,
     });
     const names = onboardingCategories(input.categories, input.businessType);
     if (names.length)
@@ -419,9 +431,10 @@ export async function registerFromChat(
   db: Db,
   input: ChatRegisterInput,
   now: Date = new Date(),
-): Promise<{ tenantId: string; phoneId: string }> {
+): Promise<{ tenantId: string; phoneId: string; founderUntil: string | null }> {
   if (await phoneIsTaken(db, input.e164)) throw new PhoneTakenError(input.e164);
   const tenantId = crypto.randomUUID();
+  const founderUntil = await founderUntilForNew(db, now);
   return withTenant(db, tenantId, async (tx) => {
     await tx.insert(schema.tenant).values({
       id: tenantId,
@@ -431,6 +444,7 @@ export async function registerFromChat(
       status: "trial",
       plan: input.businessType === "personal" ? "personal" : "negocio",
       signupChannel: "whatsapp",
+      founderUntil,
     });
     const names = onboardingCategories(input.categories, input.businessType);
     const cats = names.length
@@ -507,7 +521,7 @@ export async function registerFromChat(
           channel: "whatsapp",
         });
     }
-    return { tenantId, phoneId: phone.id };
+    return { tenantId, phoneId: phone.id, founderUntil };
   });
 }
 

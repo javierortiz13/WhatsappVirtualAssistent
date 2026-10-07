@@ -303,6 +303,8 @@ export type RenewOfferView = {
   months: number;
   quotes: RenewQuoteView[];
   supportHint: string | null;
+  /** Precio fundador (0019): ya va descontado en los montos. */
+  founder?: { pct: number; until: string } | null | undefined;
 };
 
 function renewStateLine(v: RenewOfferView): string {
@@ -331,6 +333,10 @@ export function renewOffer(v: RenewOfferView): Outbound {
     ? `*Cambiar a ${v.planName}* (hoy tienes ${v.fromPlanName})`
     : `*Tu plan: ${v.planName}*`;
   const lines = [head, renewStateLine(v)];
+  if (v.founder)
+    lines.push(
+      `🎁 Precio de fundador: ${v.founder.pct} % menos hasta el ${formatShortDate(asIsoDate(v.founder.until))}. Ya va descontado.`,
+    );
   if (v.quotes.length === 0) {
     lines.push(
       v.supportHint
@@ -2365,6 +2371,8 @@ export function signupDone(v: {
   categories: string[];
   accounts: { name: string; currency: string; kind: string; openingBalance: string }[];
   budgets: { category: string; amountUsd: string }[];
+  /** Precio fundador (0019): hasta cuándo, si le tocó. */
+  founderUntil?: string | null | undefined;
 }): Outbound {
   const lines = [
     `✅ ¡Listo, ${v.name}! ${v.businessName ? `*${v.businessName}* ya está conmigo.` : "Tu cuenta quedó creada."}`,
@@ -2380,6 +2388,10 @@ export function signupDone(v: {
       `• Presupuesto: ${v.budgets.map((b) => `${b.category} ${formatMoney(b.amountUsd, "USD")} al mes`).join(" · ")}`,
     );
   lines.push("", "Tienes *14 días gratis* para probarme.");
+  if (v.founderUntil)
+    lines.push(
+      "🎁 Y como eres de los primeros, tienes *precio de fundador*: 40 % menos cuando actives tu plan.",
+    );
   return { type: "text", body: lines.join("\n") };
 }
 
@@ -2438,5 +2450,194 @@ export function dashboardLinked(email: string): Outbound {
   return {
     type: "text",
     body: `✅ Listo, tu dashboard quedó conectado${email ? ` a *${email}*` : ""}. Ya puedes ver, corregir y exportar todo desde la web.`,
+  };
+}
+
+// ---------------------------------------------------------------- límite del plan y recargas (0019)
+
+/** Fin de mes en Caracas para "se reinicia el 1/11". */
+function nextMonthStart(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  const next = new Date(Date.UTC(y ?? 2000, m ?? 1, 1));
+  return `${next.getUTCDate()}/${next.getUTCMonth() + 1}`;
+}
+
+/** Pasó los mensajes del mes: no registra; ofrece recarga o cambiar de plan. */
+export function monthLimit(v: {
+  planName: string;
+  cap: number;
+  month: string;
+  recharge: { messages: number; priceUsd: number };
+}): Outbound {
+  return {
+    type: "text",
+    body: [
+      `Llegaste a los *${v.cap} mensajes* de tu plan ${v.planName} este mes, así que por ahora no puedo registrar más. Tus datos siguen guardados.`,
+      `Para seguir: escribe *recargar* (+${v.recharge.messages} mensajes por $${v.recharge.priceUsd}) o *cambiar de plan*. Tu mes se reinicia el ${nextMonthStart(v.month)}.`,
+    ].join("\n"),
+  };
+}
+
+export function monthLimitEmployee(tenantName: string): Outbound {
+  return {
+    type: "text",
+    body: `*${tenantName}* llegó al límite de mensajes de su plan este mes y por ahora no puedo registrar más. Avísale al dueño para que recargue.`,
+  };
+}
+
+/** Aviso único al 80 % del mes. */
+export function capWarning(v: { used: number; cap: number; month: string }): Outbound {
+  return {
+    type: "text",
+    body: `Ojo: vas por *${v.used} de ${v.cap} mensajes* de tu plan este mes. Se reinicia el ${nextMonthStart(v.month)}. Si necesitas más, escribe *recargar*.`,
+  };
+}
+
+export function rechargeOffer(v: {
+  messages: number;
+  priceUsd: number;
+  quotes: RenewQuoteView[];
+  supportHint: string | null;
+}): Outbound {
+  const lines = [`*Recarga: +${v.messages} mensajes* por $${v.priceUsd}. Valen hasta fin de mes.`];
+  if (v.quotes.length === 0) {
+    lines.push(
+      v.supportHint
+        ? `Para recargar escríbenos: ${v.supportHint}`
+        : "Para recargar escríbele a quien te dio de alta.",
+    );
+    return { type: "text", body: lines.join("\n") };
+  }
+  for (const q of v.quotes) lines.push(`• ${RENEW_METHOD_LABELS[q.method]}: ${renewAmount(q)}`);
+  lines.push("¿Cómo vas a pagar?");
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: v.quotes.map((q) => ({
+      id: IDS.renew(q.method, "recharge", 1),
+      title: RENEW_METHOD_LABELS[q.method],
+    })),
+  };
+}
+
+export function rechargePayTo(v: {
+  quote: RenewQuoteView;
+  dest: string;
+  messages: number;
+}): Outbound {
+  return {
+    type: "text",
+    body: [
+      `*${RENEW_METHOD_LABELS[v.quote.method]}* · Recarga de ${v.messages} mensajes`,
+      `Monto: ${renewAmount(v.quote)}`,
+      `Datos: ${v.dest}`,
+      "Cuando pagues, mándame la referencia. Ejemplo: _ref 123456_",
+    ].join("\n"),
+  };
+}
+
+export function rechargeReported(v: {
+  quote: RenewQuoteView;
+  messages: number;
+  reference: string;
+}): Outbound {
+  return {
+    type: "text",
+    body: `✅ Recibí tu pago: recarga de ${v.messages} mensajes, ${renewAmount(v.quote)}, ref ${v.reference}. Lo verificamos y te aviso por aquí.`,
+  };
+}
+
+export function rechargeVerified(messages: number): Outbound {
+  return {
+    type: "text",
+    body: `✅ Recarga verificada: tienes *${messages} mensajes más* este mes. ¡Seguimos!`,
+  };
+}
+
+// ---------------------------------------------------------------- ciclo de la prueba (0019)
+
+/** Rangos de precio al mes para la encuesta: id corto y texto de la fila. */
+export const PRICE_BUCKETS: { id: string; title: string }[] = [
+  { id: "lt3", title: "Menos de $3 al mes" },
+  { id: "3-5", title: "Entre $3 y $5" },
+  { id: "5-8", title: "Entre $5 y $8" },
+  { id: "8-12", title: "Entre $8 y $12" },
+  { id: "12-20", title: "Entre $12 y $20" },
+  { id: "gt20", title: "Más de $20 al mes" },
+];
+
+function priceList(question: "fair" | "expensive", body: string): Outbound {
+  return {
+    type: "list",
+    body,
+    buttonLabel: "Elegir precio",
+    sections: [
+      {
+        rows: PRICE_BUCKETS.map((b) => ({ id: IDS.survey(question, b.id), title: b.title })),
+      },
+    ],
+  };
+}
+
+/** Día 10: la primera pregunta de la encuesta de precio. */
+export function surveyFair(): Outbound {
+  return priceList(
+    "fair",
+    "¡Epa! Ya llevamos 10 días juntos. Una pregunta rápida para hacer a Rocco mejor (y a un precio justo): ¿cuánto te parecería *justo* pagar al mes por mí?",
+  );
+}
+
+export function surveyExpensive(): Outbound {
+  return priceList("expensive", "¡Gracias! Y ¿a partir de qué precio al mes te parecería *caro*?");
+}
+
+export function surveyThanks(): Outbound {
+  return {
+    type: "text",
+    body: "¡Gracias! Con esto armamos los precios. Seguimos: escríbeme tu próximo gasto cuando quieras.",
+  };
+}
+
+/** Día 12: lo que Rocco anotó en la prueba y "¿seguimos?". Sin precios: eso va aparte. */
+export function valueSummary(v: {
+  movements: number;
+  expensesUsd: Decimal.Value;
+  salesUsd: Decimal.Value;
+  days: number;
+  business: boolean;
+  trialEndsOn: IsoDate | null;
+  founder: boolean;
+}): Outbound {
+  const lines = [
+    v.movements > 0
+      ? `En estos ${v.days} días anoté *${v.movements} ${v.movements === 1 ? "movimiento" : "movimientos"}* contigo: *${formatMoney(v.expensesUsd, "USD")}* en gastos${v.business && new Decimal(v.salesUsd).gt(0) ? ` y *${formatMoney(v.salesUsd, "USD")}* en ventas` : ""}.`
+      : `Llevamos ${v.days} días juntos y todavía no me has pasado ningún gasto. ¡Pruébame con el próximo!`,
+  ];
+  if (v.trialEndsOn) lines.push(`Tu prueba gratis termina el ${formatShortDate(v.trialEndsOn)}.`);
+  if (v.founder) lines.push("Como eres de los primeros, tendrás *precio de fundador*.");
+  lines.push("", "¿Seguimos juntos?");
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: [
+      { id: IDS.survey("continue", "yes"), title: "¡Sí, sigamos!" },
+      { id: IDS.survey("continue", "doubts"), title: "Tengo dudas" },
+    ],
+  };
+}
+
+export function valueYes(): Outbound {
+  return {
+    type: "text",
+    body: "¡Buenísimo! Antes de que termine tu prueba te escribo con tu precio. Cuando quieras activarlo, escribe *renovar*.",
+  };
+}
+
+export function valueDoubts(supportHint: string | null): Outbound {
+  return {
+    type: "text",
+    body: supportHint
+      ? `Cuéntame qué te frena y lo resolvemos. También puedes escribirle a una persona del equipo: ${supportHint}`
+      : "Cuéntame qué te frena o qué te gustaría que hiciera, y lo resolvemos.",
   };
 }

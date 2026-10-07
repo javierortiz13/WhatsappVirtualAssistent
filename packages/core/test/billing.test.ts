@@ -238,7 +238,7 @@ describe("pagos, suspensión y límite (base de prueba)", () => {
     expect(first.suspended).toEqual([tenantId]);
     expect((await tenant())?.status).toBe("suspended");
 
-    // Reactivado y con 601 mensajes este mes en el plan Negocio (600).
+    // Reactivado y con 401 mensajes este mes en el plan Negocio (400).
     await withTenant(t.db, tenantId, async (tx) => {
       await tx
         .update(schema.tenant)
@@ -246,7 +246,7 @@ describe("pagos, suspensión y límite (base de prueba)", () => {
         .where(eq(schema.tenant.id, ids.tenantId));
       const [phone] = await tx.select().from(schema.phoneNumber);
       await tx.insert(schema.message).values(
-        Array.from({ length: 601 }, () => ({
+        Array.from({ length: 401 }, () => ({
           tenantId,
           phoneId: phone?.id ?? "",
           direction: "in",
@@ -258,7 +258,7 @@ describe("pagos, suspensión y límite (base de prueba)", () => {
     });
     const second = await enforceBilling(t.db, now);
     expect(second.suspended).toEqual([]);
-    expect(second.overCap).toEqual([{ tenantId, plan: "negocio", used: 601, cap: 600 }]);
+    expect(second.overCap).toEqual([{ tenantId, plan: "negocio", used: 401, cap: 400 }]);
     const third = await enforceBilling(t.db, now);
     expect(third.overCap).toEqual([]);
   });

@@ -113,6 +113,20 @@ export const tenant = app.table(
     retentionNotices: integer("retention_notices").notNull().default(0),
     /** Por dónde se registró (0018): el asistente web o el chat con Rocco. */
     signupChannel: text("signup_channel").notNull().default("dashboard"),
+    /** Precio fundador (0019): descuento hasta esta fecha; null = sin descuento. */
+    founderUntil: date("founder_until"),
+    /** Recargas del mes (0019): mensajes extra que valen solo en `extraMonth` ("2026-10"). */
+    extraMessages: integer("extra_messages").notNull().default(0),
+    extraMonth: text("extra_month"),
+    /** Mes en que ya se avisó el 80 % del tope. */
+    capWarnedMonth: text("cap_warned_month"),
+    /** Encuesta de precio (día 10) y resumen de valor (día 12). */
+    surveySentAt: timestamp("survey_sent_at", { withTimezone: true }),
+    valueSentAt: timestamp("value_sent_at", { withTimezone: true }),
+    survey: jsonb("survey").notNull().default({}),
+    /** CRM interno del administrador. */
+    crmNotes: text("crm_notes"),
+    crmTags: text("crm_tags").array().notNull().default(sql`'{}'::text[]`),
     /** De dónde sale la tasa de los gastos en Bs (0012): BCV, los lotes de cambio, o preguntar. */
     bsRateMode: text("bs_rate_mode").notNull().default("bcv"),
     ...timestamps,
@@ -473,6 +487,8 @@ export const payment = app.table(
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
     /** Aviso por WhatsApp de "pago verificado" o "no verificado" (0011). */
     notifiedAt: timestamp("notified_at", { withTimezone: true }),
+    /** Plan (extiende la vigencia) o recarga de mensajes del mes (0019). */
+    kind: text("kind").notNull().default("plan"),
     ...timestamps,
   },
   (t) => [

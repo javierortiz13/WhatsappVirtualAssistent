@@ -41,6 +41,8 @@ export const IDS = {
   erase: (answer: "yes" | "no") => `erase:${answer}`,
   /** Registro por WhatsApp (0018): "signup:kind:personal", "signup:cur:USD", "signup:type:food"… */
   signup: (value: string) => `signup:${value}`,
+  /** Encuesta del día 10 y resumen del día 12 (0019): "survey:fair:5-8", "survey:continue:yes". */
+  survey: (question: string, answer: string) => `survey:${question}:${answer}`,
 } as const;
 
 export const BS_MODES = ["bcv", "usdt", "ask"] as const;
@@ -66,6 +68,7 @@ export type ParsedReplyId =
   | { kind: "bs_mode"; mode: BsMode }
   | { kind: "erase"; answer: "yes" | "no" }
   | { kind: "signup"; value: string }
+  | { kind: "survey"; question: "fair" | "expensive" | "continue"; answer: string }
   | { kind: "unknown"; raw: string };
 
 export function parseReplyId(raw: string): ParsedReplyId {
@@ -116,6 +119,16 @@ export function parseReplyId(raw: string): ParsedReplyId {
     case "signup":
       if (value) return { kind: "signup", value };
       break;
+    case "survey": {
+      const [question, answer] = rest;
+      if (
+        (question === "fair" || question === "expensive" || question === "continue") &&
+        answer &&
+        /^[a-z0-9-]{1,12}$/.test(answer)
+      )
+        return { kind: "survey", question, answer };
+      break;
+    }
     case "bsmode":
       if ((BS_MODES as readonly string[]).includes(value))
         return { kind: "bs_mode", mode: value as BsMode };

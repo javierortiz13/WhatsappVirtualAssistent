@@ -1,7 +1,7 @@
 import type { Tx } from "@caja/db";
 import { businessDateOf } from "../domain/dates";
 import { es, type Outbound } from "../render/index";
-import { type PlanId, planById } from "./plans";
+import { type PlanId, planById, RECHARGE } from "./plans";
 import type { BillingMethod, Quote } from "./pricing";
 import {
   BILLING_METHODS,
@@ -9,6 +9,7 @@ import {
   extractReference,
   type PaymentDest,
   type RenewIntent,
+  rechargeQuotes,
   renewalOffer,
   reportRenewal,
   startRenewal,
@@ -51,7 +52,37 @@ export async function renewOfferReply(
     months: o.months,
     quotes: o.quotes.map(view),
     supportHint: c.supportHint,
+    founder: o.founder,
   });
+}
+
+/** Recarga de mensajes (0019): +100 por $4, un botón por método. */
+export async function rechargeOfferReply(tx: Tx, c: RenewChatCtx): Promise<Outbound> {
+  const quotes = await rechargeQuotes(tx, c.dest);
+  return es.rechargeOffer({
+    messages: RECHARGE.messages,
+    priceUsd: RECHARGE.priceUsd,
+    quotes: quotes.map(view),
+    supportHint: c.supportHint,
+  });
+}
+
+/** Eligió método para la recarga: datos y monto; queda la intención esperando la referencia. */
+export async function rechargePayToReply(
+  tx: Tx,
+  c: RenewChatCtx,
+  method: BillingMethod,
+): Promise<Outbound> {
+  const dest = c.dest[method];
+  if (!dest) return rechargeOfferReply(tx, c);
+  const r = await startRenewal(
+    tx,
+    c,
+    { method, plan: "personal", months: 1, kind: "recharge" },
+    c.now,
+  );
+  if (!r) return es.renewUnavailable(c.supportHint);
+  return es.rechargePayTo({ quote: view(r.intent), dest, messages: RECHARGE.messages });
 }
 
 /** Eligió método: datos de pago y monto exacto; queda la intención esperando la referencia. */
@@ -86,6 +117,12 @@ export async function renewReferenceReply(
     if (methods.length === 0) return renewOfferReply(tx, c);
     return es.renewWhichMethod(reference, methods);
   }
+  if (r.intent.kind === "recharge")
+    return es.rechargeReported({
+      quote: view(r.intent),
+      messages: RECHARGE.messages,
+      reference: r.reference,
+    });
   return es.renewReported({
     quote: view(r.intent),
     planName: r.plan.name,
@@ -109,3 +146,6 @@ export async function maybeRenewReference(
 /** Palabras con las que un negocio suspendido pide renovar (sin LLM). */
 export const RENEW_WORDS =
   /(renov|\bpag(ar|o|ue|ué)\b|\bplan\b|suscrip|precio|cu[aá]nto cuesta|activar|reactivar)/i;
+
+/** "recargar", "quiero una recarga", "más mensajes" (sin LLM). */
+export const RECHARGE_WORDS = /(\brecarg|m[aá]s mensajes|comprar mensajes)/i;

@@ -8,8 +8,9 @@ import { monthUsage } from "./usage";
 /**
  * Vuelta de cobros (corre en el housekeeping del worker):
  * 1. Suspende los negocios cuya prueba o período pagado venció hace más de 3 días.
- * 2. Detecta los que pasaron el límite de mensajes del plan este mes y los devuelve una sola vez
- *    por mes, para avisarle al administrador (decisión del 02/10: el bot sigue funcionando).
+ * 2. Detecta los que pasaron el límite de mensajes del plan (más su recarga) este mes y los
+ *    devuelve una sola vez por mes, para avisarle al administrador. Desde el 07/10 (0019) el bot
+ *    sí para en ese límite y ofrece recargar; ver `limits.ts`.
  * 3. Detecta las pruebas que llegaron a su tope de gasto (0016; ahí el bot sí para) y las devuelve
  *    una sola vez, para que el administrador decida si les da más.
  */
@@ -81,7 +82,8 @@ async function enforceTenant(
       }
     }
     const usage = await monthUsage(tx, tenantId, now);
-    const cap = planById(t.plan).messagesPerMonth;
+    const cap =
+      planById(t.plan).messagesPerMonth + (t.extraMonth === usage.month ? t.extraMessages : 0);
     if (usage.inbound > cap && t.capNotifiedMonth !== usage.month) {
       await tx
         .update(schema.tenant)

@@ -1,18 +1,22 @@
 "use server";
 
 import {
+  addExtraMessages,
   approvePayment,
   Decimal,
+  founderUntilFrom,
   latestRates,
   PLANS,
   parseVenezuelanAmount,
   planById,
   quote,
+  RECHARGE,
   recordPayment,
   rejectPayment,
   setTenantBilling,
   subscriptionState,
 } from "@caja/core";
+import { businessDateOf } from "@caja/core/domain";
 import { eq, schema, withTenant } from "@caja/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -241,4 +245,90 @@ export async function restoreTenantAction(formData: FormData): Promise<void> {
   }
   revalidatePath("/admin");
   back(tenantId, "ok=recuperado");
+}
+
+// ---------------------------------------------------------------- CRM (0019)
+
+const CrmForm = z.object({
+  tenant_id: z.string().uuid(),
+  notes: z.string().max(4000).optional(),
+  tags: z.string().max(300).optional(),
+});
+
+/** Notas y etiquetas internas del negocio ("amigo, fundador, autolavado"). */
+export async function saveCrmAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const tenantId = String(formData.get("tenant_id") ?? "");
+  const parsed = CrmForm.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) fail(tenantId, "datos");
+  const tags = [
+    ...new Set(
+      (parsed.data.tags ?? "")
+        .split(",")
+        .map((x) => x.trim().toLowerCase())
+        .filter((x) => x.length > 0 && x.length <= 30),
+    ),
+  ].slice(0, 12);
+  try {
+    await withTenant(db(), tenantId, (tx) =>
+      tx
+        .update(schema.tenant)
+        .set({ crmNotes: parsed.data.notes?.trim() || null, crmTags: tags })
+        .where(eq(schema.tenant.id, tenantId)),
+    );
+  } catch (err) {
+    fail(tenantId, "servidor", err);
+  }
+  revalidatePath("/admin");
+  back(tenantId, "ok=guardado");
+}
+
+/** Da o quita el precio fundador (40 % por 7 meses desde hoy). */
+export async function setFounderAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const tenantId = String(formData.get("tenant_id") ?? "");
+  if (!z.string().uuid().safeParse(tenantId).success) redirect("/admin?error=datos");
+  const on = formData.get("founder") === "on";
+  const now = new Date();
+  try {
+    await withTenant(db(), tenantId, async (tx) => {
+      const [t] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId));
+      if (!t) throw new Error("negocio no encontrado");
+      const founderUntil = on ? founderUntilFrom(businessDateOf(now)) : null;
+      await tx.update(schema.tenant).set({ founderUntil }).where(eq(schema.tenant.id, tenantId));
+      await tx.insert(schema.auditLog).values({
+        tenantId,
+        actorType: "user",
+        actorId: admin.userId,
+        action: on ? "founder_on" : "founder_off",
+        entity: "tenant",
+        entityId: tenantId,
+        before: { founderUntil: t.founderUntil },
+        after: { founderUntil },
+        channel: "admin",
+      });
+    });
+  } catch (err) {
+    fail(tenantId, "servidor", err);
+  }
+  revalidatePath("/admin");
+  back(tenantId, "ok=guardado");
+}
+
+/** Regala una recarga (+100 mensajes este mes), por ejemplo a un amigo que se quedó corto. */
+export async function giftRechargeAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const tenantId = String(formData.get("tenant_id") ?? "");
+  if (!z.string().uuid().safeParse(tenantId).success) redirect("/admin?error=datos");
+  try {
+    await withTenant(db(), tenantId, async (tx) => {
+      const [t] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId));
+      if (!t) throw new Error("negocio no encontrado");
+      await addExtraMessages(tx, t, RECHARGE.messages, admin, new Date(), "admin_gift");
+    });
+  } catch (err) {
+    fail(tenantId, "servidor", err);
+  }
+  revalidatePath("/admin");
+  back(tenantId, "ok=recarga");
 }

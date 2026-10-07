@@ -1,4 +1,5 @@
 import {
+  founderDiscount,
   latestRates,
   monthUsage,
   PLANS,
@@ -80,7 +81,10 @@ export default async function MiPlan({
     binance: e.PAYMENT_BINANCE,
   } as const;
   const support = e.SUPPORT_HINT;
-  const q = (m: "pago_movil" | "zelle" | "binance") => quote(plan, m, 1, rates);
+  // Precio fundador (0019): los montos ya van con el descuento, igual que en el chat.
+  const founderPct = founderDiscount(t, now);
+  const q = (m: "pago_movil" | "zelle" | "binance") =>
+    quote(plan, m, 1, rates, "bcv_eur", founderPct);
 
   return (
     <div className="stack">
@@ -123,14 +127,21 @@ export default async function MiPlan({
           </p>
         ) : null}
         <p className="sub num">
-          Este mes: {usage.inbound} de {plan.messagesPerMonth} registros · {usage.phones} de{" "}
-          {plan.numbers} números
+          Este mes: {usage.inbound} de{" "}
+          {plan.messagesPerMonth + (t.extraMonth === usage.month ? t.extraMessages : 0)} mensajes ·{" "}
+          {usage.phones} de {plan.numbers} números
         </p>
+        {founderPct && t.founderUntil ? (
+          <p className="sub">
+            🎁 Precio de fundador: {founderPct} % menos hasta el{" "}
+            {formatShortDate(t.founderUntil as never)}. Los montos ya van descontados.
+          </p>
+        ) : null}
       </section>
 
       <span className="sect">Planes</span>
       {PLANS.map((p) => {
-        const pm = quote(p, "pago_movil", 1, rates);
+        const pm = quote(p, "pago_movil", 1, rates, "bcv_eur", founderPct);
         const current = p.id === plan.id;
         return (
           <section

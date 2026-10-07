@@ -2,6 +2,7 @@
 
 import {
   Decimal,
+  founderDiscount,
   latestRates,
   PLANS,
   parseVenezuelanAmount,
@@ -9,6 +10,7 @@ import {
   quote,
   reportPayment,
   TooManyPendingError,
+  withDiscount,
 } from "@caja/core";
 import { and, eq, schema, withTenant } from "@caja/db";
 import { revalidatePath } from "next/cache";
@@ -65,7 +67,13 @@ export async function reportPaymentAction(formData: FormData): Promise<void> {
   const amount = parseVenezuelanAmount(f.amount);
   if (!amount || amount.lte(0)) redirect("/ajustes/plan?error=monto#reportar");
   const plan = planById(f.plan);
-  const q = quote(plan, f.method, f.months, await latestRates(db()));
+  const now = new Date();
+  // Precio fundador (0019): el monto esperado ya va con el descuento, igual que en el chat.
+  const [row] = await withTenant(db(), tenant.id, (tx) =>
+    tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenant.id)),
+  );
+  const pct = row ? founderDiscount(row, now) : 0;
+  const q = quote(plan, f.method, f.months, await latestRates(db()), "bcv_eur", pct);
   try {
     await withTenant(db(), tenant.id, (tx) =>
       reportPayment(
@@ -79,12 +87,12 @@ export async function reportPaymentAction(formData: FormData): Promise<void> {
           currency: f.method === "pago_movil" ? "VES" : f.method === "zelle" ? "USD" : "USDT",
           rateKind: q?.rateKind ?? null,
           rateValue: q?.rateValue ?? null,
-          amountUsd: new Decimal(plan.priceUsd).mul(f.months),
+          amountUsd: withDiscount(new Decimal(plan.priceUsd).mul(f.months), pct),
           reference: f.reference,
           notes: null,
         },
         { userId: user.id, email: user.email },
-        new Date(),
+        now,
       ),
     );
   } catch (err) {

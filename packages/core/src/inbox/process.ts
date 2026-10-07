@@ -5,13 +5,20 @@ import { LlmUnavailableError } from "../agent/llm";
 import { deleteLastFlow, expenseDraftOutbound, expensesDraftOutbound } from "../agent/tools";
 import type { AgentInput, AgentRunner, UnclearReceipt } from "../agent/types";
 import {
+  type CapStatus,
   currentRenewIntent,
   extractReference,
   maybeRenewReference,
   type PaymentDest,
+  planById,
+  planCapStatus,
   planFromName,
+  RECHARGE,
+  RECHARGE_WORDS,
   RENEW_WORDS,
   type RenewChatCtx,
+  rechargeOfferReply,
+  rechargePayToReply,
   renewOfferReply,
   renewPayToReply,
   renewReferenceReply,
@@ -103,6 +110,7 @@ import {
 } from "../vision/receipt";
 import { LIMITS, LimitError, MetaApiError, type MetaClient } from "../whatsapp/client";
 import type { InboundMessage } from "../whatsapp/types";
+import { saveSurveyAnswer } from "./lifecycle";
 import { SPLIT_WORDS, splitFollowUp, splitFromPhoto } from "./split";
 
 /**
@@ -374,10 +382,14 @@ export async function processInbound(
     // Prueba gratis en su tope de gasto (0016): sin LLM ni transcripción hasta activar el plan.
     const trialCapped =
       !tenant.deletedAt && tenant.status === "trial" && (await trialSpend(tx, tenant)).reached;
+    // Límite duro del plan pagado (0019): pasado el tope del mes, solo recargar o cambiar de plan.
+    const cap = trialCapped ? null : await planCapStatus(tx, tenant, started);
     const route = await routeMessage(tx, deps, msg, {
       suspended: resolved.tenantStatus === "suspended",
       deleted: tenant.deletedAt ? { purgeAfter: tenant.purgeAfter } : null,
       trialCapped,
+      monthCapped: cap?.reached ? { ...cap, planName: planById(tenant.plan).name } : null,
+      inTrial: tenant.status === "trial",
       tenantId: resolved.tenantId,
       tenantName: tenant.name,
       phoneId: resolved.phoneId,
@@ -390,6 +402,15 @@ export async function processInbound(
       ack,
       mediaFollows: (waitMs) => mediaFollows(tx, event.id, event.receivedAt, msg.sender, waitMs),
     });
+
+    // Aviso único al 80 % del mes, después de la respuesta (solo al dueño).
+    if (cap?.warn && resolved.role === "owner" && route.outbound.length) {
+      route.outbound.push(es.capWarning({ used: cap.used, cap: cap.cap, month: cap.month }));
+      await tx
+        .update(schema.tenant)
+        .set({ capWarnedMonth: cap.month })
+        .where(eq(schema.tenant.id, resolved.tenantId));
+    }
 
     // Una respuesta = un mensaje (ADR-014): la bienvenida viaja en el mismo envío que la respuesta.
     const first = welcome[0];
@@ -606,6 +627,10 @@ type RouteCtx = {
   suspended: boolean;
   /** Prueba gratis que llegó a su tope de gasto: igual que suspendido, con su propio aviso. */
   trialCapped?: boolean;
+  /** Plan pagado que pasó sus mensajes del mes (0019): recargar o cambiar de plan. */
+  monthCapped?: (CapStatus & { planName: string }) | null;
+  /** En la prueba gratis: "recargar" ofrece activar el plan, no una recarga. */
+  inTrial?: boolean;
   /** En la papelera (0017): solo "recuperar mi cuenta"; lo demás, cuándo se borra. */
   deleted?: { purgeAfter: Date | null } | null;
   tenantId: string;
@@ -663,6 +688,31 @@ async function routeSuspended(
   msg: InboundMessage,
   ctx: RouteCtx,
 ): Promise<RouteResult> {
+  if (ctx.monthCapped) {
+    const capped = ctx.monthCapped;
+    const notice = async (out: Outbound): Promise<RouteResult> =>
+      (await markSentSince(
+        tx,
+        ctx.phoneId,
+        MONTH_CAP,
+        new Date(renewCtx(deps, ctx).now.getTime() - DAY_MS),
+      ))
+        ? none([])
+        : { ...none([out]), toolCalls: [{ name: MONTH_CAP, args: {} }] };
+    if (ctx.role !== "owner") return notice(es.monthLimitEmployee(ctx.tenantName));
+    const routed = await routeRenewOnly(tx, deps, msg, ctx);
+    return (
+      routed ??
+      notice(
+        es.monthLimit({
+          planName: capped.planName,
+          cap: capped.cap,
+          month: capped.month,
+          recharge: RECHARGE,
+        }),
+      )
+    );
+  }
   if (ctx.trialCapped) {
     const notice = async (out: Outbound): Promise<RouteResult> =>
       (await markSentSince(
@@ -684,6 +734,8 @@ async function routeSuspended(
 
 /** Marca, en el saliente, del aviso de "la prueba llegó a su límite". */
 const TRIAL_CAP = "trial_cap";
+/** Marca del aviso "llegaste a los mensajes de tu plan este mes" (0019). */
+const MONTH_CAP = "month_cap";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** ¿Este número recibió, desde `since`, un saliente con la marca `name` en `tool_calls`? */
@@ -800,6 +852,12 @@ async function routeRenewOnly(
     const open = await currentRenewIntent(tx, ctx.phoneId, c.now);
     const reference = extractReference(msg.text, open !== null);
     if (reference) return none([await renewReferenceReply(tx, c, reference)]);
+    if (RECHARGE_WORDS.test(msg.text) && ctx.role === "owner")
+      return none([
+        ctx.trialCapped || ctx.inTrial
+          ? await renewOfferReply(tx, c)
+          : await rechargeOfferReply(tx, c),
+      ]);
     if (RENEW_WORDS.test(msg.text)) return none([await renewOfferReply(tx, c)]);
   }
   return null;
@@ -814,7 +872,8 @@ async function routeMessage(
   if (ctx.deleted) return routeDeleted(tx, deps, msg, ctx, ctx.deleted);
   const erase = await routeErase(tx, deps, msg, ctx);
   if (erase) return erase;
-  if (ctx.suspended || ctx.trialCapped) return routeSuspended(tx, deps, msg, ctx);
+  if (ctx.suspended || ctx.trialCapped || ctx.monthCapped)
+    return routeSuspended(tx, deps, msg, ctx);
   switch (msg.kind) {
     case "interactive":
       return routeInteractive(tx, deps, msg.replyId, ctx);
@@ -836,6 +895,13 @@ async function routeMessage(
         if (paid) return none([paid]);
       }
       const keyword = classifyKeyword(msg.text);
+      // "recargar" (0019): en un plan pagado, la recarga; en la prueba, activar el plan.
+      if (ctx.role === "owner" && RECHARGE_WORDS.test(msg.text) && msg.text.length <= 60)
+        return none([
+          ctx.inTrial
+            ? await renewOfferReply(tx, renewCtx(deps, ctx))
+            : await rechargeOfferReply(tx, renewCtx(deps, ctx)),
+        ]);
       if (keyword === "menu") return none([es.menu(await getRateInfo(tx, ctx.today))]);
       if (keyword === "rate") return none([es.rate(await getRateInfo(tx, ctx.today))]);
       if (keyword === "help")
@@ -1667,6 +1733,8 @@ async function routeInteractive(
     }
     case "renew": {
       if (ctx.role !== "owner") return none([es.renewOwnerOnly()]);
+      if (parsed.plan === "recharge")
+        return none([await rechargePayToReply(tx, renewCtx(deps, ctx), parsed.method)]);
       const plan = planFromName(parsed.plan);
       if (!plan) return none([await renewOfferReply(tx, renewCtx(deps, ctx))]);
       return none([
@@ -1708,6 +1776,22 @@ async function routeInteractive(
         kind: "text",
         text: `Respuesta al botón de categoría: ${JSON.stringify(cat.name)}. Aplícala a lo del mensaje anterior.`,
       });
+    }
+    case "survey": {
+      // Encuesta del día 10 y resumen del día 12 (0019): solo el dueño responde.
+      if (ctx.role !== "owner") return none([es.outOfScope()]);
+      await saveSurveyAnswer(
+        tx,
+        ctx.tenantId,
+        parsed.question,
+        parsed.answer,
+        (deps.now ?? (() => new Date()))(),
+      );
+      if (parsed.question === "fair") return none([es.surveyExpensive()]);
+      if (parsed.question === "expensive") return none([es.surveyThanks()]);
+      return none([
+        parsed.answer === "yes" ? es.valueYes() : es.valueDoubts(deps.config.supportHint),
+      ]);
     }
     default:
       return none([es.outOfScope()]);

@@ -1,9 +1,10 @@
 import { and, desc, eq, gte, inArray, isNull, schema, type Tx } from "@caja/db";
 import { z } from "zod";
+import { businessDateOf } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import { reportPayment, TooManyPendingError } from "./payments";
-import { PLANS, type Plan, type PlanId, planById } from "./plans";
-import { type BillingMethod, latestRates, type Quote, quote } from "./pricing";
+import { FOUNDER, PLANS, type Plan, type PlanId, planById, RECHARGE } from "./plans";
+import { type BillingMethod, latestRates, type Quote, quote, quoteUsd } from "./pricing";
 import { type SubscriptionState, subscriptionState } from "./subscription";
 
 /**
@@ -28,8 +29,15 @@ export const RenewIntent = z.object({
   amountUsd: z.string(),
   rateKind: z.enum(["bcv_usd", "bcv_eur"]).nullable(),
   rateValue: z.string().nullable(),
+  /** Plan (extiende la vigencia) o recarga de mensajes del mes (0019). */
+  kind: z.enum(["plan", "recharge"]).default("plan"),
 });
 export type RenewIntent = z.infer<typeof RenewIntent>;
+
+/** Descuento fundador vigente (0019): el porcentaje si `founder_until` no ha pasado. */
+export function founderDiscount(t: { founderUntil: string | null }, now: Date): number {
+  return t.founderUntil && businessDateOf(now) <= t.founderUntil ? FOUNDER.discountPct : 0;
+}
 
 export type RenewalOffer = {
   plan: Plan;
@@ -38,6 +46,8 @@ export type RenewalOffer = {
   months: number;
   state: SubscriptionState;
   quotes: Quote[];
+  /** Precio fundador aplicado (0019): porcentaje y hasta cuándo. */
+  founder: { pct: number; until: string } | null;
 };
 
 const clampMonths = (n: number | null | undefined) =>
@@ -65,22 +75,44 @@ export async function renewalOffer(
   const plan = planById(opts.plan ?? current);
   const months = clampMonths(opts.months);
   const rates = await latestRates(tx);
+  const pct = founderDiscount(t, now);
   const quotes = BILLING_METHODS.filter((m) => dest[m])
-    .map((m) => quote(plan, m, months, rates))
+    .map((m) => quote(plan, m, months, rates, "bcv_eur", pct))
     .filter((q): q is Quote => q !== null);
-  return { plan, currentPlanId: current, months, state: subscriptionState(t, now), quotes };
+  return {
+    plan,
+    currentPlanId: current,
+    months,
+    state: subscriptionState(t, now),
+    quotes,
+    founder: pct && t.founderUntil ? { pct, until: t.founderUntil } : null,
+  };
+}
+
+/** Lo que cuesta una recarga de mensajes por cada método configurado. */
+export async function rechargeQuotes(tx: Tx, dest: PaymentDest): Promise<Quote[]> {
+  const rates = await latestRates(tx);
+  return BILLING_METHODS.filter((m) => dest[m])
+    .map((m) => quoteUsd(new Decimal(RECHARGE.priceUsd), m, rates))
+    .filter((q): q is Quote => q !== null);
 }
 
 /** El dueño eligió método: guarda la intención (reemplaza la anterior) y devuelve el monto. */
 export async function startRenewal(
   tx: Tx,
   ref: { tenantId: string; phoneId: string },
-  input: { method: BillingMethod; plan: PlanId; months: number },
+  input: { method: BillingMethod; plan: PlanId; months: number; kind?: "plan" | "recharge" },
   now: Date,
 ): Promise<{ intent: RenewIntent; plan: Plan } | null> {
-  const plan = planById(input.plan);
-  const months = clampMonths(input.months);
-  const q = quote(plan, input.method, months, await latestRates(tx));
+  const t = await tenantRow(tx, ref.tenantId);
+  const recharge = input.kind === "recharge";
+  // La recarga queda a nombre del plan actual; no cambia el plan ni la vigencia.
+  const plan = planById(recharge ? t.plan : input.plan);
+  const months = recharge ? 1 : clampMonths(input.months);
+  const rates = await latestRates(tx);
+  const q = recharge
+    ? quoteUsd(new Decimal(RECHARGE.priceUsd), input.method, rates)
+    : quote(plan, input.method, months, rates, "bcv_eur", founderDiscount(t, now));
   if (!q) return null;
   const intent: RenewIntent = {
     plan: plan.id,
@@ -91,6 +123,7 @@ export async function startRenewal(
     amountUsd: q.amountUsd.toFixed(2),
     rateKind: q.rateKind,
     rateValue: q.rateValue ? q.rateValue.toString() : null,
+    kind: recharge ? "recharge" : "plan",
   };
   await tx
     .update(schema.pendingAction)
@@ -198,7 +231,8 @@ export async function reportRenewal(
         rateValue: i.rateValue ? new Decimal(i.rateValue) : null,
         amountUsd: new Decimal(i.amountUsd),
         reference: reference.slice(0, 60),
-        notes: "Reportado por WhatsApp",
+        notes: i.kind === "recharge" ? "Recarga reportada por WhatsApp" : "Reportado por WhatsApp",
+        kind: i.kind,
       },
       { phoneId: ref.phoneId },
       now,
@@ -223,6 +257,7 @@ export function planFromName(name: string | null | undefined): PlanId | null {
 export type PaymentNotice = {
   paymentId: string;
   status: "approved" | "rejected";
+  kind: "plan" | "recharge";
   plan: Plan;
   amount: string;
   currency: "VES" | "USD" | "USDT";
@@ -294,6 +329,7 @@ export async function takePaymentNotices(
   return pays.map((p) => ({
     paymentId: p.id,
     status: p.status as "approved" | "rejected",
+    kind: p.kind === "recharge" ? "recharge" : "plan",
     plan: planById(p.plan),
     amount: p.amount,
     currency: p.currency as PaymentNotice["currency"],

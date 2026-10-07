@@ -342,7 +342,7 @@ export async function handleSignup(
           .where(eq(s.id, row.id));
         return {
           outbound: [
-            es.signupDone(doneView(final)),
+            es.signupDone({ ...doneView(final), founderUntil: created.founderUntil }),
             es.signupTour(cfg.dashboardUrl, final.kind ?? "personal"),
           ],
           step: "done",
@@ -362,7 +362,7 @@ export async function handleSignup(
   }
 }
 
-function doneView(d: SignupData): Parameters<typeof es.signupDone>[0] {
+function doneView(d: SignupData): Omit<Parameters<typeof es.signupDone>[0], "founderUntil"> {
   return {
     name: d.name ?? "",
     businessName: d.kind === "business" ? (d.businessName ?? null) : null,

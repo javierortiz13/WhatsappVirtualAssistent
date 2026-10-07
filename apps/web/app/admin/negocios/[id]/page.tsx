@@ -1,4 +1,4 @@
-import { latestRates, PLANS, quote } from "@caja/core";
+import { es, latestRates, PLANS, quote, RECHARGE } from "@caja/core";
 import { businessDateOf, formatShortDate } from "@caja/core/domain";
 import { loadTenantDetail, requireAdmin } from "@/lib/admin";
 import { db } from "@/lib/db";
@@ -7,9 +7,12 @@ import {
   approvePaymentAction,
   changeTenantAction,
   eraseTenantAction,
+  giftRechargeAction,
   recordPaymentAction,
   rejectPaymentAction,
   restoreTenantAction,
+  saveCrmAction,
+  setFounderAction,
 } from "../../actions";
 import { dueClass, dueText, METHOD_LABEL, planClass, STATE, usd, ves } from "../../format";
 
@@ -20,7 +23,10 @@ const OK: Record<string, string> = {
   guardado: "Cambio guardado.",
   papelera: "Negocio en la papelera: se borra solo en 15 días.",
   recuperado: "Negocio recuperado de la papelera.",
+  recarga: `Recarga regalada: +${RECHARGE.messages} mensajes este mes.`,
 };
+const bucket = (id: string | undefined) =>
+  id ? (es.PRICE_BUCKETS.find((b) => b.id === id)?.title ?? id) : "sin respuesta";
 const ERR: Record<string, string> = {
   datos: "Revisa los datos del formulario.",
   monto: "El monto no se entiende. Escríbelo como 19,99 o 19.527,03.",
@@ -40,6 +46,8 @@ const ACTION: Record<string, string> = {
   request_deletion: "Enviado a la papelera",
   restore: "Recuperado de la papelera",
   suspend_expired: "Suspendido por vencimiento",
+  founder_on: "Precio fundador activado",
+  founder_off: "Precio fundador quitado",
 };
 const PAY_STATUS: Record<string, { label: string; cls: string }> = {
   pending: { label: "por verificar", cls: "warn" },
@@ -68,6 +76,8 @@ export default async function AdminTenant({
   const now = new Date();
   const [d, rates] = await Promise.all([loadTenantDetail(id, now), latestRates(db())]);
   const t = d.tenant;
+  const extra = t.extraMonth === d.usage.month ? t.extraMessages : 0;
+  const survey = (t.survey ?? {}) as Record<string, string | undefined>;
   const suggested = Object.fromEntries(
     (["pago_movil", "zelle", "binance"] as const).map((m) => [
       m,
@@ -99,8 +109,9 @@ export default async function AdminTenant({
         </p>
         <p className={`kpi ${dueClass(d.state)}`}>{dueText(d.state)}</p>
         <p className="sub num">
-          Este mes: {d.usage.inbound}/{d.plan.messagesPerMonth} registros · {d.usage.outbound}{" "}
-          respuestas · IA {usd(d.usage.aiCostUsd)} en {d.usage.aiTurns} turnos
+          Este mes: {d.usage.inbound}/{d.plan.messagesPerMonth + extra} mensajes
+          {extra ? ` (incluye +${extra} de recarga)` : ""} · {d.usage.outbound} respuestas · IA{" "}
+          {usd(d.usage.aiCostUsd)} en {d.usage.aiTurns} turnos
         </p>
         {t.status === "trial" ? (
           <p className={`sub num ${d.trial.reached ? "neg" : ""}`}>
@@ -110,7 +121,61 @@ export default async function AdminTenant({
             {d.trial.reached ? " · llegó al tope: el bot no registra" : ""}
           </p>
         ) : null}
-        <p className="sub">Alta: {day(t.createdAt)}</p>
+        <p className="sub">
+          Alta: {day(t.createdAt)} ·{" "}
+          {t.signupChannel === "whatsapp" ? "por WhatsApp" : "por la web"}
+        </p>
+      </section>
+
+      <section className="card">
+        <span className="label">CRM</span>
+        <div className="stack-sm">
+          <p className="sub">
+            {t.founderUntil
+              ? `Fundador: 40 % de descuento hasta el ${formatShortDate(t.founderUntil as never)}.`
+              : "Sin precio de fundador."}
+          </p>
+          <form action={setFounderAction}>
+            <input type="hidden" name="tenant_id" value={t.id} />
+            <input type="hidden" name="founder" value={t.founderUntil ? "off" : "on"} />
+            <button className="btn small secondary" type="submit">
+              {t.founderUntil ? "Quitar precio fundador" : "Dar precio fundador (7 meses)"}
+            </button>
+          </form>
+          <form action={giftRechargeAction}>
+            <input type="hidden" name="tenant_id" value={t.id} />
+            <button className="btn small secondary" type="submit">
+              Regalar recarga (+{RECHARGE.messages} mensajes este mes)
+            </button>
+          </form>
+          <p className="sub">
+            Encuesta (día 10): {t.surveySentAt ? `enviada el ${day(t.surveySentAt)}` : "sin enviar"}{" "}
+            · justo: {bucket(survey.fair)} · caro: {bucket(survey.expensive)}
+          </p>
+          <p className="sub">
+            Resumen (día 12): {t.valueSentAt ? `enviado el ${day(t.valueSentAt)}` : "sin enviar"} ·
+            ¿seguimos?:{" "}
+            {survey.continue === "yes"
+              ? "sí"
+              : survey.continue === "doubts"
+                ? "tiene dudas"
+                : "sin respuesta"}
+          </p>
+          <form action={saveCrmAction} className="stack-sm">
+            <input type="hidden" name="tenant_id" value={t.id} />
+            <label className="field">
+              <span>Etiquetas (separadas por coma)</span>
+              <input name="tags" defaultValue={t.crmTags.join(", ")} placeholder="amigo, piloto" />
+            </label>
+            <label className="field">
+              <span>Notas internas</span>
+              <textarea name="notes" rows={4} defaultValue={t.crmNotes ?? ""} />
+            </label>
+            <button className="btn small" type="submit">
+              Guardar notas
+            </button>
+          </form>
+        </div>
       </section>
 
       <section className="card tight">

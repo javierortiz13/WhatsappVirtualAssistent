@@ -905,3 +905,51 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 **Pendiente:** purgar los registros abandonados a los 90 días (guardan nombre y cuentas) junto con la purga de privacidad.
 
 **Tests:** lectores de nombre, tipo, cuentas, categorías y presupuestos; flujo de negocio completo con la base revisada; flujo personal con saltos, audio y "empezar de nuevo"; conectar el dashboard con código (y que no sirva dos veces). 393 tests.
+
+### S2 · 07/10/2026 · Precios nuevos, límites duros, recargas, fundadores, encuesta y CRM
+
+**Decisiones (Javier, sobre el análisis de costos con datos reales):**
+- Costo en el peor caso: ~$0,021 por mensaje (IA ~$0,01 + Meta $0,0113 por respuesta desde el 01/10/2026, que cobra el servicio después de 1.000 gratis al mes).
+- Planes con ~58 % de margen: Personal $5,99 / 120 mensajes, Negocio $19,99 / 400, Negocio Plus $39,99 / 1.000.
+- Límites duros con recarga de +100 mensajes por $4.
+- Beta con amigos sin precios publicados, con precio de fundador.
+- Encuesta de precio el día 10 y resumen de valor el día 12.
+- CRM interno.
+
+**Límite duro (`billing/limits.ts`):**
+- En un plan pagado (activo o en gracia), pasar los mensajes del mes más la recarga del mes hace que Rocco deje de registrar, sin IA.
+- Le avisa una vez al día al dueño, con recargar o cambiar de plan, y al empleado que le avise al dueño.
+- Al 80 % manda un aviso único al dueño después de la respuesta (`cap_warned_month`).
+- La prueba sigue con su tope de gasto (0016).
+- El aviso al administrador de "sobre el límite" ahora cuenta la recarga.
+
+**Recargas:**
+- "recargar" (o "más mensajes") muestra los montos por método. En la prueba ofrece activar el plan.
+- El botón usa el mismo flujo de "renovar" con `kind: recharge`.
+- La referencia crea un pago `payment.kind = recharge`.
+- Al aprobarlo suma +100 a `extra_messages` del mes en curso sin tocar la vigencia, y Rocco avisa "Recarga verificada".
+- El administrador puede regalar una recarga desde la ficha.
+
+**Precio fundador:**
+- 40 % por 7 meses (`tenant.founder_until`), automático para los primeros 50 negocios (web y WhatsApp).
+- Los 4 negocios actuales quedaron como fundadores.
+- Se aplica en la oferta de renovar del chat, en el pago por chat y en "Mi plan" de la web, con una línea que lo explica.
+- El cierre del registro por WhatsApp lo menciona.
+- El administrador lo da o lo quita en la ficha.
+
+**Ciclo de la prueba (`inbox/lifecycle.ts`, housekeeping):**
+- Día 10: encuesta con listas de rangos al mes ("precio justo", luego "precio caro").
+- Día 12: resumen de lo anotado (movimientos, gastos y ventas en $), fin de la prueba, precio de fundador y "¿Seguimos?" con los botones "Sí, sigamos" y "Tengo dudas" (esta muestra el contacto).
+- Solo dentro de la ventana de 24 h de Meta; si no, se reintenta en la próxima vuelta.
+- Las respuestas quedan en `tenant.survey`.
+
+**CRM en /admin:**
+- Embudo: registros por WhatsApp, terminados, negocios (web y chat), activados (3 o más movimientos el primer día), activos en 7 días y pagando.
+- Registros sin terminar, con el paso donde se quedaron y el botón "Escribirle" (wa.me).
+- Resumen de la encuesta de precio.
+- Por negocio: semáforo (al día, 3+ días o 7+ días sin escribir), fundador, canal y etiquetas.
+- Ficha: precio fundador, regalar recarga, estado de la encuesta y del resumen, etiquetas y notas internas.
+
+**Migración 0019 (aplicada en producción):** columnas en `tenant` (founder_until, extra_messages, extra_month, cap_warned_month, survey_sent_at, value_sent_at, survey, crm_notes, crm_tags) y `payment.kind`. Sin tablas nuevas, así `erase_tenant` las borra con el negocio.
+
+**Tests:** límite al 80 % y al 100 % sin IA, recarga de punta a punta (oferta, método, referencia, aprobación, vuelve a responder), precio fundador, encuesta y resumen con la ventana de 24 h. 402 tests.

@@ -1,4 +1,5 @@
 import { type Db, everyTenantId, schema, withTenant } from "@caja/db";
+import { RECHARGE } from "../billing/plans";
 import { takePaymentNotices } from "../billing/renew";
 import type { RetentionNotice } from "../billing/retention";
 import { businessDateOf } from "../domain/dates";
@@ -34,7 +35,9 @@ export async function sendPaymentNotices(
         }
         const out =
           n.status === "approved"
-            ? es.paymentVerified(n.plan.name, n.paidUntil ? businessDateOf(n.paidUntil) : null)
+            ? n.kind === "recharge"
+              ? es.rechargeVerified(RECHARGE.messages)
+              : es.paymentVerified(n.plan.name, n.paidUntil ? businessDateOf(n.paidUntil) : null)
             : es.paymentRejected({
                 reference: n.reference,
                 reason: n.reason,
