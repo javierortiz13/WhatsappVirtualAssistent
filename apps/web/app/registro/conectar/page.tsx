@@ -4,8 +4,9 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { env } from "@/lib/env";
 import { currentSession } from "@/lib/session";
-import { CONNECT_COOKIE, newConnectCodeAction } from "./actions";
+import { newConnectCodeAction } from "./actions";
 import { ConnectStatus } from "./connect-status";
+import { CONNECT_COOKIE } from "./cookie";
 
 export const metadata: Metadata = { title: "Conectar con Rocco" };
 export const dynamic = "force-dynamic";

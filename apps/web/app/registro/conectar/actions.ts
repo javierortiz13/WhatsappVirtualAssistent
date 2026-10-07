@@ -6,9 +6,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { currentSession } from "@/lib/session";
-
-/** Cookie con el código para conectar el panel (en la base solo vive el hash). */
-export const CONNECT_COOKIE = "caja_connect";
+import { CONNECT_COOKIE } from "./cookie";
 
 /**
  * Registro por WhatsApp (0018): el usuario del panel pide un código y se lo manda a Rocco desde
