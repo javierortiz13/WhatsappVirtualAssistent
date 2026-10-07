@@ -3,7 +3,7 @@
 Estado al 29/09/2026: el hilo completo funciona en producción. Un mensaje al número de prueba
 de Meta llega a Vercel (`/api/whatsapp/webhook`), se encola en Postgres, el worker en Railway lo
 procesa con Claude Sonnet 5.5, guarda el movimiento en Supabase y el dueño lo ve en
-`https://caja.jpsoftwaredev.com` tras entrar con un enlace por correo.
+`https://holarocco.com` tras entrar con un enlace por correo.
 
 ## 1. Dónde vive cada cosa
 

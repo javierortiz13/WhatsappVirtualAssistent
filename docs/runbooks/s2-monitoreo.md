@@ -4,7 +4,7 @@ Tres piezas, en este orden. Cada una es independiente; si una se traba, sigue co
 
 ## 1. Monitor de salud (Better Stack, gratis) · 10 min
 
-Qué vigila: `https://caja.jpsoftwaredev.com/api/health`. Responde 200 si la base contesta, el
+Qué vigila: `https://holarocco.com/api/health`. Responde 200 si la base contesta, el
 worker terminó un housekeeping hace menos de 15 minutos y ningún mensaje lleva más de 3 minutos
 esperando. Cualquier otra cosa es 503 y el monitor avisa.
 
@@ -12,7 +12,7 @@ esperando. Cualquier otra cosa es 503 y el monitor avisa.
    Si da 404, Vercel todavía no desplegó `1fa215d`; espera y repite.
 2. Entra a betterstack.com → Uptime → **Create monitor**.
 3. Rellena:
-   - URL to monitor: `https://caja.jpsoftwaredev.com/api/health`
+   - URL to monitor: `https://holarocco.com/api/health`
    - Alert us when: **URL becomes unavailable** (equivale a "estado distinto de 2xx")
    - Check frequency: **5 minutes** (el plan gratis lo permite)
    - Advanced → Request timeout: 30 s. Confirmation period: 1 minuto (evita avisos por un
@@ -74,7 +74,7 @@ minificado: en Vercel añade `SENTRY_ORG` (el slug de tu organización), `SENTRY
 y `SENTRY_AUTH_TOKEN` (Sentry → Settings → Auth Tokens → crear con permiso `project:releases`,
 Sensitive). Con esos tres el build sube los source maps; sin ellos no sube nada y no avisa.
 
-Los eventos del navegador salen por `https://caja.jpsoftwaredev.com/monitoring` (túnel propio) y no
+Los eventos del navegador salen por `https://holarocco.com/monitoring` (túnel propio) y no
 directo a sentry.io, así los bloqueadores de contenido del teléfono no los descartan.
 
 ### Comprobar
@@ -82,7 +82,7 @@ directo a sentry.io, así los bloqueadores de contenido del teléfono no los des
 - Worker: en Sentry → `caja-worker` → Issues debe quedar vacío. Para forzar un error sin tocar
   producción, no hace falta: el próximo job que agote reintentos llega solo etiquetado con
   `queue: process-message`.
-- Web: abre `https://caja.jpsoftwaredev.com/api/health`; en Sentry → `caja-web` → Performance
+- Web: abre `https://holarocco.com/api/health`; en Sentry → `caja-web` → Performance
   no habrá nada (trazas apagadas, `tracesSampleRate: 0`) y en Issues tampoco. Es lo esperado.
 - Si quieres ver un evento real: en el navegador, consola → `throw new Error("prueba sentry")`
   en el dashboard. Aparece en `caja-web` en menos de un minuto. Luego márcalo Resolved.

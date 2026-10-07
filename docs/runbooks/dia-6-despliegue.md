@@ -1,8 +1,12 @@
 # Día 6 · Dashboard en Vercel, acceso por magic link y webhook de Meta
 
-Objetivo: entrar a `https://caja.jpsoftwaredev.com` desde el teléfono con un enlace por correo y
+Objetivo: entrar a `https://holarocco.com` desde el teléfono con un enlace por correo y
 ver el gasto que registraste por WhatsApp. Tiempo estimado: 45 minutos, casi todo en consolas.
 Orden: base → Supabase Auth → Vercel → dominio → Meta → Sentry → prueba.
+
+> **Dominio (07/10/2026):** el dominio principal es `holarocco.com` (comprado en Vercel, `www` redirige
+> al apex). `caja.jpsoftwaredev.com` sigue sirviendo la misma app: ahí vive el webhook de Meta y los
+> enlaces viejos siguen funcionando. En Supabase quedan permitidos los dos dominios.
 
 ## 1. Base de datos y seed (5 min)
 
@@ -33,22 +37,23 @@ En el proyecto `asistente-caja`:
    - `NEXT_PUBLIC_SUPABASE_URL` = Project URL (`https://daomgsvvhvuhiccttrlg.supabase.co`).
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = la clave `anon` / publishable. No es secreta, pero solo sirve con RLS.
 2. **Authentication → URL Configuration**:
-   - Site URL: `https://caja.jpsoftwaredev.com`
-   - Redirect URLs: `https://caja.jpsoftwaredev.com/auth/confirm` y `http://localhost:3000/auth/confirm`.
+   - Site URL: `https://holarocco.com`
+   - Redirect URLs: `https://holarocco.com/auth/confirm`, `https://holarocco.com/**`,
+     `https://caja.jpsoftwaredev.com/auth/confirm` y `http://localhost:3000/auth/confirm`.
 3. **Authentication → Emails → Templates**. Cambia **las dos** plantillas, **Confirm signup** y
    **Magic Link** (a un correo nuevo Supabase le envía la primera), por este cuerpo con `token_hash`,
    para que el enlace sirva aunque lo abras en otro dispositivo:
    ```html
    <h2>Tu enlace para entrar</h2>
-   <p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email">Entrar a Asistente de Caja</a></p>
+   <p><a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email">Entrar a Rocco</a></p>
    <p>Sirve por 15 minutos y una sola vez. Si no lo pediste, ignora este correo.</p>
    ```
-   Asunto: `Tu enlace para entrar a Asistente de Caja`.
+   Asunto: `Tu enlace para entrar a Rocco 🐾`. (La versión con diseño de Rocco está en `docs/marca/correo-acceso.html`.)
 4. **Authentication → Sign In / Providers → Email**: deja activo Email, desactiva "Confirm email"
    si aparece (el magic link ya confirma), y pon **Email OTP expiration** en `900` segundos.
 5. **Project Settings → Authentication → SMTP Settings** (correo saliente por Resend):
    - Enable Custom SMTP: sí.
-   - Sender email: `acceso@caja.jpsoftwaredev.com` · Sender name: `Asistente de Caja`.
+   - Sender email: `acceso@caja.jpsoftwaredev.com` · Sender name: `Rocco`.
    - Host: `smtp.resend.com` · Port: `465` · Username: `resend` · Password: tu `RESEND_API_KEY`.
 6. **Authentication → Rate Limits**: sube "emails per hour" a 30 (con SMTP propio se puede).
 
@@ -68,7 +73,7 @@ En el proyecto `asistente-caja`:
    | `META_VERIFY_TOKEN` | del `.env` |
    | `NEXT_PUBLIC_SUPABASE_URL` | del paso 2 |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | del paso 2 |
-   | `DASHBOARD_URL` | `https://caja.jpsoftwaredev.com` |
+   | `DASHBOARD_URL` | `https://holarocco.com` |
    | `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN` | del paso 6 (pueden esperar) |
 
 4. **Deploy**. Mientras la rama de trabajo sea `claude/whatsapp-assistant-venezuela-wijnh8`, en
@@ -85,7 +90,7 @@ Squarespace → Domains → `jpsoftwaredev.com` → DNS → **Add record**:
 
 No toca los registros de Google Workspace ni los de Resend (esos están en `send.caja` o similares).
 Vercel emite el certificado solo cuando el CNAME propaga (5 a 30 minutos). Comprueba con
-`https://caja.jpsoftwaredev.com/login` desde el teléfono.
+`https://holarocco.com/login` desde el teléfono.
 
 ## 5. Webhook de Meta (15 min)
 
@@ -120,7 +125,7 @@ El worker cambió (Sentry y guardas de errores): **Redeploy** para tomar el comm
 
 ## 8. Prueba de punta a punta (5 min)
 
-1. En el teléfono abre `https://caja.jpsoftwaredev.com/login`, pon tu correo, abre el enlace del
+1. En el teléfono abre `https://holarocco.com/login`, pon tu correo, abre el enlace del
    correo. Debes caer en **Inicio** con el nombre del negocio y la tasa BCV.
 2. En WhatsApp, al número de prueba: `gasté 15$ en champú` → borrador con botones → **Guardar**.
 3. Recarga el dashboard: la fila aparece en "Últimos movimientos" con monto, equivalente y tasa.

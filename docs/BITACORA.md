@@ -1062,3 +1062,19 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - **Bot:** la bienvenida, el registro, la ayuda, el número desconocido, el empleado y "fuera de tema" usan "¡Epa!", "tu pana con las finanzas" y "pendiente de la tasa por ti". Pagos, errores y límites siguen serios.
 - **IA:** la regla de las preguntas de aclaración pide la voz casual, sin "vaina" ni groserías.
 - El eslogan y la frase de la marca no cambian: "Fiel a tus cuentas" y "Tu amigo fiel con tus finanzas".
+
+### S2 · 07/10/2026 · Dominio holarocco.com
+
+**Hecho:**
+- **Dominio:** Javier compró `holarocco.com` en Vercel. Quedó conectado al proyecto web como dominio principal, con `www` redirigiendo al apex (308) y SSL de Vercel.
+- **caja.jpsoftwaredev.com sigue sirviendo la app.** Ahí está el webhook de Meta y los enlaces viejos siguen funcionando, así que no se redirige.
+- **Enlaces:**
+  - `DASHBOARD_URL = https://holarocco.com` en Railway: los enlaces que manda Rocco (registro, dashboard, login, privacidad, exportar).
+  - La misma variable en Vercel: es el respaldo del origen del login.
+- **Supabase Auth (lo hizo Javier):** Site URL `https://holarocco.com`, redirects de los dos dominios, plantillas de correo con la marca Rocco (`docs/marca/correo-acceso.html`) y remitente "Rocco". El correo remitente sigue siendo `acceso@caja.jpsoftwaredev.com`, que es el dominio verificado en Resend.
+- **Guía de inicio:** PDF, PowerPoint y presentación en línea ahora usan holarocco.com.
+- **Runbooks:** actualizados al dominio nuevo, salvo el webhook de Meta, el DNS y el remitente, que siguen en caja.
+
+**Pendiente:**
+- El correo `privacidad@caja.jpsoftwaredev.com` de /privacidad y /eliminar-datos no cambia hasta tener un buzón en `@holarocco.com`.
+- Opcional: pasar el webhook de Meta y el remitente de Resend a holarocco.com.

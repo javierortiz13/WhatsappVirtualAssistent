@@ -2,7 +2,7 @@
 
 ## 1. La landing
 
-Vive en `https://caja.jpsoftwaredev.com/` (`apps/web/app/page.tsx` + `(marketing)/landing.tsx`,
+Vive en `https://holarocco.com/` (`apps/web/app/page.tsx` + `(marketing)/landing.tsx`,
 `story.tsx` y `landing.css`). Posicionamiento: **un asistente administrativo por WhatsApp** que
 hace la parte de la caja que hoy hace una persona, por una fracción del sueldo (300 USD de
 referencia, en `ADMIN_SALARY` dentro de `landing.tsx`).
@@ -27,7 +27,7 @@ sabe de dónde vino cada visita y cada registro. Se definen en `apps/web/app/ir/
 
 | Enlace | Para qué | UTM |
 |---|---|---|
-| `caja.jpsoftwaredev.com/ir/ig` | bio de Instagram | instagram / bio / lanzamiento |
+| `holarocco.com/ir/ig` | bio de Instagram | instagram / bio / lanzamiento |
 | `…/ir/igad` | anuncios de Instagram | instagram / ad / lanzamiento |
 | `…/ir/fb` | publicaciones de Facebook | facebook / post / lanzamiento |
 | `…/ir/tiktok` | videos | tiktok / video / lanzamiento |
@@ -48,12 +48,12 @@ layout; no está puesto para no cargar nada que no se use todavía.
 
 > Una administradora cuesta $300 al mes. Tu asistente de caja, $20. Le escribes "gasté 15$ en
 > champú" y lo anota con la tasa BCV del día; al cerrar le escribes "cierre" y te dice cuánto
-> efectivo debe haber. 24 horas, sin app, sin sueldo. Pruébalo gratis → caja.jpsoftwaredev.com/ir/igad
+> efectivo debe haber. 24 horas, sin app, sin sueldo. Pruébalo gratis → holarocco.com/ir/igad
 
 **Estado de WhatsApp (corto)**
 
 > ¿Pagas a alguien solo para que lleve el cuaderno de la caja? Un asistente por WhatsApp lo hace
-> por $20 al mes, y nunca se le olvida la tasa. Gratis durante el piloto: caja.jpsoftwaredev.com/ir/wa
+> por $20 al mes, y nunca se le olvida la tasa. Gratis durante el piloto: holarocco.com/ir/wa
 
 **Flyer con QR, para autolavados y bodegas**
 

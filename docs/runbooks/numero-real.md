@@ -45,7 +45,7 @@ cuenta de WhatsApp Business real que se crea en este flujo.
    producción**.
 2. "Registra tu número de teléfono de WhatsApp" → **Agregar número nuevo**:
    - *Información de la empresa*: elige el portafolio existente si aparece; si no, nombre
-     comercial (**JP Software Dev**), sitio `https://caja.jpsoftwaredev.com`, país **Venezuela**,
+     comercial (**JP Software Dev**), sitio `https://holarocco.com`, país **Venezuela**,
      dirección vacía hasta la verificación. Lo que se ponga aquí debe coincidir después con el
      documento de la verificación del negocio (RNE o RIF).
    - *Perfil de WhatsApp*: nombre visible **Asistente de Caja**, categoría Finanzas.
