@@ -787,6 +787,18 @@ input[type="date"].input {
   color-scheme: dark;
   padding: 0 36px;
   text-align: center;
+  /* Safari de iPhone le da al campo de fecha un ancho propio, ignora width:100% y se sale de la
+     tarjeta (08/10): sin la apariencia nativa respeta el ancho y el texto queda centrado. */
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  line-height: 44px;
+}
+input[type="date"].input::-webkit-date-and-time-value {
+  text-align: center;
+  margin: 0;
 }
 input[type="date"].input::-webkit-calendar-picker-indicator {
   opacity: 0;
