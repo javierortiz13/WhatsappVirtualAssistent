@@ -225,7 +225,7 @@ describe("renovar el plan por WhatsApp", () => {
     const { sent, client } = fakeMeta();
     await send(client, "quiero renovar");
     expect(textOf(sent[0])).toBe(
-      "*Tu plan: Negocio*\nTu prueba gratis termina el mar 13/10 (faltan 10 días).\nLlevas *3 de 100 mensajes* de tu prueba.\nRenovar 1 mes:\n• Pago móvil: *Bs 19.468,86* (tasa euro 973,93)\n• Zelle: *$19,99*\n• Binance: *19,99 USDT*\n¿Cómo vas a pagar?",
+      "*Tu plan: Negocio*\nTu prueba gratis termina el mar 13/10 (faltan 10 días).\nLlevas *2 de 100 mensajes* de tu prueba.\nRenovar 1 mes:\n• Pago móvil: *Bs 19.468,86* (tasa euro 973,93)\n• Zelle: *$19,99*\n• Binance: *19,99 USDT*\n¿Cómo vas a pagar?",
     );
     expect(buttonsOf(sent[0])).toEqual([
       { id: "renew:pago_movil:negocio:1", title: "Pago móvil" },
