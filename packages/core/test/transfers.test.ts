@@ -17,6 +17,7 @@ import {
   TransferError,
   transferAmounts,
 } from "../src/ledger/transfers";
+import { es } from "../src/render/index";
 
 /** Transferencias entre cuentas (0014): misma moneda, Bs → USDT, comisión, borrar y extracto. */
 describe("transferencias entre cuentas", () => {
@@ -100,6 +101,32 @@ describe("transferencias entre cuentas", () => {
     expect(transferAmounts(VES, USD, { fromAmount: d("49000"), toAmount: null, rate: null })).toBe(
       null,
     );
+    // USDT → $ por P2P (08/10): salen 87,70 y llegan 90; los dos se respetan.
+    expect(
+      transferAmounts(USD, USD, { fromAmount: d("87.7"), toAmount: d("90"), rate: null }),
+    ).toEqual({ fromAmount: new Decimal("87.7"), toAmount: new Decimal(90) });
+    // Iguales o sin lo recibido: el mismo monto en los dos lados.
+    expect(
+      transferAmounts(USD, USD, { fromAmount: d("100"), toAmount: d("100"), rate: null }),
+    ).toEqual({ fromAmount: new Decimal(100), toAmount: new Decimal(100) });
+    // Más del doble no es una transferencia: se pregunta.
+    expect(
+      transferAmounts(USD, USD, { fromAmount: d("10"), toAmount: d("900"), rate: null }),
+    ).toBeNull();
+  });
+
+  it("USDT → $ con diferencia: el borrador muestra lo que salió, lo que llegó y la diferencia", () => {
+    const out = es.transferDraft({
+      pendingId: "00000000-0000-4000-8000-000000000000",
+      from: { name: "Binance", currency: "USD", kind: "crypto" },
+      to: { name: "Bofa", currency: "USD", kind: "bank" },
+      fromAmount: "87.70",
+      toAmount: "90.00",
+      fee: null,
+      businessDate: "2026-10-08",
+      today: asIsoDate("2026-10-08"),
+    });
+    expect(out.body).toContain("Binance → Bofa: *87,70 USDT* → *$90,00* (llegaron $2,30 de más)");
   });
 
   it("misma moneda con comisión: llega lo enviado y la comisión es un gasto de la de origen", async () => {

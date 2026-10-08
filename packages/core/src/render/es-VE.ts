@@ -895,8 +895,15 @@ export type TransferView = {
 
 /** "Zelle → Binance: *$99,00*" o, comprando USDT, "Bs 49.000,00 → 50,00 USDT (a 980,00)". */
 function transferLine(v: TransferView): string {
-  if (v.from.currency === v.to.currency)
-    return `${v.from.name} → ${v.to.name}: *${accountMoney(v.from, v.fromAmount)}*`;
+  if (v.from.currency === v.to.currency) {
+    const sent = new Decimal(v.fromAmount);
+    const got = new Decimal(v.toAmount);
+    if (sent.eq(got))
+      return `${v.from.name} → ${v.to.name}: *${accountMoney(v.from, v.fromAmount)}*`;
+    // Salió un monto y llegó otro (USDT ↔ $ por P2P): los dos, y la diferencia.
+    const diff = got.minus(sent);
+    return `${v.from.name} → ${v.to.name}: *${accountMoney(v.from, v.fromAmount)}* → *${accountMoney(v.to, v.toAmount)}* (${diff.gt(0) ? "llegaron" : "se fueron"} ${accountMoney(v.to, diff.abs())} ${diff.gt(0) ? "de más" : "en el cambio"})`;
+  }
   return `${v.from.name} → ${v.to.name}: *${accountMoney(v.from, v.fromAmount)}* → *${accountMoney(v.to, v.toAmount)}* (a ${rateNum(new Decimal(v.fromAmount).div(v.toAmount))})`;
 }
 

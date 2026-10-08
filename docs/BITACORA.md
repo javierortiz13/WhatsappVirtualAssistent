@@ -1112,3 +1112,18 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - Meta: dos respuestas, $0,0226 en el peor caso; hoy $0, porque estamos dentro de las 1.000 gratis del mes.
 
 **Hecho:** `monthUsage` (tope del mes) y `trialSpend` (prueba) ya no cuentan los mensajes entrantes `interactive` (botones y listas) ni `reaction`. La guía de inicio lo dice en la diapositiva de límites ("Tocar botones (Guardar, Corregir) y las respuestas de Rocco no cuentan"), y el PDF y el PowerPoint quedaron regenerados. Test: con 30 toques de botón de por medio, el mensaje 100 todavía pasa.
+
+### S3 · 08/10/2026 · Transferencias USDT → $ con monto distinto
+
+**Reporte (Javier):** "Cambié 87,7 usdt desde mi cuenta Binance y recibí 90$ en mi cuenta BofA" generaba un borrador de "Binance → Bofa: 87,70 USDT". Los $90 se perdían.
+
+**Causa:** Binance (USDT) y BofA ($) tienen la misma moneda interna (USD). En una transferencia de misma moneda, `transferAmounts` forzaba a que llegara lo mismo que salió y descartaba lo recibido.
+
+**Hecho:**
+- Si dice los dos montos y son distintos, se respetan los dos (−87,70 en Binance, +90,00 en BofA). Si la diferencia es de más del doble o de menos de la mitad, Rocco pregunta.
+- El borrador muestra "Binance → Bofa: 87,70 USDT → $90,00 (llegaron $2,30 de más)" o "(se fueron … en el cambio)".
+- La herramienta de la IA pide "lo que llegó" también en USDT ↔ $.
+- En la web, el campo dice "Lo que llegó, si es distinto".
+- Las tablas y los estados de cuenta ya admitían montos distintos: no hizo falta migración.
+
+**Nota:** el "Message can't be displayed" de la notificación viene de la app Business Suite de Meta, que no muestra los mensajes con botones. No es un error de Rocco.

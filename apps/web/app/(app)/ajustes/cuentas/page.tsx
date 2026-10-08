@@ -150,12 +150,12 @@ export default async function Cuentas({
             />
           </label>
           <label className="field">
-            <span>Lo que llegó, si es otra moneda</span>
+            <span>Lo que llegó, si es distinto</span>
             <input
               className="input center"
               name="received"
               inputMode="decimal"
-              placeholder="Comprando USDT: los USDT"
+              placeholder="Ej.: salieron 87,70 USDT y llegaron 90"
             />
           </label>
           <label className="field">

@@ -60,7 +60,15 @@ export function transferAmounts(
   const r2 = (d: Decimal) => d.toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
   if (from.currency === "USD" && to.currency === "VES") return "use_exchange";
   if (from.currency === to.currency) {
-    const amount = pos(input.fromAmount) ? input.fromAmount : input.toAmount;
+    // USDT → $ (o $ → USDT) por P2P (08/10): salen 87,70 USDT y llegan $90,00. Si dice los dos
+    // montos y son distintos, se respetan; la diferencia queda en los saldos. Más del doble o
+    // menos de la mitad no es una transferencia: se pregunta.
+    const { fromAmount: sent, toAmount: got } = input;
+    if (pos(sent) && pos(got) && !r2(sent).eq(r2(got))) {
+      const ratio = got.div(sent);
+      return ratio.gte(0.5) && ratio.lte(2) ? { fromAmount: r2(sent), toAmount: r2(got) } : null;
+    }
+    const amount = pos(sent) ? sent : got;
     return pos(amount) ? { fromAmount: r2(amount), toAmount: r2(amount) } : null;
   }
   // Bs → USDT.

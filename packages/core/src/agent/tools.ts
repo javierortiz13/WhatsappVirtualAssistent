@@ -1882,7 +1882,9 @@ export const TransferInput = z.object({
   amount: z.string().describe('Lo que salió de la cuenta de origen ("100", "49.000"), o "".'),
   received: z
     .string()
-    .describe('Lo que llegó si es otra moneda (compró 50 USDT con Bs → "50"), o "".'),
+    .describe(
+      'Lo que llegó si es distinto de lo que salió: otra moneda (compró 50 USDT con Bs → "50") o USDT ↔ $ con diferencia (cambió 87,7 USDT y recibió 90$ → "90"); si no, "".',
+    ),
   rate: z.string().describe('Tasa si la dijo ("980"), o "".'),
   fee: z.string().describe('Comisión si la dijo ("1", "30"), o "".'),
   when: z.string().describe('Fecha (hoy, ayer, día de la semana, ISO), o "".'),
