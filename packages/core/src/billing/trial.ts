@@ -73,7 +73,8 @@ export async function trialSpend(
              count(*) filter (where ${m.direction} = 'out' and ${m.kind} <> 'reaction'
                               and ${m.status} <> 'failed') as replies,
              count(*) filter (where ${m.direction} = 'in' and ${m.kind} = 'audio') as voice,
-             count(*) filter (where ${m.direction} = 'in') as inbound
+             count(*) filter (where ${m.direction} = 'in'
+                              and ${m.kind} not in ('interactive', 'reaction')) as inbound
       from ${m}
       where ${and(eq(m.tenantId, t.id), gte(m.createdAt, t.createdAt))}
     `),

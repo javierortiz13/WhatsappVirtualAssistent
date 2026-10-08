@@ -31,7 +31,9 @@ export async function monthUsage(tx: Tx, tenantId: string, now: Date): Promise<M
     ai_turns: number | string;
   }>(
     await tx.execute(sql`
-      select count(*) filter (where direction = 'in') as inbound,
+      -- Los toques de botón (Guardar, Corregir, renovar…) y las reacciones no cuentan como
+      -- mensajes (08/10): no usan IA y son parte del mismo registro.
+      select count(*) filter (where direction = 'in' and kind not in ('interactive', 'reaction')) as inbound,
              count(*) filter (where direction = 'out' and kind <> 'reaction') as outbound,
              coalesce(sum(cost_usd), 0)::text as ai_cost,
              count(*) filter (where cost_usd is not null) as ai_turns

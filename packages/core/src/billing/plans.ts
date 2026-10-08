@@ -10,7 +10,7 @@ export type Plan = {
   name: string;
   priceUsd: number;
   tagline: string;
-  /** Mensajes del usuario al asistente por mes (los del bot y las reacciones no cuentan). */
+  /** Mensajes del usuario al asistente por mes (los del bot, los toques de botón y las reacciones no cuentan). */
   messagesPerMonth: number;
   numbers: number;
   employees: number;

@@ -1102,3 +1102,13 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
   - Con "Guardar mi parte" o "No, gracias" la cuenta queda cerrada.
 
 **Tests:** la factura de El Amir (Tú 12.164,27 · Julio 14.191,65), cantidades que cuadran y que no, mensaje que no corrige y cuenta cerrada. 440 en total.
+
+### S3 · 08/10/2026 · Los toques de botón no cuentan como mensajes
+
+**Pedido (Javier):** un gasto con borrador gastaba 2 mensajes: el texto y el toque de Guardar. Con 100 mensajes de prueba, en la práctica eran unos 50 gastos.
+
+**Costo real de ese gasto** (producción, 12:49):
+- IA: $0,0061 (15.119 tokens de entrada, casi todos en caché, y 191 de salida). El toque de Guardar no usa IA.
+- Meta: dos respuestas, $0,0226 en el peor caso; hoy $0, porque estamos dentro de las 1.000 gratis del mes.
+
+**Hecho:** `monthUsage` (tope del mes) y `trialSpend` (prueba) ya no cuentan los mensajes entrantes `interactive` (botones y listas) ni `reaction`. La guía de inicio lo dice en la diapositiva de límites ("Tocar botones (Guardar, Corregir) y las respuestas de Rocco no cuentan"), y el PDF y el PowerPoint quedaron regenerados. Test: con 30 toques de botón de por medio, el mensaje 100 todavía pasa.

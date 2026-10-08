@@ -257,6 +257,19 @@ describe("límite del mes y recargas por WhatsApp", () => {
     await send("gasté algo");
     expect(textOf(sent.at(-2))).toBe("¿Cuánto fue?");
     expect(textOf(sent.at(-1))).toContain("te quedan *20 de 100 mensajes*");
+    // Tocar botones (Guardar, Corregir…) no cuenta como mensaje (08/10).
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.insert(schema.message).values(
+        Array.from({ length: 30 }, () => ({
+          tenantId,
+          phoneId,
+          direction: "in",
+          kind: "interactive",
+          body: "Guardar",
+          createdAt: new Date(clock.getTime() - 60_000),
+        })),
+      ),
+    );
     await used(19); // 99; el siguiente es el 100, todavía incluido
     await send("otro gasto");
     expect(textOf(sent.at(-1))).toBe("¿Cuánto fue?");
