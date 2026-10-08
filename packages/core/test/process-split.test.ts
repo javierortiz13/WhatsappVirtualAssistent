@@ -216,12 +216,27 @@ describe("dividir la cuenta por WhatsApp", () => {
     expect(pending).toHaveLength(1);
   });
 
+  let saveButton: { id: string; title: string } | undefined;
+  it("después del reparto, un mensaje que no lo corrige ya no repite la división", async () => {
+    saveButton = lastButtons()[0];
+    const before = bills.assigned.length;
+    await send(text("Registrar 12164 shawarma y refresco"));
+    expect(bills.assigned.length).toBe(before);
+    expect(lastText()).not.toContain("Cuenta dividida");
+  });
+
   it("Guardar mi parte registra el gasto", async () => {
-    const save = lastButtons()[0];
+    const save = saveButton;
     await send(button(save?.id ?? "", save?.title ?? ""));
     const [m] = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));
     expect(m?.amount).toBe("15.40");
     expect(m?.description).toBe("Mi parte · Pizzería Napoli");
+  });
+
+  it("con la parte ya guardada, la cuenta queda cerrada: una 'corrección' no vuelve a dividir", async () => {
+    const before = bills.assigned.length;
+    await send(text("no, el refresco lo compartimos con Pedro"));
+    expect(bills.assigned.length).toBe(before);
   });
 
   it("foto con 'entre 3' en la leyenda: partes iguales de una vez", async () => {

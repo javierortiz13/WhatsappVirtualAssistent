@@ -18,6 +18,15 @@ import type { BillReader } from "../vision/bill";
 export const SPLIT_WORDS =
   /\b(divid\w*|reparti\w*|split)\b|cu[aá]nto\s+(paga|pone|le\s+toca)\s+cada|cada\s+qui[eé]n|por\s+persona/i;
 
+/**
+ * Después de un reparto, solo los mensajes que lo corrigen siguen siendo de la cuenta (08/10: el
+ * bot repetía la división con "Registrar 12164 shawarma y refresco"). Antes del reparto (cuando
+ * Rocco preguntó "¿quién consumió qué?") cualquier texto es la respuesta.
+ */
+export const SPLIT_CORRECTION =
+  /^\s*no\b|\b(corrig\w*|correcci\w*|en realidad|mi parte|lo m[ií]o|lo suyo|lo de [a-zñáéíóú]+|el resto|lo dem[aá]s|cada uno|me toca|le toca|compart\w*|a medias|yo (com|tom|beb|consum|ped)\w*|(era|eran|fue|fueron) (el|la|los|las|mi|lo|de))\b/i;
+const NOT_A_CORRECTION = /^\s*(registr|anot|gast[eé]|pagu[eé]|compr[eé]|vend[ií])\w*/i;
+
 const BILL_SPLIT = "bill_split";
 const SPLIT_WINDOW_MS = 30 * 60_000;
 
@@ -106,9 +115,15 @@ export async function splitFollowUp(
 ): Promise<SplitOut | null> {
   const prev = await splitBefore(tx, ctx.phoneId, now);
   if (!prev) return null;
+  if (prev.said && !isCorrection(text)) return null;
   const meter = new Meter();
   const said = prev.said ? `${prev.said}\n${text}` : text;
   return answer(tx, bills, ctx, prev.bill, said, prev.pendingId, now, "text", meter);
+}
+
+function isCorrection(text: string): boolean {
+  if (NOT_A_CORRECTION.test(text) && !SPLIT_WORDS.test(text)) return false;
+  return SPLIT_WORDS.test(text) || SPLIT_CORRECTION.test(text);
 }
 
 function askWho(bill: Bill, meter: Meter): SplitOut {
@@ -223,6 +238,14 @@ async function splitBefore(
     calls.find((c) => (c as { name?: string } | null)?.name === BILL_SPLIT),
   );
   if (!mark.success) return null;
+  // Ya tocó "Guardar mi parte" o "No, gracias" (o venció): la cuenta quedó cerrada.
+  if (mark.data.args.pendingId) {
+    const [p] = await tx
+      .select({ status: schema.pendingAction.status })
+      .from(schema.pendingAction)
+      .where(eq(schema.pendingAction.id, mark.data.args.pendingId));
+    if (p?.status !== "pending") return null;
+  }
   return {
     bill: fromJson(mark.data.args.bill),
     said: mark.data.args.said,

@@ -1078,3 +1078,27 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 **Pendiente:**
 - El correo `privacidad@caja.jpsoftwaredev.com` de /privacidad y /eliminar-datos no cambia hasta tener un buzón en `@holarocco.com`.
 - Opcional: pasar el webhook de Meta y el remitente de Resend a holarocco.com.
+
+### S3 · 08/10/2026 · Dividir la cuenta: lectura de cantidades y bucle
+
+**Reporte (Javier):** con la factura de El Amir, "yo el shawarma especial y un refresco, Julio lo demás" dio Bs 5.406,34; lo correcto era Bs 12.164,27. Las correcciones no lo arreglaban, y después de "No, gracias" cualquier mensaje ("Registrar 12164 shawarma y refresco") volvía a mostrar la misma división.
+
+**Causas:**
+1. **Lectura.** La línea "3x Bs 1.747,74" (cantidad y precio unitario de los refrescos, que en la factura fiscal va encima del producto) quedó pegada al renglón de arriba. El lector devolvió "Shaw Especial ×3 por 8.738,70", así que una unidad salía a 2.912,90.
+2. **Correcciones.** Las correcciones se acumulaban en un solo texto que se recortaba por el principio, y el modelo no usaba el precio que dijo Javier.
+3. **Bucle.** Durante 30 minutos después de un reparto, cualquier texto se tomaba como corrección. La reacción 🗑 de "No, gracias" no cierra la cuenta, porque las reacciones no cuentan.
+
+**Arreglos:**
+- **Lector:**
+  - Pide además el precio unitario de cada renglón (`unit_price`) y explica dónde va la línea de cantidad en las facturas fiscales.
+  - `fixQuantities`: si cantidad × precio unitario no da el importe (±1 %), la cantidad pasa al renglón vecino donde sí cuadra; si no cuadra en ninguno, queda en 1.
+- **Reparto:**
+  - La lista que ve el modelo muestra "×3 — 5243.22 (1747.74 c/u)".
+  - Si el usuario dice el precio de lo suyo, se usa para decidir entre el renglón entero y algunas unidades.
+  - La última corrección manda, y si el texto es largo se recorta el principio, no el final.
+- **Bucle:**
+  - Después del reparto solo siguen en la cuenta los mensajes que lo corrigen ("no, …", "corrige", "lo mío", "el resto", "compartimos"…).
+  - "Registrar…", "gasté…" y parecidos van al flujo normal.
+  - Con "Guardar mi parte" o "No, gracias" la cuenta queda cerrada.
+
+**Tests:** la factura de El Amir (Tú 12.164,27 · Julio 14.191,65), cantidades que cuadran y que no, mensaje que no corrige y cuenta cerrada. 440 en total.
