@@ -15,7 +15,7 @@ describe("plantillas es-VE", () => {
     const m = es.menu(rate);
     expect(m.type).toBe("buttons");
     if (m.type !== "buttons") return;
-    expect(m.body).toContain("Tasa BCV hoy: *Bs 858,00* (vigente mar 29/09)");
+    expect(m.body).toContain("Tasa BCV hoy: dólar *Bs 858,00* (vigente mar 29/09)");
     expect(m.buttons.map((b) => b.title)).toEqual([
       "Registrar gasto",
       "Registrar venta",
@@ -26,14 +26,20 @@ describe("plantillas es-VE", () => {
   });
   it("tasa muestra vigente y próxima; advierte si está vieja; avisa si no hay", () => {
     const r = es.rate(rate);
-    expect(r.body).toContain("Vigente hoy (mar 29/09): dólar *Bs 858,00*");
-    expect(r.body).toContain("Próxima (mié 30/09): dólar *Bs 859,30*");
+    expect(r.body).toContain("💵 *Tasa BCV* · vigente hoy (mar 29/09)\nDólar: *Bs 858,00*");
+    expect(r.body).toContain("Próxima (mié 30/09):\nDólar: Bs 859,30");
     // Con el euro del BCV, las dos tasas juntas (11/10: preguntaron por el euro).
     const withEur = es.rate({
       ...rate,
       current: rate.current ? { ...rate.current, eur: new Decimal("980.61") } : null,
     });
-    expect(withEur.body).toContain("Vigente hoy (mar 29/09): dólar *Bs 858,00* · euro *Bs 980,61*");
+    expect(withEur.body).toContain("Dólar: *Bs 858,00*\nEuro: *Bs 980,61*");
+    expect(
+      es.menu({
+        ...rate,
+        current: rate.current ? { ...rate.current, eur: new Decimal("980.61") } : null,
+      }).body,
+    ).toContain("Tasa BCV hoy: dólar *Bs 858,00* · euro *Bs 980,61* (vigente mar 29/09)");
     expect(es.rate({ ...rate, next: null, stale: true }).body).toContain("⚠️");
     expect(es.rate({ current: null, next: null, stale: false }).body).toContain("No tengo la tasa");
     expect(es.menu({ current: null, next: null, stale: false }).body).toContain("no disponible");

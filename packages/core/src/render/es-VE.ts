@@ -34,7 +34,8 @@ const MENU_BUTTONS = [
 
 export function rateLine(r: RateInfo): string {
   if (!r.current) return "Tasa BCV: no disponible por ahora";
-  const base = `Tasa BCV hoy: *${formatMoney(r.current.value, "VES")}* (vigente ${formatShortDate(r.current.effectiveDate)})`;
+  const eur = r.current.eur ? ` · euro *${formatMoney(r.current.eur, "VES")}*` : "";
+  const base = `Tasa BCV hoy: dólar *${formatMoney(r.current.value, "VES")}*${eur} (vigente ${formatShortDate(r.current.effectiveDate)})`;
   return r.stale ? `${base} ⚠️ puede estar desactualizada` : base;
 }
 
@@ -74,16 +75,17 @@ export function rate(r: RateInfo): Outbound {
       body: "No tengo la tasa BCV cargada todavía. Inténtalo más tarde o revisa bcv.org.ve.",
     };
   }
-  // Dólar y euro siempre juntos (11/10: preguntaron por el euro y solo salía el dólar).
-  const pair = (d: RateDay) =>
-    d.eur
-      ? `dólar *${formatMoney(d.value, "VES")}* · euro *${formatMoney(d.eur, "VES")}*`
-      : `dólar *${formatMoney(d.value, "VES")}*`;
+  // Todas las tasas de una vez (11/10): dólar y euro, la vigente y la próxima.
+  const rows = (d: RateDay, bold: boolean) => {
+    const b = (v: Decimal) => (bold ? `*${formatMoney(v, "VES")}*` : formatMoney(v, "VES"));
+    return [`Dólar: ${b(d.value)}`, ...(d.eur ? [`Euro: ${b(d.eur)}`] : [])];
+  };
   const lines = [
-    "💵 Tasa BCV",
-    `Vigente hoy (${formatShortDate(r.current.effectiveDate)}): ${pair(r.current)}`,
+    `💵 *Tasa BCV* · vigente hoy (${formatShortDate(r.current.effectiveDate)})`,
+    ...rows(r.current, true),
   ];
-  if (r.next) lines.push(`Próxima (${formatShortDate(r.next.effectiveDate)}): ${pair(r.next)}`);
+  if (r.next)
+    lines.push("", `Próxima (${formatShortDate(r.next.effectiveDate)}):`, ...rows(r.next, false));
   if (r.stale) {
     lines.push(
       `⚠️ Esta tasa es del ${formatShortDate(r.current.effectiveDate)}; no he podido actualizarla. Verifica en bcv.org.ve antes de usarla.`,

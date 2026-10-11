@@ -1140,3 +1140,5 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - Atajos sin IA: "euro", "tasa euro", "en cuánto está el euro", "dólar euro" y parecidos.
 - La herramienta de la IA menciona el euro.
 - Tests de la respuesta con el euro y del atajo.
+
+**Ajuste (Javier, mismo día):** todas las tasas de una vez y fáciles de leer. La respuesta queda en líneas: "💵 *Tasa BCV* · vigente hoy (vie 09/10)", luego "Dólar: *Bs 875,65*" y "Euro: *Bs 980,61*", y debajo la próxima con dólar y euro. El saludo, el menú y la bienvenida también muestran el euro: "Tasa BCV hoy: dólar … · euro …".

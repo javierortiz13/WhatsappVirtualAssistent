@@ -184,7 +184,7 @@ describe("onboarding por código de vinculación", () => {
     const body = textOf(sent[0]);
     expect(body).toContain("✅ Listo, tu número quedó vinculado a *Autolavado El Rápido*.");
     expect(body).toContain("Soy *Asistente de Caja*");
-    expect(body).toContain("Tasa BCV hoy: *Bs 858,00*");
+    expect(body).toContain("Tasa BCV hoy: dólar *Bs 858,00*");
     const phone = await ownerPhone(t.db, tenantId);
     expect(phone).toMatchObject({ status: "active", e164: OWNER });
     expect(phone?.verifiedAt).not.toBeNull();

@@ -196,7 +196,7 @@ describe("processInbound", () => {
   it("'tasa' y 'ayuda' se resuelven sin agente", async () => {
     const { sent, client } = fakeMeta();
     await processInbound(deps(client), await ingest(message("wamid.T1", "584121234567", "tasa")));
-    expect(textOf(sent[0])).toContain("Próxima (mié 30/09): dólar *Bs 859,30*");
+    expect(textOf(sent[0])).toContain("Próxima (mié 30/09):\nDólar: Bs 859,30");
     await processInbound(deps(client), await ingest(message("wamid.A1", "584121234567", "ayuda")));
     expect(textOf(sent[1])).toContain("https://caja.test");
     await processInbound(
@@ -209,7 +209,7 @@ describe("processInbound", () => {
       deps(client),
       await ingest(message("wamid.EUR1", "584121234567", "¿En cuánto está el euro?")),
     );
-    expect(textOf(sent[3])).toContain("💵 Tasa BCV");
+    expect(textOf(sent[3])).toContain("💵 *Tasa BCV*");
   });
 
   it("texto libre va al agente (stub: fuera de alcance con menú)", async () => {
