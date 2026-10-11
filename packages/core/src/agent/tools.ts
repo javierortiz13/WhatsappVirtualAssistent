@@ -2133,7 +2133,7 @@ const NO_EUR_CONVERT =
 const getBcvRate: ToolSpec<typeof GetBcvRateInput> = {
   name: "get_bcv_rate",
   description:
-    "Devuelve la tasa BCV vigente hoy y la próxima publicada. Úsala cuando pregunten por la tasa, el dólar o el BCV.",
+    "Devuelve la tasa BCV vigente hoy y la próxima publicada, del dólar y del euro. Úsala cuando pregunten por la tasa, el dólar, el euro o el BCV.",
   schema: GetBcvRateInput,
   roles: ["owner", "employee"],
   strict: false,

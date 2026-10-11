@@ -4,7 +4,7 @@ import { Decimal } from "../domain/money";
 import { NEXT_RATE_MAX_DAYS } from "../ledger/rate-for";
 import type { RateInfo } from "../render/es-VE";
 
-type RateRow = { effective_date: string; rate: string; which: string };
+type RateRow = { effective_date: string; rate: string; rate_eur: string | null; which: string };
 
 /**
  * "Vigente hoy": la misma regla que `rateFor` (la del día; sábado, domingo o feriado, la del
@@ -15,23 +15,23 @@ export async function getRateInfo(db: Queryable, today: IsoDate): Promise<RateIn
   const found = rows<RateRow>(
     await db.execute(sql`
       with cur as (
-        select effective_date, rate from (
-          (select effective_date, rate, 0 as pref from ${schema.bcvRate}
+        select effective_date, rate, rate_eur from (
+          (select effective_date, rate, rate_eur, 0 as pref from ${schema.bcvRate}
             where effective_date = ${today}::date)
           union all
-          (select effective_date, rate, 1 as pref from ${schema.bcvRate}
+          (select effective_date, rate, rate_eur, 1 as pref from ${schema.bcvRate}
             where effective_date > ${today}::date
               and effective_date <= ${today}::date + ${NEXT_RATE_MAX_DAYS}::int
             order by effective_date asc limit 1)
           union all
-          (select effective_date, rate, 2 as pref from ${schema.bcvRate}
+          (select effective_date, rate, rate_eur, 2 as pref from ${schema.bcvRate}
             where effective_date < ${today}::date
             order by effective_date desc limit 1)
         ) c order by pref limit 1
       )
-      (select effective_date::text, rate::text, 'current' as which from cur)
+      (select effective_date::text, rate::text, rate_eur::text, 'current' as which from cur)
       union all
-      (select effective_date::text, rate::text, 'next' as which from ${schema.bcvRate}
+      (select effective_date::text, rate::text, rate_eur::text, 'next' as which from ${schema.bcvRate}
         where effective_date > coalesce((select effective_date from cur), ${today}::date - 1)
           and effective_date > ${today}::date
         order by effective_date asc limit 1)
@@ -39,7 +39,14 @@ export async function getRateInfo(db: Queryable, today: IsoDate): Promise<RateIn
   );
   const pick = (which: string) => {
     const r = found.find((x) => x.which === which);
-    return r ? { value: new Decimal(r.rate), effectiveDate: asIsoDate(r.effective_date) } : null;
+    return r
+      ? {
+          value: new Decimal(r.rate),
+          // Euro oficial del BCV (0007), misma fecha valor; null en filas viejas.
+          eur: r.rate_eur ? new Decimal(r.rate_eur) : null,
+          effectiveDate: asIsoDate(r.effective_date),
+        }
+      : null;
   };
   const current = pick("current");
   return {

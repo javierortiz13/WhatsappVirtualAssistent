@@ -1127,3 +1127,16 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - Las tablas y los estados de cuenta ya admitían montos distintos: no hizo falta migración.
 
 **Nota:** el "Message can't be displayed" de la notificación viene de la app Business Suite de Meta, que no muestra los mensajes con botones. No es un error de Rocco.
+
+### S3 · 11/10/2026 · La tasa también muestra el euro
+
+**Reporte (un amigo en la beta):** "En cuánto está el euro" y "el dólar euro" respondían solo con la tasa del dólar. La calculadora sí usaba el euro ("10 dólares a tasa euro" → Bs 9.806,15).
+
+**Causa:** `getRateInfo` solo leía `rate` (dólar) aunque `bcv_rate.rate_eur` existe desde la migración 0007. La respuesta de la tasa (el atajo "tasa" y la herramienta `get_bcv_rate` de la IA) no tenía el euro que mostrar.
+
+**Hecho:**
+- `getRateInfo` trae también `rate_eur` de la vigente y de la próxima.
+- La respuesta queda: "Vigente hoy (vie 09/10): dólar *Bs 875,65* · euro *Bs 980,61*", y lo mismo en la próxima. Si una fila vieja no tiene el euro, sale solo el dólar.
+- Atajos sin IA: "euro", "tasa euro", "en cuánto está el euro", "dólar euro" y parecidos.
+- La herramienta de la IA menciona el euro.
+- Tests de la respuesta con el euro y del atajo.

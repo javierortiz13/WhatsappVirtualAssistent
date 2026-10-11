@@ -2523,6 +2523,16 @@ export function classifyKeyword(text: string): Keyword {
       "tasa de hoy",
       "a como esta el dolar",
       "cuanto esta el dolar",
+      "en cuanto esta el dolar",
+      "euro",
+      "tasa euro",
+      "tasa del euro",
+      "a como esta el euro",
+      "cuanto esta el euro",
+      "en cuanto esta el euro",
+      "dolar euro",
+      "en cuanto esta el dolar euro",
+      "tasa dolar y euro",
     ].includes(t)
   )
     return "rate";

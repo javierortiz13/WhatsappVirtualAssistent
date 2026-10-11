@@ -17,9 +17,11 @@ import { IDS, type Outbound, type RenewMethod } from "./outbound";
  * Las cifras llegan ya calculadas por el backend; aquí solo se formatean.
  */
 
+/** `eur`: euro oficial del BCV de la misma fecha (null si la fila no lo trae). */
+type RateDay = { value: Decimal; eur?: Decimal | null | undefined; effectiveDate: IsoDate };
 export type RateInfo = {
-  current: { value: Decimal; effectiveDate: IsoDate } | null;
-  next: { value: Decimal; effectiveDate: IsoDate } | null;
+  current: RateDay | null;
+  next: RateDay | null;
   /** La vigente tiene más de 3 días hábiles: puede estar desactualizada. */
   stale: boolean;
 };
@@ -72,14 +74,16 @@ export function rate(r: RateInfo): Outbound {
       body: "No tengo la tasa BCV cargada todavía. Inténtalo más tarde o revisa bcv.org.ve.",
     };
   }
+  // Dólar y euro siempre juntos (11/10: preguntaron por el euro y solo salía el dólar).
+  const pair = (d: RateDay) =>
+    d.eur
+      ? `dólar *${formatMoney(d.value, "VES")}* · euro *${formatMoney(d.eur, "VES")}*`
+      : `dólar *${formatMoney(d.value, "VES")}*`;
   const lines = [
     "💵 Tasa BCV",
-    `Vigente hoy (${formatShortDate(r.current.effectiveDate)}): *${formatMoney(r.current.value, "VES")}*`,
+    `Vigente hoy (${formatShortDate(r.current.effectiveDate)}): ${pair(r.current)}`,
   ];
-  if (r.next)
-    lines.push(
-      `Próxima (${formatShortDate(r.next.effectiveDate)}): *${formatMoney(r.next.value, "VES")}*`,
-    );
+  if (r.next) lines.push(`Próxima (${formatShortDate(r.next.effectiveDate)}): ${pair(r.next)}`);
   if (r.stale) {
     lines.push(
       `⚠️ Esta tasa es del ${formatShortDate(r.current.effectiveDate)}; no he podido actualizarla. Verifica en bcv.org.ve antes de usarla.`,
