@@ -1164,3 +1164,5 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
   - Publicar con "Review Changes" → "Publish".
 - Captcha (Cloudflare Turnstile) en `/login` y `/registro`: espera las llaves de Cloudflare.
 - RLS en las 7 tablas globales: baja prioridad, porque `anon` y `authenticated` no tienen acceso al schema `app`.
+
+**CI en rojo desde antes (arreglado el mismo día):** el paso de tests fallaba desde hace varios commits. El Postgres del servicio de CI llega vacío y nadie corría las migraciones, así que `identity-pg.test.ts` no encontraba `app.unknown_sender_hit`. El CI ahora corre `pnpm db:migrate` antes de los tests. Probado en local con una base vacía: migra de 0001 a 0021 y pasan 447 tests (6 más que sin Postgres real).
