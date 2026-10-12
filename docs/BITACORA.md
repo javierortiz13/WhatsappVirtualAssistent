@@ -1142,3 +1142,25 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - Tests de la respuesta con el euro y del atajo.
 
 **Ajuste (Javier, mismo día):** todas las tasas de una vez y fáciles de leer. La respuesta queda en líneas: "💵 *Tasa BCV* · vigente hoy (vie 09/10)", luego "Dólar: *Bs 875,65*" y "Euro: *Bs 980,61*", y debajo la próxima con dólar y euro. El saludo, el menú y la bienvenida también muestran el euro: "Tasa BCV hoy: dólar … · euro …".
+
+### S3 · 12/10/2026 · Seguridad: dependencias, headers y límite de intentos
+
+**Origen:** auditoría de seguridad contra la lista de "20 cosas que un SaaS necesita". Quedaron tres huecos que se cierran sin depender de nadie más.
+
+**Hecho:**
+- Next.js 16.3.6 → 16.3.8 (`~16.3.8`, solo parches): corrige el SSRF de la optimización de imágenes (GHSA-cjq9-62q9-8jv4, alto). No usamos `next/image`, pero el endpoint existía. `source-map-js` 1.2.1 → 1.2.2 (alto, solo en desarrollo vía vitest). `pnpm audit --audit-level high` queda limpio; quedan 2 avisos moderados.
+- CI: `pnpm audit --prod --audit-level high` después de instalar; falla si una dependencia de producción tiene un aviso alto o crítico.
+- `.github/dependabot.yml`: PR semanal (lunes, hora de Caracas) para npm, agrupando menores y parches, y otro para las GitHub Actions.
+- Security headers en todas las respuestas de la web (`next.config.ts`): CSP, HSTS de 2 años con subdominios, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` sin cámara, micrófono, ubicación ni pagos. Se quita `X-Powered-By`.
+- La CSP permite solo nuestro dominio, más Google Fonts para la fuente Geist. Supabase y Sentry van por el servidor o por el túnel `/monitoring`, así que no hace falta abrirlos. Prohíbe enmarcar la página, `<object>`, `<base>` ajeno y formularios hacia otros sitios. Lleva `'unsafe-inline'` en scripts porque Next mete el payload de RSC en línea y no usamos nonces.
+
+**Verificado:** build de producción local con la CSP aplicada. Se recorrieron 21 páginas (landing, login, registro, dashboard, ajustes y admin) sin ninguna violación de CSP ni errores de página. Los botones Beta/Live del admin (server actions), la navegación interna y la carga de la fuente funcionan. Lint, typecheck y 441 tests en verde.
+
+**Pendiente:**
+- Regla de rate limit en el firewall de Vercel para `/login` y `/registro`. El conector de Vercel no tiene permiso sobre el firewall (403), así que la crea Javier en el dashboard: Project → Firewall → Configure → New Rule:
+  - Nombre: "Límite login y registro".
+  - Si: Request Path *starts with* `/login`, OR Request Path *starts with* `/registro`; AND Method *equals* `POST`.
+  - Then: Rate Limit, Fixed Window, 60 s, 10 requests, key IP, acción Deny (429), por 5 minutos.
+  - Publicar con "Review Changes" → "Publish".
+- Captcha (Cloudflare Turnstile) en `/login` y `/registro`: espera las llaves de Cloudflare.
+- RLS en las 7 tablas globales: baja prioridad, porque `anon` y `authenticated` no tienen acceso al schema `app`.

@@ -1,0 +1,20 @@
+# Avisos de dependencias (auditoría de seguridad del 12/10/2026): un PR semanal por ecosistema.
+# Las actualizaciones de seguridad llegan aparte en cuanto GitHub publica el aviso.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Caracas
+    open-pull-requests-limit: 5
+    groups:
+      minor-y-parches:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Caracas
