@@ -24,10 +24,10 @@
     "metrics": "pnpm --filter @caja/worker run metrics"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.14",
+    "@biomejs/biome": "2.5.15",
     "@types/node": "^22.20.4",
     "typescript": "~5.9.3",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.3"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
