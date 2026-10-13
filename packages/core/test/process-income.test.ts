@@ -188,14 +188,13 @@ describe("ventas por WhatsApp", () => {
     const { sent, client } = fakeMeta();
     await send(client, "hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto");
     const draft = sent[0];
-    expect(textOf(draft)).toContain("*Venta del día por confirmar*");
+    expect(textOf(draft)).toContain("*Venta del día anotada*");
     expect(textOf(draft)).toContain("Fecha: hoy, mar 29/09");
     expect(textOf(draft)).toContain("Efectivo USD: *$200,00*");
     expect(textOf(draft)).toContain("Pago Móvil: *$100,00*");
     expect(textOf(draft)).toContain("Total: *$350,00* · Bs 300.300,00 · tasa BCV 858,00");
-    const [save] = buttonsOf(draft);
-    expect(save?.title).toBe("Guardar");
-    await tap(client, save?.id as string, "Guardar");
+    expect(buttonsOf(draft).map((b) => b.title)).toEqual(["Corregir", "Cancelar"]);
+    await tap(client, fx.saveIdFrom(buttonsOf(draft)), "Guardar");
     expect(textOf(sent[1])).toBe("✅ Venta guardada. Hoy: vendiste *$350,00*, gastaste *$0,00*.");
     const rows = await movements();
     expect(rows).toHaveLength(3);
@@ -241,11 +240,11 @@ describe("ventas por WhatsApp", () => {
   it("ingreso suelto: Guardar crea un ingreso 'single' con método y descripción", async () => {
     const { sent, client } = fakeMeta();
     await send(client, "me pagaron 30$ por zelle del carro del abogado");
-    expect(textOf(sent[0])).toContain("*Ingreso por confirmar*");
+    expect(textOf(sent[0])).toContain("*Ingreso anotado*");
     expect(textOf(sent[0])).toContain(
       "Carro del abogado: *$30,00* por Zelle\nBs 25.740,00 · tasa BCV 858,00",
     );
-    await tap(client, buttonsOf(sent[0])[0]?.id as string, "Guardar");
+    await tap(client, fx.saveIdFrom(buttonsOf(sent[0])), "Guardar");
     expect(textOf(sent[1])).toContain("vendiste *$780,00*");
     const single = (await movements()).find((m) => m.origin === "single" && m.type === "income");
     expect(single).toMatchObject({ paymentMethod: "zelle", description: "Carro del abogado" });
@@ -256,9 +255,9 @@ describe("ventas por WhatsApp", () => {
     // Los dos se arman sin venta registrada ese día (cola de borradores).
     await send(client, "el sábado vendí 120$");
     await send(client, "el sábado vendí 120$");
-    await tap(client, buttonsOf(sent[0])[0]?.id as string, "Guardar");
+    await tap(client, fx.saveIdFrom(buttonsOf(sent[0])), "Guardar");
     expect(textOf(sent[2])).toContain("✅ Venta guardada.");
-    await tap(client, buttonsOf(sent[1])[0]?.id as string, "Guardar");
+    await tap(client, fx.saveIdFrom(buttonsOf(sent[1])), "Guardar");
     expect(textOf(sent[3])).toContain(
       "Ya tienes una venta del día registrada ese día por *$120,00*",
     );

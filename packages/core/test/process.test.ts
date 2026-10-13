@@ -267,7 +267,7 @@ describe("processInbound", () => {
     const agent = createAgent({ llm, now });
     expect(await processInbound({ ...deps(client), agent }, job)).toBe("done");
     const body = sent[0]?.body as { interactive: { body: { text: string } } };
-    expect(body.interactive.body.text).toContain("Gasto por confirmar");
+    expect(body.interactive.body.text).toContain("Gasto anotado");
     const rows = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.message));
     const inbound = rows.find((r) => r.waMessageId === "wamid.AG1");
     const outbound = rows.find(
@@ -339,7 +339,7 @@ describe("processInbound", () => {
       "done",
     );
     const draftMsg = sent[0]?.body as { interactive: { body: { text: string } } };
-    expect(draftMsg.interactive.body.text).toContain("2 gastos por confirmar");
+    expect(draftMsg.interactive.body.text).toContain("2 gastos anotados");
     expect(draftMsg.interactive.body.text).toContain("Arepa y malta");
     expect(draftMsg.interactive.body.text).toContain("Partida de pádel");
     expect(draftMsg.interactive.body.text).toContain("Total: *$14,50*");
@@ -660,7 +660,7 @@ describe("processInbound: confirmar un borrador", () => {
       expect(movements[0]).toMatchObject({ amountVes: "12870.00", description: "Champú" });
       const [pa] = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.pendingAction));
       expect(pa?.status).toBe("confirmed");
-      // Un segundo toque de Guardar ya no encuentra borrador vigente.
+      // Un segundo toque de Guardar ya no encuentra borrador vigente: avisa que quedó guardado.
       const again = JSON.parse(JSON.stringify(payload));
       again.entry[0].changes[0].value.messages[0].id = "wamid.CONF2";
       jobs.length = 0;
@@ -669,7 +669,7 @@ describe("processInbound: confirmar un borrador", () => {
         again,
       );
       await processInbound(deps, jobs[0] as ProcessMessageJob);
-      expect(textOf(sentAll[1])).toContain("ya venció");
+      expect(textOf(sentAll[1])).toContain("ya quedó guardado");
       expect(
         await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement)),
       ).toHaveLength(1);

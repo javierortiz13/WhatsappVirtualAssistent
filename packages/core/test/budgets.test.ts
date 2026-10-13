@@ -199,7 +199,9 @@ describe("presupuestos de punta a punta", () => {
         "",
     );
   const saveId = (s: Sent | undefined) =>
-    (s?.body.interactive as Interactive | undefined)?.action.buttons[0]?.reply.id as string;
+    fx.saveIdFrom(
+      ((s?.body.interactive as Interactive | undefined)?.action.buttons ?? []).map((b) => b.reply),
+    );
 
   function fakeMeta() {
     const sent: Sent[] = [];

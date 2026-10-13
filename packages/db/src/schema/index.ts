@@ -381,12 +381,18 @@ export const pendingAction = app.table(
     status: text("status").notNull().default("pending"),
     promptMessageId: uuid("prompt_message_id"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    /** 0022: se guarda solo al vencer si nadie lo corrigió ni lo canceló. */
+    autoSave: boolean("auto_save").notNull().default(false),
+    /** 0022: wa_message_id del mensaje que lo originó (la reacción ✅) y número de Meta que lo recibió. */
+    sourceWaId: text("source_wa_id"),
+    waNumberId: text("wa_number_id"),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
     // Cola de borradores (0006): varios pendientes por teléfono, sin índice único.
     index("pending_action_phone_pending").on(t.phoneId, t.createdAt).where(sql`status = 'pending'`),
+    index("pending_action_due").on(t.expiresAt).where(sql`status = 'pending'`),
     check("pending_action_kind_check", inList("kind", PENDING_KINDS)),
     check("pending_action_status_check", inList("status", PENDING_STATUSES)),
   ],

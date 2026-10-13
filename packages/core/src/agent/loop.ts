@@ -1,6 +1,6 @@
 import { and, desc, eq, gt, schema, type Tx } from "@caja/db";
 import type { z } from "zod";
-import { pendingDrafts } from "../ledger/drafts";
+import { MAX_PENDING_PER_PHONE, pendingDrafts } from "../ledger/drafts";
 import { type Logger, silentLogger } from "../log";
 import type { Outbound } from "../render/index";
 import { es } from "../render/index";
@@ -65,7 +65,10 @@ export function createAgent(opts: AgentOptions): AgentRunner {
       };
       const asPrompt = (d: DraftRef) => ({ tool: FIXABLE[d.kind] as string, payload: d.payload });
       const pendingDraft = drafts.fixing ? asPrompt(drafts.fixing) : null;
-      const waiting = drafts.fixing ? [] : queue.map((d) => asPrompt(ref(d)));
+      // Al modelo, los más recientes: con el autoguardado (0022) la cola puede pasar del tope.
+      const waiting = drafts.fixing
+        ? []
+        : queue.slice(0, MAX_PENDING_PER_PHONE).map((d) => asPrompt(ref(d)));
       const history = await recentHistory(
         tx,
         ctx.phoneId,
@@ -211,11 +214,11 @@ const FIXABLE: Record<string, string> = {
 
 /**
  * Si el turno dejó un borrador nuevo y hay otros esperando, el mensaje lo dice: así el dueño sabe
- * que la factura de arriba sigue viva y se guarda con sus propios botones.
+ * que la factura de arriba sigue viva (se guarda sola a los 15 minutos o con sus propios botones).
  */
 async function withQueueNote(tx: Tx, phoneId: string, outbound: Outbound[]): Promise<Outbound[]> {
   const last = outbound[outbound.length - 1];
-  if (last?.type !== "buttons" || !last.buttons.some((b) => b.id.startsWith("confirm:")))
+  if (last?.type !== "buttons" || !last.buttons.some((b) => /^(confirm|fix|cancel):/.test(b.id)))
     return outbound;
   const others = (await pendingDrafts(tx, phoneId)).length - 1;
   if (others < 1) return outbound;

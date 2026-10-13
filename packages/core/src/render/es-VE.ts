@@ -569,6 +569,22 @@ export function confirmationExpired(): Outbound {
   return { type: "text", body: "Esa confirmación ya venció. Mándame el gasto de nuevo." };
 }
 
+/** Corregir o Cancelar sobre un borrador que ya se guardó solo (0022). */
+export function draftAlreadySaved(): Outbound {
+  return {
+    type: "text",
+    body: "Ese ya quedó guardado ✅. Si quieres cambiarlo, dime _corrige el último_ o _borra el último_.",
+  };
+}
+
+/** Acuse del autoguardado (0022): ✅ sobre el mensaje del usuario, sin gastar un mensaje de texto. */
+export function autoSaved(sourceWaId: string): Outbound {
+  return { type: "reaction", body: "✅", waMessageId: sourceWaId };
+}
+
+/** Pie de las tarjetas que se guardan solas (0022). WhatsApp admite hasta 60 caracteres. */
+export const AUTO_SAVE_FOOTER = "Si está bien, no hagas nada: se guarda en 15 min";
+
 /** Descartar un borrador: reacción sobre el toque de "Cancelar". Gratis y suficiente como acuse. */
 export function cancelled(inboundId: string): Outbound {
   return { type: "reaction", body: "🗑️", waMessageId: inboundId };
@@ -916,9 +932,7 @@ function transferLine(v: TransferView): string {
 /** Borrador de una transferencia entre cuentas (0014). */
 export function transferDraft(v: TransferView & { pendingId: string; today: IsoDate }): Outbound {
   const lines = [
-    v.from.currency === v.to.currency
-      ? "*Transferencia por confirmar*"
-      : "*Compra de USDT por confirmar*",
+    v.from.currency === v.to.currency ? "*Transferencia anotada*" : "*Compra de USDT anotada*",
     transferLine(v),
   ];
   if (v.fee && new Decimal(v.fee).gt(0))
@@ -927,10 +941,8 @@ export function transferDraft(v: TransferView & { pendingId: string; today: IsoD
   return {
     type: "buttons",
     body: lines.join("\n"),
-    buttons: [
-      { id: IDS.confirm(v.pendingId), title: "Guardar" },
-      { id: IDS.cancel(v.pendingId), title: "Cancelar" },
-    ],
+    footer: AUTO_SAVE_FOOTER,
+    buttons: [{ id: IDS.cancel(v.pendingId), title: "Cancelar" }],
   };
 }
 
@@ -1091,16 +1103,14 @@ export function exchangeDraft(v: {
   return {
     type: "buttons",
     body: [
-      "*Cambio por confirmar*",
+      "*Cambio anotado*",
       `${rateNum(v.usd)} USDT → *${formatMoney(v.ves, "VES")}*`,
       `Tasa: ${rateNum(v.rate)}`,
       ...accounts,
       dateLine(v.businessDate, v.today),
     ].join("\n"),
-    buttons: [
-      { id: IDS.confirm(v.pendingId), title: "Guardar" },
-      { id: IDS.cancel(v.pendingId), title: "Cancelar" },
-    ],
+    footer: AUTO_SAVE_FOOTER,
+    buttons: [{ id: IDS.cancel(v.pendingId), title: "Cancelar" }],
   };
 }
 
@@ -1248,7 +1258,7 @@ function relativeDay(businessDate: string, today: IsoDate): string {
 
 /**
  * Borrador de gasto, un dato por línea:
- *   *Gasto por confirmar*
+ *   *Gasto anotado*
  *   Productos de limpieza: *$10,00*
  *   Bs 9.739,28 · tasa euro 973,93
  *   Categoría: Insumos
@@ -1259,7 +1269,7 @@ export function expenseDraft(d: ExpenseDraftView): Outbound {
   const lines: string[] = [];
   if (d.replacedPrevious) lines.push("Descarté el borrador anterior sin guardar.");
   if (d.transcript) lines.push(`Entendí: _"${d.transcript}"_`);
-  lines.push("*Gasto por confirmar*");
+  lines.push("*Gasto anotado*");
   lines.push(d.description ? `${d.description}: *${main}*` : `*${main}*`);
   // Un gasto que toma de dos o más cambios muestra de dónde sale cada parte: la tasa ponderada
   // sola (971,48) no se entiende.
@@ -1281,8 +1291,8 @@ export function expenseDraft(d: ExpenseDraftView): Outbound {
   return {
     type: "buttons",
     body: lines.join("\n"),
+    footer: AUTO_SAVE_FOOTER,
     buttons: [
-      { id: IDS.confirm(d.pendingId), title: "Guardar" },
       { id: IDS.fix(d.pendingId), title: "Corregir" },
       { id: IDS.cancel(d.pendingId), title: "Cancelar" },
     ],
@@ -1302,7 +1312,7 @@ export function expensesDraft(v: ExpensesDraftView): Outbound {
   const lines: string[] = [];
   if (v.replacedPrevious) lines.push("Descarté el borrador anterior sin guardar.");
   if (v.transcript) lines.push(`Entendí: _"${v.transcript}"_`);
-  lines.push(`*${v.items.length} gastos por confirmar*`);
+  lines.push(`*${v.items.length} gastos anotados*`);
   const sameDay = v.items.every((i) => i.businessDate === v.items[0]?.businessDate);
   // Una sola cuenta para todos va en su línea; si son varias, cada renglón dice la suya.
   const accountNames = [...new Set(v.items.map((i) => i.accountName ?? null))];
@@ -1347,8 +1357,8 @@ export function expensesDraft(v: ExpensesDraftView): Outbound {
   return {
     type: "buttons",
     body: lines.join("\n"),
+    footer: AUTO_SAVE_FOOTER,
     buttons: [
-      { id: IDS.confirm(v.pendingId), title: "Guardar" },
       { id: IDS.fix(v.pendingId), title: "Corregir" },
       { id: IDS.cancel(v.pendingId), title: "Cancelar" },
     ],
@@ -1418,6 +1428,11 @@ function budgetWhen(b: BudgetView, today: IsoDate): string {
  * Cómo va un presupuesto en una línea: lo que queda, ⚠️ desde el 80 %, 🔴 en el tope o pasado.
  * "Insumos: te quedan *$45,00* de $200,00 este mes."
  */
+/** Un presupuesto pasado, en el tope o del 80 % para arriba: merece aviso aunque no haya "Guardado". */
+export function budgetAlert(b: BudgetView): boolean {
+  return b.remainingUsd.lte(0) || b.pct >= BUDGET_WARN_PCT;
+}
+
 export function budgetLine(b: BudgetView, today: IsoDate): string {
   const when = budgetWhen(b, today);
   const cap = formatMoney(b.amountUsd, "USD");
@@ -1568,7 +1583,7 @@ export function incomeDayTotalDraft(v: IncomeDayTotalView): Outbound {
     buttons.push({ id: IDS.fix(v.pendingId), title: "Corregir" });
     return { type: "buttons", body: lines.join("\n"), buttons };
   }
-  lines.push("*Venta del día por confirmar*");
+  lines.push("*Venta del día anotada*");
   for (const l of v.lines) lines.push(lineText(l, v.methodLabel(l.method)));
   lines.push(
     `Total: *${formatMoney(v.totalUsd, "USD")}* · ${formatMoney(v.totalVes, "VES")} · ${rateLabel(v.rateValue, v.rateSource)}`,
@@ -1593,8 +1608,8 @@ export function incomeDayTotalDraft(v: IncomeDayTotalView): Outbound {
   return {
     type: "buttons",
     body: lines.join("\n"),
+    footer: AUTO_SAVE_FOOTER,
     buttons: [
-      { id: IDS.confirm(v.pendingId), title: "Guardar" },
       { id: IDS.fix(v.pendingId), title: "Corregir" },
       { id: IDS.cancel(v.pendingId), title: "Cancelar" },
     ],
@@ -1638,7 +1653,7 @@ export function incomeSingleDraft(v: IncomeSingleView): Outbound {
   const lines: string[] = [];
   if (v.replacedPrevious) lines.push("Descarté el borrador anterior sin guardar.");
   if (v.transcript) lines.push(`Entendí: _"${v.transcript}"_`);
-  lines.push("*Ingreso por confirmar*");
+  lines.push("*Ingreso anotado*");
   const how = v.method === "unspecified" ? "" : ` por ${v.methodLabel}`;
   lines.push(v.description ? `${v.description}: *${main}*${how}` : `*${main}*${how}`);
   lines.push(equivalentLine(v));
@@ -1648,8 +1663,8 @@ export function incomeSingleDraft(v: IncomeSingleView): Outbound {
   return {
     type: "buttons",
     body: lines.join("\n"),
+    footer: AUTO_SAVE_FOOTER,
     buttons: [
-      { id: IDS.confirm(v.pendingId), title: "Guardar" },
       { id: IDS.fix(v.pendingId), title: "Corregir" },
       { id: IDS.cancel(v.pendingId), title: "Cancelar" },
     ],

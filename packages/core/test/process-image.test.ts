@@ -373,13 +373,12 @@ describe("fotos de facturas", () => {
     expect(
       body.startsWith("🧾 Leí la factura: Ferretería El Tornillo · 45.00 USD · mar 29/09"),
     ).toBe(true);
-    expect(body).toContain("Gasto por confirmar");
+    expect(body).toContain("Gasto anotado");
     expect(body).toContain("*$45,00*");
     expect(store.objects.size).toBe(1);
     const [att] = await attachments();
     expect(att).toMatchObject({ kind: "receipt", mimeType: "image/jpeg", sizeBytes: 2000 });
-    const save = buttonsOf(sent[1])[0];
-    await tap(client, vision, save?.id as string, "Guardar");
+    await tap(client, vision, fx.saveIdFrom(buttonsOf(sent[1])), "Guardar");
     expect(textOf(sent[2])).toContain("Gastos de hoy");
     const [mv] = await withTenant(t.db, tenantId, (tx) =>
       tx
@@ -400,7 +399,7 @@ describe("fotos de facturas", () => {
     await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
     await processInbound(deps(client, vision), jobs[0] as ProcessMessageJob);
     expect(textOf(sent[2])).toContain("*$50,00*");
-    await tap(client, vision, buttonsOf(sent[2])[0]?.id as string, "Guardar");
+    await tap(client, vision, fx.saveIdFrom(buttonsOf(sent[2])), "Guardar");
     const atts = (await attachments()).filter((a) => !a.deletedAt);
     expect(atts).toHaveLength(before);
     const [mv] = await withTenant(t.db, tenantId, (tx) =>
@@ -415,7 +414,7 @@ describe("fotos de facturas", () => {
     const vision = fakeVision(RECEIPT);
     await sendImage(client, vision);
     expect(store.objects.size).toBe(3);
-    const cancel = buttonsOf(sent[1])[2];
+    const cancel = buttonsOf(sent[1]).find((b) => b.title === "Cancelar");
     expect(cancel?.title).toBe("Cancelar");
     await tap(client, vision, cancel?.id as string, "Cancelar");
     expect(sent[2]?.body.type).toBe("reaction");
@@ -519,7 +518,7 @@ describe("fotos de facturas", () => {
         .where(eq(schema.message.waMessageId, `wamid.DOC${seq}`)),
     );
     expect(msg?.body?.startsWith("[PDF de factura] Ferretería El Tornillo")).toBe(true);
-    await tap(client, vision, buttonsOf(sent[1])[0]?.id as string, "Guardar");
+    await tap(client, vision, fx.saveIdFrom(buttonsOf(sent[1])), "Guardar");
     const [mv] = await withTenant(t.db, tenantId, (tx) =>
       tx
         .select()
@@ -534,7 +533,7 @@ describe("fotos de facturas", () => {
     const vision = fakeVision(RECEIPT);
     await sendDocument(client, vision, { mime_type: "image/jpeg", filename: "IMG_2041.jpg" });
     expect(vision.mimes).toEqual(["image/jpeg"]);
-    expect(textOf(sent[1])).toContain("Gasto por confirmar");
+    expect(textOf(sent[1])).toContain("Gasto anotado");
     expect((await attachments()).at(-1)).toMatchObject({ mimeType: "image/jpeg" });
   });
 
@@ -551,7 +550,7 @@ describe("fotos de facturas", () => {
     expect(body.startsWith("🧾 Leí el reporte de ventas: Autolavado · 115.80 USD")).toBe(true);
     expect(body).toContain("$115,80");
     const att = (await attachments()).at(-1);
-    await tap(client, vision, buttonsOf(sent[1])[0]?.id as string, "Guardar");
+    await tap(client, vision, fx.saveIdFrom(buttonsOf(sent[1])), "Guardar");
     const [mv] = await withTenant(t.db, tenantId, (tx) =>
       tx
         .select()
@@ -566,16 +565,21 @@ describe("fotos de facturas", () => {
     const vision = fakeVision(RECEIPT);
     await sendDocument(client, vision, { mime_type: "application/pdf", filename: "f.pdf" });
     const att = (await attachments()).at(-1);
-    await tap(client, vision, buttonsOf(sent[1])[1]?.id as string, "Corregir");
+    await tap(
+      client,
+      vision,
+      buttonsOf(sent[1]).find((b) => b.title === "Corregir")?.id as string,
+      "Corregir",
+    );
     jobs.length = 0;
     const p = fx.textMessage(`wamid.SALE${++seq}`, "No es un gasto es una venta");
     await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
     await processInbound(deps(client, vision), jobs[0] as ProcessMessageJob);
     const draft = textOf(sent.at(-1));
-    expect(draft).toContain("Ingreso por confirmar");
+    expect(draft).toContain("Ingreso anotado");
     expect(draft).toContain("Ferretería El Tornillo: *$45,00*\n");
     expect(draft).not.toContain("Sin especificar");
-    await tap(client, vision, buttonsOf(sent.at(-1))[0]?.id as string, "Guardar");
+    await tap(client, vision, fx.saveIdFrom(buttonsOf(sent.at(-1))), "Guardar");
     const [mv] = await withTenant(t.db, tenantId, (tx) =>
       tx
         .select()
@@ -640,9 +644,9 @@ describe("fotos de facturas", () => {
     await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
     await processInbound(deps(client, vision), jobs[0] as ProcessMessageJob);
     const draft = textOf(sent[2]);
-    expect(draft).toContain("Gasto por confirmar");
+    expect(draft).toContain("Gasto anotado");
     expect(draft).toContain("Bs 12.956,00");
-    await tap(client, vision, buttonsOf(sent[2])[0]?.id as string, "Guardar");
+    await tap(client, vision, fx.saveIdFrom(buttonsOf(sent[2])), "Guardar");
     const [mv] = await withTenant(t.db, tenantId, (tx) =>
       tx
         .select()
@@ -699,7 +703,7 @@ describe("fotos de facturas", () => {
     expect(draft.startsWith("💸 ¿Es un gasto? Si lo es, toca *Guardar*")).toBe(true);
     expect(draft).toContain("Pago móvil a Javier Ortiz");
     const att = (await attachments()).at(-1);
-    await tap(client, fakeVision(PAGO_MOVIL), buttonsOf(sent[5])[0]?.id as string, "Guardar");
+    await tap(client, fakeVision(PAGO_MOVIL), fx.saveIdFrom(buttonsOf(sent[5])), "Guardar");
     const [mv] = await withTenant(t.db, tenantId, (tx) =>
       tx
         .select()
@@ -715,7 +719,12 @@ describe("fotos de facturas", () => {
     expect(textOf(sent[1])).toContain("Monto: *Bs 8.580,00* ($10,00 a tasa BCV 858,00)");
     expect(textOf(sent[4])).toBe("8580,00");
     // Deja la cola limpia para los casos siguientes.
-    await tap(client, null, buttonsOf(sent[5])[2]?.id as string, "Cancelar");
+    await tap(
+      client,
+      null,
+      buttonsOf(sent[5]).find((b) => b.title === "Cancelar")?.id as string,
+      "Cancelar",
+    );
   });
 
   it("pago móvil sin monto: pregunta, y la respuesta arma el gasto con la foto", async () => {
@@ -729,8 +738,8 @@ describe("fotos de facturas", () => {
     const p = fx.textMessage(`wamid.PM${++seq}`, "1250 bs del gas");
     await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
     await processInbound(deps(client, null), jobs[0] as ProcessMessageJob);
-    expect(textOf(sent[5])).toContain("Gasto por confirmar");
-    await tap(client, null, buttonsOf(sent[5])[0]?.id as string, "Guardar");
+    expect(textOf(sent[5])).toContain("Gasto anotado");
+    await tap(client, null, fx.saveIdFrom(buttonsOf(sent[5])), "Guardar");
     const [mv] = await withTenant(t.db, tenantId, (tx) =>
       tx
         .select()
@@ -836,7 +845,7 @@ describe("fotos de facturas", () => {
     const { sent, client } = fakeMeta();
     await sendImage(client, fakeVision({ ...RECEIPT, date: "2026-12-09" }), true);
     expect(textOf(sent[1])).toContain("12/09");
-    expect(textOf(sent[1])).toContain("Gasto por confirmar");
+    expect(textOf(sent[1])).toContain("Gasto anotado");
     await cancelAll(client, sent);
   });
 
@@ -849,7 +858,7 @@ describe("fotos de facturas", () => {
       deps(client, null),
       await ingestOnly(fx.textMessage(`wamid.Q${++seq}`, "El gasto es del día de hoy")),
     );
-    expect(textOf(sent[2])).toContain("Gasto por confirmar");
+    expect(textOf(sent[2])).toContain("Gasto anotado");
     expect(textOf(sent[2])).toContain("Fecha: hoy");
     const drafts = await pendingDrafts();
     expect((drafts.at(-1)?.payload as { attachmentId?: string } | undefined)?.attachmentId).toBe(
@@ -879,7 +888,7 @@ describe("fotos de facturas", () => {
     // Bs ÷ USDT de verdad (971,50), no el "USDT Price" con la comisión (973,15).
     expect(body).toContain("Tasa: 971,50");
     expect(store.objects.size).toBe(before);
-    await tap(client, null, buttonsOf(sent[1])[0]?.id as string, "Guardar");
+    await tap(client, null, fx.saveIdFrom(buttonsOf(sent[1])), "Guardar");
     expect(textOf(sent[2])).toContain("✅ Cambio guardado: 30,88 USDT → Bs 30.000,00 a 971,50.");
     const lots = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.exchangeLot));
     expect(lots.at(-1)).toMatchObject({ usdAmount: "30.88", vesAmount: "30000.00" });
@@ -897,7 +906,12 @@ describe("fotos de facturas", () => {
     );
     expect(textOf(sent[1])).toContain("30,92 USDT → *Bs 30.000,00*");
     expect(textOf(sent[1])).toContain("Tasa: 970,25");
-    await tap(client, null, buttonsOf(sent[1])[1]?.id as string, "Cancelar");
+    await tap(
+      client,
+      null,
+      buttonsOf(sent[1]).find((b) => b.title === "Cancelar")?.id as string,
+      "Cancelar",
+    );
   });
 
   it("captura de Binance comprando USDT: lo dice y no arma nada", async () => {
@@ -944,7 +958,7 @@ describe("fotos de facturas", () => {
     const body = textOf(sent[1]);
     expect(body.startsWith("🧾 Leí tu compra de USDT en Binance:")).toBe(true);
     expect(body).toContain("Mercantil → Binance: *Bs 30.000,00* → *30,88 USDT* (a 971,50)");
-    await tap(client, null, buttonsOf(sent[1])[0]?.id as string, "Guardar");
+    await tap(client, null, fx.saveIdFrom(buttonsOf(sent[1])), "Guardar");
     expect(textOf(sent[2])).toContain("✅ Compra de USDT guardada");
     expect(textOf(sent[2])).toContain("💳 Binance: *30,88 USDT*");
   });

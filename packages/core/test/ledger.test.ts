@@ -152,7 +152,7 @@ describe("ledger de gastos", () => {
     ]);
   });
 
-  it("cola de borradores: uno nuevo se suma, una corrección reemplaza, tope de 5 y vencen a los 10 minutos", async () => {
+  it("cola de borradores: uno nuevo se suma, una corrección reemplaza; los que se guardan solos no se pierden por el tope", async () => {
     const draft = (amount: string, replaces: string | null = null) =>
       withTenant(t.db, tenantId, (tx) =>
         createExpenseDraft(
@@ -195,9 +195,11 @@ describe("ledger de gastos", () => {
     const pending = await withTenant(t.db, tenantId, (tx) =>
       tx.select().from(schema.pendingAction).where(eq(schema.pendingAction.status, "pending")),
     );
-    expect(pending).toHaveLength(MAX_PENDING_PER_PHONE);
-    expect(await expirePendingActions(t.db, new Date(now.getTime() + 11 * 60_000))).toBe(
-      MAX_PENDING_PER_PHONE,
-    );
+    // Seis gastos seguidos: el tope de 5 ya no descarta el primero, que se guarda solo (0022).
+    expect(pending).toHaveLength(MAX_PENDING_PER_PHONE + 1);
+    // Viven 15 minutos (0022) y los de gasto se guardan solos: la limpieza no los vence.
+    expect(pending.every((p) => p.autoSave)).toBe(true);
+    expect(await expirePendingActions(t.db, new Date(now.getTime() + 11 * 60_000))).toBe(0);
+    expect(await expirePendingActions(t.db, new Date(now.getTime() + 16 * 60_000))).toBe(0);
   });
 });

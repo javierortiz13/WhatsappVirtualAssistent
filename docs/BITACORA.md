@@ -1166,3 +1166,32 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - RLS en las 7 tablas globales: baja prioridad, porque `anon` y `authenticated` no tienen acceso al schema `app`.
 
 **CI en rojo desde antes (arreglado el mismo día):** el paso de tests fallaba desde hace varios commits. El Postgres del servicio de CI llega vacío y nadie corría las migraciones, así que `identity-pg.test.ts` no encontraba `app.unknown_sender_hit`. El CI ahora corre `pnpm db:migrate` antes de los tests. Probado en local con una base vacía: migra de 0001 a 0021 y pasan 447 tests (6 más que sin Postgres real).
+
+### S3 · 13/10/2026 · Los borradores se guardan solos
+
+**Pedido (Javier):** "Siempre se me olvida darle a Guardar y gasto los mensajes." Que el gasto quede guardado sin tocar nada, que se pueda corregir o cancelar, y que Rocco reaccione con ✅ en vez de mandar "Guardado". Ahorra el toque y la respuesta: dos mensajes de Meta por registro.
+
+**Hecho (migración 0022):**
+- Las tarjetas de gasto, varios gastos, venta del día, ingreso, transferencia y cambio salen sin "Guardar". Dicen "Gasto anotado" en vez de "por confirmar" y llevan el pie "Si está bien, no hagas nada: se guarda en 15 min". Quedan Corregir y Cancelar (transferencia y cambio solo tienen Cancelar).
+- Los borradores viven 15 minutos (antes 10). El worker tiene un job nuevo, `auto-save-drafts`, que corre cada minuto: busca negocios con borradores vencidos (`app.due_draft_tenant_ids`, SECURITY DEFINER) y, por negocio, guarda los que pueden guardarse.
+- Al guardar, Rocco reacciona ✅ sobre el mensaje del usuario (la reacción es gratis). No manda "Guardado" ni el total del día. Si el gasto pasa un presupuesto o lo deja del 80 % para arriba, el dueño recibe además esa línea de aviso.
+- No se guardan solos, y vencen como antes:
+  - lo que tocó Corregir y nunca dijo qué cambiar;
+  - lo que espera una decisión: la tasa de los Bs (USDT o BCV), un desglose que no cuadra, o un día con venta ya registrada (Reemplazar/Agregar);
+  - borrar, corregir lo ya guardado y renovar el plan;
+  - los datos de un pago móvil por hacer, que conservan su "Guardar" porque el pago todavía no pasó;
+  - los borradores viejos de antes del cambio (`auto_save = false`).
+- Tocar Corregir le da 15 minutos más al borrador. Elegir la tasa o el total, también.
+- El tope de 5 borradores por teléfono ya no descarta los que se guardan solos: anotar seis gastos seguidos no pierde el primero.
+- El toque y el barrido no chocan:
+  - el toque bloquea la fila (`FOR UPDATE`) y el barrido salta las bloqueadas (`SKIP LOCKED`);
+  - si el barrido ganó, Corregir o Cancelar responden "Ese ya quedó guardado ✅", con cómo cambiarlo ("corrige el último" o "borra el último");
+  - cada borrador va en su propio punto de guardado: si uno falla, vence sin arrastrar a los demás.
+- Cada borrador guarda el `wa_message_id` del mensaje que lo originó y el número de Meta que lo recibió, para reaccionar desde el worker.
+- La limpieza de cada 5 minutos ya no vence los que se guardan solos.
+- Landing, login y la guía de inicio (PDF y PPTX) muestran el flujo nuevo.
+
+**Verificado:**
+- Tests de punta a punta del autoguardado: tarjeta sin Guardar; nada antes de los 15 minutos; guardado con solo la reacción; no se guarda dos veces; toque tardío; Cancelar; Corregir sin cambio; aviso de presupuesto; borrador viejo que vence.
+- El barrido completo corre contra Postgres real con postgres-js.
+- 445 tests en verde (452 con Postgres real).

@@ -193,3 +193,13 @@ export const twoMessages = envelope({
     },
   ],
 });
+
+/**
+ * El toque de "Guardar" de una tarjeta. Las de crear ya no lo muestran (0022: se guardan solas a
+ * los 15 minutos), pero el id sigue valiendo, como en las tarjetas viejas del chat.
+ */
+export function saveIdFrom(buttons: { id: string }[]): string {
+  const ref = buttons.find((b) => /^(confirm|fix|cancel):/.test(b.id));
+  if (!ref) throw new Error(`sin borrador: ${JSON.stringify(buttons)}`);
+  return `confirm:${ref.id.slice(ref.id.indexOf(":") + 1)}`;
+}

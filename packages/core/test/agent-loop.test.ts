@@ -132,13 +132,16 @@ describe("agent loop", () => {
     expect(out.body).toContain("Bs 12.870,00");
     expect(out.body).toContain("Champú: *$15,00*");
     expect(out.body).toContain("Categoría: Insumos de lavado");
-    expect(out.buttons.map((b) => b.title)).toEqual(["Guardar", "Corregir", "Cancelar"]);
+    // Se guarda solo a los 15 minutos (0022): sin Guardar, con el pie que lo explica.
+    expect(out.buttons.map((b) => b.title)).toEqual(["Corregir", "Cancelar"]);
+    expect(out.footer).toContain("15 min");
     const pending = await withTenant(t.db, tenantId, (tx) =>
       tx.select().from(schema.pendingAction).where(eq(schema.pendingAction.phoneId, phoneId)),
     );
     expect(pending).toHaveLength(1);
     expect(pending[0]?.kind).toBe("create_expense");
-    expect(out.buttons[0]?.id).toBe(`confirm:${pending[0]?.id}`);
+    expect(out.buttons[0]?.id).toBe(`fix:${pending[0]?.id}`);
+    expect(pending[0]?.autoSave).toBe(true);
     // Costo: 1000 tokens de entrada a 2 USD/M + 50 de salida a 10 USD/M.
     expect(res.tokensIn).toBe(1000);
     expect(res.tokensOut).toBe(50);
@@ -394,7 +397,7 @@ describe("agent loop", () => {
     await run(first.client, "[foto de factura]");
     const second = fakeLlm([call("draft_expense", expense({ amount: "5", description: "Arepa" }))]);
     const res = await run(second.client, "Registrar compra de arepa 5$");
-    expect(textOf(second.requests[0], 0)).toContain("Borradores SIN GUARDAR esperando");
+    expect(textOf(second.requests[0], 0)).toContain("Borradores SIN GUARDAR todavía");
     const body = (res.outbound[0] as { body: string }).body;
     expect(body).not.toContain("Descarté");
     expect(body).toContain("Tienes 1 borrador más sin guardar arriba.");

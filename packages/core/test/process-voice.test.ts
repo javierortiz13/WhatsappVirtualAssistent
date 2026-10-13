@@ -161,7 +161,7 @@ describe("notas de voz", () => {
     // La transcripción sale una sola vez, dentro del borrador ("Entendí: …"), no también arriba.
     expect(body).toContain('Entendí: _"anota ahí veinte dólares de la comida de los muchachos"_');
     expect(body).not.toContain("🎤");
-    expect(body).toContain("Gasto por confirmar");
+    expect(body).toContain("Gasto anotado");
     expect(body).toContain("*$20,00*");
     // La transcripción queda como cuerpo del mensaje entrante; el audio no se guarda.
     const rows = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.message));

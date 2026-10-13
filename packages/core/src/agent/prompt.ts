@@ -116,7 +116,7 @@ export function userTurn(
     );
   } else if (waiting.length) {
     lines.push(
-      `Borradores SIN GUARDAR esperando que el usuario toque Guardar (el más reciente primero): ${JSON.stringify(waiting.map(draftSummary))}. Si el mensaje registra algo NUEVO, usa la herramienta que corresponda con corrects_draft=false: los borradores que esperan no se tocan. Si el mensaje corrige el más reciente ("no, eran 50", "era en bolívares", "es de ayer"), llama su herramienta con TODOS los campos, tomando del borrador los que no cambian, y corrects_draft=true; no uses amend_last_movement para esto.`,
+      `Borradores SIN GUARDAR todavía (se guardan solos a los 15 minutos si el usuario no los corrige ni los cancela; el más reciente primero): ${JSON.stringify(waiting.map(draftSummary))}. Si el mensaje registra algo NUEVO, usa la herramienta que corresponda con corrects_draft=false: los borradores que esperan no se tocan. Si el mensaje corrige el más reciente ("no, eran 50", "era en bolívares", "es de ayer"), llama su herramienta con TODOS los campos, tomando del borrador los que no cambian, y corrects_draft=true; no uses amend_last_movement para esto.`,
     );
   }
   lines.push(`Mensaje del usuario: ${JSON.stringify(text)}`);

@@ -247,12 +247,12 @@ describe("corregir y borrar el último movimiento", () => {
   it("'no, eran 20' corrige el monto del último gasto guardado, con auditoría de antes y después", async () => {
     const { sent, client } = fakeMeta();
     await send(client, "gasté 15$ en champú");
-    await tap(client, buttonsOf(sent[0])[0]?.id as string, "Guardar");
+    await tap(client, fx.saveIdFrom(buttonsOf(sent[0])), "Guardar");
     expect(textOf(sent[1])).toContain("✅ Guardado");
     await send(client, "no, eran 20");
     expect(textOf(sent[2])).toBe("Cambio el último gasto:\nChampú · $15,00 → *$20,00*");
     expect(buttonsOf(sent[2]).map((b) => b.title)).toEqual(["Guardar", "Cancelar"]);
-    await tap(client, buttonsOf(sent[2])[0]?.id as string, "Guardar");
+    await tap(client, fx.saveIdFrom(buttonsOf(sent[2])), "Guardar");
     expect(textOf(sent[3])).toBe("✅ Corregido. Gastos de ese día: *$20,00* (1 registro).");
     const [m] = await live();
     expect(m).toMatchObject({ amount: "20.00", amountVes: "17160.00", rateSource: "bcv" });
@@ -267,7 +267,7 @@ describe("corregir y borrar el último movimiento", () => {
     await send(client, "es mantenimiento y fue ayer");
     expect(textOf(sent[0])).toContain("Categoría: Insumos de lavado → *Mantenimiento de equipos*");
     expect(textOf(sent[0])).toContain("Fecha: mar 29/09 → *lun 28/09*");
-    await tap(client, buttonsOf(sent[0])[0]?.id as string, "Guardar");
+    await tap(client, fx.saveIdFrom(buttonsOf(sent[0])), "Guardar");
     let [m] = await live();
     expect(m).toMatchObject({
       businessDate: "2026-09-28",
@@ -284,7 +284,7 @@ describe("corregir y borrar el último movimiento", () => {
     await send(client, "a tasa 850");
     const fix = sent.at(-1);
     expect(textOf(fix)).toContain("$20,00 → *$20,00* (tasa manual 850,00)");
-    await tap(client, buttonsOf(fix)[0]?.id as string, "Guardar");
+    await tap(client, fx.saveIdFrom(buttonsOf(fix)), "Guardar");
     [m] = await live();
     expect(m).toMatchObject({
       rateSource: "manual",
@@ -299,11 +299,15 @@ describe("corregir y borrar el último movimiento", () => {
     await send(client, "gasté 30$ en cera a tasa 900");
     expect(textOf(sent[0])).toContain("Cera: *$30,00*\nBs 27.000,00 · tasa manual 900,00");
     // Corregir el borrador: el modelo vuelve a llamar draft_expense con la tasa.
-    await tap(client, buttonsOf(sent[0])[1]?.id as string, "Corregir");
+    await tap(
+      client,
+      buttonsOf(sent[0]).find((b) => b.title === "Corregir")?.id as string,
+      "Corregir",
+    );
     expect(textOf(sent[1])).toContain("Dime qué cambio");
     await send(client, "eran 35");
     expect(textOf(sent[2])).toContain("Cera: *$35,00*\nBs 31.500,00 · tasa manual 900,00");
-    await tap(client, buttonsOf(sent[2])[0]?.id as string, "Guardar");
+    await tap(client, fx.saveIdFrom(buttonsOf(sent[2])), "Guardar");
     const rows = await live();
     expect(rows[1]).toMatchObject({ amount: "35.00", rateSource: "manual", rateId: null });
 
@@ -320,7 +324,7 @@ describe("corregir y borrar el último movimiento", () => {
   it("borrar varios: por nombre, los del último Guardar y los N últimos, con confirmación", async () => {
     const { sent, client } = fakeMeta();
     await send(client, "gasté 7$ en arepa y 7,5$ en pádel");
-    await tap(client, buttonsOf(sent[0])[0]?.id as string, "Guardar");
+    await tap(client, fx.saveIdFrom(buttonsOf(sent[0])), "Guardar");
     expect(textOf(sent[1])).toContain("Guardados 2 gastos");
 
     await send(client, "borra el de la arepa");
@@ -346,7 +350,7 @@ describe("corregir y borrar el último movimiento", () => {
 
     // Guardados con dos Guardar distintos: "los 2 últimos" los toma a los dos.
     await send(client, "gasté 15$ en champú");
-    await tap(client, buttonsOf(sent[7])[0]?.id as string, "Guardar");
+    await tap(client, fx.saveIdFrom(buttonsOf(sent[7])), "Guardar");
     await send(client, "borra los 2 últimos");
     expect(textOf(sent[9])).toBe(
       "Elimino 2 gastos:\n1. Champú · $15,00 · hoy, mar 29/09\n2. Champú · $20,00 · ayer, lun 28/09",
@@ -365,7 +369,7 @@ describe("corregir y borrar el último movimiento", () => {
     expect(textOf(sent[0])).toContain(
       "Pago de nómina: *$225,60*\nBs 220.375,10 · tasa euro 976,84",
     );
-    await tap(client, buttonsOf(sent[0])[0]?.id as string, "Guardar");
+    await tap(client, fx.saveIdFrom(buttonsOf(sent[0])), "Guardar");
     const saved = (await live()).find((m) => m.description === "Pago de nómina");
     expect(saved).toMatchObject({
       rateSource: "bcv_eur",
@@ -377,10 +381,10 @@ describe("corregir y borrar el último movimiento", () => {
 
     // Un gasto guardado a tasa BCV se corrige a tasa euro.
     await send(client, "gasté 15$ en champú");
-    await tap(client, buttonsOf(sent[2])[0]?.id as string, "Guardar");
+    await tap(client, fx.saveIdFrom(buttonsOf(sent[2])), "Guardar");
     await send(client, "corrige a la tasa euro");
     expect(textOf(sent[4])).toContain("(tasa euro 976,84)");
-    await tap(client, buttonsOf(sent[4])[0]?.id as string, "Guardar");
+    await tap(client, fx.saveIdFrom(buttonsOf(sent[4])), "Guardar");
     const fixed = (await live()).filter((m) => m.description === "Champú").pop();
     expect(fixed).toMatchObject({ rateSource: "bcv_eur", amountVes: "14652.60" });
 
@@ -393,7 +397,7 @@ describe("corregir y borrar el último movimiento", () => {
     expect(textOf(sent[7])).toContain(
       "1. Clases de pilates (15,00 € a tasa euro 976,84): *Bs 14.652,60* · Otros\n2. Gatorade: *$3,00* · Otros\n3. Taxi: *Bs 1.900,00* · Otros",
     );
-    await tap(client, buttonsOf(sent[7])[0]?.id as string, "Guardar");
+    await tap(client, fx.saveIdFrom(buttonsOf(sent[7])), "Guardar");
     const rows = await live();
     expect(rows.find((m) => m.description?.startsWith("Clases de pilates"))).toMatchObject({
       description: "Clases de pilates (15,00 € a tasa euro 976,84)",

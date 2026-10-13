@@ -14,6 +14,8 @@ export const QUEUES = {
   fetchBcvRate: "fetch-bcv-rate",
   /** Expiración de borradores y limpieza (día 3 en adelante). */
   housekeeping: "housekeeping",
+  /** Autoguardado de borradores vencidos, cada minuto (0022). */
+  autoSaveDrafts: "auto-save-drafts",
 } as const;
 
 export const PGBOSS_SCHEMA = "pgboss";
@@ -81,6 +83,14 @@ export async function ensureQueues(boss: PgBoss): Promise<void> {
       retryLimit: 1,
       retryDelay: 60,
       expireInSeconds: 300,
+    },
+    {
+      // Sin reintentos: la vuelta del minuto siguiente toma lo que quedó.
+      name: QUEUES.autoSaveDrafts,
+      policy: "singleton",
+      retryLimit: 0,
+      retryDelay: 60,
+      expireInSeconds: 120,
     },
   ];
   for (const { name, ...options } of defs) {

@@ -202,6 +202,7 @@ describe("cuentas por WhatsApp", () => {
 
   const button = (s: Sent | undefined, title: string) => {
     const b = buttonsOf(s).find((x) => x.title === title);
+    if (!b && title === "Guardar") return fx.saveIdFrom(buttonsOf(s));
     if (!b) throw new Error(`sin botón ${title}: ${JSON.stringify(buttonsOf(s))}`);
     return b.id;
   };
@@ -280,7 +281,7 @@ describe("cuentas por WhatsApp", () => {
     const { sent, client } = fakeMeta();
     await send(client, "saqué 5.000 bs de banesco al efectivo, comisión 30");
     const draft = textOf(last(sent));
-    expect(draft).toContain("*Transferencia por confirmar*");
+    expect(draft).toContain("*Transferencia anotada*");
     expect(draft).toContain("Banesco → Efectivo: *Bs 5.000,00*");
     expect(draft).toContain("Comisión: Bs 30,00 (queda como gasto de Banesco)");
     await tap(client, button(last(sent), "Guardar"), "Guardar");
@@ -294,7 +295,7 @@ describe("cuentas por WhatsApp", () => {
     const { sent, client } = fakeMeta();
     await send(client, "compré 10 usdt con 9.800 bs");
     const draft = textOf(last(sent));
-    expect(draft).toContain("*Compra de USDT por confirmar*");
+    expect(draft).toContain("*Compra de USDT anotada*");
     expect(draft).toContain("Banesco → Binance: *Bs 9.800,00* → *10,00 USDT* (a 980,00)");
     await tap(client, button(last(sent), "Guardar"), "Guardar");
     const saved = textOf(last(sent));

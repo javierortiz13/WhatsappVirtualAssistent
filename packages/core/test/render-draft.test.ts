@@ -25,15 +25,16 @@ describe("borrador de gasto", () => {
     const m = es.expenseDraft(base);
     expect(m.type).toBe("buttons");
     expect(m.body).toBe(
-      "*Gasto por confirmar*\nChampú: *$15,00*\nBs 12.870,00 · tasa BCV 858,00\nCategoría: Insumos de lavado\nFecha: hoy, mar 29/09",
+      "*Gasto anotado*\nChampú: *$15,00*\nBs 12.870,00 · tasa BCV 858,00\nCategoría: Insumos de lavado\nFecha: hoy, mar 29/09",
     );
     if (m.type === "buttons") {
+      // Se guarda solo a los 15 minutos (0022): Corregir y Cancelar, y el pie lo explica.
       expect(m.buttons.map((b) => b.id)).toEqual([
-        `confirm:${base.pendingId}`,
         `fix:${base.pendingId}`,
         `cancel:${base.pendingId}`,
       ]);
       for (const b of m.buttons) expect(b.title.length).toBeLessThanOrEqual(LIMITS.buttonTitle);
+      expect(m.footer?.length).toBeLessThanOrEqual(60);
     }
   });
   it("bolívares inferidos, ayer, tasa de otro día, transcripción y borrador reemplazado", () => {
@@ -98,10 +99,10 @@ describe("borrador de varios gastos", () => {
       replacedPrevious: false,
     });
     expect(m.body).toBe(
-      "*2 gastos por confirmar*\n1. Arepa y malta: *$7,00* · Comida del personal\n2. Partida de pádel: *$7,50* · Otros\nTotal: *$14,50* · Bs 12.441,00 · tasa BCV 858,00\nFecha: hoy, mar 29/09",
+      "*2 gastos anotados*\n1. Arepa y malta: *$7,00* · Comida del personal\n2. Partida de pádel: *$7,50* · Otros\nTotal: *$14,50* · Bs 12.441,00 · tasa BCV 858,00\nFecha: hoy, mar 29/09",
     );
     if (m.type === "buttons")
-      expect(m.buttons.map((b) => b.title)).toEqual(["Guardar", "Corregir", "Cancelar"]);
+      expect(m.buttons.map((b) => b.title)).toEqual(["Corregir", "Cancelar"]);
   });
   it("días distintos van en cada renglón", () => {
     const m = es.expensesDraft({

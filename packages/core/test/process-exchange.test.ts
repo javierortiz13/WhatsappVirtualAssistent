@@ -167,6 +167,7 @@ describe("cambios USDT por WhatsApp", () => {
 
   const button = (s: Sent | undefined, title: string) => {
     const b = buttonsOf(s).find((x) => x.title === title);
+    if (!b && title === "Guardar") return fx.saveIdFrom(buttonsOf(s));
     if (!b) throw new Error(`sin botón ${title}: ${JSON.stringify(buttonsOf(s))}`);
     return b.id;
   };

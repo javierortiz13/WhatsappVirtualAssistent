@@ -172,15 +172,15 @@ function ChatMock() {
       <div className="chat-body">
         <p className="bubble me">gasté 15$ en champú</p>
         <div className="bubble bot">
-          <strong>Gasto por confirmar</strong>
+          <strong>Gasto anotado</strong>
           <span>
             Champú: <b>$15,00</b>
           </span>
           <span className="muted">Bs 12.998,40 · tasa BCV 866,56</span>
           <span className="muted">Categoría: Cuidado personal</span>
           <div className="bubble-btns">
-            <span className="bubble-btn">Guardar</span>
             <span className="bubble-btn">Corregir</span>
+            <span className="bubble-btn">Cancelar</span>
           </div>
         </div>
         <p className="bubble me">cómo va el mes?</p>

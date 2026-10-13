@@ -81,7 +81,18 @@ export const ExpenseDraft = z.object({
 });
 export type ExpenseDraft = z.infer<typeof ExpenseDraft>;
 
-export const DRAFT_TTL_MS = 10 * 60 * 1000;
+/** Vida de un borrador. Los de crear (gasto, venta, transferencia, cambio) se guardan solos al vencer (0022). */
+export const DRAFT_TTL_MS = 15 * 60 * 1000;
+
+/** Borradores que se guardan solos al vencer si nadie los corrigió ni los canceló (0022). */
+export const AUTO_SAVE_KINDS: readonly string[] = [
+  "create_expense",
+  "create_expenses",
+  "create_income_day_total",
+  "create_income_single",
+  "create_exchange",
+  "create_transfer",
+];
 
 export type DraftInput = {
   tenantId: string;
@@ -350,11 +361,14 @@ export async function insertDraft(
       kind: input.kind,
       payload: input.payload,
       expiresAt: new Date(now.getTime() + DRAFT_TTL_MS),
+      autoSave: AUTO_SAVE_KINDS.includes(input.kind),
     })
     .returning({ id: schema.pendingAction.id });
   if (!row) throw new Error("no se pudo crear el borrador");
   const queue = await pendingDrafts(tx, input.phoneId);
-  const overflow = queue.slice(MAX_PENDING_PER_PHONE).filter((d) => d.id !== row.id);
+  // Los que se guardan solos (0022) no se descartan por el tope: anotar seis gastos seguidos
+  // no puede perder el primero. El tope queda para lo que espera una decisión.
+  const overflow = queue.slice(MAX_PENDING_PER_PHONE).filter((d) => d.id !== row.id && !d.autoSave);
   if (overflow.length)
     await tx
       .update(schema.pendingAction)
@@ -368,8 +382,11 @@ export async function insertDraft(
   return { pendingId: row.id, replacedPrevious: replaced.length > 0 };
 }
 
-/** Borradores pendientes del teléfono, el más reciente primero. */
-/** Borradores en espera del teléfono. La intención de renovar el plan no es un borrador. */
+/**
+ * Borradores en espera del teléfono, el más reciente primero. La intención de renovar el plan no
+ * es un borrador. FOR UPDATE: el autoguardado (0022) no toma uno que este turno está corrigiendo,
+ * y si lo estaba guardando, el turno espera y ya no lo ve pendiente.
+ */
 export async function pendingDrafts(tx: Tx, phoneId: string) {
   return tx
     .select()
@@ -381,7 +398,8 @@ export async function pendingDrafts(tx: Tx, phoneId: string) {
         ne(schema.pendingAction.kind, "renew_plan"),
       ),
     )
-    .orderBy(desc(schema.pendingAction.createdAt), desc(schema.pendingAction.expiresAt));
+    .orderBy(desc(schema.pendingAction.createdAt), desc(schema.pendingAction.expiresAt))
+    .for("update");
 }
 
 // ---------------------------------------------------------------- ingresos (US-C1, C2, C3)
@@ -683,12 +701,19 @@ export async function createIncomeSingleDraft(
   return { pendingId, draft, replacedPrevious };
 }
 
-/** Job de limpieza: borradores vencidos pasan a `expired`. Corre entre tenants con el rol adecuado. */
+/** Job de limpieza: borradores vencidos que no se guardan solos pasan a `expired`. */
 export async function expirePendingActions(db: Queryable, now: Date): Promise<number> {
   const rows = await db
     .update(schema.pendingAction)
     .set({ status: "expired", resolvedAt: now })
-    .where(and(eq(schema.pendingAction.status, "pending"), lt(schema.pendingAction.expiresAt, now)))
+    .where(
+      and(
+        eq(schema.pendingAction.status, "pending"),
+        lt(schema.pendingAction.expiresAt, now),
+        // Los que se guardan solos los resuelve el autoguardado (0022), no la limpieza.
+        eq(schema.pendingAction.autoSave, false),
+      ),
+    )
     .returning({ id: schema.pendingAction.id });
   return rows.length;
 }

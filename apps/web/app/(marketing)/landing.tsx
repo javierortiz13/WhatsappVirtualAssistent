@@ -284,7 +284,7 @@ function scenes(waUrl: string | null): Scene[] {
       user: "gasté 15$ en champú",
       bot: (
         <>
-          <strong>Gasto por confirmar</strong>
+          <strong>Gasto anotado</strong>
           <br />
           Champú: <strong>$15,00</strong>
           <br />
@@ -292,23 +292,30 @@ function scenes(waUrl: string | null): Scene[] {
           <br />
           Categoría: Cuidado personal · hoy
           <div className="btns">
-            <span>Guardar</span>
             <span>Corregir</span>
             <span>Cancelar</span>
           </div>
         </>
       ),
       caption: {
-        title: "Nada se guarda sin tu OK.",
-        text: "Rocco te muestra el monto, la categoría y la tasa del día. Guardas, corriges o cancelas con un toque.",
+        title: "Revisa y sigue con lo tuyo.",
+        text: "Rocco te muestra el monto, la categoría y la tasa del día. Si está bien, no haces nada: a los 15 minutos se guarda solo y te deja un ✅ en tu mensaje.",
       },
     },
     {
-      user: "Guardar",
-      bot: <>✅ Guardado. Gastos de hoy: $15,00 (1 registro).</>,
+      user: "no, eran 25",
+      bot: (
+        <>
+          <strong>Gasto anotado</strong>
+          <br />
+          Champú: <strong>$25,00</strong>
+          <br />
+          Bs 21.664,00 · tasa BCV 866,56
+        </>
+      ),
       caption: {
-        title: "Y queda anotado, con fecha, tasa y cuenta.",
-        text: 'Si te equivocaste, le dices "no, eran 25" y Rocco lo arregla al toque.',
+        title: "¿Te equivocaste? Díselo como a un pana.",
+        text: 'Le dices "no, eran 25" y Rocco lo arregla al toque, antes o después de guardarlo. Queda con fecha, tasa y cuenta.',
       },
     },
     {
