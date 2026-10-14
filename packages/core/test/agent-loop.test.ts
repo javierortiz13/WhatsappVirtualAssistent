@@ -132,9 +132,8 @@ describe("agent loop", () => {
     expect(out.body).toContain("Bs 12.870,00");
     expect(out.body).toContain("Champú: *$15,00*");
     expect(out.body).toContain("Categoría: Insumos de lavado");
-    // Se guarda solo a los 15 minutos (0022): sin Guardar, con el pie que lo explica.
+    // El agente deja el borrador; el procesador lo guarda al terminar el turno (0023).
     expect(out.buttons.map((b) => b.title)).toEqual(["Corregir", "Cancelar"]);
-    expect(out.footer).toContain("15 min");
     const pending = await withTenant(t.db, tenantId, (tx) =>
       tx.select().from(schema.pendingAction).where(eq(schema.pendingAction.phoneId, phoneId)),
     );
@@ -397,7 +396,7 @@ describe("agent loop", () => {
     await run(first.client, "[foto de factura]");
     const second = fakeLlm([call("draft_expense", expense({ amount: "5", description: "Arepa" }))]);
     const res = await run(second.client, "Registrar compra de arepa 5$");
-    expect(textOf(second.requests[0], 0)).toContain("Borradores SIN GUARDAR todavía");
+    expect(textOf(second.requests[0], 0)).toContain("Registros de los últimos 15 minutos");
     const body = (res.outbound[0] as { body: string }).body;
     expect(body).not.toContain("Descarté");
     expect(body).toContain("Tienes 1 borrador más sin guardar arriba.");
@@ -441,7 +440,7 @@ describe("agent loop", () => {
     );
     const second = fakeLlm([call("draft_expense", expense({ amount: "18" }))]);
     const res = await run(second.client, "eran 18");
-    expect(textOf(second.requests[0], 0)).toContain("borrador SIN GUARDAR en corrección");
+    expect(textOf(second.requests[0], 0)).toContain("El usuario tocó Corregir en este registro");
     expect((res.outbound[0] as { body: string }).body).toContain("Descarté el borrador anterior");
     const pending = await withTenant(t.db, tenantId, (tx) =>
       tx.select().from(schema.pendingAction).where(eq(schema.pendingAction.status, "pending")),

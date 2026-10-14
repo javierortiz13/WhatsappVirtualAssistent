@@ -197,9 +197,11 @@ describe("ledger de gastos", () => {
     );
     // Seis gastos seguidos: el tope de 5 ya no descarta el primero, que se guarda solo (0022).
     expect(pending).toHaveLength(MAX_PENDING_PER_PHONE + 1);
-    // Viven 15 minutos (0022) y los de gasto se guardan solos: la limpieza no los vence.
+    // Viven 15 minutos; sin guardar (aquí no pasan por el procesador), vencen.
     expect(pending.every((p) => p.autoSave)).toBe(true);
     expect(await expirePendingActions(t.db, new Date(now.getTime() + 11 * 60_000))).toBe(0);
-    expect(await expirePendingActions(t.db, new Date(now.getTime() + 16 * 60_000))).toBe(0);
+    expect(await expirePendingActions(t.db, new Date(now.getTime() + 16 * 60_000))).toBe(
+      MAX_PENDING_PER_PHONE + 1,
+    );
   });
 });

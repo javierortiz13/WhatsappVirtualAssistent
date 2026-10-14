@@ -61,7 +61,9 @@ import {
   type BsRateMode,
   completeExchange,
   createExchangeLot,
+  deleteExchangeLot,
   ExchangeDraft,
+  ExchangeError,
   implausibleExchangeRate,
   type LotPart,
   lotBalance,
@@ -85,6 +87,7 @@ import {
   DRAFT_TTL_MS,
   dayTotals,
   deleteMovement,
+  deleteTransfer,
   EditLastDraft,
   ExpenseDraft,
   ExpensesDraft,
@@ -403,7 +406,7 @@ export async function processInbound(
     const trialCapped = trial?.reached ?? false;
     // Límite duro del plan pagado (0019): pasado el tope del mes, solo recargar o cambiar de plan.
     const cap = trialCapped ? null : await planCapStatus(tx, tenant, started);
-    const route = await routeMessage(tx, deps, msg, {
+    const ctx: RouteCtx = {
       suspended: resolved.tenantStatus === "suspended",
       deleted: tenant.deletedAt ? { purgeAfter: tenant.purgeAfter } : null,
       trialCapped,
@@ -422,21 +425,11 @@ export async function processInbound(
       inboundId: msg.waMessageId,
       ack,
       mediaFollows: (waitMs) => mediaFollows(tx, event.id, event.receivedAt, msg.sender, waitMs),
-    });
-
-    // Autoguardado (0022): los borradores que dejó este turno recuerdan el mensaje que los originó
-    // (la reacción ✅ va sobre él) y el número de Meta que lo recibió.
-    await tx
-      .update(schema.pendingAction)
-      .set({ sourceWaId: msg.waMessageId, waNumberId: msg.phoneNumberId })
-      .where(
-        and(
-          eq(schema.pendingAction.phoneId, resolved.phoneId),
-          eq(schema.pendingAction.status, "pending"),
-          eq(schema.pendingAction.autoSave, true),
-          isNull(schema.pendingAction.sourceWaId),
-        ),
-      );
+    };
+    const route = await routeMessage(tx, deps, msg, ctx);
+    // Guardado al instante (0023): lo que el turno dejó anotado se guarda ya, y lo que una
+    // corrección reemplazó se borra. Las tarjetas salen como "guardado" con Corregir y Deshacer.
+    route.outbound = await settleTurnDrafts(tx, ctx, route.outbound, now());
 
     // Aviso único al 80 % de los mensajes de la prueba, después de la respuesta (solo al dueño).
     if (
@@ -1702,8 +1695,6 @@ async function routeInteractive(
     case "choice": {
       // Un id de botón viene del cliente: si no es un UUID, no toca la base.
       if (!UUID_RE.test(parsed.pendingId)) return none([es.confirmationExpired()]);
-      // FOR UPDATE: el autoguardado (0022) salta la fila mientras se atiende el toque, y si la
-      // estaba guardando, el toque espera y la ve ya guardada.
       const [pending] = await tx
         .select()
         .from(schema.pendingAction)
@@ -1715,14 +1706,47 @@ async function routeInteractive(
         )
         .for("update");
       const nowTs = (deps.now ?? (() => new Date()))();
+      // Tarjeta ya guardada (0023): Deshacer la borra y Corregir la reabre, aun pasados los 15
+      // minutos; Guardar no la guarda otra vez.
+      if (pending?.savedIds?.length && pending.status !== "cancelled") {
+        if (parsed.kind === "cancel") {
+          const undone = await undoSaved(tx, pending, ctx, nowTs);
+          if (!undone) return none([es.undoBlocked(pending.kind)]);
+          await tx
+            .update(schema.pendingAction)
+            .set({ status: "cancelled", resolvedAt: nowTs, savedIds: null })
+            .where(eq(schema.pendingAction.id, pending.id));
+          return none([es.cancelled(ctx.inboundId)]);
+        }
+        if (parsed.kind === "fix") {
+          await tx
+            .update(schema.pendingAction)
+            .set({ payload: sql`${schema.pendingAction.payload} - 'fixing'` })
+            .where(
+              and(
+                eq(schema.pendingAction.phoneId, ctx.phoneId),
+                eq(schema.pendingAction.status, "pending"),
+              ),
+            );
+          await tx
+            .update(schema.pendingAction)
+            .set({
+              status: "pending",
+              resolvedAt: null,
+              payload: sql`${schema.pendingAction.payload} || '{"fixing": true}'::jsonb`,
+              expiresAt: new Date(nowTs.getTime() + DRAFT_TTL_MS),
+            })
+            .where(eq(schema.pendingAction.id, pending.id));
+          return none([es.promptFix()]);
+        }
+        return none([es.draftAlreadySaved()]);
+      }
+      if (pending?.autoSave && pending.status === "cancelled" && pending.kind !== "renew_plan")
+        return none([es.alreadyUndone()]);
+      // Lo que se guardó solo con el barrido de 0022 no tiene `saved_ids`.
       if (pending?.autoSave && pending.status === "confirmed")
         return none([es.draftAlreadySaved()]);
-      // Uno que se guarda solo sigue vivo hasta que el barrido lo guarde: Corregir o Cancelar
-      // en el minuto de gracia todavía valen.
-      if (
-        pending?.status !== "pending" ||
-        (!pending.autoSave && pending.expiresAt.getTime() < nowTs.getTime())
-      ) {
+      if (pending?.status !== "pending" || pending.expiresAt.getTime() < nowTs.getTime()) {
         return none([es.confirmationExpired()]);
       }
       if (parsed.kind === "cancel") {
@@ -1753,7 +1777,6 @@ async function routeInteractive(
               eq(schema.pendingAction.status, "pending"),
             ),
           );
-        // Corregir le da otros 15 minutos: el autoguardado no lo toma mientras se escribe el cambio.
         await tx
           .update(schema.pendingAction)
           .set({
@@ -2714,10 +2737,7 @@ function errMsg(err: unknown): string {
 type PendingRow = typeof schema.pendingAction.$inferSelect;
 
 /** ¿Se puede guardar sin preguntar nada? Una tasa por elegir, un desglose sin cuadrar o un día ya cerrado, no. */
-function readyToAutoSave(p: PendingRow): boolean {
-  const payload = p.payload as { fixing?: boolean };
-  // Tocó Corregir y no dijo qué: no se guarda algo que el usuario marcó como malo.
-  if (payload.fixing) return false;
+function readyToSave(p: PendingRow): boolean {
   if (p.kind === "create_expense") return !awaitsBsChoice([ExpenseDraft.parse(p.payload)]);
   if (p.kind === "create_expenses") return !awaitsBsChoice(ExpensesDraft.parse(p.payload).items);
   if (p.kind === "create_income_day_total") {
@@ -2727,69 +2747,131 @@ function readyToAutoSave(p: PendingRow): boolean {
   return true;
 }
 
-/**
- * Autoguardado (0022): un borrador vencido se guarda si nadie lo corrigió ni lo canceló y no
- * espera una decisión; si no, vence. Devuelve lo que hay que mandar: ✅ sobre el mensaje del
- * usuario (gratis, en vez del "Guardado") y, al dueño, el aviso del presupuesto si este gasto lo
- * pasó o lo dejó del 80 % para arriba. Corre dentro de `withTenant` con la fila ya bloqueada.
- */
-export async function settleDueDraft(tx: Tx, pending: PendingRow, now: Date): Promise<Outbound[]> {
-  const expire = async (): Promise<Outbound[]> => {
-    await tx
-      .update(schema.pendingAction)
-      .set({ status: "expired", resolvedAt: now })
-      .where(
-        and(eq(schema.pendingAction.id, pending.id), eq(schema.pendingAction.status, "pending")),
-      );
-    return [];
-  };
-  if (!pending.autoSave || !readyToAutoSave(pending)) return expire();
-  const [tenant] = await tx
-    .select()
-    .from(schema.tenant)
-    .where(eq(schema.tenant.id, pending.tenantId));
-  const [phone] = await tx
-    .select({ role: schema.phoneNumber.role })
-    .from(schema.phoneNumber)
-    .where(eq(schema.phoneNumber.id, pending.phoneId));
-  if (!tenant || tenant.deletedAt || !phone) return expire();
-  const ctx: RouteCtx = {
-    suspended: false,
-    tenantId: tenant.id,
-    tenantName: tenant.name,
-    phoneId: pending.phoneId,
-    role: phone.role === "owner" ? "owner" : "employee",
-    defaultCurrency: (tenant.defaultExpenseCurrency as "USD" | "VES" | null) ?? null,
-    vesThreshold: tenant.vesThreshold,
-    bsRateMode: (tenant.bsRateMode as BsRateMode | undefined) ?? "bcv",
-    today: businessDateOf(now),
-    inboundId: pending.sourceWaId ?? "",
-    ack: async () => {},
-  };
-  const result = await executePending(tx, pending, ctx, now);
-  const [after] = await tx
-    .select({ status: schema.pendingAction.status })
-    .from(schema.pendingAction)
-    .where(eq(schema.pendingAction.id, pending.id));
-  if (after?.status === "pending") {
-    // La venta del día se encontró con otra registrada mientras tanto: ahora sí hay que decidir.
-    await tx
-      .update(schema.pendingAction)
-      .set({ autoSave: false, expiresAt: new Date(now.getTime() + DRAFT_TTL_MS) })
-      .where(eq(schema.pendingAction.id, pending.id));
-    return result.outbound;
+/** Ids de lo que este teléfono escribió en esta transacción (`created_at` es `now()`), según el tipo. */
+async function writtenNow(tx: Tx, kind: string, phoneId: string): Promise<string[]> {
+  const mine = <T extends typeof schema.movement | typeof schema.accountTransfer>(t: T) =>
+    and(eq(t.createdByPhoneId, phoneId), isNull(t.deletedAt), sql`${t.createdAt} = now()`);
+  if (kind === "create_transfer") {
+    const t = schema.accountTransfer;
+    return (await tx.select({ id: t.id }).from(t).where(mine(t))).map((r) => r.id);
   }
-  if (after?.status !== "confirmed") return [];
-  // Sin el mensaje de origen no hay dónde reaccionar: va el "Guardado" de siempre.
-  if (!pending.sourceWaId) return result.outbound;
-  const out: Outbound[] = [es.autoSaved(pending.sourceWaId)];
-  const items =
-    pending.kind === "create_expense"
-      ? [ExpenseDraft.parse(pending.payload)]
-      : pending.kind === "create_expenses"
-        ? ExpensesDraft.parse(pending.payload).items
-        : [];
-  const alerts = await budgetLinesFor(tx, ctx, items, true);
-  if (alerts.length) out.push({ type: "text", body: alerts.join("\n") });
+  if (kind === "create_exchange") {
+    const l = schema.exchangeLot;
+    const rows = await tx
+      .select({ id: l.id })
+      .from(l)
+      .where(
+        and(
+          eq(l.createdByPhoneId, phoneId),
+          eq(l.source, "exchange"),
+          isNull(l.deletedAt),
+          sql`${l.createdAt} = now()`,
+        ),
+      );
+    return rows.map((r) => r.id);
+  }
+  const m = schema.movement;
+  return (await tx.select({ id: m.id }).from(m).where(mine(m))).map((r) => r.id);
+}
+
+/**
+ * Deshace lo que guardó una tarjeta (0023): borra sus movimientos (a la papelera), su
+ * transferencia o su cambio. Devuelve false si no se puede porque un gasto ya tomó Bs de ese
+ * cambio o transferencia: primero hay que borrar o mover ese gasto.
+ */
+async function undoSaved(tx: Tx, p: PendingRow, ctx: RouteCtx, now: Date): Promise<boolean> {
+  const actor = { phoneId: ctx.phoneId };
+  for (const id of p.savedIds ?? []) {
+    try {
+      if (p.kind === "create_transfer")
+        await deleteTransfer(tx, { tenantId: ctx.tenantId, transferId: id, actor, now });
+      else if (p.kind === "create_exchange")
+        await deleteExchangeLot(tx, { tenantId: ctx.tenantId, lotId: id, actor, now });
+      else await deleteMovement(tx, { tenantId: ctx.tenantId, movementId: id, actor, now });
+    } catch (err) {
+      if ((err instanceof TransferError || err instanceof ExchangeError) && err.code === "in_use")
+        return false;
+      // Ya no estaba (borrado desde el dashboard o con "bórralo"): no hay nada que deshacer.
+      if ((err instanceof TransferError || err instanceof ExchangeError) && err.code === "missing")
+        continue;
+      throw err;
+    }
+  }
+  return true;
+}
+
+const CARD_REF = /^(fix|cancel):/;
+
+/** El id del borrador de una tarjeta de crear: tiene Corregir o Cancelar y ninguna decisión. */
+function cardPendingId(o: Outbound): string | null {
+  if (o.type !== "buttons") return null;
+  if (o.buttons.some((b) => /^(confirm|choice):/.test(b.id))) return null;
+  const ref = o.buttons.find((b) => CARD_REF.test(b.id));
+  return ref ? ref.id.slice(ref.id.indexOf(":") + 1) : null;
+}
+
+/**
+ * Guardado al instante (0023), al final de cada turno:
+ * - lo que una corrección reemplazó (cancelado con `saved_ids`) se borra;
+ * - cada borrador de crear que no espera una decisión se guarda ya, y queda abierto 15 minutos
+ *   para corregirlo o deshacerlo; su tarjeta pasa a "guardado" con los totales del día.
+ */
+async function settleTurnDrafts(
+  tx: Tx,
+  ctx: RouteCtx,
+  outbound: Outbound[],
+  now: Date,
+): Promise<Outbound[]> {
+  const pa = schema.pendingAction;
+  const replaced = await tx
+    .select()
+    .from(pa)
+    .where(
+      and(eq(pa.phoneId, ctx.phoneId), eq(pa.status, "cancelled"), sql`${pa.savedIds} is not null`),
+    );
+  for (const r of replaced) {
+    await undoSaved(tx, r, ctx, now);
+    await tx.update(pa).set({ savedIds: null }).where(eq(pa.id, r.id));
+  }
+  const fresh = await tx
+    .select()
+    .from(pa)
+    .where(
+      and(
+        eq(pa.phoneId, ctx.phoneId),
+        eq(pa.status, "pending"),
+        eq(pa.autoSave, true),
+        isNull(pa.savedIds),
+      ),
+    )
+    .orderBy(pa.createdAt);
+  let out = outbound;
+  for (const p of fresh) {
+    // Solo el borrador cuya tarjeta sale en este turno: "Guardar mi parte" de una cuenta dividida
+    // o lo que espera una decisión siguen esperando su botón.
+    const card = out.findIndex((o) => cardPendingId(o) === p.id);
+    if (card < 0 || !readyToSave(p)) continue;
+    const before = new Set(await writtenNow(tx, p.kind, ctx.phoneId));
+    const result = await executePending(tx, p, ctx, now);
+    const [after] = await tx.select({ status: pa.status }).from(pa).where(eq(pa.id, p.id));
+    if (after?.status !== "confirmed") {
+      // No se guardó (la venta del día se encontró con otra, o una cuenta archivada): va lo que
+      // dijo el guardado en lugar de la tarjeta.
+      out = [...out.slice(0, card), ...result.outbound, ...out.slice(card + 1)];
+      continue;
+    }
+    const savedIds = (await writtenNow(tx, p.kind, ctx.phoneId)).filter((id) => !before.has(id));
+    await tx
+      .update(pa)
+      .set({ status: "pending", resolvedAt: null, savedIds })
+      .where(eq(pa.id, p.id));
+    const saved = result.outbound[0];
+    if (saved)
+      out = [
+        ...out.slice(0, card),
+        es.savedCard(out[card] as Outbound, saved, p.id, p.kind),
+        ...out.slice(card + 1),
+      ];
+  }
   return out;
 }

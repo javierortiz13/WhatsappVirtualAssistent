@@ -386,6 +386,8 @@ export const pendingAction = app.table(
     /** 0022: wa_message_id del mensaje que lo originó (la reacción ✅) y número de Meta que lo recibió. */
     sourceWaId: text("source_wa_id"),
     waNumberId: text("wa_number_id"),
+    /** 0023: lo que la tarjeta ya guardó (movimientos, la transferencia o el cambio, según el kind). */
+    savedIds: uuid("saved_ids").array(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     ...timestamps,
   },

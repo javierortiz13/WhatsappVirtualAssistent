@@ -28,13 +28,12 @@ describe("borrador de gasto", () => {
       "*Gasto anotado*\nChampú: *$15,00*\nBs 12.870,00 · tasa BCV 858,00\nCategoría: Insumos de lavado\nFecha: hoy, mar 29/09",
     );
     if (m.type === "buttons") {
-      // Se guarda solo a los 15 minutos (0022): Corregir y Cancelar, y el pie lo explica.
+      // Se guarda al instante (0023): la tarjeta sale con Corregir y Cancelar.
       expect(m.buttons.map((b) => b.id)).toEqual([
         `fix:${base.pendingId}`,
         `cancel:${base.pendingId}`,
       ]);
       for (const b of m.buttons) expect(b.title.length).toBeLessThanOrEqual(LIMITS.buttonTitle);
-      expect(m.footer?.length).toBeLessThanOrEqual(60);
     }
   });
   it("bolívares inferidos, ayer, tasa de otro día, transcripción y borrador reemplazado", () => {

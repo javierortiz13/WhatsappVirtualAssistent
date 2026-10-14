@@ -241,7 +241,7 @@ describe("renovar el plan por WhatsApp", () => {
   it("con la intención abierta, un gasto sigue siendo gasto y 'ref 123456' reporta sin LLM", async () => {
     const { sent, client } = fakeMeta();
     await send(client, "gasté 1500 en harina");
-    expect(textOf(sent[0])).toContain("Gasto anotado");
+    expect(textOf(sent[0])).toContain("Gasto guardado");
     llmCalls.length = 0;
     await send(client, "ref 123456");
     expect(llmCalls).toEqual([]);

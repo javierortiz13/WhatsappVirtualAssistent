@@ -184,18 +184,18 @@ describe("ventas por WhatsApp", () => {
       tx.select().from(schema.movement).orderBy(schema.movement.createdAt),
     );
 
-  it("total con desglose que cuadra → Guardar crea tres ingresos y responde ventas y gastos del día", async () => {
+  it("total con desglose que cuadra: crea tres ingresos al instante y responde ventas y gastos del día", async () => {
     const { sent, client } = fakeMeta();
     await send(client, "hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto");
     const draft = sent[0];
-    expect(textOf(draft)).toContain("*Venta del día anotada*");
+    expect(textOf(draft)).toContain("*Venta del día guardada*");
     expect(textOf(draft)).toContain("Fecha: hoy, mar 29/09");
     expect(textOf(draft)).toContain("Efectivo USD: *$200,00*");
     expect(textOf(draft)).toContain("Pago Móvil: *$100,00*");
     expect(textOf(draft)).toContain("Total: *$350,00* · Bs 300.300,00 · tasa BCV 858,00");
-    expect(buttonsOf(draft).map((b) => b.title)).toEqual(["Corregir", "Cancelar"]);
-    await tap(client, fx.saveIdFrom(buttonsOf(draft)), "Guardar");
-    expect(textOf(sent[1])).toBe("✅ Venta guardada. Hoy: vendiste *$350,00*, gastaste *$0,00*.");
+    // Guardada al instante (0023), con las ventas y gastos del día en la misma tarjeta.
+    expect(buttonsOf(draft).map((b) => b.title)).toEqual(["Corregir", "Deshacer"]);
+    expect(textOf(draft)).toContain("Hoy: vendiste *$350,00*, gastaste *$0,00*.");
     const rows = await movements();
     expect(rows).toHaveLength(3);
     expect(rows.every((m) => m.type === "income" && m.origin === "day_total")).toBe(true);
@@ -237,31 +237,28 @@ describe("ventas por WhatsApp", () => {
     expect(textOf(sent[2])).toContain("Hoy: vendiste *$750,00*");
   });
 
-  it("ingreso suelto: Guardar crea un ingreso 'single' con método y descripción", async () => {
+  it("ingreso suelto: crea un ingreso 'single' con método y descripción", async () => {
     const { sent, client } = fakeMeta();
     await send(client, "me pagaron 30$ por zelle del carro del abogado");
-    expect(textOf(sent[0])).toContain("*Ingreso anotado*");
+    expect(textOf(sent[0])).toContain("*Ingreso guardado*");
     expect(textOf(sent[0])).toContain(
       "Carro del abogado: *$30,00* por Zelle\nBs 25.740,00 · tasa BCV 858,00",
     );
-    await tap(client, fx.saveIdFrom(buttonsOf(sent[0])), "Guardar");
-    expect(textOf(sent[1])).toContain("vendiste *$780,00*");
+    expect(textOf(sent[0])).toContain("vendiste *$780,00*");
     const single = (await movements()).find((m) => m.origin === "single" && m.type === "income");
     expect(single).toMatchObject({ paymentMethod: "zelle", description: "Carro del abogado" });
   });
 
-  it("dos borradores del mismo día: el segundo Guardar ya no suma, pregunta Reemplazar o Agregar", async () => {
+  it("dos ventas del mismo día: la segunda ya no suma, pregunta Reemplazar o Agregar", async () => {
     const { sent, client } = fakeMeta();
-    // Los dos se arman sin venta registrada ese día (cola de borradores).
+    // La primera se guarda al instante; la segunda la encuentra y pregunta.
     await send(client, "el sábado vendí 120$");
+    expect(textOf(sent[0])).toContain("✅ *Venta del día guardada*");
     await send(client, "el sábado vendí 120$");
-    await tap(client, fx.saveIdFrom(buttonsOf(sent[0])), "Guardar");
-    expect(textOf(sent[2])).toContain("✅ Venta guardada.");
-    await tap(client, fx.saveIdFrom(buttonsOf(sent[1])), "Guardar");
-    expect(textOf(sent[3])).toContain(
+    expect(textOf(sent[1])).toContain(
       "Ya tienes una venta del día registrada ese día por *$120,00*",
     );
-    expect(buttonsOf(sent[3]).map((b) => b.title)).toEqual(["Reemplazar", "Agregar", "Cancelar"]);
+    expect(buttonsOf(sent[1]).map((b) => b.title)).toEqual(["Reemplazar", "Agregar", "Cancelar"]);
     const sat = (await movements()).filter((m) => m.businessDate === "2026-09-26" && !m.deletedAt);
     expect(sat).toHaveLength(1);
   });

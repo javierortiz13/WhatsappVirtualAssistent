@@ -227,7 +227,6 @@ describe("cuentas por WhatsApp", () => {
     const { sent, client } = fakeMeta();
     await send(client, "gasté 500 bs en pan");
     expect(textOf(last(sent))).toContain("Cuenta: Banesco");
-    await tap(client, button(last(sent), "Guardar"), "Guardar");
     expect(textOf(last(sent))).toContain("💳 Banesco: *Bs 9.500,00*");
     const [mv] = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));
     expect(mv?.accountId).not.toBeNull();
@@ -259,7 +258,6 @@ describe("cuentas por WhatsApp", () => {
     const { sent, client } = fakeMeta();
     await send(client, "cambié 100 usdt a 970");
     expect(textOf(last(sent))).toContain("De Binance → a Banesco");
-    await tap(client, button(last(sent), "Guardar"), "Guardar");
     const saved = textOf(last(sent));
     expect(saved).toContain("💳 Banesco: *Bs 107.000,00*");
     expect(saved).toContain("💳 Binance: *100,00 USDT*");
@@ -281,12 +279,11 @@ describe("cuentas por WhatsApp", () => {
     const { sent, client } = fakeMeta();
     await send(client, "saqué 5.000 bs de banesco al efectivo, comisión 30");
     const draft = textOf(last(sent));
-    expect(draft).toContain("*Transferencia anotada*");
+    expect(draft).toContain("*Transferencia guardada*");
     expect(draft).toContain("Banesco → Efectivo: *Bs 5.000,00*");
     expect(draft).toContain("Comisión: Bs 30,00 (queda como gasto de Banesco)");
-    await tap(client, button(last(sent), "Guardar"), "Guardar");
     const saved = textOf(last(sent));
-    expect(saved).toContain("✅ Transferencia guardada");
+    expect(saved).toContain("✅ *Transferencia guardada*");
     expect(saved).toContain("💳 Banesco: *Bs 101.970,00*");
     expect(saved).toContain("💳 Efectivo: *Bs 4.500,00*");
   });
@@ -295,9 +292,8 @@ describe("cuentas por WhatsApp", () => {
     const { sent, client } = fakeMeta();
     await send(client, "compré 10 usdt con 9.800 bs");
     const draft = textOf(last(sent));
-    expect(draft).toContain("*Compra de USDT anotada*");
+    expect(draft).toContain("*Compra de USDT guardada*");
     expect(draft).toContain("Banesco → Binance: *Bs 9.800,00* → *10,00 USDT* (a 980,00)");
-    await tap(client, button(last(sent), "Guardar"), "Guardar");
     const saved = textOf(last(sent));
     expect(saved).toContain("💳 Banesco: *Bs 92.170,00*");
     expect(saved).toContain("💳 Binance: *110,00 USDT*");

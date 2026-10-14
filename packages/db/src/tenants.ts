@@ -14,15 +14,3 @@ export async function everyTenantId(db: Queryable): Promise<string[]> {
     (r) => r.id,
   );
 }
-
-/**
- * Negocios con borradores vencidos (`app.due_draft_tenant_ids`, 0022). La fecha va como ISO:
- * postgres-js no serializa un `Date` en SQL crudo.
- */
-export async function dueDraftTenantIds(db: Queryable, at: Date): Promise<string[]> {
-  return rows<{ id: string }>(
-    await db.execute(
-      sql`select * from app.due_draft_tenant_ids(${at.toISOString()}::timestamptz) as id`,
-    ),
-  ).map((r) => r.id);
-}

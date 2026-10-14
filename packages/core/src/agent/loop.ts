@@ -220,7 +220,8 @@ async function withQueueNote(tx: Tx, phoneId: string, outbound: Outbound[]): Pro
   const last = outbound[outbound.length - 1];
   if (last?.type !== "buttons" || !last.buttons.some((b) => /^(confirm|fix|cancel):/.test(b.id)))
     return outbound;
-  const others = (await pendingDrafts(tx, phoneId)).length - 1;
+  // Solo lo que espera una decisión: lo ya guardado (0023) no está "sin guardar".
+  const others = (await pendingDrafts(tx, phoneId)).filter((d) => !d.savedIds).length - 1;
   if (others < 1) return outbound;
   const note =
     others === 1

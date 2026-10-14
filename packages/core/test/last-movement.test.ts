@@ -247,8 +247,10 @@ describe("corregir y borrar el último movimiento", () => {
   it("'no, eran 20' corrige el monto del último gasto guardado, con auditoría de antes y después", async () => {
     const { sent, client } = fakeMeta();
     await send(client, "gasté 15$ en champú");
+    // Guardado al instante (0023); un Guardar de más no lo duplica.
+    expect(textOf(sent[0])).toContain("✅ *Gasto guardado*");
     await tap(client, fx.saveIdFrom(buttonsOf(sent[0])), "Guardar");
-    expect(textOf(sent[1])).toContain("✅ Guardado");
+    expect(textOf(sent[1])).toContain("ya quedó guardado");
     await send(client, "no, eran 20");
     expect(textOf(sent[2])).toBe("Cambio el último gasto:\nChampú · $15,00 → *$20,00*");
     expect(buttonsOf(sent[2]).map((b) => b.title)).toEqual(["Guardar", "Cancelar"]);
@@ -308,8 +310,14 @@ describe("corregir y borrar el último movimiento", () => {
     await send(client, "eran 35");
     expect(textOf(sent[2])).toContain("Cera: *$35,00*\nBs 31.500,00 · tasa manual 900,00");
     await tap(client, fx.saveIdFrom(buttonsOf(sent[2])), "Guardar");
+    // La corrección borró el de $30 (ya guardado) y guardó el de $35.
     const rows = await live();
-    expect(rows[1]).toMatchObject({ amount: "35.00", rateSource: "manual", rateId: null });
+    expect(rows.find((m) => m.amount === "30.00")?.deletedAt).not.toBeNull();
+    expect(rows.filter((m) => !m.deletedAt)[1]).toMatchObject({
+      amount: "35.00",
+      rateSource: "manual",
+      rateId: null,
+    });
 
     await send(client, "bórralo");
     expect(textOf(sent[4])).toBe("Elimino el último gasto: Cera · $35,00 · hoy, mar 29/09.");
@@ -317,15 +325,17 @@ describe("corregir y borrar el último movimiento", () => {
     await tap(client, buttonsOf(sent[4])[0]?.id as string, "Eliminar");
     expect(textOf(sent[5])).toBe("✅ Eliminado. Gastos de ese día: *$0,00* (0 registros).");
     const after = await live();
-    expect(after[1]?.deletedAt).not.toBeNull();
-    expect(await audits("delete")).toHaveLength(1);
+    expect(after.find((m) => m.amount === "35.00")?.deletedAt).not.toBeNull();
+    // Dos bajas: la del $30 que reemplazó la corrección y la de "bórralo".
+    expect(await audits("delete")).toHaveLength(2);
   });
 
   it("borrar varios: por nombre, los del último Guardar y los N últimos, con confirmación", async () => {
     const { sent, client } = fakeMeta();
     await send(client, "gasté 7$ en arepa y 7,5$ en pádel");
+    expect(textOf(sent[0])).toContain("2 gastos guardados");
     await tap(client, fx.saveIdFrom(buttonsOf(sent[0])), "Guardar");
-    expect(textOf(sent[1])).toContain("Guardados 2 gastos");
+    expect(textOf(sent[1])).toContain("ya quedó guardado");
 
     await send(client, "borra el de la arepa");
     expect(textOf(sent[2])).toBe("Elimino este gasto: Arepa · $7,00 · hoy, mar 29/09.");

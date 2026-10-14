@@ -1,8 +1,8 @@
-import { allTenantIds, eq, schema, withTenant } from "@caja/db";
+import { allTenantIds, and, eq, isNull, schema, withTenant } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { LlmClient } from "../src/agent/llm";
 import { createAgent } from "../src/agent/loop";
 import { asIsoDate } from "../src/domain/dates";
@@ -16,6 +16,7 @@ import {
 } from "../src/inbox/process";
 import { createAccount } from "../src/ledger/accounts";
 import { sweepOrphanAttachments } from "../src/ledger/attachments";
+import { expirePendingActions } from "../src/ledger/drafts";
 import { MemoryObjectStore } from "../src/storage/store";
 import type { ReceiptExtraction, ReceiptReader } from "../src/vision/receipt";
 import { MetaClient } from "../src/whatsapp/client";
@@ -319,6 +320,13 @@ describe("fotos de facturas", () => {
       .values({ effectiveDate: "2026-09-29", rate: "858.00000000", source: "test" });
   });
   afterAll(() => t.close());
+  // El reloj de la prueba no avanza: cada caso empieza como si pasaran 15 minutos, sin tarjetas
+  // abiertas del anterior que una corrección pudiera reemplazar (0023).
+  beforeEach(() =>
+    withTenant(t.db, tenantId, (tx) =>
+      expirePendingActions(tx, new Date(now().getTime() + 16 * 60_000)),
+    ),
+  );
 
   function deps(client: MetaClient, vision: ReceiptReader | null): ProcessDeps {
     return {
@@ -363,7 +371,7 @@ describe("fotos de facturas", () => {
 
   const attachments = () => withTenant(t.db, tenantId, (tx) => tx.select().from(schema.attachment));
 
-  it("lee la factura, guarda el respaldo y manda lectura + borrador en un envío; Guardar vincula la foto", async () => {
+  it("lee la factura, guarda el respaldo y manda lectura + gasto guardado en un envío, con la foto vinculada", async () => {
     const { sent, client } = fakeMeta();
     const vision = fakeVision(RECEIPT);
     expect(await sendImage(client, vision)).toBe("done");
@@ -373,13 +381,13 @@ describe("fotos de facturas", () => {
     expect(
       body.startsWith("🧾 Leí la factura: Ferretería El Tornillo · 45.00 USD · mar 29/09"),
     ).toBe(true);
-    expect(body).toContain("Gasto anotado");
+    expect(body).toContain("Gasto guardado");
     expect(body).toContain("*$45,00*");
     expect(store.objects.size).toBe(1);
     const [att] = await attachments();
     expect(att).toMatchObject({ kind: "receipt", mimeType: "image/jpeg", sizeBytes: 2000 });
-    await tap(client, vision, fx.saveIdFrom(buttonsOf(sent[1])), "Guardar");
-    expect(textOf(sent[2])).toContain("Gastos de hoy");
+    // Guardado al instante (0023) con la foto vinculada.
+    expect(body).toContain("Gastos de hoy");
     const [mv] = await withTenant(t.db, tenantId, (tx) =>
       tx
         .select()
@@ -409,18 +417,26 @@ describe("fotos de facturas", () => {
     expect(mv?.sourceChannel).toBe("image");
   });
 
-  it("Cancelar borra la foto provisional del bucket y la da de baja", async () => {
+  it("Deshacer manda el gasto a la papelera y conserva la foto para poder recuperarlo", async () => {
     const { sent, client } = fakeMeta();
     const vision = fakeVision(RECEIPT);
     await sendImage(client, vision);
     expect(store.objects.size).toBe(3);
-    const cancel = buttonsOf(sent[1]).find((b) => b.title === "Cancelar");
-    expect(cancel?.title).toBe("Cancelar");
-    await tap(client, vision, cancel?.id as string, "Cancelar");
+    const undo = buttonsOf(sent[1]).find((b) => b.title === "Deshacer");
+    expect(undo?.title).toBe("Deshacer");
+    await tap(client, vision, undo?.id as string, "Deshacer");
     expect(sent[2]?.body.type).toBe("reaction");
-    expect(store.objects.size).toBe(2);
+    expect(store.objects.size).toBe(3);
     const atts = await attachments();
-    expect(atts.filter((a) => a.deletedAt).length).toBe(1);
+    expect(atts.filter((a) => a.deletedAt)).toHaveLength(0);
+    const last = atts[atts.length - 1];
+    const [mv] = await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .select()
+        .from(schema.movement)
+        .where(eq(schema.movement.attachmentId, last?.id as string)),
+    );
+    expect(mv?.deletedAt).not.toBeNull();
   });
 
   it("no es factura o lector caído: respuestas sin respaldo", async () => {
@@ -430,7 +446,8 @@ describe("fotos de facturas", () => {
     const down = fakeMeta();
     await sendImage(down.client, fakeVision(new Error("503")));
     expect(textOf(down.sent[1])).toContain("No pude leer bien la factura");
-    expect(store.objects.size).toBe(2);
+    // La foto del gasto deshecho sigue: el gasto está en la papelera y se puede recuperar.
+    expect(store.objects.size).toBe(3);
   });
 
   it("foto muy pesada o tipo no admitido; sin lector responde 'llegan pronto'", async () => {
@@ -467,9 +484,9 @@ describe("fotos de facturas", () => {
     );
     expect(swept).toBe(1);
     expect(store.objects.has("t/old.jpg")).toBe(false);
-    // Las dos vinculadas a gastos guardados siguen vivas; la cancelada ya estaba de baja.
+    // Las tres vinculadas a gastos siguen vivas, también la del gasto deshecho (papelera).
     const atts = await attachments();
-    expect(atts.filter((a) => !a.deletedAt)).toHaveLength(2);
+    expect(atts.filter((a) => !a.deletedAt)).toHaveLength(3);
   });
 
   async function sendDocument(
@@ -533,7 +550,7 @@ describe("fotos de facturas", () => {
     const vision = fakeVision(RECEIPT);
     await sendDocument(client, vision, { mime_type: "image/jpeg", filename: "IMG_2041.jpg" });
     expect(vision.mimes).toEqual(["image/jpeg"]);
-    expect(textOf(sent[1])).toContain("Gasto anotado");
+    expect(textOf(sent[1])).toContain("Gasto guardado");
     expect((await attachments()).at(-1)).toMatchObject({ mimeType: "image/jpeg" });
   });
 
@@ -576,7 +593,7 @@ describe("fotos de facturas", () => {
     await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
     await processInbound(deps(client, vision), jobs[0] as ProcessMessageJob);
     const draft = textOf(sent.at(-1));
-    expect(draft).toContain("Ingreso anotado");
+    expect(draft).toContain("Ingreso guardado");
     expect(draft).toContain("Ferretería El Tornillo: *$45,00*\n");
     expect(draft).not.toContain("Sin especificar");
     await tap(client, vision, fx.saveIdFrom(buttonsOf(sent.at(-1))), "Guardar");
@@ -584,7 +601,12 @@ describe("fotos de facturas", () => {
       tx
         .select()
         .from(schema.movement)
-        .where(eq(schema.movement.attachmentId, att?.id as string)),
+        .where(
+          and(
+            eq(schema.movement.attachmentId, att?.id as string),
+            isNull(schema.movement.deletedAt),
+          ),
+        ),
     );
     expect(mv).toMatchObject({ type: "income", origin: "single", sourceChannel: "image" });
     expect((await attachments()).find((a) => a.id === att?.id)?.deletedAt).toBeNull();
@@ -644,7 +666,7 @@ describe("fotos de facturas", () => {
     await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
     await processInbound(deps(client, vision), jobs[0] as ProcessMessageJob);
     const draft = textOf(sent[2]);
-    expect(draft).toContain("Gasto anotado");
+    expect(draft).toContain("Gasto guardado");
     expect(draft).toContain("Bs 12.956,00");
     await tap(client, vision, fx.saveIdFrom(buttonsOf(sent[2])), "Guardar");
     const [mv] = await withTenant(t.db, tenantId, (tx) =>
@@ -655,7 +677,11 @@ describe("fotos de facturas", () => {
     );
     expect(mv).toMatchObject({ amountVes: "12956.00", description: "Factura" });
 
-    // Solo la respuesta inmediata hereda la foto: el mensaje siguiente ya no lleva el contexto.
+    // Solo la respuesta inmediata hereda la foto: el mensaje siguiente (15 minutos después, sin
+    // la tarjeta abierta) ya no lleva el contexto.
+    await withTenant(t.db, tenantId, (tx) =>
+      expirePendingActions(tx, new Date(now().getTime() + 16 * 60_000)),
+    );
     jobs.length = 0;
     const q = fx.textMessage(`wamid.UNC${++seq}`, "15 bs");
     await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, q);
@@ -738,7 +764,7 @@ describe("fotos de facturas", () => {
     const p = fx.textMessage(`wamid.PM${++seq}`, "1250 bs del gas");
     await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
     await processInbound(deps(client, null), jobs[0] as ProcessMessageJob);
-    expect(textOf(sent[5])).toContain("Gasto anotado");
+    expect(textOf(sent[5])).toContain("Gasto guardado");
     await tap(client, null, fx.saveIdFrom(buttonsOf(sent[5])), "Guardar");
     const [mv] = await withTenant(t.db, tenantId, (tx) =>
       tx
@@ -845,7 +871,7 @@ describe("fotos de facturas", () => {
     const { sent, client } = fakeMeta();
     await sendImage(client, fakeVision({ ...RECEIPT, date: "2026-12-09" }), true);
     expect(textOf(sent[1])).toContain("12/09");
-    expect(textOf(sent[1])).toContain("Gasto anotado");
+    expect(textOf(sent[1])).toContain("Gasto guardado");
     await cancelAll(client, sent);
   });
 
@@ -858,7 +884,7 @@ describe("fotos de facturas", () => {
       deps(client, null),
       await ingestOnly(fx.textMessage(`wamid.Q${++seq}`, "El gasto es del día de hoy")),
     );
-    expect(textOf(sent[2])).toContain("Gasto anotado");
+    expect(textOf(sent[2])).toContain("Gasto guardado");
     expect(textOf(sent[2])).toContain("Fecha: hoy");
     const drafts = await pendingDrafts();
     expect((drafts.at(-1)?.payload as { attachmentId?: string } | undefined)?.attachmentId).toBe(
@@ -878,7 +904,7 @@ describe("fotos de facturas", () => {
     exchange: { side: "sell", usdt_amount: "30.88", fiat_amount: "30000", price: "973.15" },
   };
 
-  it("captura de Binance (vender USDT): borrador del cambio a la tasa real, sin foto; Guardar crea el lote", async () => {
+  it("captura de Binance (vender USDT): el cambio a la tasa real, sin foto, se guarda como lote", async () => {
     const { sent, client } = fakeMeta();
     const before = store.objects.size;
     await sendImage(client, fakeVision(BINANCE), true);
@@ -888,8 +914,8 @@ describe("fotos de facturas", () => {
     // Bs ÷ USDT de verdad (971,50), no el "USDT Price" con la comisión (973,15).
     expect(body).toContain("Tasa: 971,50");
     expect(store.objects.size).toBe(before);
-    await tap(client, null, fx.saveIdFrom(buttonsOf(sent[1])), "Guardar");
-    expect(textOf(sent[2])).toContain("✅ Cambio guardado: 30,88 USDT → Bs 30.000,00 a 971,50.");
+    // Guardado al instante (0023).
+    expect(body).toContain("✅ *Cambio guardado*");
     const lots = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.exchangeLot));
     expect(lots.at(-1)).toMatchObject({ usdAmount: "30.88", vesAmount: "30000.00" });
   });
@@ -906,12 +932,6 @@ describe("fotos de facturas", () => {
     );
     expect(textOf(sent[1])).toContain("30,92 USDT → *Bs 30.000,00*");
     expect(textOf(sent[1])).toContain("Tasa: 970,25");
-    await tap(
-      client,
-      null,
-      buttonsOf(sent[1]).find((b) => b.title === "Cancelar")?.id as string,
-      "Cancelar",
-    );
   });
 
   it("captura de Binance comprando USDT: lo dice y no arma nada", async () => {
@@ -958,8 +978,7 @@ describe("fotos de facturas", () => {
     const body = textOf(sent[1]);
     expect(body.startsWith("🧾 Leí tu compra de USDT en Binance:")).toBe(true);
     expect(body).toContain("Mercantil → Binance: *Bs 30.000,00* → *30,88 USDT* (a 971,50)");
-    await tap(client, null, fx.saveIdFrom(buttonsOf(sent[1])), "Guardar");
-    expect(textOf(sent[2])).toContain("✅ Compra de USDT guardada");
-    expect(textOf(sent[2])).toContain("💳 Binance: *30,88 USDT*");
+    expect(body).toContain("✅ *Compra de USDT guardada*");
+    expect(body).toContain("💳 Binance: *30,88 USDT*");
   });
 });

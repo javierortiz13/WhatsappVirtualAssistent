@@ -150,7 +150,7 @@ describe("reinyección de botones de moneda y categoría", () => {
     ]);
     const usd = buttonsOf(sent[0])[0];
     await tap(client, usd?.id as string, usd?.title as string);
-    expect(textOf(sent[1])).toContain("Gasto anotado");
+    expect(textOf(sent[1])).toContain("Gasto guardado");
     expect(textOf(sent[1])).toContain("*$500,00*");
     // El agente vio el mensaje original y la pregunta antes de la respuesta al botón.
     const last = requests[requests.length - 1];
@@ -167,7 +167,7 @@ describe("reinyección de botones de moneda y categoría", () => {
     const cat = cats.find((c) => c.name !== "Otros") ?? cats[0];
     const { sent, client } = fakeMeta();
     await tap(client, `cat:${cat?.id}`, cat?.name as string);
-    expect(textOf(sent[0])).toContain("Gasto anotado");
+    expect(textOf(sent[0])).toContain("Gasto guardado");
     expect(textOf(sent[0])).toContain(cat?.name as string);
     const bad = fakeMeta();
     await tap(bad.client, "cat:00000000-0000-4000-8000-000000000000", "X");

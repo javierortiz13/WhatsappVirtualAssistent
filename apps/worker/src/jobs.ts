@@ -1,6 +1,5 @@
 import {
   type AuthAdmin,
-  autoSaveDueDrafts,
   bcvSource,
   dolarApiSource,
   enforceBilling,
@@ -35,11 +34,13 @@ import {
  * Cron en hora de Caracas: el BCV publica entre 15:00 y 18:00 en días hábiles; se consulta cada
  * 30 minutos entre 15:00 y 20:00, y una vez a las 08:00 por si algo falló.
  */
+/** Cola del autoguardado de 0022, ya retirada: se da de baja su cron al arrancar. */
+const RETIRED_AUTO_SAVE_QUEUE = "auto-save-drafts";
+
 export const CRON = {
   ratesAfternoon: "*/30 15-20 * * 1-5",
   ratesMorning: "0 8 * * *",
   housekeeping: "*/5 * * * *",
-  autoSaveDrafts: "* * * * *",
 } as const;
 
 export async function registerJobs(opts: {
@@ -108,20 +109,6 @@ export async function registerJobs(opts: {
     guarded(QUEUES.fetchBcvRate, async () => {
       const result = await refreshRates({ db, sources: [bcvSource(), dolarApiSource()], log });
       if (!result.source) throw new Error(`tasa BCV: ${result.errors.join(" | ")}`);
-    }),
-  );
-
-  await boss.work(
-    QUEUES.autoSaveDrafts,
-    { batchSize: 1, pollingIntervalSeconds: 5 },
-    guarded(QUEUES.autoSaveDrafts, async () => {
-      // Borradores vencidos (0022): se guardan solos y se reacciona ✅ sobre el mensaje del usuario.
-      const r = await autoSaveDueDrafts(db, deps.metaFor, {
-        now: new Date(),
-        fallbackNumberId: opts.platformPhoneNumberId ?? null,
-        log,
-      });
-      if (r.saved || r.expired || r.failed) log.info(r, "autoguardado de borradores");
     }),
   );
 
@@ -290,8 +277,6 @@ export async function registerJobs(opts: {
     tz: "America/Caracas",
     key: "every-5-min",
   });
-  await boss.schedule(QUEUES.autoSaveDrafts, CRON.autoSaveDrafts, null, {
-    tz: "America/Caracas",
-    key: "every-minute",
-  });
+  // El autoguardado de cada minuto (0022) se reemplazó por el guardado al instante (0023).
+  await boss.unschedule(RETIRED_AUTO_SAVE_QUEUE, "every-minute").catch(() => {});
 }

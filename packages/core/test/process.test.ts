@@ -267,7 +267,7 @@ describe("processInbound", () => {
     const agent = createAgent({ llm, now });
     expect(await processInbound({ ...deps(client), agent }, job)).toBe("done");
     const body = sent[0]?.body as { interactive: { body: { text: string } } };
-    expect(body.interactive.body.text).toContain("Gasto anotado");
+    expect(body.interactive.body.text).toContain("Gasto guardado");
     const rows = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.message));
     const inbound = rows.find((r) => r.waMessageId === "wamid.AG1");
     const outbound = rows.find(
@@ -287,7 +287,7 @@ describe("processInbound", () => {
     await withTenant(t.db, tenantId, (tx) => tx.delete(schema.pendingAction));
   });
 
-  it("varios gastos en un mensaje: un borrador con la lista y Guardar escribe todos (bug 01/10)", async () => {
+  it("varios gastos en un mensaje: una tarjeta con la lista que los guarda todos (bug 01/10)", async () => {
     const { sent, client } = fakeMeta();
     const llm: LlmClient = {
       model: "claude-sonnet-5-5",
@@ -339,23 +339,17 @@ describe("processInbound", () => {
       "done",
     );
     const draftMsg = sent[0]?.body as { interactive: { body: { text: string } } };
-    expect(draftMsg.interactive.body.text).toContain("2 gastos anotados");
+    expect(draftMsg.interactive.body.text).toContain("2 gastos guardados");
     expect(draftMsg.interactive.body.text).toContain("Arepa y malta");
     expect(draftMsg.interactive.body.text).toContain("Partida de pádel");
     expect(draftMsg.interactive.body.text).toContain("Total: *$14,50*");
+    // Guardado al instante (0023): la misma tarjeta trae el total del día y Corregir/Deshacer.
+    expect(draftMsg.interactive.body.text).toContain("Gastos de hoy");
     const [pa] = await withTenant(t.db, tenantId, (tx) =>
       tx.select().from(schema.pendingAction).where(eq(schema.pendingAction.status, "pending")),
     );
     expect(pa?.kind).toBe("create_expenses");
-
-    const tap = JSON.parse(JSON.stringify(fx.buttonReply));
-    tap.entry[0].changes[0].value.messages[0].id = "wamid.MULTI2";
-    tap.entry[0].changes[0].value.messages[0].interactive.button_reply = {
-      id: `confirm:${pa?.id}`,
-      title: "Guardar",
-    };
-    expect(await processInbound(deps(client), await ingest(tap))).toBe("done");
-    expect(textOf(sent[1])).toContain("Guardados 2 gastos");
+    expect(pa?.savedIds).toHaveLength(2);
     const after = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));
     const added = after.filter((m) => !before.some((b) => b.id === m.id));
     expect(added.map((m) => [m.amountUsd, m.description]).sort()).toEqual([

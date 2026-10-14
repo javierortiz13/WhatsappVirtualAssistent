@@ -1,4 +1,16 @@
-import { and, desc, eq, inArray, lt, ne, type Queryable, schema, type Tx } from "@caja/db";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  ne,
+  type Queryable,
+  schema,
+  sql,
+  type Tx,
+} from "@caja/db";
 import { z } from "zod";
 import type { IsoDate } from "../domain/dates";
 import {
@@ -81,10 +93,13 @@ export const ExpenseDraft = z.object({
 });
 export type ExpenseDraft = z.infer<typeof ExpenseDraft>;
 
-/** Vida de un borrador. Los de crear (gasto, venta, transferencia, cambio) se guardan solos al vencer (0022). */
+/** Vida de un borrador; en los de crear, cuánto queda abierta la tarjeta ya guardada para corregirla (0023). */
 export const DRAFT_TTL_MS = 15 * 60 * 1000;
 
-/** Borradores que se guardan solos al vencer si nadie los corrigió ni los canceló (0022). */
+/**
+ * Borradores de crear (gasto, venta, transferencia, cambio): se guardan al instante, en el mismo
+ * turno, si no esperan una decisión (0023; en 0022 se guardaban solos a los 15 minutos).
+ */
 export const AUTO_SAVE_KINDS: readonly string[] = [
   "create_expense",
   "create_expenses",
@@ -701,21 +716,26 @@ export async function createIncomeSingleDraft(
   return { pendingId, draft, replacedPrevious };
 }
 
-/** Job de limpieza: borradores vencidos que no se guardan solos pasan a `expired`. */
+/**
+ * Job de limpieza: los borradores vencidos pasan a `expired`; las tarjetas ya guardadas (0023)
+ * cierran su ventana de corrección como `confirmed`.
+ */
 export async function expirePendingActions(db: Queryable, now: Date): Promise<number> {
-  const rows = await db
+  const due = and(
+    eq(schema.pendingAction.status, "pending"),
+    lt(schema.pendingAction.expiresAt, now),
+  );
+  const closed = await db
+    .update(schema.pendingAction)
+    .set({ status: "confirmed", resolvedAt: now })
+    .where(and(due, sql`${schema.pendingAction.savedIds} is not null`))
+    .returning({ id: schema.pendingAction.id });
+  const expired = await db
     .update(schema.pendingAction)
     .set({ status: "expired", resolvedAt: now })
-    .where(
-      and(
-        eq(schema.pendingAction.status, "pending"),
-        lt(schema.pendingAction.expiresAt, now),
-        // Los que se guardan solos los resuelve el autoguardado (0022), no la limpieza.
-        eq(schema.pendingAction.autoSave, false),
-      ),
-    )
+    .where(and(due, isNull(schema.pendingAction.savedIds)))
     .returning({ id: schema.pendingAction.id });
-  return rows.length;
+  return closed.length + expired.length;
 }
 
 export { Decimal };

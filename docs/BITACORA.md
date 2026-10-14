@@ -1195,3 +1195,49 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - Tests de punta a punta del autoguardado: tarjeta sin Guardar; nada antes de los 15 minutos; guardado con solo la reacción; no se guarda dos veces; toque tardío; Cancelar; Corregir sin cambio; aviso de presupuesto; borrador viejo que vence.
 - El barrido completo corre contra Postgres real con postgres-js.
 - 445 tests en verde (452 con Postgres real).
+
+### S3 · 14/10/2026 · Guardado al instante (reemplaza el autoguardado de 15 minutos)
+
+**Reporte (Javier, probando el 0022):** "Si escribo un gasto y después pido el cierre de caja, tendría que esperar 15 minutos a que se agreguen los gastos." Un gasto que no existe hasta 15 minutos después rompe todo lo que lo consulta: el cierre, el dashboard, los presupuestos, los saldos. Fue un error de diseño del 0022.
+
+**Hecho (migración 0023):**
+- **Al instante:** el gasto se guarda en el mismo turno en que llega. La tarjeta sale como "✅ *Gasto guardado*" y debajo trae lo que antes mandaba el "Guardado": total del día, presupuesto y saldo de la cuenta. Es un solo mensaje, sin toque de Guardar. Vale para gasto, varios gastos, venta del día, ingreso, transferencia y cambio de USDT.
+- **Deshacer:** borra lo que guardó esa tarjeta y Rocco reacciona 🗑️.
+  - Los gastos y las ventas van a la papelera; la foto se conserva para poder recuperarlos.
+  - La transferencia o el cambio se borran con `deleteTransfer` o `deleteExchangeLot`.
+  - Si un gasto ya tomó Bs de ese cambio o transferencia, no se borra: Rocco lo explica.
+  - Vale también pasados los 15 minutos.
+- **Corregir:** reabre la tarjeta, aun pasados los 15 minutos. El cambio que escribe el usuario reemplaza lo guardado (lo viejo se borra y lo nuevo se guarda) sin otra confirmación, y la tarjeta dice "✏️ Corregido: reemplacé el anterior."
+  - Escribir la corrección sin tocar el botón ("no, eran 25") corrige el registro más reciente si es de los últimos 15 minutos.
+  - Si es más viejo, sigue `amend_last_movement` con su confirmación.
+- **Botones:** transferencias y cambios solo tienen Deshacer. El primer cambio con la tasa BCV conserva sus botones de "¿tus gastos en Bs salen de aquí?".
+- **Cómo se sabe qué guardó cada tarjeta:**
+  - `pending_action.saved_ids` guarda los movimientos, la transferencia o el cambio de esa tarjeta, según el `kind`.
+  - Se calculan como lo que ese teléfono escribió en la transacción del turno (`created_at = now()`).
+  - La fila queda `pending` durante la ventana de corrección; la limpieza de cada 5 minutos la cierra como `confirmed`.
+- **Se mantiene igual,** porque necesita una decisión antes de saber qué guardar:
+  - de dónde salieron los Bs (USDT o BCV);
+  - un desglose que no cuadra;
+  - Reemplazar o Agregar sobre una venta del día ya registrada;
+  - los datos de un pago móvil por hacer (con su Guardar);
+  - "Guardar mi parte" de una cuenta dividida.
+  
+  Cuando la decisión se toma, se guarda al instante.
+- **Borrar escribiendo** ("bórralo", "borra los 3 últimos") sigue con confirmación.
+- **Guardar de más:** si alguien toca Guardar en una tarjeta ya guardada, Rocco responde "ya quedó guardado" y no la duplica.
+- **Fuera:** el job `auto-save-drafts` de cada minuto. El worker da de baja su cron al arrancar y `app.due_draft_tenant_ids` (0022) queda sin uso.
+- **Textos de la IA:** las instrucciones hablan de "registros de los últimos 15 minutos" en vez de "borradores sin guardar".
+- Landing, login y guía de inicio (PDF y PPTX) muestran "✅ Gasto guardado" con Corregir y Deshacer.
+
+**Verificado:**
+- Tests nuevos (`instant-save.test.ts`):
+  - se guarda en el mismo mensaje y el siguiente gasto ya lo cuenta;
+  - un Guardar de más no duplica;
+  - Corregir y la corrección escrita reemplazan;
+  - Deshacer borra, y un segundo toque lo dice;
+  - Corregir reabre pasados los 15 minutos;
+  - Deshacer un cambio cuyos Bs ya usó un gasto lo bloquea, y deshecho el gasto sí se puede.
+- Unos 40 tests se ajustaron al flujo nuevo.
+- En los de fotos, antes de cada caso se cierran las tarjetas abiertas (`expirePendingActions` con el reloj 16 minutos adelante), porque el reloj de la prueba no avanza.
+- La columna `uuid[]` y el filtro por `now()` se probaron contra Postgres real.
+- 446 tests en verde.

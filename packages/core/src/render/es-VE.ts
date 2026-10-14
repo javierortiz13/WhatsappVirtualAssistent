@@ -569,7 +569,7 @@ export function confirmationExpired(): Outbound {
   return { type: "text", body: "Esa confirmación ya venció. Mándame el gasto de nuevo." };
 }
 
-/** Corregir o Cancelar sobre un borrador que ya se guardó solo (0022). */
+/** Guardar sobre una tarjeta que ya se guardó (0023), o una que el barrido de 0022 guardó. */
 export function draftAlreadySaved(): Outbound {
   return {
     type: "text",
@@ -577,13 +577,71 @@ export function draftAlreadySaved(): Outbound {
   };
 }
 
-/** Acuse del autoguardado (0022): ✅ sobre el mensaje del usuario, sin gastar un mensaje de texto. */
-export function autoSaved(sourceWaId: string): Outbound {
-  return { type: "reaction", body: "✅", waMessageId: sourceWaId };
+/** Deshacer o Corregir sobre una tarjeta que ya se deshizo o que una corrección reemplazó. */
+export function alreadyUndone(): Outbound {
+  return {
+    type: "text",
+    body: "Ese ya no está: lo corregiste o lo deshiciste antes. Si fue un error, mándamelo de nuevo.",
+  };
 }
 
-/** Pie de las tarjetas que se guardan solas (0022). WhatsApp admite hasta 60 caracteres. */
-export const AUTO_SAVE_FOOTER = "Si está bien, no hagas nada: se guarda en 15 min";
+/** Deshacer un cambio o una transferencia cuyos Bs ya usó un gasto. */
+export function undoBlocked(kind: string): Outbound {
+  const what = kind === "create_transfer" ? "esa transferencia" : "ese cambio";
+  return {
+    type: "text",
+    body: `No puedo deshacer ${what}: ya hay gastos que usaron esos Bs. Bórralos o muévelos primero desde el dashboard.`,
+  };
+}
+
+/** Título de la tarjeta de crear → el de la tarjeta guardada (0023). */
+const SAVED_TITLES: [RegExp, string][] = [
+  [/\*Gasto anotado\*/, "✅ *Gasto guardado*"],
+  [/\*(\d+) gastos anotados\*/, "✅ *$1 gastos guardados*"],
+  [/\*Venta del día anotada\*/, "✅ *Venta del día guardada*"],
+  [/\*Ingreso anotado\*/, "✅ *Ingreso guardado*"],
+  [/\*Transferencia anotada\*/, "✅ *Transferencia guardada*"],
+  [/\*Compra de USDT anotada\*/, "✅ *Compra de USDT guardada*"],
+  [/\*Cambio anotado\*/, "✅ *Cambio guardado*"],
+  [/Descarté el borrador anterior sin guardar\./, "✏️ Corregido: reemplacé el anterior."],
+];
+
+/**
+ * Tarjeta ya guardada (0023): el borrador con su título de "guardado", debajo lo que dijo el
+ * guardado (totales del día, presupuesto, saldo de la cuenta) sin repetir el "✅ Guardado", y
+ * los botones Corregir y Deshacer. Transferencias y cambios no se corrigen: solo Deshacer.
+ */
+export function savedCard(
+  draft: Outbound,
+  saved: Outbound,
+  pendingId: string,
+  kind: string,
+): Outbound {
+  let body = draft.body;
+  for (const [re, title] of SAVED_TITLES) body = body.replace(re, title);
+  const plain = kind === "create_transfer" || kind === "create_exchange";
+  // El primer renglón de lo guardado repite lo de la tarjeta: en transferencias y cambios es la
+  // línea entera; en gastos y ventas, la primera oración.
+  const rest = plain
+    ? saved.body.split("\n").slice(1).join("\n")
+    : saved.body.replace(
+        /^✅ (Guardados? ?(\d+ gastos)?|Venta guardada|Corregido|Eliminado)\.\s*/,
+        "",
+      );
+  if (rest.trim()) body = `${body}\n\n${rest.trim()}`;
+  // El primer cambio con la tasa BCV pregunta de dónde salen los Bs: esos botones mandan.
+  if (saved.type === "buttons") return { type: "buttons", body, buttons: saved.buttons };
+  return {
+    type: "buttons",
+    body,
+    buttons: plain
+      ? [{ id: IDS.cancel(pendingId), title: "Deshacer" }]
+      : [
+          { id: IDS.fix(pendingId), title: "Corregir" },
+          { id: IDS.cancel(pendingId), title: "Deshacer" },
+        ],
+  };
+}
 
 /** Descartar un borrador: reacción sobre el toque de "Cancelar". Gratis y suficiente como acuse. */
 export function cancelled(inboundId: string): Outbound {
@@ -941,7 +999,6 @@ export function transferDraft(v: TransferView & { pendingId: string; today: IsoD
   return {
     type: "buttons",
     body: lines.join("\n"),
-    footer: AUTO_SAVE_FOOTER,
     buttons: [{ id: IDS.cancel(v.pendingId), title: "Cancelar" }],
   };
 }
@@ -1109,7 +1166,6 @@ export function exchangeDraft(v: {
       ...accounts,
       dateLine(v.businessDate, v.today),
     ].join("\n"),
-    footer: AUTO_SAVE_FOOTER,
     buttons: [{ id: IDS.cancel(v.pendingId), title: "Cancelar" }],
   };
 }
@@ -1291,7 +1347,6 @@ export function expenseDraft(d: ExpenseDraftView): Outbound {
   return {
     type: "buttons",
     body: lines.join("\n"),
-    footer: AUTO_SAVE_FOOTER,
     buttons: [
       { id: IDS.fix(d.pendingId), title: "Corregir" },
       { id: IDS.cancel(d.pendingId), title: "Cancelar" },
@@ -1357,7 +1412,6 @@ export function expensesDraft(v: ExpensesDraftView): Outbound {
   return {
     type: "buttons",
     body: lines.join("\n"),
-    footer: AUTO_SAVE_FOOTER,
     buttons: [
       { id: IDS.fix(v.pendingId), title: "Corregir" },
       { id: IDS.cancel(v.pendingId), title: "Cancelar" },
@@ -1608,7 +1662,6 @@ export function incomeDayTotalDraft(v: IncomeDayTotalView): Outbound {
   return {
     type: "buttons",
     body: lines.join("\n"),
-    footer: AUTO_SAVE_FOOTER,
     buttons: [
       { id: IDS.fix(v.pendingId), title: "Corregir" },
       { id: IDS.cancel(v.pendingId), title: "Cancelar" },
@@ -1663,7 +1716,6 @@ export function incomeSingleDraft(v: IncomeSingleView): Outbound {
   return {
     type: "buttons",
     body: lines.join("\n"),
-    footer: AUTO_SAVE_FOOTER,
     buttons: [
       { id: IDS.fix(v.pendingId), title: "Corregir" },
       { id: IDS.cancel(v.pendingId), title: "Cancelar" },

@@ -140,7 +140,7 @@ const RATE_FIELD = z
 const CORRECTS_FIELD = z
   .boolean()
   .describe(
-    "true SOLO si el mensaje corrige el borrador SIN GUARDAR más reciente ('no, eran 50', 'era en bolívares', 'es de ayer') en vez de registrar algo nuevo. false si es un registro nuevo, aunque haya otros borradores esperando.",
+    "true SOLO si el mensaje corrige el registro más reciente de la lista de los últimos 15 minutos ('no, eran 50', 'era en bolívares', 'es de ayer') en vez de registrar algo nuevo: lo reemplaza. false si es un registro nuevo, aunque haya otros en la lista.",
   );
 
 export const DraftExpenseInput = z.object({
@@ -1226,7 +1226,7 @@ async function categoryNameOf(run: ToolRunCtx, categoryId: string | null): Promi
 const amendLast: ToolSpec<typeof AmendLastInput> = {
   name: "amend_last_movement",
   description:
-    "Corrige el ÚLTIMO movimiento ya guardado (gasto o venta) cuando el usuario dice 'no, eran 25', 'era en bolívares', 'es mantenimiento', 'fue ayer', 'a tasa 850'. Solo los campos que cambian; los demás null. Si hay un borrador sin guardar en corrección, NO uses esta: usa la herramienta del borrador.",
+    "Corrige el ÚLTIMO movimiento ya guardado (gasto o venta) cuando el usuario dice 'no, eran 25', 'era en bolívares', 'es mantenimiento', 'fue ayer', 'a tasa 850'. Solo los campos que cambian; los demás null. Si hay un registro en corrección o el que corrige está en la lista de los últimos 15 minutos, NO uses esta: usa la herramienta de ese registro con corrects_draft true.",
   schema: AmendLastInput,
   roles: ["owner", "employee"],
   async run(input, run) {

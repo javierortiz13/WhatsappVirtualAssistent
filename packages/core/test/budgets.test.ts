@@ -198,10 +198,6 @@ describe("presupuestos de punta a punta", () => {
         (s?.body.interactive as Interactive | undefined)?.body.text ??
         "",
     );
-  const saveId = (s: Sent | undefined) =>
-    fx.saveIdFrom(
-      ((s?.body.interactive as Interactive | undefined)?.action.buttons ?? []).map((b) => b.reply),
-    );
 
   function fakeMeta() {
     const sent: Sent[] = [];
@@ -248,13 +244,6 @@ describe("presupuestos de punta a punta", () => {
     const p = JSON.parse(JSON.stringify(fx.textMessage(`wamid.B${++seq}`, body)));
     p.entry[0].changes[0].value.messages[0].from = from;
     p.entry[0].changes[0].value.contacts[0].wa_id = from;
-    return processInbound(deps(client), await ingest(p));
-  }
-  async function tap(client: MetaClient, id: string, from = "584121234567") {
-    const p = JSON.parse(JSON.stringify(fx.buttonReply));
-    p.entry[0].changes[0].value.messages[0].id = `wamid.BB${++seq}`;
-    p.entry[0].changes[0].value.messages[0].from = from;
-    p.entry[0].changes[0].value.messages[0].interactive.button_reply = { id, title: "Guardar" };
     return processInbound(deps(client), await ingest(p));
   }
 
@@ -321,24 +310,22 @@ describe("presupuestos de punta a punta", () => {
 
   it("al guardar, el dueño ve cuánto le queda; el empleado no", async () => {
     const { sent, client } = fakeMeta();
+    // Guardado al instante (0023): la misma tarjeta trae el total del día y el presupuesto.
     await send(client, "gasté 150$ en champú");
-    await tap(client, saveId(sent[0]));
-    expect(textOf(sent[1])).toBe(
-      "✅ Guardado. Gastos de hoy: *$150,00* (1 registro).\nInsumos de lavado: te quedan *$50,00* de $200,00 este mes.",
+    expect(textOf(sent[0])).toContain(
+      "Gastos de hoy: *$150,00* (1 registro).\nInsumos de lavado: te quedan *$50,00* de $200,00 este mes.",
     );
     await send(client, "gasté 20$ en cera");
-    await tap(client, saveId(sent[2]));
-    expect(textOf(sent[3])).toContain(
+    expect(textOf(sent[1])).toContain(
       "⚠️ Insumos de lavado: vas por el 85 %. Te quedan *$30,00* de $200,00 este mes.",
     );
-    // El empleado guarda sin ver presupuestos: es información del dueño.
+    // El empleado guarda sin ver presupuestos ni totales del día: es información del dueño.
     await send(client, "gasté 10$ en arepas", EMPLOYEE);
-    await tap(client, saveId(sent[4]), EMPLOYEE);
-    // Los totales del día son del dueño: el empleado solo recibe la confirmación.
-    expect(textOf(sent[5])).toBe("✅ Guardado.");
+    expect(textOf(sent[2])).toContain("✅ *Gasto guardado*");
+    expect(textOf(sent[2])).not.toContain("Gastos de hoy");
+    expect(textOf(sent[2])).not.toContain("Comida del personal: te quedan");
     await send(client, "gasté 10$ en arepas");
-    await tap(client, saveId(sent[6]));
-    expect(textOf(sent[7])).toContain(
+    expect(textOf(sent[3])).toContain(
       "⚠️ Comida del personal: vas por el 80 %. Te quedan *$5,00* de $25,00 esta quincena.",
     );
   });
