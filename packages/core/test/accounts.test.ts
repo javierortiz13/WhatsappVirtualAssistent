@@ -401,6 +401,26 @@ describe("a qué cuenta va", () => {
     expect(pick({ currency: "VES", text: "gasté 500", noFallback: true })).toBeNull();
   });
 
+  it("gastos en $: salen del banco en Bs salvo que diga Zelle, efectivo, Binance o la cuenta (16/10)", () => {
+    const usd = (text: string) => pick({ currency: "USD", text, dollarsFromBs: true });
+    // Sin cuenta dicha: la principal en Bs, a la BCV; no la primera en dólares.
+    expect(usd("4400 compra de brocha y batería 5$")).toBe("Banco de Venezuela");
+    expect(usd("gasté 10$ en comida a tasa bcv")).toBe("Banco de Venezuela");
+    // Pago móvil, punto o transferencia son de un banco en Bs.
+    expect(usd("pagué 10$ por pago móvil")).toBe("Banco de Venezuela");
+    expect(usd("10$ con banesco")).toBe("Banesco");
+    // Lo que sí es en dólares.
+    expect(usd("pagué 30$ por zelle")).toBe("Zelle");
+    expect(usd("20$ en efectivo")).toBe("Efectivo $");
+    expect(usd("15 usdt de binance")).toBe("Binance");
+    expect(usd("10$ con el zelle")).toBe("Zelle");
+    // Sin cuentas en Bs, la de dólares de siempre.
+    const onlyUsd = accounts.filter((a) => a.currency === "USD");
+    expect(
+      resolveAccount(onlyUsd, { currency: "USD", text: "gasté 5$", dollarsFromBs: true })?.name,
+    ).toBe("Binance");
+  });
+
   it("un cambio no toma la cuenta de la otra moneda", () => {
     const text = "cambié 100 usdt de binance a 970 al banesco";
     expect(pick({ currency: "VES", text, strictCurrency: true, preferKind: "bank" })).toBe(

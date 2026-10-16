@@ -40,7 +40,7 @@ Vocabulario venezolano:
 - Métodos de pago: "pago móvil", "pagomóvil", "pm" = pago_movil; "punto", "punto de venta", "pdv" = punto; "zelle"; "efectivo", "cash"; "transferencia", "transfe". En gastos no cambian la moneda por sí solos: "pagué 500 por pago móvil" sigue sin moneda explícita.
 - Desglose de venta: "350$: 200 efectivo, 100 pago móvil, 50 punto" = total 350 USD y tres líneas con sus montos, cada una con moneda unknown salvo que la diga.
 
-Descripción: 1 a 5 palabras con lo que se compró, sin monto ni moneda. Categoría: solo de la lista del negocio, copiada exactamente; si ninguna encaja con claridad, null.`;
+Descripción: 1 a 5 palabras con lo que se compró, sin monto ni moneda. Categoría: SIEMPRE una de la lista del negocio, copiada exactamente; nunca vacía. Elige la más cercana a lo que se compró, aunque no sea perfecta: una brocha o un bombillo van a la de hogar o mantenimiento, una batería o un caucho a la del carro si existe, un almuerzo a la de comida en la calle. Si el usuario dice la categoría con otras palabras ("otros gastos", "lo de mi hijo", "del carro"), usa la de la lista que más se le parezca. Si hay ejemplos de cómo categoriza este usuario, síguelos para gastos parecidos. "Otros" solo si de verdad ninguna sirve.`;
 
 export function tenantSystem(ctx: AgentContext): string {
   const cats = ctx.categories.map((c) => `- ${c.name}`).join("\n");
@@ -107,9 +107,15 @@ export function userTurn(
   pendingDraft: DraftForPrompt | null,
   waiting: DraftForPrompt[] = [],
   context: string | null = null,
+  examples: { description: string; category: string }[] = [],
 ): string {
   const lines = [`Fecha de hoy en Caracas: ${today} (${formatShortDate(today)}).`];
   if (context) lines.push(context);
+  // En el turno y no en el sistema: cambian con cada gasto y romperían la caché del negocio.
+  if (examples.length)
+    lines.push(
+      `Así categoriza este usuario sus gastos recientes (síguelo en gastos parecidos): ${examples.map((e) => `${e.description} → ${e.category}`).join("; ")}.`,
+    );
   if (pendingDraft) {
     lines.push(
       `El usuario tocó Corregir en este registro (ya guardado; tu llamada lo reemplaza): ${JSON.stringify(draftSummary(pendingDraft))}. El mensaje del usuario corrige uno o más campos de ese registro (monto, moneda, descripción, categoría, fecha, método o tasa): llama ${pendingDraft.tool} con TODOS los campos (y todos los renglones, si es una lista), tomando del borrador los que no cambian, y corrects_draft=true. No uses amend_last_movement para esto.`,

@@ -96,6 +96,7 @@ export function createAgent(opts: AgentOptions): AgentRunner {
             pendingDraft,
             waiting,
             after ? unclearReceiptContext(after) : describes,
+            ctx.categoryExamples ?? [],
           ),
         },
       ];

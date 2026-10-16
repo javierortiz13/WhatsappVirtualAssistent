@@ -13,6 +13,8 @@ export type AgentContext = {
   defaultCurrency: "USD" | "VES" | null;
   vesThreshold: string;
   categories: { id: string; name: string }[];
+  /** Cómo categoriza este negocio sus gastos recientes (16/10): la IA los sigue en gastos parecidos. */
+  categoryExamples?: { description: string; category: string }[];
   today: IsoDate;
   /** Id de fila en `message` del mensaje entrante (para `movement.source_message_id`). */
   sourceMessageDbId: string | null;

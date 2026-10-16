@@ -1241,3 +1241,39 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - En los de fotos, antes de cada caso se cierran las tarjetas abiertas (`expirePendingActions` con el reloj 16 minutos adelante), porque el reloj de la prueba no avanza.
 - La columna `uuid[]` y el filtro por `now()` se probaron contra Postgres real.
 - 446 tests en verde.
+
+### S3 · 16/10/2026 · Categorías y cuentas más inteligentes
+
+**Reporte (Javier, con capturas):**
+- "4400 compra de brocha y batería" quedó en *Comida en Casa*.
+- "Categoría otros gastos" no la cambió.
+- Los gastos en dólares sin cuenta dicha caían en BofA, aunque casi todo se paga en Bs desde el BDV.
+
+**Causa:**
+- **Categoría:** la IA dejó la categoría vacía en los dos mensajes (se ve en `message.tool_calls`). La regla le decía "si ninguna encaja con claridad, null". Con la categoría vacía, el código buscaba "Otros", y como el negocio de Javier no la tiene (lo registró con categorías propias), caía en **la primera de la lista**. La corrección repitió lo mismo.
+- **Cuenta:** era una regla del código, no de la IA. Un monto en $ sin cuenta nombrada tomaba la primera cuenta en dólares. Además, "pago móvil", "punto" y "transferencia" buscaban un banco *en dólares*.
+
+**Hecho:**
+- **Cuenta de los gastos en $** (`resolveAccount`, opción `dollarsFromBs`, solo en gastos):
+  - Sin cuenta dicha, salen de la principal en Bs (el banco primero), a la BCV.
+  - Pago móvil, punto o transferencia van al banco en Bs.
+  - La cuenta en dólares solo si se nombra o se dice Zelle, efectivo, Binance o USDT.
+  - Sin cuentas en Bs, todo sigue como antes.
+  - Las ventas y los cambios no cambian.
+- **Categoría:**
+  - La regla de la IA ahora dice: SIEMPRE una de la lista, la más cercana aunque no sea perfecta, con ejemplos (brocha → hogar o mantenimiento, batería → carro). Si el usuario la dice con otras palabras ("otros gastos"), la de la lista que más se parezca. "Otros" solo si ninguna sirve. Nunca vacía.
+  - `defaultCategoryId` ya no cae en la primera de la lista: va a "Otros".
+  - `ensureOtherCategory` crea "Otros" (o la reactiva) en cada turno del agente si falta, con auditoría de `system`.
+- **Aprende del usuario** (`categoryExamples`):
+  - La IA recibe en cada turno sus últimos 40 gastos, uno por descripción, con la categoría en que quedaron. Como Corregir reemplaza el gasto y el dashboard lo edita, la categoría ya viene corregida.
+  - "Otros" no se enseña, para no reforzar el comodín.
+  - Va en el turno y no en el prompt fijo del negocio, para no romper la caché. Son unos 300 tokens más por mensaje.
+
+**Verificado:**
+- Tests de cuentas: $ sin cuenta va al BDV; pago móvil y "con banesco" van al banco en Bs; Zelle, efectivo y Binance van en dólares; sin cuentas en Bs, como antes.
+- `category-smart.test.ts`: sin "Otros" ya no cae en la primera; "Otros" se crea, se reactiva y no se duplica, con auditoría; los ejemplos toman uno por descripción con la categoría más reciente, sin borrados ni "Otros".
+- En el agente, los ejemplos van en el turno y no en el sistema.
+- La consulta de ejemplos se probó contra Postgres real.
+- 451 tests en verde.
+
+**Pendiente (Javier):** "Brocha y batería" sigue guardada en *Comida en Casa*. Si no se corrige (dashboard o Corregir), sirve de ejemplo equivocado para gastos parecidos.

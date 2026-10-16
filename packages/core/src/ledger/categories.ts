@@ -1,4 +1,4 @@
-import { and, eq, schema, sql, type Tx } from "@caja/db";
+import { and, eq, rows, schema, sql, type Tx } from "@caja/db";
 
 /**
  * Categorías de gasto (US-E5) y configuración del negocio (US-E7) desde el dashboard. Las
@@ -183,4 +183,74 @@ async function audit(
     after,
     channel: "dashboard",
   });
+}
+
+/**
+ * "Otros" como red de seguridad (16/10): el gasto que no encaja en ninguna categoría va ahí, nunca
+ * a la primera de la lista. Si el negocio no la tiene, se crea; si la desactivó, se reactiva. Lo
+ * hace el sistema, con su auditoría.
+ */
+export async function ensureOtherCategory(tx: Tx, tenantId: string): Promise<void> {
+  const c = schema.category;
+  const [row] = await tx
+    .select({ id: c.id, isActive: c.isActive })
+    .from(c)
+    .where(and(eq(c.tenantId, tenantId), eq(c.kind, "expense"), sql`lower(${c.name}) = 'otros'`));
+  if (row?.isActive) return;
+  const entry = (entityId: string, before: unknown, after: unknown, action: "create" | "update") =>
+    tx.insert(schema.auditLog).values({
+      tenantId,
+      actorType: "system",
+      actorId: null,
+      action,
+      entity: "category",
+      entityId,
+      before,
+      after,
+      channel: "whatsapp",
+    });
+  if (row) {
+    await tx.update(c).set({ isActive: true }).where(eq(c.id, row.id));
+    await entry(row.id, { isActive: false }, { isActive: true }, "update");
+    return;
+  }
+  const [max] = await tx
+    .select({ n: sql<number>`coalesce(max(${c.sortOrder}), -1)` })
+    .from(c)
+    .where(eq(c.tenantId, tenantId));
+  const [created] = await tx
+    .insert(c)
+    .values({ tenantId, name: "Otros", kind: "expense", sortOrder: Number(max?.n ?? -1) + 1 })
+    .returning({ id: c.id });
+  if (created) await entry(created.id, null, { name: "Otros" }, "create");
+}
+
+export type CategoryExample = { description: string; category: string };
+
+/**
+ * Cómo categoriza este negocio (16/10): sus gastos recientes, una vez por descripción, con la
+ * categoría en que quedaron (ya corregida: Corregir reemplaza el gasto y el dashboard lo edita).
+ * La IA los usa para gastos parecidos. "Otros" no se enseña: es el comodín.
+ */
+export async function categoryExamples(
+  tx: Tx,
+  tenantId: string,
+  limit = 40,
+): Promise<CategoryExample[]> {
+  const m = schema.movement;
+  const c = schema.category;
+  const result = await tx.execute(sql`
+    select description, category from (
+      select distinct on (lower(trim(${m.description})))
+        trim(${m.description}) as description, ${c.name} as category, ${m.createdAt} as at
+      from ${m} join ${c} on ${c.id} = ${m.categoryId}
+      where ${m.tenantId} = ${tenantId} and ${m.type} = 'expense' and ${m.deletedAt} is null
+        and ${m.description} is not null and trim(${m.description}) <> ''
+        and ${c.isActive} and lower(${c.name}) <> 'otros'
+      order by lower(trim(${m.description})), ${m.createdAt} desc
+    ) x order by at desc limit ${limit}`);
+  return rows<CategoryExample>(result).map((r) => ({
+    description: r.description,
+    category: r.category,
+  }));
 }

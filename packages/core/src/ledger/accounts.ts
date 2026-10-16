@@ -501,10 +501,18 @@ export function resolveAccount(
     strictCurrency?: boolean;
     /** Sin la principal al final: null si el texto no dice nada (para probar un renglón primero). */
     noFallback?: boolean;
+    /**
+     * Gastos (16/10): en Venezuela un precio en $ casi siempre se paga en Bs. Un gasto en dólares
+     * sin cuenta dicha sale de la principal en Bs (a la BCV); la de dólares solo si se nombra o
+     * dice Zelle, efectivo o Binance. Pago móvil, punto o transferencia son de un banco en Bs.
+     */
+    dollarsFromBs?: boolean;
   },
 ): AccountRef | null {
   if (!accounts.length) return null;
   const sameCurrency = accounts.filter((a) => a.currency === input.currency);
+  const bsInstead = input.dollarsFromBs === true && input.currency === "USD";
+  const bs = accounts.filter((a) => a.currency === "VES");
   const texts = [input.text, input.context ?? ""];
   // 1. Nombrada en el mensaje, entre las de la moneda.
   for (const t of texts) {
@@ -518,7 +526,9 @@ export function resolveAccount(
   const p = plain(input.text);
   for (const [re, kind] of KIND_WORDS) if (re.test(p)) kinds.push(kind);
   for (const kind of kinds) {
-    const hit = sameCurrency.find((a) => a.kind === kind);
+    // Pago móvil, punto o transferencia con un monto en $: el banco en Bs, no la cuenta en $.
+    const pool = bsInstead && kind === "bank" && bs.length ? bs : sameCurrency;
+    const hit = pool.find((a) => a.kind === kind);
     if (hit) return hit;
   }
   // 3. Nombrada aunque sea de otra moneda: "pagué 10$ con Banesco" sale de la cuenta en Bs.
@@ -531,7 +541,9 @@ export function resolveAccount(
     const hit = sameCurrency.find((a) => a.kind === input.preferKind);
     if (hit) return hit;
   }
-  return input.noFallback ? null : (sameCurrency[0] ?? null);
+  if (input.noFallback) return null;
+  if (bsInstead && bs.length) return bs.find((a) => a.kind === "bank") ?? bs[0] ?? null;
+  return sameCurrency[0] ?? null;
 }
 
 /** Una cuenta cuyo nombre aparece en el texto, o el mismo banco con otro nombre ("bdv"). */

@@ -466,4 +466,20 @@ describe("agent loop", () => {
     expect(res.status).toBe("rejected_out_of_scope");
     expect(requests.length).toBeLessThanOrEqual(3);
   });
+  it("los ejemplos de cómo categoriza el usuario van en el turno, no en el sistema (16/10)", async () => {
+    const { client, requests } = fakeLlm([call("draft_expense", expense())]);
+    await run(client, "gasté 15$ en champú", {
+      ...ctx,
+      categoryExamples: [
+        { description: "Brocha y batería", category: "Mantenimiento de equipos" },
+        { description: "Champú", category: "Insumos de lavado" },
+      ],
+    });
+    const turn = textOf(requests[0], 0);
+    expect(turn).toContain("Así categoriza este usuario sus gastos recientes");
+    expect(turn).toContain(
+      "Brocha y batería → Mantenimiento de equipos; Champú → Insumos de lavado",
+    );
+    expect(requests[0]?.system.map((b) => b.text).join("\n")).not.toContain("Brocha y batería");
+  });
 });

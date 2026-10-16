@@ -78,6 +78,7 @@ import {
   amendMovement,
   applyBsChoice,
   awaitsBsChoice,
+  categoryExamples,
   createExpense,
   createIncomeDayTotal,
   createIncomeSingle,
@@ -91,6 +92,7 @@ import {
   EditLastDraft,
   ExpenseDraft,
   ExpensesDraft,
+  ensureOtherCategory,
   existingDayTotal,
   expenseTotalForDay,
   IncomeDayTotalDraft,
@@ -2056,6 +2058,7 @@ async function runAgent(
         (deps.now ?? (() => new Date()))(),
       ),
     };
+  await ensureOtherCategory(tx, ctx.tenantId);
   const categories = await tx
     .select({ id: schema.category.id, name: schema.category.name })
     .from(schema.category)
@@ -2086,6 +2089,7 @@ async function runAgent(
         bsRateMode: ctx.bsRateMode ?? "bcv",
         accounts: await listAccounts(tx, ctx.tenantId),
         categories,
+        categoryExamples: await categoryExamples(tx, ctx.tenantId),
         today: ctx.today,
         sourceMessageDbId: current?.id ?? null,
         attachmentId,

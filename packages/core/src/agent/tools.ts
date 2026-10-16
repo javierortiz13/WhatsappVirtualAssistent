@@ -161,7 +161,7 @@ export const DraftExpenseInput = z.object({
   category_name: z
     .string()
     .describe(
-      'Una categoría de la lista del negocio, copiada exactamente, o "" si ninguna encaja claramente.',
+      'SIEMPRE una categoría de la lista del negocio, copiada exactamente: la más cercana a lo que se compró. Si el usuario nombra una ("categoría otros gastos", "va en carro"), la de la lista que más se le parezca. "Otros" solo si de verdad ninguna sirve. Nunca "".',
     ),
   when: z
     .string()
@@ -398,8 +398,12 @@ export const DraftIncomeSingleInput = z.object({
   corrects_draft: CORRECTS_FIELD,
 });
 
+/**
+ * Sin categoría que encaje: "Otros" (el procesador se asegura de que exista). Nunca la primera
+ * de la lista: el 16/10 una brocha cayó en "Comida en Casa" por eso.
+ */
 export function defaultCategoryId(categories: AgentContext["categories"]): string | null {
-  return categories.find((c) => c.name.toLowerCase() === "otros")?.id ?? categories[0]?.id ?? null;
+  return categories.find((c) => c.name.toLowerCase() === "otros")?.id ?? null;
 }
 
 function norm(s: string): string {
@@ -496,7 +500,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
     const categoryId = category?.id ?? defaultCategoryId(run.ctx.categories);
     const categoryName =
       category?.name ?? run.ctx.categories.find((c) => c.id === categoryId)?.name ?? "Otros";
-    const account = accountFor(run, inferred.currency, { target });
+    const account = accountFor(run, inferred.currency, { target, dollarsFromBs: true });
     try {
       const draft = await createExpenseDraft(
         run.tx,
@@ -616,7 +620,11 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
         transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
         manualRate: itemRate,
         bsRate: bsRateFor(run.ctx, inferred.currency, itemRate, eurNote),
-        account: accountFor(run, inferred.currency, { target, itemText: item.description }),
+        account: accountFor(run, inferred.currency, {
+          target,
+          itemText: item.description,
+          dollarsFromBs: true,
+        }),
       });
     }
     // Con moneda ambigua en algún renglón se pregunta una sola vez por todos (los botones vuelven
@@ -668,6 +676,8 @@ function accountFor(
     method?: PaymentMethod | null;
     preferKind?: AccountKind;
     strictCurrency?: boolean;
+    /** Gastos: un monto en $ sin cuenta dicha sale de la principal en Bs (16/10). */
+    dollarsFromBs?: boolean;
   } = {},
 ): { id: string; name: string } | null {
   const accounts = run.ctx.accounts ?? [];
@@ -677,6 +687,7 @@ function accountFor(
     method: opts.method ?? null,
     ...(opts.preferKind ? { preferKind: opts.preferKind } : {}),
     ...(opts.strictCurrency ? { strictCurrency: true } : {}),
+    ...(opts.dollarsFromBs ? { dollarsFromBs: true } : {}),
   };
   const fromItem = opts.itemText?.trim()
     ? resolveAccount(accounts, { ...common, text: opts.itemText, noFallback: true })
