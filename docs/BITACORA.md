@@ -1277,3 +1277,21 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - 451 tests en verde.
 
 **Pendiente (Javier):** "Brocha y batería" sigue guardada en *Comida en Casa*. Si no se corrige (dashboard o Corregir), sirve de ejemplo equivocado para gastos parecidos.
+
+### S3 · 16/10/2026 · Cuentas internas fuera del embudo
+
+**Pedido (Javier):** sus dos cuentas, "Autolavado (piloto 1)" y "Finanzas personales" (con prueba hasta febrero porque no se va a pagar a sí mismo), contaban como clientes. Por eso /admin decía "Pagando: 1" cuando ningún cliente había pagado.
+
+**Hecho:**
+- La etiqueta CRM **"interna"** marca una cuenta del equipo. Sin migración: `crm_tags` ya existía y se edita en el detalle del negocio, donde ahora una pista lo explica.
+- `TenantRow.internal`. El embudo (`loadFunnel`), el ingreso mensual y los conteos de Activos, En prueba y Vencidos cuentan solo clientes.
+- Los costos de IA y Meta siguen sumando todo, porque las cuentas internas también gastan.
+- El embudo dice cuántas internas dejó fuera, y la lista de negocios las muestra con su etiqueta.
+- En producción se marcaron las dos cuentas de Javier (`array_append(crm_tags, 'interna')`).
+
+**Embudo de clientes al 16/10:**
+- 5 registros por WhatsApp y 4 terminados.
+- 5 negocios (1 por la web, 4 por WhatsApp).
+- 1 activado (Francisco del 12/10, 11 movimientos).
+- 5 con mensajes en los últimos 7 días; 0 pagando.
+- Pruebas que vencen entre el 20 y el 26/10.

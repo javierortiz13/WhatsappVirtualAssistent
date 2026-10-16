@@ -255,7 +255,7 @@ export default async function AdminTenant({
         >
           <input type="hidden" name="tenant_id" value={t.id} />
           <label className="field">
-            <span>Etiquetas (separadas por coma)</span>
+            <span>Etiquetas (separadas por coma; «interna» la saca del embudo y los ingresos)</span>
             <input
               className="input"
               name="tags"

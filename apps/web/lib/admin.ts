@@ -62,6 +62,8 @@ export type TenantRow = {
   signupChannel: string;
   founderUntil: string | null;
   crmTags: string[];
+  /** Cuenta del equipo (etiqueta CRM "interna"): fuera del embudo, los ingresos y los conteos. */
+  internal: boolean;
   survey: Record<string, string>;
   lastInboundAt: Date | null;
   /** Movimientos en las primeras 24 h: 3 o más = activado. */
@@ -149,6 +151,7 @@ export async function loadTenants(now: Date): Promise<TenantRow[]> {
       signupChannel: t.signupChannel,
       founderUntil: t.founderUntil,
       crmTags: t.crmTags,
+      internal: isInternal(t.crmTags),
       survey: (t.survey ?? {}) as Record<string, string>,
       lastInboundAt,
       firstDayMovements,
@@ -169,6 +172,11 @@ export type AbandonedSignup = {
  * Embudo del CRM (0019): registros por WhatsApp (empezados, terminados, abandonados) y, sobre los
  * negocios, cuántos se activaron, siguen activos y pagan. `signup` es global (sin RLS).
  */
+/** Etiqueta CRM que marca una cuenta del equipo (16/10): no es cliente. */
+export const INTERNAL_TAG = "interna";
+export const isInternal = (tags: string[]) =>
+  tags.some((t) => t.trim().toLowerCase() === INTERNAL_TAG);
+
 export async function loadFunnel(tenants: TenantRow[], now: Date) {
   await requireAdmin();
   const s = schema.signup;
@@ -177,7 +185,8 @@ export async function loadFunnel(tenants: TenantRow[], now: Date) {
     .from(s)
     .where(gte(s.createdAt, new Date(now.getTime() - 90 * 86_400_000)))
     .orderBy(desc(s.updatedAt));
-  const live = tenants.filter((t) => !t.purgeAfter);
+  // Solo clientes: las cuentas internas (etiqueta "interna") no cuentan.
+  const live = tenants.filter((t) => !t.purgeAfter && !t.internal);
   const abandoned: AbandonedSignup[] = all
     .filter((r) => !r.completedAt && now.getTime() - r.updatedAt.getTime() > 30 * 60_000)
     .slice(0, 20)

@@ -58,10 +58,13 @@ export default async function AdminHome({
   ]);
   const sum = (f: (t: (typeof tenants)[number]) => Decimal) =>
     tenants.reduce((acc, t) => acc.plus(f(t)), new Decimal(0));
-  const revenue = sum((t) => t.revenueUsd);
+  // Ingresos y conteos son de clientes; los costos de IA y Meta, de todo (las internas también gastan).
+  const clients = tenants.filter((t) => !t.internal);
+  const internal = tenants.length - clients.length;
+  const revenue = clients.reduce((acc, t) => acc.plus(t.revenueUsd), new Decimal(0));
   const ai = sum((t) => t.usage.aiCostUsd);
   const meta = sum((t) => t.metaCostUsd);
-  const count = (k: string) => tenants.filter((t) => t.state.kind === k).length;
+  const count = (k: string) => clients.filter((t) => t.state.kind === k).length;
   const overCap = tenants.filter((t) => t.usage.inbound > t.cap);
   const premium = rates ? premiumOverUsd(rates) : null;
   const funnel = await loadFunnel(tenants, now);
@@ -169,7 +172,12 @@ export default async function AdminHome({
       </section>
 
       <section className="card tight">
-        <span className="sect">Embudo</span>
+        <span className="sect">
+          Embudo
+          {internal
+            ? ` · sin ${internal} cuenta${internal === 1 ? "" : "s"} interna${internal === 1 ? "" : "s"}`
+            : ""}
+        </span>
         {steps.map(([label, n, note]) => (
           <div className="row" key={label}>
             <span className="what">
