@@ -1292,6 +1292,6 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 **Embudo de clientes al 16/10:**
 - 5 registros por WhatsApp y 4 terminados.
 - 5 negocios (1 por la web, 4 por WhatsApp).
-- 1 activado (Francisco del 12/10, 11 movimientos).
+- 1 activado (Francisco del 12/10: 4 movimientos el primer día, 11 en total).
 - 5 con mensajes en los últimos 7 días; 0 pagando.
 - Pruebas que vencen entre el 20 y el 26/10.
