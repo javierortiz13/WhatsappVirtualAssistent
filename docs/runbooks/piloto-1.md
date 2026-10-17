@@ -35,6 +35,12 @@ que no funcione se anota y entra como caso de eval o como bug.
 efectivo, 100 pago móvil, 50 punto" y Guardar; luego "cierre". Compara el efectivo en caja que
 dice el bot con el conteo real y anota si cuadra.
 
+> **Desde el 17/10/2026:** el cierre ya no dice "Efectivo en caja" sino "Ventas en efectivo" (solo
+> lo vendido en efectivo, sin restar gastos ni depósitos), así que no va a cuadrar con la gaveta.
+> Mientras llega el cálculo real con las cuentas de efectivo, sigue la rutina provisional del PRD
+> (`agency/products/rocco/prd-cash-in-drawer.md` §8, "Piloto 1 runbook", en el repo de la agencia):
+> cuenta la gaveta cada noche y anótalo igual.
+
 **Cada noche (2 minutos)**: en el dashboard, Movimientos → ¿hay algo mal registrado? Corrígelo
 ahí. Cada corrección cuenta para la métrica de "mensajes mal entendidos".
 

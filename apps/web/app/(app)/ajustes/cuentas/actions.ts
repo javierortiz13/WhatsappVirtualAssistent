@@ -75,6 +75,8 @@ export async function createAccountAction(formData: FormData): Promise<void> {
         currency: parsed.data.currency === "VES" ? "VES" : "USD",
         kind,
         openingBalance: opening,
+        // Campo vacío = no dijo el saldo: los Bs de cambios viejos no se recortan (PRD efectivo).
+        openingKnown: Boolean(parsed.data.opening?.trim()),
         openingDate: asIsoDate(todayInCaracas()),
         actor: { userId: user.id },
         channel: "dashboard",

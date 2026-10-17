@@ -209,7 +209,7 @@ export default async function Cierres({
           {periodo === "dia" ? (
             <section className="card rate">
               <div>
-                <span className="label">Efectivo en caja</span>
+                <span className="label">Ventas en efectivo</span>
                 <p className="kpi">{formatMoney(close.cashUsd, "USD")}</p>
               </div>
               <div style={{ textAlign: "right" }}>

@@ -167,7 +167,7 @@ describe("cierre y consultas", () => {
       "*Gastos: $47,00*\nInsumos de lavado $27,00\nComida del personal $20,00",
     );
     expect(body).toContain("*Ventas menos gastos: $303,00* (Bs 259.974,00 a tasa 858,00)");
-    expect(body).toContain("Efectivo en caja: $200,00 · Bs 0,00");
+    expect(body).toContain("Ventas en efectivo: $200,00 · Bs 0,00");
     expect(body).toContain("5 movimientos · Dashboard: https://caja.test");
 
     const month = await withTenant(t.db, tenantId, (tx) =>

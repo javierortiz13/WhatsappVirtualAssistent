@@ -1,4 +1,4 @@
-import { eq, schema, withTenant } from "@caja/db";
+import { and, eq, schema, withTenant } from "@caja/db";
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -23,6 +23,7 @@ import {
   saveAllocation,
 } from "../src/ledger/exchange";
 import { createExpense } from "../src/ledger/expenses";
+import type { PaymentMethod } from "../src/ledger/income";
 import { createIncomeSingle } from "../src/ledger/income";
 import { amendMovement, computeAmend, deleteMovement } from "../src/ledger/last-movement";
 
@@ -79,6 +80,7 @@ describe("cuentas", () => {
         currency: "VES",
         kind: "bank",
         openingBalance: new Decimal(100000),
+        openingKnown: true,
         openingDate: day,
         actor: actor(),
         channel: "dashboard",
@@ -128,6 +130,7 @@ describe("cuentas", () => {
           currency: "VES",
           kind: "bank",
           openingBalance: new Decimal(12000),
+          openingKnown: true,
           openingDate: day,
           actor: a,
           channel: "dashboard",
@@ -152,6 +155,7 @@ describe("cuentas", () => {
         currency: "USD",
         kind: "crypto",
         openingBalance: new Decimal(500),
+        openingKnown: true,
         openingDate: day,
         actor: actor(),
         channel: "whatsapp",
@@ -250,6 +254,7 @@ describe("cuentas", () => {
         currency: "VES",
         kind: "bank",
         openingBalance: new Decimal(0),
+        openingKnown: true,
         openingDate: day,
         actor: actor(),
         channel: "dashboard",
@@ -348,6 +353,7 @@ describe("cuentas", () => {
           currency: "VES",
           kind: "bank",
           openingBalance: new Decimal(0),
+          openingKnown: true,
           openingDate: day,
           actor: actor(),
           channel: "whatsapp",
@@ -421,6 +427,45 @@ describe("a qué cuenta va", () => {
     ).toBe("Binance");
   });
 
+  it("ventas: pago móvil, punto o transferencia en Bs van al banco en Bs aunque la venta sea en $", () => {
+    expect(pick({ currency: "USD", text: "x", method: "pago_movil" })).toBe("Banco de Venezuela");
+    expect(pick({ currency: "USD", text: "x", method: "punto" })).toBe("Banco de Venezuela");
+    expect(pick({ currency: "USD", text: "pago móvil a banesco", method: "pago_movil" })).toBe(
+      "Banesco",
+    );
+    // Una venta en $ sin método sigue en la principal en dólares (el arreglo no es un flag).
+    expect(pick({ currency: "USD", text: "vendí 20$" })).toBe("Binance");
+    // Sin banco en Bs, como antes.
+    const onlyUsd = accounts.filter((a) => a.currency === "USD");
+    expect(resolveAccount(onlyUsd, { currency: "USD", text: "x", method: "punto" })?.name).toBe(
+      "Binance",
+    );
+  });
+
+  it("renglón de un desglose: manda su método, no las palabras de los otros renglones", () => {
+    const text = "hoy vendí 300$: 200 efectivo, 50 zelle, 50 otra cosa";
+    const line = (method: PaymentMethod | null) =>
+      pick({ currency: "USD", text, method, lineOnly: true });
+    expect(line("cash_usd")).toBe("Efectivo $");
+    expect(line("zelle")).toBe("Zelle");
+    expect(line("other")).toBe("Binance");
+    expect(line(null)).toBe("Binance");
+    expect(pick({ currency: "USD", text, method: "other", lineOnly: true, noFallback: true })).toBe(
+      null,
+    );
+    expect(
+      pick({
+        currency: "USD",
+        text: "200 efectivo, 100 pago móvil a banesco",
+        method: "pago_movil",
+        lineOnly: true,
+      }),
+    ).toBe("Banesco");
+    expect(
+      pick({ currency: "VES", text: "5000 en efectivo", method: "cash_ves", lineOnly: true }),
+    ).toBe("Efectivo Bs");
+  });
+
   it("un cambio no toma la cuenta de la otra moneda", () => {
     const text = "cambié 100 usdt de binance a 970 al banesco";
     expect(pick({ currency: "VES", text, strictCurrency: true, preferKind: "bank" })).toBe(
@@ -430,5 +475,145 @@ describe("a qué cuenta va", () => {
       "Binance",
     );
     expect(namedAccount(accounts, "nada que ver")).toBeNull();
+  });
+});
+
+/**
+ * Crear una cuenta sin saldo dicho no borra Bs (PRD cash-in-drawer, US-013): los cambios de antes
+ * de las cuentas pasan enteros y su suma es el saldo inicial; el efectivo nunca los adopta.
+ */
+describe("cuentas: saldo no dicho y lotes de antes", () => {
+  let t: Awaited<ReturnType<typeof createTestDb>>;
+  let tenantId: string;
+  let phoneId: string;
+  const day = asIsoDate("2026-10-04");
+  const run = <T>(fn: Parameters<typeof withTenant<T>>[2]) => withTenant(t.db, tenantId, fn);
+
+  beforeAll(async () => {
+    t = await createTestDb();
+    await t.db
+      .insert(schema.bcvRate)
+      .values({ effectiveDate: "2026-10-02", rate: "866.56000000", source: "test" });
+  });
+  afterAll(() => t.close());
+
+  /** Un registro nuevo con dos cambios viejos sin cuenta: quedan Bs 30.000 y Bs 10.000. */
+  async function freshTenant() {
+    tenantId = await seedTenant(t.db, {
+      name: `Lotes ${Math.random()}`,
+      businessType: "car_wash",
+      ownerPhone: `58412${Math.floor(1_000_000 + Math.random() * 8_999_999)}`,
+    });
+    phoneId = (await run((tx) => tx.select().from(schema.phoneNumber)))[0]?.id ?? "";
+    for (const left of ["30000.00", "10000.00"])
+      await run(async (tx) => {
+        const lotId = await createExchangeLot(tx, {
+          tenantId,
+          businessDate: "2026-10-01",
+          usd: new Decimal(50),
+          ves: new Decimal(48500),
+          rate: new Decimal(970),
+          actor: { phoneId },
+          channel: "whatsapp",
+        });
+        await tx
+          .update(schema.exchangeLot)
+          .set({ vesRemaining: left })
+          .where(eq(schema.exchangeLot.id, lotId));
+      });
+  }
+
+  const create = (
+    name: string,
+    kind: AccountRef["kind"],
+    opening: string | null,
+    channel: "whatsapp" | "dashboard" = "whatsapp",
+  ) =>
+    run((tx) =>
+      createAccount(tx, {
+        tenantId,
+        name,
+        currency: "VES",
+        kind,
+        openingBalance: new Decimal(opening ?? 0),
+        openingKnown: opening !== null,
+        openingDate: day,
+        actor: { phoneId },
+        channel,
+      }),
+    );
+  const lots = () =>
+    run((tx) =>
+      tx
+        .select()
+        .from(schema.exchangeLot)
+        .where(
+          and(eq(schema.exchangeLot.tenantId, tenantId), eq(schema.exchangeLot.source, "exchange")),
+        )
+        .orderBy(schema.exchangeLot.vesRemaining),
+    );
+  const balanceOf = async (name: string) =>
+    (await run((tx) => accountBalances(tx, tenantId)))
+      .find((a) => a.name === name)
+      ?.balance.toFixed(2);
+
+  it("un gasto sin cuenta sigue tomando Bs de los lotes sin cuenta (chequeo previo)", async () => {
+    await freshTenant();
+    const plan = await run((tx) => planAllocation(tx, tenantId, new Decimal(5000)));
+    expect(plan?.parts.map((p) => p.source)).toEqual(["exchange"]);
+  });
+
+  it("un registro con lotes vivos conserva su ves_remaining: 'crea la cuenta Banesco' sin saldo", async () => {
+    await freshTenant();
+    const banesco = await create("Banesco", "bank", null);
+    const after = await lots();
+    expect(after.map((l) => [l.accountId, l.vesRemaining])).toEqual([
+      [banesco.id, "10000.00"],
+      [banesco.id, "30000.00"],
+    ]);
+    expect(await balanceOf("Banesco")).toBe("40000.00");
+    const [row] = await run((tx) =>
+      tx.select().from(schema.auditLog).where(eq(schema.auditLog.entityId, banesco.id)),
+    );
+    expect((row?.after as { openingBalance?: string } | undefined)?.openingBalance).toBe(
+      "40000.00",
+    );
+  });
+
+  it("lo mismo desde Ajustes con el campo de saldo vacío", async () => {
+    await freshTenant();
+    await create("Banesco", "bank", null, "dashboard");
+    expect(await balanceOf("Banesco")).toBe("40000.00");
+  });
+
+  it("con saldo dicho, como antes: se recorta a ese saldo", async () => {
+    await freshTenant();
+    await create("Banesco", "bank", "25000");
+    expect(await balanceOf("Banesco")).toBe("25000.00");
+    // Se recorta del cambio más viejo (el de 30.000), como siempre.
+    expect((await lots()).map((l) => l.vesRemaining)).toEqual(["10000.00", "15000.00"]);
+  });
+
+  it("el efectivo no adopta los lotes; la cuenta de banco que viene después sí", async () => {
+    await freshTenant();
+    await create("Efectivo Bs", "cash", null);
+    expect(await balanceOf("Efectivo Bs")).toBe("0.00");
+    expect((await lots()).map((l) => [l.accountId, l.vesRemaining])).toEqual([
+      [null, "10000.00"],
+      [null, "30000.00"],
+    ]);
+    await create("Banesco", "bank", null);
+    expect(await balanceOf("Banesco")).toBe("40000.00");
+    expect(await balanceOf("Efectivo Bs")).toBe("0.00");
+  });
+
+  it("efectivo con el conteo: empieza con lo contado y los lotes quedan igual", async () => {
+    await freshTenant();
+    await create("Efectivo Bs", "cash", "15000");
+    expect(await balanceOf("Efectivo Bs")).toBe("15000.00");
+    expect((await lots()).map((l) => [l.accountId, l.vesRemaining])).toEqual([
+      [null, "10000.00"],
+      [null, "30000.00"],
+    ]);
   });
 });

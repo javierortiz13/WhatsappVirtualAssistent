@@ -678,6 +678,11 @@ function accountFor(
     strictCurrency?: boolean;
     /** Gastos: un monto en $ sin cuenta dicha sale de la principal en Bs (16/10). */
     dollarsFromBs?: boolean;
+    /**
+     * Renglón de un desglose de varios métodos: manda su método, y no toma el "efectivo" o el
+     * "pago móvil" de otro renglón (ver `lineOnly` en `resolveAccount`).
+     */
+    lineOnly?: boolean;
   } = {},
 ): { id: string; name: string } | null {
   const accounts = run.ctx.accounts ?? [];
@@ -688,6 +693,7 @@ function accountFor(
     ...(opts.preferKind ? { preferKind: opts.preferKind } : {}),
     ...(opts.strictCurrency ? { strictCurrency: true } : {}),
     ...(opts.dollarsFromBs ? { dollarsFromBs: true } : {}),
+    ...(opts.lineOnly ? { lineOnly: true } : {}),
   };
   const fromItem = opts.itemText?.trim()
     ? resolveAccount(accounts, { ...common, text: opts.itemText, noFallback: true })
@@ -1003,13 +1009,19 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
         method: l.method,
         amount,
         currency,
-        account: accountFor(run, currency, { target, method: l.method }),
+        // Con varios renglones, cada uno va por su método: las palabras del mensaje son de todos.
+        account: accountFor(run, currency, {
+          target,
+          method: l.method,
+          lineOnly: input.lines.length > 1,
+        }),
       });
     }
+    // Lo que falta para el total no dijo método: si hubo desglose, a la principal de la moneda.
     const fallbackAccounts = run.ctx.accounts?.length
       ? {
-          USD: accountFor(run, "USD", { target }),
-          VES: accountFor(run, "VES", { target }),
+          USD: accountFor(run, "USD", { target, lineOnly: input.lines.length > 0 }),
+          VES: accountFor(run, "VES", { target, lineOnly: input.lines.length > 0 }),
         }
       : undefined;
     try {
@@ -2117,6 +2129,7 @@ const createAccountTool: ToolSpec<typeof CreateAccountInput> = {
         currency,
         kind,
         openingBalance: opening,
+        openingKnown: raw !== null,
         openingDate: run.ctx.today,
         actor: { phoneId: run.ctx.phoneId },
         channel: "whatsapp",

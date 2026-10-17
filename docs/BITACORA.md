@@ -1295,3 +1295,39 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - 1 activado (Francisco del 12/10: 4 movimientos el primer día, 11 en total).
 - 5 con mensajes en los últimos 7 días; 0 pagando.
 - Pruebas que vencen entre el 20 y el 26/10.
+
+### S3 · 17/10/2026 · Efectivo en caja, fase 1: nombre honesto y dos arreglos de cuentas
+
+**Contexto:** PRD "Cash in the drawer" (v4.1, repo de la agencia, `agency/products/rocco/prd-cash-in-drawer.md`). El cierre decía "Efectivo en caja", pero eran solo las ventas en efectivo: no restaba lo que sale de la gaveta ni los depósitos. El cálculo real (con las cuentas de efectivo) es la fase 2. La fase 1 deja el número honesto y arregla dos errores de cuentas que ya existían.
+
+**Hecho:**
+- **US-001 · "Ventas en efectivo".**
+  - Así se llama ahora la línea del cierre por WhatsApp, Cierres y la tarjeta de Inicio ("Ventas en efectivo hoy", porque está al lado de la del mes). El número no cambia.
+  - `docs/runbooks/piloto-1.md` §3 apunta a la rutina provisional del PRD.
+  - **Falta la línea pública del plan** (`plans.ts:51`, "Cierre del día con efectivo en caja"): el texto nuevo, "Cierre del día: ventas menos gastos", espera la revisión de cumplimiento de la agencia. Entra cuando se apruebe.
+- **US-012 · El pago móvil de una venta va al banco en Bs.**
+  - "hoy vendí 350$: 200 efectivo, 100 pago móvil" mandaba los 100 a la primera cuenta en dólares. Ahora `resolveAccount` busca la cuenta en la moneda del método: pago móvil, punto y transferencia en Bs van a un banco en Bs, prefiriendo el nombrado ("pago móvil a Banesco").
+  - Sin método, una venta en $ sigue yendo a la principal en dólares. A propósito, no se le pasó a las ventas el `dollarsFromBs` de los gastos, que también cambia ese caso.
+  - En un desglose de varios métodos, cada renglón va por su método (`lineOnly`). Un renglón sin método y lo que falta para el total van a la principal de su moneda, sin tomar el "efectivo" o el "pago móvil" de otro renglón. Con un solo renglón o solo el total, el mensaje sigue mandando ("vendí 30$ todo por zelle" → Zelle).
+- **US-013 · Crear una cuenta sin saldo ya no borra Bs.**
+  - `createAccount` recibe `openingKnown` = el usuario escribió un saldo (un "0" escrito cuenta). Lo pasan el chat, Ajustes (campo vacío = no lo dijo) y los dos registros.
+  - Una cuenta en Bs sin saldo dicho adopta los cambios viejos enteros, y su suma es el saldo inicial. Antes, "crea la cuenta Banesco" los recortaba a 0.
+  - Una cuenta de efectivo nunca adopta los cambios viejos: esos Bs están en un banco, no en la gaveta. Quedan sin cuenta hasta que se cree un banco en Bs.
+  - La auditoría guarda el saldo inicial final.
+- **US-014 · El libro personal de Javier pasa a `personal`.** Estaba como "Otro" y lo trataban como negocio. Se cambió en producción con un `audit_log` (`actor_type` system). Solo cambia el texto de "Primeros pasos" en Inicio ("Registrar un ingreso"). Internas: 1 `car_wash` + 1 `personal`; clientes sin cambio (5 `personal`).
+
+**Verificado:**
+- `sale-accounts.test.ts` (nuevo), de punta a punta:
+  - el desglose 200 efectivo / 100 pago móvil / 50 zelle cae en Efectivo $, Banesco y Zelle;
+  - "100 otra cosa" va a la principal y no a Efectivo $;
+  - total solo → principal; "todo por zelle" → Zelle; venta suelta por punto → Banesco.
+- `accounts.test.ts`:
+  - casos de `resolveAccount` para ventas y renglones;
+  - lotes de 30.000 + 10.000: Banesco sin saldo → 40.000 con los lotes enteros (también desde Ajustes); con 25.000 → recorte como antes; Efectivo Bs no los adopta y el Banesco que viene después sí;
+  - chequeo previo: un gasto sin cuenta sigue tomando de los lotes sin cuenta.
+- 463 tests en verde, lint y typecheck limpios.
+- **Chequeo del lunes en producción:** el Piloto 1 tiene 3 cuentas, 0 de efectivo y ningún cambio viejo sin cuenta. Crear Efectivo $ y Efectivo Bs con el conteo no toca nada más.
+
+**Pendiente:**
+- La línea del plan (C16a) cuando cumplimiento la apruebe.
+- Fase 2: "Efectivo en caja" real desde las cuentas de efectivo, con `accountDays` y `dailyClose`.

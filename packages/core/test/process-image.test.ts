@@ -961,6 +961,7 @@ describe("fotos de facturas", () => {
           currency,
           kind,
           openingBalance: new Decimal(0),
+          openingKnown: true,
           openingDate: asIsoDate("2026-10-01"),
           actor: { phoneId: ph?.id as string },
           channel: "dashboard",

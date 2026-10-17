@@ -158,9 +158,11 @@ function cleanName(name: string): string {
 }
 
 /**
- * Crea una cuenta. En Bs, el saldo inicial queda como lote a la BCV del día de apertura. La
- * primera cuenta en Bs adopta los cambios de antes de las cuentas: sus Bs restantes son parte del
- * saldo inicial, y solo el resto va a la BCV.
+ * Crea una cuenta. En Bs, el saldo inicial queda como lote a la BCV del día de apertura. Una cuenta
+ * en Bs que no es de efectivo adopta los cambios de antes de las cuentas (lotes sin cuenta): sus Bs
+ * restantes son parte del saldo inicial, y solo el resto va a la BCV. Si el usuario no dijo el saldo
+ * (`openingKnown` false), los lotes pasan enteros y su suma es el saldo inicial: crear "Banesco" sin
+ * saldo nunca borra Bs. El efectivo no adopta: esos Bs están en un banco, no en la gaveta.
  */
 export async function createAccount(
   tx: Tx,
@@ -170,6 +172,8 @@ export async function createAccount(
     currency: Currency;
     kind: AccountKind;
     openingBalance: Decimal;
+    /** El usuario escribió un saldo (un "0" escrito cuenta); si no, `openingBalance` es 0. */
+    openingKnown: boolean;
     openingDate: IsoDate;
     actor: Actor;
     channel: "whatsapp" | "dashboard";
@@ -202,25 +206,42 @@ export async function createAccount(
     })
     .returning();
   if (!row) throw new Error("no se pudo crear la cuenta");
-  await audit(tx, input.tenantId, input.actor, input.channel, "create", row.id, null, row);
+  let created = row;
   if (input.currency === "VES") {
-    const adopted = await adoptLegacyLots(tx, input.tenantId, row.id, input.openingBalance);
+    const adopted =
+      input.kind === "cash"
+        ? D0
+        : await adoptLegacyLots(
+            tx,
+            input.tenantId,
+            row.id,
+            input.openingKnown ? input.openingBalance : null,
+          );
+    if (!input.openingKnown && adopted.gt(0)) {
+      const [updated] = await tx
+        .update(a)
+        .set({ openingBalance: adopted.toFixed(2) })
+        .where(eq(a.id, row.id))
+        .returning();
+      if (updated) created = updated;
+    }
     const rest = input.openingBalance.minus(adopted);
     if (rest.gt(0)) await adjustOpeningLot(tx, input.tenantId, row.id, input.openingDate, rest);
   }
+  await audit(tx, input.tenantId, input.actor, input.channel, "create", row.id, null, created);
   return { id: row.id, name: row.name, currency: input.currency, kind: input.kind };
 }
 
 /**
- * Pasa a la cuenta los lotes sin cuenta con saldo. Si el saldo inicial es menor que lo que queda
- * de esos cambios, se descuenta de los más viejos (se gastaron sin anotar). Devuelve los Bs
- * adoptados.
+ * Pasa a la cuenta los lotes sin cuenta con saldo. Si el saldo inicial dicho es menor que lo que
+ * queda de esos cambios, se descuenta de los más viejos (se gastaron sin anotar). Sin saldo dicho
+ * (`opening` null) pasan enteros. Devuelve los Bs adoptados.
  */
 async function adoptLegacyLots(
   tx: Tx,
   tenantId: string,
   accountId: string,
-  opening: Decimal,
+  opening: Decimal | null,
 ): Promise<Decimal> {
   const l = schema.exchangeLot;
   const legacy = await tx
@@ -231,7 +252,7 @@ async function adoptLegacyLots(
     .for("update");
   if (!legacy.length) return D0;
   const total = legacy.reduce((s, r) => s.plus(r.remaining), D0);
-  let trim = Decimal.max(D0, total.minus(Decimal.max(D0, opening)));
+  let trim = opening ? Decimal.max(D0, total.minus(Decimal.max(D0, opening))) : D0;
   const now = new Date();
   for (const lot of legacy) {
     const remaining = new Decimal(lot.remaining);
@@ -247,7 +268,7 @@ async function adoptLegacyLots(
       })
       .where(eq(l.id, lot.id));
   }
-  return Decimal.min(total, Decimal.max(D0, opening));
+  return opening ? Decimal.min(total, Decimal.max(D0, opening)) : total;
 }
 
 /**
@@ -507,10 +528,17 @@ export function resolveAccount(
      * dice Zelle, efectivo o Binance. Pago móvil, punto o transferencia son de un banco en Bs.
      */
     dollarsFromBs?: boolean;
+    /**
+     * Renglón de un desglose de varios métodos ("200 efectivo, 100 pago móvil"): las palabras del
+     * mensaje son de todos los renglones, así que manda el método del renglón; el texto solo elige
+     * entre las cuentas de ese tipo ("pago móvil a Banesco"). Sin método, la principal.
+     */
+    lineOnly?: boolean;
   },
 ): AccountRef | null {
   if (!accounts.length) return null;
   const sameCurrency = accounts.filter((a) => a.currency === input.currency);
+  if (input.lineOnly) return lineAccount(accounts, sameCurrency, input);
   const bsInstead = input.dollarsFromBs === true && input.currency === "USD";
   const bs = accounts.filter((a) => a.currency === "VES");
   const texts = [input.text, input.context ?? ""];
@@ -525,6 +553,16 @@ export function resolveAccount(
   if (byMethod) kinds.push(byMethod.kind);
   const p = plain(input.text);
   for (const [re, kind] of KIND_WORDS) if (re.test(p)) kinds.push(kind);
+  // Un método de banco dice su moneda: pago móvil, punto o transferencia en Bs van al banco en Bs
+  // aunque la venta se diga en $ (cash y zelle siguen la moneda del monto: son billetes o dólares).
+  if (byMethod?.kind === "bank" && !input.strictCurrency) {
+    const banks = accounts.filter((a) => a.kind === "bank" && a.currency === byMethod.currency);
+    for (const t of texts) {
+      const named = namedAccount(banks, t);
+      if (named) return named;
+    }
+    if (banks[0]) return banks[0];
+  }
   for (const kind of kinds) {
     // Pago móvil, punto o transferencia con un monto en $: el banco en Bs, no la cuenta en $.
     const pool = bsInstead && kind === "bank" && bs.length ? bs : sameCurrency;
@@ -544,6 +582,29 @@ export function resolveAccount(
   if (input.noFallback) return null;
   if (bsInstead && bs.length) return bs.find((a) => a.kind === "bank") ?? bs[0] ?? null;
   return sameCurrency[0] ?? null;
+}
+
+/** La cuenta de un renglón de un desglose: por su método (un banco, en la moneda del método). */
+function lineAccount(
+  accounts: AccountRef[],
+  sameCurrency: AccountRef[],
+  input: { text: string; context?: string; method?: PaymentMethod | null; noFallback?: boolean },
+): AccountRef | null {
+  const m = input.method ? METHOD_KIND[input.method] : undefined;
+  if (m) {
+    const ofKind = (pool: AccountRef[]) => pool.filter((a) => a.kind === m.kind);
+    const inMethodCurrency =
+      m.kind === "bank" ? ofKind(accounts.filter((a) => a.currency === m.currency)) : [];
+    const pool = inMethodCurrency.length ? inMethodCurrency : ofKind(sameCurrency);
+    if (pool.length) {
+      for (const t of [input.text, input.context ?? ""]) {
+        const named = namedAccount(pool, t);
+        if (named) return named;
+      }
+      return pool[0] ?? null;
+    }
+  }
+  return input.noFallback ? null : (sameCurrency[0] ?? null);
 }
 
 /** Una cuenta cuyo nombre aparece en el texto, o el mismo banco con otro nombre ("bdv"). */

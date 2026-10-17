@@ -54,6 +54,7 @@ describe("transferencias entre cuentas", () => {
           currency,
           kind,
           openingBalance: new Decimal(opening),
+          openingKnown: true,
           openingDate: day,
           actor: actor(),
           channel: "dashboard",

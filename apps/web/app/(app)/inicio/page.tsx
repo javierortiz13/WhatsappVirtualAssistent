@@ -209,7 +209,7 @@ export default async function Inicio({
           </p>
         </div>
         <div className="card">
-          <span className="label">Efectivo en caja</span>
+          <span className="label">Ventas en efectivo hoy</span>
           <p className="kpi">{formatMoney(close.cashUsd, "USD")}</p>
           <p className="kpi-sub num">{formatMoney(close.cashVes, "VES")} en bolívares</p>
         </div>

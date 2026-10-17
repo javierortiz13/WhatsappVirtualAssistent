@@ -40,6 +40,7 @@ describe("eliminar un negocio", () => {
           currency,
           kind,
           openingBalance: new Decimal(name === "Binance" ? 200 : 0),
+          openingKnown: true,
           openingDate: day,
           actor,
           channel: "dashboard",

@@ -1810,7 +1810,8 @@ export function dailyClose(v: DailyCloseView): Outbound {
   );
   lines.push("");
   lines.push(
-    `Efectivo en caja: ${formatMoney(v.cashUsd, "USD")} · ${formatMoney(v.cashVes, "VES")}`,
+    // Solo las ventas cobradas en efectivo: no resta lo que salió de la gaveta (PRD efectivo, C1).
+    `Ventas en efectivo: ${formatMoney(v.cashUsd, "USD")} · ${formatMoney(v.cashVes, "VES")}`,
   );
   lines.push(
     `${v.count === 1 ? "1 movimiento" : `${v.count} movimientos`} · Dashboard: ${v.dashboardUrl}`,
