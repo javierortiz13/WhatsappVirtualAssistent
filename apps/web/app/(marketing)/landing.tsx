@@ -135,15 +135,10 @@ export function Landing({
           <div className="plans" style={{ marginTop: 36 }}>
             {PLANS.map((p, i) => (
               <div className={`card plan reveal d${i + 1}${p.highlight ? " hi" : ""}`} key={p.id}>
-                <div className="name">
-                  {p.name}
-                  {p.highlight ? <span className="badge ok">Más elegido</span> : null}
-                </div>
+                <div className="name">{p.name}</div>
                 <div className="price num">
                   {beta ? (
-                    <>
-                      14 días gratis <small>100 mensajes</small>
-                    </>
+                    "Gratis: 14 días o 100 mensajes"
                   ) : (
                     <>
                       {money(p.priceUsd)} <small>/ mes</small>
@@ -193,7 +188,7 @@ export function Landing({
             <h2>Deja que Rocco te lleve las cuentas.</h2>
             <p className="lead" style={{ margin: "12px auto 24px" }}>
               Escríbele <strong>hola</strong> por WhatsApp y arma tu cuenta en el mismo chat. Son
-              dos minutos y tienes 14 días gratis.
+              dos minutos y tienes 14 días o 100 mensajes gratis, lo que llegue primero.
             </p>
             <div className="ctas" style={{ justifyContent: "center" }}>
               <a
@@ -359,14 +354,14 @@ function scenes(waUrl: string | null): Scene[] {
       user: "¿y mis datos?",
       bot: (
         <>
-          Son tuyos y de nadie más. Tu cuenta está separada de las demás, exportas todo a Excel
+          Son tuyos. Tu cuenta está separada de las demás, exportas todo a Excel
           cuando quieras y la puedes borrar escribiéndome <strong>eliminar mi cuenta</strong>. Las
           notas de voz las escucho y las descarto: nunca se guardan.
         </>
       ),
       caption: {
         title: "Fiel también con tu privacidad.",
-        text: "Nada se comparte, nada se vende. Y tu contador recibe el Excel que siempre te pidió.",
+        text: "Tus datos no se venden ni se usan para publicidad. Y tu contador recibe el Excel que siempre te pidió.",
       },
     },
     {
@@ -374,7 +369,7 @@ function scenes(waUrl: string | null): Scene[] {
       bot: (
         <>
           ¡Dale! Escríbeme <strong>hola</strong> desde tu WhatsApp y armamos tu cuenta aquí mismo en
-          dos minutos. Tienes 14 días gratis para probarme.
+          dos minutos. Tienes 14 días o 100 mensajes gratis para probarme.
           <div className="btns">
             {waUrl ? <span>Escribirle a Rocco</span> : null}
             <span>Crear cuenta en la web</span>
@@ -412,7 +407,7 @@ const FAQ = [
   },
   {
     q: "¿Cuánto cuesta?",
-    a: "Durante la beta lo pruebas gratis por 14 días, contados desde el día que empiezas a usarlo. Al terminar la prueba, Rocco te dice el precio de tu plan (los primeros 50 con precio de fundador) y pagas por pago móvil, Zelle o USDT desde el mismo chat.",
+    a: "Durante la beta lo pruebas gratis: 14 días desde que empiezas a usarlo o 100 mensajes, lo que llegue primero. Al terminar la prueba, Rocco te dice el precio de tu plan (los primeros 50 con precio de fundador) y pagas por pago móvil, Zelle o USDT desde el mismo chat.",
   },
 ];
 

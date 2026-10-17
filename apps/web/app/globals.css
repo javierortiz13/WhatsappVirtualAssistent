@@ -19,7 +19,8 @@
   --mint-soft: rgba(63, 224, 176, 0.14);
   --amber: #f5b04c;
   --amber-soft: rgba(245, 176, 76, 0.14);
-  --green: #168a66;
+  /* Verde de marca de los botones: con texto blanco da 5,23:1 (AA). No es el verde de WhatsApp. */
+  --green: #0f7b5f;
   --danger: #f56b6b;
   /* Colores de los planes: Personal azul, Negocio menta, Negocio Plus violeta. */
   --plan-personal: #6cb6ff;
@@ -627,7 +628,8 @@ p.sub {
   background: var(--amber-soft);
   color: var(--amber);
 }
-.tag {
+/* Etiqueta Gasto/Venta del movimiento. Acotada a sus variantes para no pisar `.plan .tag` de la landing. */
+.tag:is(.expense, .income) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -896,7 +898,7 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
   color: #ffffff;
   font-size: 15px;
   font-weight: 600;
-  box-shadow: 0 6px 18px rgba(22, 138, 102, 0.35);
+  box-shadow: 0 6px 18px rgba(15, 123, 95, 0.35);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -1679,7 +1681,8 @@ body:has(.wizard) {
   justify-content: space-between;
   gap: 8px;
 }
-.price {
+/* Precio dentro de la opción del registro. Acotado para no pisar `.plan .price` de la landing. */
+.choice-title .price {
   font-size: 13px;
   font-weight: 500;
   color: var(--muted);

@@ -10,7 +10,8 @@
   overflow-x: clip;
   color: var(--fg);
 }
-.lp a {
+/* Los enlaces heredan el color, salvo los botones: `.btn` pone el suyo (texto blanco en el verde). */
+.lp a:where(:not(.btn)) {
   color: inherit;
 }
 .lp .wrap {

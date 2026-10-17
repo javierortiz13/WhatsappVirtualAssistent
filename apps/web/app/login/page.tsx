@@ -122,7 +122,7 @@ export default async function LoginPage({
                   <span className="mini-num">3</span>Vincula tu WhatsApp
                 </li>
               </ol>
-              <p className="pilot">🎁 Beta: 14 días gratis desde que empiezas</p>
+              <p className="pilot">🎁 Beta: 14 días o 100 mensajes gratis</p>
             </>
           )}
         </div>
