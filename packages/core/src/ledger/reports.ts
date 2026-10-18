@@ -2,6 +2,7 @@ import { and, eq, rows, schema, sql, type Tx } from "@caja/db";
 import { addDays, type IsoDate, weekday } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import { getRateInfo } from "../rates/current";
+import { type AccountDay, accountDays } from "./accounts";
 import type { PaymentMethod } from "./income";
 
 /**
@@ -12,6 +13,10 @@ import type { PaymentMethod } from "./income";
 export type MethodTotal = { method: PaymentMethod; usd: Decimal; originalVes: Decimal };
 export type CategoryTotal = { name: string; usd: Decimal; count: number };
 
+/** Las cuentas de efectivo de una moneda en un día: entradas, salidas, neto y saldo al cierre. */
+export type CashFigures = { in: Decimal; out: Decimal; net: Decimal; balanceEnd: Decimal };
+export type UnassignedTotal = { count: number; usd: Decimal };
+
 export type DailyClose = {
   date: IsoDate;
   salesUsd: Decimal;
@@ -21,19 +26,28 @@ export type DailyClose = {
   netUsd: Decimal;
   netVes: Decimal | null;
   rateValue: Decimal | null;
-  cashUsd: Decimal;
-  cashVes: Decimal;
+  /** Ventas cobradas en efectivo ("Ventas en efectivo"), para quien no tiene cuenta de efectivo. */
+  cashSalesUsd: Decimal;
+  cashSalesVes: Decimal;
+  /**
+   * Lo que debería haber en caja (PRD cash-in-drawer, US-008): la suma de las cuentas de efectivo
+   * de cada moneda ese día. Null sin cuentas de efectivo; cada moneda null si no hay una en ella.
+   */
+  cash: { usd: CashFigures | null; ves: CashFigures | null } | null;
+  /** Ventas y gastos del día sin cuenta, aparte (nunca sumados). Null si no usa cuentas. */
+  unassigned: { sales: UnassignedTotal; expenses: UnassignedTotal } | null;
   count: number;
 };
 
 const num = (v: string | number | null | undefined) => new Decimal(v ?? 0);
 
 export async function dailyClose(tx: Tx, tenantId: string, date: IsoDate): Promise<DailyClose> {
-  const methods = rows<{ method: PaymentMethod; usd: string; ves: string }>(
+  const methods = rows<{ method: PaymentMethod; usd: string; ves: string; all_ves: string }>(
     await tx.execute(sql`
       select payment_method as method,
              sum(amount_usd)::text as usd,
-             coalesce(sum(amount) filter (where currency = 'VES'), 0)::text as ves
+             coalesce(sum(amount) filter (where currency = 'VES'), 0)::text as ves,
+             sum(amount_ves)::text as all_ves
       from ${schema.movement}
       where tenant_id = ${tenantId} and type = 'income' and business_date = ${date}::date
         and deleted_at is null
@@ -55,7 +69,8 @@ export async function dailyClose(tx: Tx, tenantId: string, date: IsoDate): Promi
   const expensesUsd = num(t?.expenses);
   const netUsd = salesUsd.minus(expensesUsd);
   const rate = (await getRateInfo(tx, date)).current;
-  const cash = (m: PaymentMethod) => methods.find((x) => x.method === m);
+  const byMethod = (m: PaymentMethod) => methods.find((x) => x.method === m);
+  const accounts = await accountDays(tx, tenantId, date);
   return {
     date,
     salesUsd,
@@ -69,9 +84,52 @@ export async function dailyClose(tx: Tx, tenantId: string, date: IsoDate): Promi
     netUsd,
     netVes: rate ? netUsd.mul(rate.value).toDecimalPlaces(2, Decimal.ROUND_HALF_UP) : null,
     rateValue: rate?.value ?? null,
-    cashUsd: num(cash("cash_usd")?.usd),
-    cashVes: num(cash("cash_ves")?.ves),
+    cashSalesUsd: num(byMethod("cash_usd")?.usd),
+    // En Bs de las ventas en efectivo en Bs, aunque se hayan dicho en $.
+    cashSalesVes: num(byMethod("cash_ves")?.all_ves),
+    cash: cashFigures(accounts),
+    unassigned: accounts.length ? await unassignedOf(tx, tenantId, date) : null,
     count: Number(t?.count ?? 0),
+  };
+}
+
+/** Suma por moneda las cuentas de efectivo de `accountDays`. */
+function cashFigures(accounts: AccountDay[]): DailyClose["cash"] {
+  const sum = (currency: "USD" | "VES"): CashFigures | null => {
+    const cash = accounts.filter((a) => a.kind === "cash" && a.currency === currency);
+    if (!cash.length) return null;
+    const add = (k: keyof CashFigures) => cash.reduce((s, a) => s.plus(a[k]), new Decimal(0));
+    return { in: add("in"), out: add("out"), net: add("net"), balanceEnd: add("balanceEnd") };
+  };
+  const usd = sum("USD");
+  const ves = sum("VES");
+  return usd || ves ? { usd, ves } : null;
+}
+
+async function unassignedOf(
+  tx: Tx,
+  tenantId: string,
+  date: IsoDate,
+): Promise<NonNullable<DailyClose["unassigned"]>> {
+  const [r] = rows<{
+    sales: string | number;
+    sales_usd: string;
+    expenses: string | number;
+    expenses_usd: string;
+  }>(
+    await tx.execute(sql`
+      select count(*) filter (where type = 'income') as sales,
+             coalesce(sum(amount_usd) filter (where type = 'income'), 0)::text as sales_usd,
+             count(*) filter (where type = 'expense') as expenses,
+             coalesce(sum(amount_usd) filter (where type = 'expense'), 0)::text as expenses_usd
+      from ${schema.movement}
+      where tenant_id = ${tenantId} and business_date = ${date}::date and deleted_at is null
+        and account_id is null
+    `),
+  );
+  return {
+    sales: { count: Number(r?.sales ?? 0), usd: num(r?.sales_usd) },
+    expenses: { count: Number(r?.expenses ?? 0), usd: num(r?.expenses_usd) },
   };
 }
 

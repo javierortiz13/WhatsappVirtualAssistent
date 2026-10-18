@@ -6,6 +6,7 @@ import {
   budgetStatuses,
   type Decimal,
   dailyClose,
+  es,
   formatMoney,
   formatShortDate,
   getRateInfo,
@@ -21,6 +22,7 @@ import { env } from "@/lib/env";
 import { BOT_FEATURES } from "@/lib/onboarding";
 import { monthBounds, movementsBetween, todayInCaracas, totalsBetween } from "@/lib/queries";
 import { requireTenant } from "@/lib/session";
+import { CashNote } from "../cash-note";
 import { IconWallet } from "../icons";
 import { MovementRowView } from "../movements-list";
 
@@ -208,11 +210,32 @@ export default async function Inicio({
             <span className="amber">{formatMoney(monthTotals.expensesUsd, "USD")}</span>
           </p>
         </div>
-        <div className="card">
-          <span className="label">Ventas en efectivo hoy</span>
-          <p className="kpi">{formatMoney(close.cashUsd, "USD")}</p>
-          <p className="kpi-sub num">{formatMoney(close.cashVes, "VES")} en bolívares</p>
-        </div>
+        {close.cash ? (
+          // Lo que debería haber según lo anotado en las cuentas de efectivo (PRD cash-in-drawer, C14).
+          <div className="card">
+            <span className="label">Debería haber en caja</span>
+            <p className="kpi">
+              {close.cash.usd
+                ? formatMoney(close.cash.usd.balanceEnd, "USD")
+                : formatMoney(close.cash.ves?.balanceEnd ?? 0, "VES")}
+            </p>
+            {close.cash.usd && close.cash.ves ? (
+              <p className="kpi-sub num">
+                {formatMoney(close.cash.ves.balanceEnd, "VES")} en bolívares
+              </p>
+            ) : null}
+            <p className="kpi-sub num">
+              Hoy: {es.cashPair(close.cash, (c, cur) => es.signedMoney(c.net, cur))}
+            </p>
+            <CashNote unassigned={close.unassigned} day={today} />
+          </div>
+        ) : (
+          <div className="card">
+            <span className="label">Ventas en efectivo hoy</span>
+            <p className="kpi">{formatMoney(close.cashSalesUsd, "USD")}</p>
+            <p className="kpi-sub num">{formatMoney(close.cashSalesVes, "VES")} en bolívares</p>
+          </div>
+        )}
       </div>
 
       {budgets.length ? <Budgets list={budgets} /> : null}

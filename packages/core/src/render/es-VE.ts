@@ -1748,11 +1748,53 @@ export type DailyCloseView = {
   netUsd: Decimal.Value;
   netVes: Decimal.Value | null;
   rateValue: Decimal.Value | null;
-  cashUsd: Decimal.Value;
-  cashVes: Decimal.Value;
+  cashSalesUsd: Decimal.Value;
+  cashSalesVes: Decimal.Value;
+  /** Cuentas de efectivo por moneda (null si no hay en esa moneda); null sin cuentas de efectivo. */
+  cash: { usd: CashView | null; ves: CashView | null } | null;
+  unassigned: UnassignedView | null;
   count: number;
   dashboardUrl: string;
 };
+
+export type CashView = { net: Decimal.Value; balanceEnd: Decimal.Value };
+export type UnassignedView = {
+  sales: { count: number; usd: Decimal.Value };
+  expenses: { count: number; usd: Decimal.Value };
+};
+
+/** "+$55,00", "−$20,00" (el menos lo pone `formatMoney`), "$0,00" sin signo. */
+export function signedMoney(v: Decimal.Value, currency: "USD" | "VES"): string {
+  const d = new Decimal(v);
+  return d.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).gt(0)
+    ? `+${formatMoney(d, currency)}`
+    : formatMoney(d, currency);
+}
+
+/** Saldos o netos de caja por moneda, solo las monedas con cuenta de efectivo: "$105,00 · Bs 18.000,00". */
+export function cashPair(
+  cash: { usd: CashView | null; ves: CashView | null },
+  pick: (c: CashView, currency: "USD" | "VES") => string,
+): string {
+  const parts: string[] = [];
+  if (cash.usd) parts.push(pick(cash.usd, "USD"));
+  if (cash.ves) parts.push(pick(cash.ves, "VES"));
+  return parts.join(" · ");
+}
+
+/**
+ * Ventas y gastos sin cuenta, cada monto junto a su tipo y nunca sumados: "1 venta ($30,00) y 2
+ * gastos ($45,00)". `one` dice si el total es 1 (para "entra"/"Ponle"). Null si no hay ninguno.
+ */
+export function unassignedParts(u: UnassignedView | null): { text: string; one: boolean } | null {
+  if (!u || u.sales.count + u.expenses.count === 0) return null;
+  const part = (n: number, one: string, many: string, usd: Decimal.Value) =>
+    `${n} ${n === 1 ? one : many} (${formatMoney(usd, "USD")})`;
+  const parts: string[] = [];
+  if (u.sales.count) parts.push(part(u.sales.count, "venta", "ventas", u.sales.usd));
+  if (u.expenses.count) parts.push(part(u.expenses.count, "gasto", "gastos", u.expenses.usd));
+  return { text: parts.join(" y "), one: u.sales.count + u.expenses.count === 1 };
+}
 
 const MAX_LINES_PER_BLOCK = 6;
 
@@ -1809,10 +1851,25 @@ export function dailyClose(v: DailyCloseView): Outbound {
       : net,
   );
   lines.push("");
-  lines.push(
-    // Solo las ventas cobradas en efectivo: no resta lo que salió de la gaveta (PRD efectivo, C1).
-    `Ventas en efectivo: ${formatMoney(v.cashUsd, "USD")} · ${formatMoney(v.cashVes, "VES")}`,
-  );
+  if (v.cash) {
+    // Lo que debería haber según lo anotado, no un conteo (PRD cash-in-drawer, C2 a C4a).
+    lines.push(
+      `*Debería haber en caja: ${cashPair(v.cash, (c, cur) => formatMoney(c.balanceEnd, cur))}*`,
+    );
+    lines.push(
+      `${v.date === v.today ? "Hoy" : "Ese día"}: ${cashPair(v.cash, (c, cur) => signedMoney(c.net, cur))}`,
+    );
+    const missing = unassignedParts(v.unassigned);
+    if (missing)
+      lines.push(
+        `Ojo: ${missing.text} sin cuenta ${missing.one ? "no entra" : "no entran"} en lo que debería haber en caja. ${missing.one ? "Ponle" : "Ponles"} la cuenta en el panel, en Movimientos.`,
+      );
+  } else {
+    lines.push(
+      // Solo las ventas cobradas en efectivo: no resta lo que salió de la gaveta (C1).
+      `Ventas en efectivo: ${formatMoney(v.cashSalesUsd, "USD")} · ${formatMoney(v.cashSalesVes, "VES")}`,
+    );
+  }
   lines.push(
     `${v.count === 1 ? "1 movimiento" : `${v.count} movimientos`} · Dashboard: ${v.dashboardUrl}`,
   );

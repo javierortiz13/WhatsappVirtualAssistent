@@ -1331,3 +1331,48 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 **Pendiente:**
 - La línea del plan (C16a) cuando cumplimiento la apruebe.
 - Fase 2: "Efectivo en caja" real desde las cuentas de efectivo, con `accountDays` y `dailyClose`.
+
+### S3 · 18/10/2026 · Efectivo en caja, fase 2: "Debería haber en caja" desde las cuentas de efectivo
+
+**Contexto:** PRD "Cash in the drawer" v4.4 (repo de la agencia), fase 2. Textos finales del copywriter (`agency/products/rocco/copy/cash-strings-es-VE.md`, C2, C3, C4a, C14, C15). Solo cambia algo para quien tenga una cuenta de efectivo; hoy, nadie. El Piloto 1 crea Efectivo $ y Efectivo Bs el lunes 19/10 con el conteo de la gaveta.
+
+**Hecho:**
+- **US-002 · `accountDays(tx, tenantId, fecha)`.** Una sola consulta en SQL que da, por cuenta activa, lo que entró, lo que salió, el neto del día y el saldo al cierre de ese día.
+  - Usa las mismas filas y la misma regla de moneda que `accountBalances`: ventas, gastos, cambios que entran (no adoptados) y salen, y transferencias.
+  - El saldo inicial entra solo desde su fecha de apertura.
+  - Un movimiento anterior a la apertura igual cuenta.
+- **US-008 · `dailyClose`.**
+  - `cashUsd`/`cashVes` pasan a ser `cashSalesUsd`/`cashSalesVes`. `cashSalesVes` ahora suma los Bs de toda venta en efectivo en Bs, aunque se haya dicho en $.
+  - Nuevo `cash`: las cuentas de efectivo sumadas por moneda. Es `null` sin cuentas de efectivo, y cada moneda es `null` si no hay una cuenta de efectivo en ella.
+  - Nuevo `unassigned`: ventas y gastos del día sin cuenta, contados aparte y nunca sumados.
+- **US-009 · Cierre por WhatsApp.**
+  - Con cuenta de efectivo muestra `*Debería haber en caja: $105,00 · Bs 18.000,00*` y debajo `Hoy: +$55,00 · +Bs 18.000,00`, o "Ese día" si el cierre es de otro día.
+  - Solo aparecen las monedas que tienen gaveta, y los números negativos llevan un solo signo menos.
+  - Si hay ventas o gastos sin cuenta, añade "Ojo: 1 gasto ($20,00) sin cuenta no entra en lo que debería haber en caja. Ponle la cuenta en el panel, en Movimientos."
+  - Sin cuenta de efectivo sigue saliendo "Ventas en efectivo".
+  - "Debería haber" y no "hay": es lo anotado, no un conteo. Hasta la fase 3, un gasto en efectivo que no lo dijo cae en el banco (decisión ER-19 B del fundador), y lo atrapa la revisión de cada noche del runbook.
+- **US-010 · Inicio y Cierres.**
+  - La misma cifra en la tarjeta "Debería haber en caja". En Inicio, el saldo en $, los Bs y el "Hoy". En Cierres, el $ a la izquierda y los Bs a la derecha, cada uno con su neto. Con una sola moneda se muestra solo esa.
+  - Debajo, la nota de ventas o gastos sin cuenta con "Ponle la cuenta ›", que lleva a Movimientos del mes.
+  - En Inicio la tarjeta sale aunque el día solo tenga una transferencia.
+
+**Verificado:**
+- `reports.test.ts`, con el ejemplo del PRD (5 cuentas, 7 mensajes):
+  - Efectivo $ entra 200, sale 145, neto +55, cierra en 105. Efectivo Bs entra 50.000, sale 32.000, cierra en 18.000.
+  - Hoy coincide con "mis cuentas".
+  - Ayer da $50, el fondo de la mañana. Antes de la apertura no entra el saldo inicial, pero una venta por Zelle de ese día sí.
+  - Con la comida del personal sin cuenta, la caja da $125 y aparece 1 gasto de $20 sin cuenta. Una venta de $30 y dos gastos de $45 sin cuenta se cuentan aparte.
+  - Solo con Efectivo $, la parte en Bs es `null`.
+- `render.test.ts`:
+  - el ejemplo, "Ese día", el día negativo con un solo menos y el cero sin signo;
+  - solo $ y solo Bs;
+  - las tres formas del "Ojo:";
+  - sin cuenta de efectivo, "Ventas en efectivo" y nunca el aviso.
+- Tarjetas con el CSS real en Chromium a 390 px y 1280 px, con el caso más largo: sin scroll horizontal.
+- 473 tests en verde, lint y typecheck limpios. Sin migración.
+
+**Para el lunes (Piloto 1):** crear Efectivo $ y Efectivo Bs con lo contado en la gaveta (Ajustes → Cuentas o "crea la cuenta Efectivo $ con 50$"). Desde ese momento el cierre dice "Debería haber en caja". Cada noche: contar, comparar y anotar (runbook del PRD, §8).
+
+**Pendiente:**
+- La línea del plan (C16a), cuando cumplimiento la apruebe.
+- Fase 3, semana del 19 al 25/10: preguntar cómo se pagó solo cuando Rocco no lo pueda saber.

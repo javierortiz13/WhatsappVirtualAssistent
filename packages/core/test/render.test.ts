@@ -67,8 +67,10 @@ describe("plantillas es-VE", () => {
         netUsd: new Decimal(sales).minus(expenses),
         netVes: null,
         rateValue: null,
-        cashUsd: 0,
-        cashVes: 0,
+        cashSalesUsd: 0,
+        cashSalesVes: 0,
+        cash: null,
+        unassigned: null,
         count: 2,
         dashboardUrl: "https://x",
       }).body;
@@ -87,5 +89,88 @@ describe("plantillas es-VE", () => {
     });
     expect(parseReplyId("whatever")).toEqual({ kind: "unknown", raw: "whatever" });
     expect(parseReplyId("menu:nope").kind).toBe("unknown");
+  });
+});
+
+/** "Debería haber en caja" en el cierre del bot (PRD cash-in-drawer, US-009: C1, C2, C3 y C4a). */
+describe("cierre con cuentas de efectivo", () => {
+  const close = (over: Partial<es.DailyCloseView> = {}) =>
+    es.dailyClose({
+      date: "2026-10-19",
+      today: "2026-10-19",
+      salesUsd: "250",
+      salesByMethod: [],
+      expensesUsd: "45",
+      expensesByCategory: [],
+      netUsd: "205",
+      netVes: null,
+      rateValue: null,
+      cashSalesUsd: "200",
+      cashSalesVes: "50000",
+      cash: {
+        usd: { net: "55", balanceEnd: "105" },
+        ves: { net: "18000", balanceEnd: "18000" },
+      },
+      unassigned: { sales: { count: 0, usd: 0 }, expenses: { count: 0, usd: 0 } },
+      count: 7,
+      dashboardUrl: "https://x",
+      ...over,
+    }).body;
+  const ojo = (sales: [number, string], expenses: [number, string]) =>
+    close({
+      unassigned: {
+        sales: { count: sales[0], usd: sales[1] },
+        expenses: { count: expenses[0], usd: expenses[1] },
+      },
+    });
+
+  it("el ejemplo del PRD: lo que debería haber y lo que movió hoy, por moneda", () => {
+    const body = close();
+    expect(body).toContain("*Debería haber en caja: $105,00 · Bs 18.000,00*");
+    expect(body).toContain("Hoy: +$55,00 · +Bs 18.000,00");
+    expect(body).not.toContain("Ventas en efectivo");
+    expect(body).not.toContain("Ojo:");
+    expect(body).not.toContain("Efectivo en caja");
+  });
+
+  it("un día pasado dice 'Ese día'; un día negativo lleva un solo menos; cero sin signo", () => {
+    expect(close({ date: "2026-10-18" })).toContain("Ese día: +$55,00 · +Bs 18.000,00");
+    const body = close({
+      cash: { usd: { net: "-20", balanceEnd: "30" }, ves: { net: 0, balanceEnd: 0 } },
+    });
+    expect(body).toContain("Hoy: −$20,00 · Bs 0,00");
+    expect(body).not.toContain("−−");
+    expect(body).not.toContain("+−");
+  });
+
+  it("solo la moneda que tiene cuenta de efectivo: sin 'Bs 0,00' de una gaveta que no existe", () => {
+    const body = close({ cash: { usd: { net: "55", balanceEnd: "105" }, ves: null } });
+    expect(body).toContain("*Debería haber en caja: $105,00*");
+    expect(body).toContain("Hoy: +$55,00\n");
+    const bs = close({ cash: { usd: null, ves: { net: "18000", balanceEnd: "18000" } } });
+    expect(bs).toContain("*Debería haber en caja: Bs 18.000,00*");
+    expect(bs).toContain("Hoy: +Bs 18.000,00\n");
+  });
+
+  it("lo que no tiene cuenta se dice aparte, cada monto con su tipo y nunca sumado", () => {
+    expect(ojo([0, "0"], [1, "20"])).toContain(
+      "Ojo: 1 gasto ($20,00) sin cuenta no entra en lo que debería haber en caja. Ponle la cuenta en el panel, en Movimientos.",
+    );
+    expect(ojo([2, "80"], [0, "0"])).toContain(
+      "Ojo: 2 ventas ($80,00) sin cuenta no entran en lo que debería haber en caja. Ponles la cuenta en el panel, en Movimientos.",
+    );
+    expect(ojo([1, "30"], [2, "45"])).toContain(
+      "Ojo: 1 venta ($30,00) y 2 gastos ($45,00) sin cuenta no entran en lo que debería haber en caja. Ponles la cuenta en el panel, en Movimientos.",
+    );
+  });
+
+  it("sin cuentas de efectivo: 'Ventas en efectivo' y nunca el aviso de sin cuenta", () => {
+    const body = close({
+      cash: null,
+      unassigned: { sales: { count: 0, usd: 0 }, expenses: { count: 1, usd: "20" } },
+    });
+    expect(body).toContain("Ventas en efectivo: $200,00 · Bs 50.000,00");
+    expect(body).not.toContain("Ojo:");
+    expect(body).not.toContain("Debería haber");
   });
 });

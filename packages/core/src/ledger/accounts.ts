@@ -122,6 +122,89 @@ export async function accountBalances(tx: Tx, tenantId: string): Promise<Account
   }));
 }
 
+export type AccountDay = AccountRef & {
+  /** Lo que entró y salió de la cuenta ese día, en su moneda (siempre positivos). */
+  in: Decimal;
+  out: Decimal;
+  net: Decimal;
+  /** Saldo al final de ese día. */
+  balanceEnd: Decimal;
+};
+
+/**
+ * Entradas, salidas y saldo al cierre de un día, por cuenta activa (PRD cash-in-drawer, US-002).
+ * Cuenta las mismas filas que `accountBalances` con la misma regla de moneda; el saldo inicial
+ * entra solo desde su fecha de apertura, y un movimiento anterior a la apertura igual cuenta (un
+ * saldo es un saldo). Para hoy coincide con `accountBalances`, porque no hay fechas futuras.
+ */
+export async function accountDays(tx: Tx, tenantId: string, date: IsoDate): Promise<AccountDay[]> {
+  const found = rows<{
+    id: string;
+    name: string;
+    currency: string;
+    kind: string;
+    in_amount: string;
+    out_amount: string;
+    balance_end: string;
+  }>(
+    await tx.execute(sql`
+      with acc as (
+        select id, name, currency, kind, opening_balance, opening_date, sort_order, created_at
+        from ${schema.account}
+        where tenant_id = ${tenantId} and archived_at is null
+      ),
+      items as (
+        select m.account_id as id, m.business_date as d,
+          (case when m.type = 'income' then 1 else -1 end)
+          * (case when m.currency = a.currency then m.amount
+                  when a.currency = 'USD' then m.amount_usd
+                  else m.amount_ves end) as v
+        from ${schema.movement} m join acc a on a.id = m.account_id
+        where m.deleted_at is null
+        union all
+        select l.account_id, l.business_date, l.ves_amount
+        from ${schema.exchangeLot} l join acc a on a.id = l.account_id
+        where l.source = 'exchange' and l.deleted_at is null and l.adopted_at is null
+        union all
+        select l.from_account_id, l.business_date, -l.usd_amount
+        from ${schema.exchangeLot} l join acc a on a.id = l.from_account_id
+        where l.source = 'exchange' and l.deleted_at is null
+        union all
+        select t.to_account_id, t.business_date, t.to_amount
+        from ${schema.accountTransfer} t join acc a on a.id = t.to_account_id
+        where t.deleted_at is null
+        union all
+        select t.from_account_id, t.business_date, -t.from_amount
+        from ${schema.accountTransfer} t join acc a on a.id = t.from_account_id
+        where t.deleted_at is null
+      )
+      select a.id, a.name, a.currency, a.kind,
+        coalesce(sum(i.v) filter (where i.d = ${date}::date and i.v > 0), 0)::text as in_amount,
+        coalesce(-sum(i.v) filter (where i.d = ${date}::date and i.v < 0), 0)::text as out_amount,
+        ((case when a.opening_date <= ${date}::date then a.opening_balance else 0 end)
+          + coalesce(sum(i.v) filter (where i.d <= ${date}::date), 0))::text as balance_end
+      from acc a left join items i on i.id = a.id
+      group by a.id, a.name, a.currency, a.kind, a.opening_balance, a.opening_date, a.sort_order,
+        a.created_at
+      order by a.sort_order, a.created_at
+    `),
+  );
+  return found.map((r) => {
+    const inAmount = new Decimal(r.in_amount);
+    const outAmount = new Decimal(r.out_amount);
+    return {
+      id: r.id,
+      name: r.name,
+      currency: r.currency as Currency,
+      kind: r.kind as AccountKind,
+      in: inAmount,
+      out: outAmount,
+      net: inAmount.minus(outAmount),
+      balanceEnd: new Decimal(r.balance_end),
+    };
+  });
+}
+
 export async function accountBalance(
   tx: Tx,
   tenantId: string,

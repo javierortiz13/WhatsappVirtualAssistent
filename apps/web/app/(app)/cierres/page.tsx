@@ -1,5 +1,6 @@
 import {
   dailyClose,
+  es,
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,
   periodSummary,
@@ -20,6 +21,7 @@ import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { dailyNets, todayInCaracas } from "@/lib/queries";
 import { requireTenant } from "@/lib/session";
+import { CashNote } from "../cash-note";
 import { IconCalendar, IconDownload } from "../icons";
 
 export const metadata: Metadata = { title: "Cierres" };
@@ -206,16 +208,47 @@ export default async function Cierres({
             </section>
           </div>
 
-          {periodo === "dia" ? (
+          {periodo === "dia" && close.cash ? (
+            // Lo que debería haber según las cuentas de efectivo (PRD cash-in-drawer, C14 y C15).
+            // La vista "Día" es siempre hoy, así que el neto dice "Hoy".
+            <section className="card">
+              <div className="rate">
+                <div>
+                  <span className="label">Debería haber en caja</span>
+                  <p className="kpi">
+                    {close.cash.usd
+                      ? formatMoney(close.cash.usd.balanceEnd, "USD")
+                      : formatMoney(close.cash.ves?.balanceEnd ?? 0, "VES")}
+                  </p>
+                  <p className="kpi-sub num">
+                    Hoy:{" "}
+                    {close.cash.usd
+                      ? es.signedMoney(close.cash.usd.net, "USD")
+                      : es.signedMoney(close.cash.ves?.net ?? 0, "VES")}
+                  </p>
+                </div>
+                {close.cash.usd && close.cash.ves ? (
+                  <div style={{ textAlign: "right" }}>
+                    <span className="label">En bolívares</span>
+                    <p className="kpi num" style={{ fontSize: 20 }}>
+                      {formatMoney(close.cash.ves.balanceEnd, "VES")}
+                    </p>
+                    <p className="kpi-sub num">{es.signedMoney(close.cash.ves.net, "VES")}</p>
+                  </div>
+                ) : null}
+              </div>
+              <CashNote unassigned={close.unassigned} day={close.date} />
+            </section>
+          ) : periodo === "dia" ? (
             <section className="card rate">
               <div>
                 <span className="label">Ventas en efectivo</span>
-                <p className="kpi">{formatMoney(close.cashUsd, "USD")}</p>
+                <p className="kpi">{formatMoney(close.cashSalesUsd, "USD")}</p>
               </div>
               <div style={{ textAlign: "right" }}>
                 <span className="label">En bolívares</span>
                 <p className="kpi num" style={{ fontSize: 20 }}>
-                  {formatMoney(close.cashVes, "VES")}
+                  {formatMoney(close.cashSalesVes, "VES")}
                 </p>
               </div>
             </section>
