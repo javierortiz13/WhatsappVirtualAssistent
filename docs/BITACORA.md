@@ -1471,3 +1471,18 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - Se quitó `es.pagoMovilAskAmount`. Cumple ADR-014 (un mensaje entrante → una respuesta, salvo la tarjeta con botones) y ahorra unos $0,03 por foto pasada la cuota gratis de Meta.
 
 **Verificado:** `process-image.test.ts` revisa que con monto salgan 2 respuestas y sin monto 1, con el texto exacto. Lint y typecheck limpios.
+
+### S3 · 19/10/2026 · Landing: parche de la agencia A-0002 (jpsoftwaredev#6)
+
+**Pedido (Javier):** en los planes, "100 mensajes" se salía de la tarjeta. Era el hallazgo C1 de la auditoría de la agencia. Javier eligió aplicar el parche completo (A-0002, cumplimiento PASS), que ya lo resolvía.
+
+**Hecho (commit del parche `e3964fa`, sin cambios):**
+- Tarjetas de planes: las reglas `.price` y `.tag` del panel se filtraban a la landing. Ahora se aplican solo donde corresponden (`.choice-title .price`, `.tag:is(.expense, .income)`). El precio en la prueba dice "**Gratis: 14 días o 100 mensajes**".
+- Botones verdes: texto blanco en la landing (`.lp a:where(:not(.btn))`), y `--green` pasa de `#168a66` a `#0f7b5f` (contraste 4,32 → 5,23:1). El cambio también aplica a los botones del login, el registro y el panel.
+- Se quitó "Más elegido" del plan Negocio.
+- La prueba se dice "14 días o 100 mensajes" en el llamado final, en el chat de ejemplo, en la pregunta frecuente y en el login.
+- Privacidad, en la historia: "Nada se comparte, nada se vende." pasa a "**Tus datos no se venden ni se usan para publicidad.**"
+
+**Además:** el formato de Biome en `landing.tsx` y la nota de /admin ("La web dice …") con la frase nueva.
+
+**Verificado:** 480 tests, lint y typecheck limpios. La evidencia antes y después a 360 y 1440 px está en el repo de la agencia (`design/landing-fixes-2026-10-17/evidence`).

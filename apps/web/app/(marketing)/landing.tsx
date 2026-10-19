@@ -17,7 +17,7 @@ export function Landing({
 }: {
   waUrl: string | null;
   heroPhoto: string | null;
-  /** Modo beta (0021, /admin): sin precios, "14 días gratis". */
+  /** Modo beta (0021, /admin): sin precios, "Gratis: 14 días o 100 mensajes". */
   beta: boolean;
 }) {
   const primary = waUrl ?? "/registro";
@@ -354,9 +354,9 @@ function scenes(waUrl: string | null): Scene[] {
       user: "¿y mis datos?",
       bot: (
         <>
-          Son tuyos. Tu cuenta está separada de las demás, exportas todo a Excel
-          cuando quieras y la puedes borrar escribiéndome <strong>eliminar mi cuenta</strong>. Las
-          notas de voz las escucho y las descarto: nunca se guardan.
+          Son tuyos. Tu cuenta está separada de las demás, exportas todo a Excel cuando quieras y la
+          puedes borrar escribiéndome <strong>eliminar mi cuenta</strong>. Las notas de voz las
+          escucho y las descarto: nunca se guardan.
         </>
       ),
       caption: {

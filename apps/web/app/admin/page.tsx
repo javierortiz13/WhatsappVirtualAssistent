@@ -134,7 +134,7 @@ export default async function AdminHome({
         </form>
         <p className="sub">
           {launch.beta
-            ? 'Durante la prueba gratis Rocco no da precios: solo cuántos días y mensajes quedan. Al terminar la prueba muestra los precios y cómo pagar. La web dice "14 días gratis".'
+            ? 'Durante la prueba gratis Rocco no da precios: solo cuántos días y mensajes quedan. Al terminar la prueba muestra los precios y cómo pagar. La web dice "14 días o 100 mensajes gratis".'
             : "Rocco y la web muestran los precios siempre."}{" "}
           Toca el otro botón para cambiar; aplica desde el próximo mensaje.
         </p>
