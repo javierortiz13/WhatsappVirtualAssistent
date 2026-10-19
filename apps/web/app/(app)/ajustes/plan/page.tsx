@@ -7,6 +7,7 @@ import {
   planById,
   quote,
   subscriptionState,
+  TRIAL_MESSAGES,
   trialSpend,
   unpaidTrashDate,
 } from "@caja/core";
@@ -164,7 +165,10 @@ export default async function MiPlan({
             </div>
             {hidePrices ? (
               <p className="plan-price">
-                Gratis <span className="sub">durante tu prueba de 14 días</span>
+                Gratis{" "}
+                <span className="sub">
+                  durante tu prueba de 14 días o {TRIAL_MESSAGES} mensajes, lo que llegue primero
+                </span>
               </p>
             ) : (
               <>

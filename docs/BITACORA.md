@@ -1448,3 +1448,11 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 **Hecho:** la bienvenida del registro por WhatsApp (`signupIntro`) y el resumen al terminarlo (`signupTour`) decían "*14 días gratis*" sin el tope de mensajes. Ahora dicen "*14 días o 100 mensajes gratis*, lo que llegue primero" (condición O8 de cumplimiento, antes de las invitaciones V1). El número sale de `TRIAL_MESSAGES` (o del tope del registro, si trae mensajes extra).
 
 **Fuera de alcance:** las mismas frases en la landing, el login y el asistente web van con el parche de la agencia (jpsoftwaredev#6) y con jpsoftwaredev#12.
+
+### S3 · 19/10/2026 · Línea del plan Negocio (A-0003) y la prueba en Ajustes → Plan
+
+**Hecho:**
+- `plans.ts:51`: "Cierre del día con efectivo en caja" pasa a "**Cierre del día: ventas menos gastos**". Es C16a, aprobada por Javier el 18/10 (A-0003 en `agency/approvals.md`, cumplimiento PASS). Se ve en la landing, el asistente de registro y Ajustes → Plan. La línea anterior era falsa: la cifra eran solo las ventas en efectivo. "Efectivo en caja" vuelve en la fase 4 (C16b), después de 7 noches de cierres correctos en el Piloto 1.
+- Ajustes → Plan, en la prueba: "Gratis durante tu prueba de 14 días" ahora dice "**…de 14 días o 100 mensajes, lo que llegue primero**" (nota N3 de cumplimiento; misma frase que el bot, jpsoftwaredev#7).
+
+**Verificado:** 480 tests, lint y typecheck limpios.

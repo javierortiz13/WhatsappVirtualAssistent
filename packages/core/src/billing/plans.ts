@@ -48,7 +48,8 @@ export const PLANS: Plan[] = [
       "Tu número + 1 empleado",
       "400 mensajes al mes (unos 13 al día)",
       "Ventas con desglose por método de pago",
-      "Cierre del día con efectivo en caja",
+      // C16a (A-0003, 18/10): lo que el cierre muestra hoy. "Efectivo en caja" vuelve en la fase 4.
+      "Cierre del día: ventas menos gastos",
       "Categorías propias y auditoría de cambios",
       "Dashboard, corrección y Excel",
     ],
