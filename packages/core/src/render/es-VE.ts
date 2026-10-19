@@ -1,3 +1,4 @@
+import { TRIAL_MESSAGES } from "../billing/plans";
 import {
   asIsoDate,
   businessDateOf,
@@ -2456,7 +2457,7 @@ export function signupIntro(dashboardUrl: string, profile: string | null): Outbo
       "¡Epa! Soy *Rocco* 🐾, tu pana con las finanzas.",
       "Te llevo los gastos, las ventas y las cuentas desde este chat, en bolívares y en dólares, y estoy pendiente de la tasa del BCV para que tú no tengas que estarlo. Soy un asistente automático.",
       "",
-      "Armamos tu cuenta aquí mismo en 2 minutos y tienes *14 días gratis* para probarme.",
+      `Armamos tu cuenta aquí mismo en 2 minutos y tienes *14 días o ${TRIAL_MESSAGES} mensajes gratis*, lo que llegue primero, para probarme.`,
       `_Al seguir aceptas la política de privacidad: ${dashboardUrl}/privacidad_`,
       "",
       "Para empezar, ¿cómo te llamas?",
@@ -2653,9 +2654,8 @@ export function signupDone(v: {
     );
   lines.push(
     "",
-    v.trialMessages
-      ? `Tienes *14 días gratis* con *${v.trialMessages} mensajes* para probarme.`
-      : "Tienes *14 días gratis* para probarme.",
+    // Compliance O8 (#7): los dos topes de la prueba, y que vence el que llegue primero.
+    `Tienes *14 días o ${v.trialMessages ?? TRIAL_MESSAGES} mensajes gratis*, lo que llegue primero, para probarme.`,
   );
   if (v.founderUntil)
     lines.push(
