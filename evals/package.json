@@ -11,9 +11,9 @@
     "@caja/core": "workspace:*",
     "@caja/db": "workspace:*",
     "yaml": "^2.9.1",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.5"
   }
 }
