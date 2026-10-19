@@ -32,12 +32,16 @@ export async function renderSummary(
   if (input.categoryName) {
     const r = await categoryTotal(tx, input.tenantId, range.from, range.to, input.categoryName);
     if (!r.found) return es.categoryNotFound(input.categoryName, r.suggestions);
+    // El panel lista por mes: el del final del período.
+    const q = new URLSearchParams({ mes: range.to.slice(0, 7), tipo: "expense", categoria: r.id });
     return es.categoryTotal({
       name: r.name,
       periodLabel: label,
       usd: r.usd,
       ves: r.ves,
       count: r.count,
+      items: r.items,
+      link: `${input.dashboardUrl}/movimientos?${q.toString()}`,
     });
   }
   if (range.from === range.to) {

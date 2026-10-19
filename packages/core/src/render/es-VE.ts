@@ -1921,13 +1921,33 @@ export function categoryTotal(v: {
   usd: Decimal.Value;
   ves: Decimal.Value;
   count: number;
+  /** Los gastos más recientes, en la moneda en que se anotaron. */
+  items?: {
+    date: IsoDate;
+    description: string | null;
+    amount: Decimal.Value;
+    currency: "USD" | "VES";
+  }[];
+  /** Movimientos del panel filtrados por esta categoría. */
+  link?: string;
 }): Outbound {
   if (v.count === 0)
     return { type: "text", body: `${v.name}, ${v.periodLabel}: sin gastos registrados.` };
-  return {
-    type: "text",
-    body: `${v.name}, ${v.periodLabel}: *${formatMoney(v.usd, "USD")}* (${formatMoney(v.ves, "VES")}) en ${v.count === 1 ? "1 gasto" : `${v.count} gastos`}.`,
-  };
+  const lines = [
+    `${v.name}, ${v.periodLabel}: *${formatMoney(v.usd, "USD")}* (${formatMoney(v.ves, "VES")}) en ${v.count === 1 ? "1 gasto" : `${v.count} gastos`}.`,
+  ];
+  const items = v.items ?? [];
+  if (items.length) {
+    lines.push("");
+    for (const i of items)
+      lines.push(
+        `${formatShortDate(i.date)} · ${i.description?.trim() || "Sin descripción"} · ${formatMoney(i.amount, i.currency)}`,
+      );
+    const rest = v.count - items.length;
+    if (rest > 0) lines.push(rest === 1 ? "…y 1 más." : `…y ${rest} más.`);
+  }
+  if (v.link) lines.push("", `Todos en el panel: ${v.link}`);
+  return { type: "text", body: lines.join("\n") };
 }
 
 export function categoryNotFound(name: string, suggestions: string[]): Outbound {

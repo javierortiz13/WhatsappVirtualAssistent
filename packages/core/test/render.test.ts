@@ -174,3 +174,32 @@ describe("cierre con cuentas de efectivo", () => {
     expect(body).not.toContain("Debería haber");
   });
 });
+
+describe("gastos de una categoría por chat", () => {
+  it("lista los más recientes, dice cuántos faltan y enlaza al panel", () => {
+    const items = Array.from({ length: 15 }, (_, i) => ({
+      date: asIsoDate(`2026-10-${String(19 - i).padStart(2, "0")}`),
+      description: i === 1 ? null : `Gasto ${i + 1}`,
+      amount: i === 2 ? "3500" : "10",
+      currency: (i === 2 ? "VES" : "USD") as "USD" | "VES",
+    }));
+    const body = es.categoryTotal({
+      name: "Novia",
+      periodLabel: "octubre (1 al 19)",
+      usd: "245",
+      ves: "245000",
+      count: 18,
+      items,
+      link: "https://x/movimientos?mes=2026-10&tipo=expense&categoria=abc",
+    }).body;
+    expect(body).toContain("Novia, octubre (1 al 19): *$245,00* (Bs 245.000,00) en 18 gastos.");
+    expect(body).toContain("lun 19/10 · Gasto 1 · $10,00");
+    expect(body).toContain("dom 18/10 · Sin descripción · $10,00");
+    expect(body).toContain("sáb 17/10 · Gasto 3 · Bs 3.500,00");
+    expect(body).toContain("…y 3 más.");
+    expect(body).toContain(
+      "Todos en el panel: https://x/movimientos?mes=2026-10&tipo=expense&categoria=abc",
+    );
+    expect(body.length).toBeLessThan(LIMITS.textBody);
+  });
+});

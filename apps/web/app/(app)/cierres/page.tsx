@@ -79,6 +79,11 @@ export default async function Cierres({
         : periodo === "mes"
           ? `${monthNameEs(today)} · hasta hoy`
           : `${formatShortDate(range.from)} → ${formatShortDate(range.to)}`;
+  // Movimientos lista por mes: el enlace a una categoría solo cuando el período cabe en uno.
+  const linkMonth =
+    "error" in range || range.from.slice(0, 7) !== range.to.slice(0, 7)
+      ? null
+      : range.to.slice(0, 7);
   const net = periodo === "dia" ? close.netUsd : (summary?.netUsd ?? new Decimal(0));
   const sales = periodo === "dia" ? close.salesUsd : (summary?.salesUsd ?? new Decimal(0));
   const expenses = periodo === "dia" ? close.expensesUsd : (summary?.expensesUsd ?? new Decimal(0));
@@ -196,12 +201,23 @@ export default async function Cierres({
                   </p>
                 ) : (
                   (periodo === "dia" ? close.expensesByCategory : (summary?.topExpenses ?? [])).map(
-                    (c) => (
-                      <div className="line" key={c.name}>
-                        <span className="muted">{c.name}</span>
-                        <span className="num">{formatMoney(c.usd, "USD")}</span>
-                      </div>
-                    ),
+                    (c) =>
+                      // Tocar una categoría lista sus gastos del mes en Movimientos.
+                      linkMonth ? (
+                        <a
+                          className="line"
+                          key={c.name}
+                          href={`/movimientos?mes=${linkMonth}&tipo=expense&categoria=${c.id ?? "ninguna"}`}
+                        >
+                          <span className="muted">{c.name}</span>
+                          <span className="num">{formatMoney(c.usd, "USD")} ›</span>
+                        </a>
+                      ) : (
+                        <div className="line" key={c.name}>
+                          <span className="muted">{c.name}</span>
+                          <span className="num">{formatMoney(c.usd, "USD")}</span>
+                        </div>
+                      ),
                   )
                 )}
               </div>

@@ -349,7 +349,7 @@ export const GetSummaryInput = z.object({
   category_name: z
     .string()
     .describe(
-      'Solo si pregunta cuánto gastó en UNA categoría o cosa ("en champú", "en insumos"): el nombre de la lista o lo que dijo. "" para el cierre o resumen general.',
+      'Solo si pregunta por UNA categoría o cosa: cuánto gastó ("en champú", "en insumos") o quiere ver esos gastos ("mis gastos de novia", "en qué gasté en comida"): el nombre de la lista o lo que dijo. Sin período dicho, this_month. "" para el cierre o resumen general.',
     ),
 });
 
@@ -1150,7 +1150,7 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
 const getSummary: ToolSpec<typeof GetSummaryInput> = {
   name: "get_summary",
   description:
-    "Cierre del día, resumen de un período o total de una categoría: 'cierre', 'cómo fue hoy', 'cómo va el mes', 'cuánto llevo esta semana', 'cuánto gasté en insumos este mes', 'del 1 al 15'. Solo lectura. Lo ve el dueño.",
+    "Cierre del día, resumen de un período o los gastos de una categoría (total y lista): 'cierre', 'cómo fue hoy', 'cómo va el mes', 'cuánto llevo esta semana', 'cuánto gasté en insumos este mes', 'muéstrame mis gastos de novia', 'del 1 al 15'. Solo lectura. Lo ve el dueño.",
   schema: GetSummaryInput,
   roles: ["owner", "employee"],
   async run(input, run) {

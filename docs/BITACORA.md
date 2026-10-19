@@ -1376,3 +1376,28 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 **Pendiente:**
 - La línea del plan (C16a), cuando cumplimiento la apruebe.
 - Fase 3, semana del 19 al 25/10: preguntar cómo se pagó solo cuando Rocco no lo pueda saber.
+
+### S3 · 19/10/2026 · Gastos por categoría en el panel y en el chat
+
+**Pedido (Javier):** en el panel, tocar una categoría (por ejemplo "Novia") y ver todos sus gastos del mes. Lo mismo por el chat.
+
+**Hecho:**
+- **Panel, Movimientos.**
+  - Con el filtro **Gastos**, una tarjeta **Por categoría** muestra el total del mes y cuántos gastos tiene cada categoría, de mayor a menor.
+  - Tocar una abre `?categoria=<id>` (o `ninguna` para los gastos sin categoría): encabezado con la categoría, el total y los gastos del mes; abajo, solo sus gastos. "Todas ›" vuelve.
+  - Las flechas de mes conservan la categoría. `movementsBetween` filtra por `categoryId`.
+- **Panel, Cierres.** Las categorías de "Gastos" llevan a esa lista (día, semana o mes; no en un rango que cruce meses).
+- **Panel, Ajustes → Categorías.** Cada categoría tiene "Ver gastos del mes ›".
+- **Chat.**
+  - "¿cuánto gasté en novia este mes?" o "muéstrame mis gastos de novia" da el total y, debajo, los últimos 15 gastos (fecha · descripción · monto en la moneda en que se anotó), "…y N más" si hay más, y el enlace al panel ya filtrado.
+  - `categoryTotal` devuelve el id y los gastos.
+  - La herramienta `get_summary` describe el caso "ver los gastos de una categoría" (sin período, este mes).
+- `expensesByCategory` se exporta y devuelve el id de la categoría.
+
+**Verificado:**
+- `reports.test.ts`: los gastos de la categoría del más reciente al más viejo; el mensaje del chat con la lista y el enlace `…/movimientos?mes=2026-09&tipo=expense&categoria=…`.
+- `render.test.ts`: 15 líneas, "Sin descripción", monto en Bs, "…y 3 más", por debajo de 4.096 caracteres.
+- Tarjetas con el CSS real a 390 y 1280 px, sin scroll horizontal.
+- 474 tests en verde, lint y typecheck limpios.
+
+**Pendiente:** cambió la descripción de una herramienta del agente, así que toca correr `pnpm evals` en la máquina de Javier (necesita `ANTHROPIC_API_KEY`).

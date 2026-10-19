@@ -147,7 +147,15 @@ export default async function Categorias({
             ) : null}
             {budgetOf.get(c.id) ? <BudgetBar b={budgetOf.get(c.id) as BudgetStatus} /> : null}
             <div className="foot">
-              <span>{count(c.movements)}</span>
+              <span>
+                {count(c.movements)} ·{" "}
+                <a
+                  className="linkbtn"
+                  href={`/movimientos?mes=${today.slice(0, 7)}&tipo=expense&categoria=${c.id}`}
+                >
+                  Ver gastos del mes ›
+                </a>
+              </span>
               {isOwner ? (
                 <form action={setCategoryActiveAction}>
                   <input type="hidden" name="id" value={c.id} />

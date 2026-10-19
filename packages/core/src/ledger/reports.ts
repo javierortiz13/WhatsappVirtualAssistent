@@ -1,5 +1,5 @@
 import { and, eq, rows, schema, sql, type Tx } from "@caja/db";
-import { addDays, type IsoDate, weekday } from "../domain/dates";
+import { addDays, asIsoDate, type IsoDate, weekday } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import { getRateInfo } from "../rates/current";
 import { type AccountDay, accountDays } from "./accounts";
@@ -11,7 +11,8 @@ import type { PaymentMethod } from "./income";
  * último día del período. El bot y el dashboard usan exactamente estas funciones.
  */
 export type MethodTotal = { method: PaymentMethod; usd: Decimal; originalVes: Decimal };
-export type CategoryTotal = { name: string; usd: Decimal; count: number };
+/** `id` null: gastos sin categoría (se muestran como "Otros"). */
+export type CategoryTotal = { id: string | null; name: string; usd: Decimal; count: number };
 
 /** Las cuentas de efectivo de una moneda en un día: entradas, salidas, neto y saldo al cierre. */
 export type CashFigures = { in: Decimal; out: Decimal; net: Decimal; balanceEnd: Decimal };
@@ -181,23 +182,34 @@ export async function periodSummary(
   };
 }
 
-async function expensesByCategory(
+/** Gastos de un período por categoría, de mayor a menor (el panel los enlaza a Movimientos). */
+export async function expensesByCategory(
   tx: Tx,
   tenantId: string,
   from: IsoDate,
   to: IsoDate,
 ): Promise<CategoryTotal[]> {
-  const found = rows<{ name: string | null; usd: string; count: string | number }>(
+  const found = rows<{
+    id: string | null;
+    name: string | null;
+    usd: string;
+    count: string | number;
+  }>(
     await tx.execute(sql`
-      select c.name, sum(m.amount_usd)::text as usd, count(*) as count
+      select c.id, c.name, sum(m.amount_usd)::text as usd, count(*) as count
       from ${schema.movement} m
       left join ${schema.category} c on c.id = m.category_id
       where m.tenant_id = ${tenantId} and m.type = 'expense'
         and m.business_date between ${from}::date and ${to}::date and m.deleted_at is null
-      group by c.name order by sum(m.amount_usd) desc
+      group by c.id, c.name order by sum(m.amount_usd) desc
     `),
   );
-  return found.map((r) => ({ name: r.name ?? "Otros", usd: num(r.usd), count: Number(r.count) }));
+  return found.map((r) => ({
+    id: r.id,
+    name: r.name ?? "Otros",
+    usd: num(r.usd),
+    count: Number(r.count),
+  }));
 }
 
 /** Total de una categoría en un período (US-D3); si no existe, devuelve las candidatas. */
@@ -233,7 +245,16 @@ export async function categoryTotal(
   to: IsoDate,
   name: string,
 ): Promise<
-  | { found: true; name: string; usd: Decimal; ves: Decimal; count: number }
+  | {
+      found: true;
+      id: string;
+      name: string;
+      usd: Decimal;
+      ves: Decimal;
+      count: number;
+      /** Los gastos más recientes de la categoría en el período (hasta `CATEGORY_ITEMS`). */
+      items: CategoryItem[];
+    }
   | { found: false; suggestions: string[] }
 > {
   const all = await tx
@@ -253,14 +274,45 @@ export async function categoryTotal(
         and business_date between ${from}::date and ${to}::date and deleted_at is null
     `),
   );
+  const items = rows<{
+    date: string;
+    description: string | null;
+    amount: string;
+    currency: string;
+  }>(
+    await tx.execute(sql`
+      select business_date::text as date, description, amount::text as amount, currency
+      from ${schema.movement}
+      where tenant_id = ${tenantId} and type = 'expense' and category_id = ${match.id}
+        and business_date between ${from}::date and ${to}::date and deleted_at is null
+      order by business_date desc, created_at desc
+      limit ${CATEGORY_ITEMS}
+    `),
+  );
   return {
     found: true,
+    id: match.id,
     name: match.name,
     usd: num(found[0]?.usd),
     ves: num(found[0]?.ves),
     count: Number(found[0]?.count ?? 0),
+    items: items.map((i) => ({
+      date: asIsoDate(i.date),
+      description: i.description,
+      amount: num(i.amount),
+      currency: i.currency === "VES" ? "VES" : "USD",
+    })),
   };
 }
+
+/** Cuántos gastos lista el chat al preguntar por una categoría; el resto, en el panel. */
+export const CATEGORY_ITEMS = 15;
+export type CategoryItem = {
+  date: IsoDate;
+  description: string | null;
+  amount: Decimal;
+  currency: "USD" | "VES";
+};
 
 // ---------------------------------------------------------------- períodos
 

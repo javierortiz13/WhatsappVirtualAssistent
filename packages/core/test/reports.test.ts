@@ -133,7 +133,14 @@ describe("cierre y consultas", () => {
       categoryTotal(tx, tenantId, asIsoDate("2026-09-01"), today, "insumos"),
     );
     expect(insumos).toMatchObject({ found: true, name: "Insumos de lavado", count: 2 });
-    if (insumos.found) expect(insumos.usd.toFixed(2)).toBe("40.00");
+    if (insumos.found) {
+      expect(insumos.usd.toFixed(2)).toBe("40.00");
+      // Los gastos de la categoría, del más reciente al más viejo.
+      expect(insumos.items.map((i) => [i.date, i.description, i.amount.toFixed(2)])).toEqual([
+        ["2026-09-29", "Champú", "27.00"],
+        ["2026-09-10", "Cera", "13.00"],
+      ]);
+    }
     const nada = await withTenant(t.db, tenantId, (tx) =>
       categoryTotal(tx, tenantId, asIsoDate("2026-09-01"), today, "productos"),
     );
@@ -187,9 +194,11 @@ describe("cierre y consultas", () => {
     const cat = await withTenant(t.db, tenantId, (tx) =>
       renderSummary(tx, { ...base, period: "this_month", categoryName: "insumos" }),
     );
-    expect((cat as { body: string }).body).toBe(
-      "Insumos de lavado, septiembre (1 al 29): *$40,00* (Bs 34.216,00) en 2 gastos.",
+    const catBody = (cat as { body: string }).body;
+    expect(catBody).toContain(
+      "Insumos de lavado, septiembre (1 al 29): *$40,00* (Bs 34.216,00) en 2 gastos.\n\nmar 29/09 · Champú · $27,00\njue 10/09 · Cera · $13,00\n\nTodos en el panel: https://caja.test/movimientos?mes=2026-09&tipo=expense&categoria=",
     );
+    expect(catBody).not.toContain("más.");
 
     const empty = await withTenant(t.db, tenantId, (tx) =>
       renderSummary(tx, { ...base, period: "yesterday" }),

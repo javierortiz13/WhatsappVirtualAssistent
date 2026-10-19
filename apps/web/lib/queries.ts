@@ -49,7 +49,12 @@ export function shiftMonth(ym: string, delta: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-export type MovementFilter = { type?: "expense" | "income"; deleted?: boolean };
+export type MovementFilter = {
+  type?: "expense" | "income";
+  deleted?: boolean;
+  /** Solo una categoría; null = sin categoría. */
+  categoryId?: string | null;
+};
 
 export function monthBounds(today: IsoDate): { from: IsoDate; to: IsoDate; label: string } {
   const [y, m] = today.split("-");
@@ -91,6 +96,11 @@ export async function movementsBetween(
         and(
           filter.deleted ? isNotNull(schema.movement.deletedAt) : isNull(schema.movement.deletedAt),
           filter.type ? eq(schema.movement.type, filter.type) : undefined,
+          filter.categoryId === undefined
+            ? undefined
+            : filter.categoryId === null
+              ? isNull(schema.movement.categoryId)
+              : eq(schema.movement.categoryId, filter.categoryId),
           gte(schema.movement.businessDate, from),
           lte(schema.movement.businessDate, to),
         ),
