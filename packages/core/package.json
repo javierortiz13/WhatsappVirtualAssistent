@@ -15,13 +15,13 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.129.0",
+    "@anthropic-ai/sdk": "^0.135.0",
     "@caja/db": "workspace:*",
     "decimal.js": "^10.6.0",
     "yaml": "^2.9.1",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.5"
   }
 }
