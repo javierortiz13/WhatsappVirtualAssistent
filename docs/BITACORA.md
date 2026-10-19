@@ -1456,3 +1456,18 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - Ajustes → Plan, en la prueba: "Gratis durante tu prueba de 14 días" ahora dice "**…de 14 días o 100 mensajes, lo que llegue primero**" (nota N3 de cumplimiento; misma frase que el bot, jpsoftwaredev#7).
 
 **Verificado:** 480 tests, lint y typecheck limpios.
+
+### S3 · 19/10/2026 · Pago móvil desde foto: 1 mensaje (2 con monto), antes 4 o 5
+
+**Pedido (Javier):** la foto de datos de pago móvil gastaba 4 mensajes (resumen, teléfono, cédula y "¿Es un gasto?") y 5 si traía monto. Se puede en uno, y que el teléfono y la cédula se copien con un toque.
+
+**Hecho:**
+- `es.pagoMovil` devuelve **un solo mensaje**.
+  - El teléfono va en dígitos corridos (`04148216578`, antes `0414-8216578`) y la cédula como `Cédula: 32729158 (V)` (antes `V-32729158`, que WhatsApp no subrayaba). Así WhatsApp los subraya: se tocan y se copian.
+  - Con monto, añade "En el banco: 1250,00" (sin puntos de mil).
+  - Cierra con "_Toca el teléfono o la cédula y elige Copiar._".
+- **Sin monto:** la misma burbuja trae la pregunta "¿Es un gasto? Escríbeme el monto y en qué es". Un mensaje en total; antes eran 4.
+- **Con monto:** los datos y, aparte, el borrador del gasto, que lleva botones. Dos mensajes; antes eran 5.
+- Se quitó `es.pagoMovilAskAmount`. Cumple ADR-014 (un mensaje entrante → una respuesta, salvo la tarjeta con botones) y ahorra unos $0,03 por foto pasada la cuota gratis de Meta.
+
+**Verificado:** `process-image.test.ts` revisa que con monto salgan 2 respuestas y sin monto 1, con el texto exacto. Lint y typecheck limpios.

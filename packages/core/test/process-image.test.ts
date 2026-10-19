@@ -706,31 +706,31 @@ describe("fotos de facturas", () => {
     },
   };
 
-  it("pago móvil con monto: resumen, cada dato para copiar y el borrador de gasto con la foto", async () => {
+  it("pago móvil con monto: los datos en un mensaje (para copiar con un toque) y el borrador aparte", async () => {
     const { sent, client } = fakeMeta();
     const before = store.objects.size;
     await sendImage(client, fakeVision(PAGO_MOVIL), true);
     expect(store.objects.size).toBe(before + 1);
+    // 2 respuestas (antes 5): teléfono y cédula en dígitos corridos, que WhatsApp subraya.
+    expect(sent).toHaveLength(3);
     expect(textOf(sent[1])).toBe(
       [
         "📲 *Pago móvil*",
         "Banco: 0102 · Banco de Venezuela",
-        "Teléfono: 0412-3020256",
-        "Cédula/RIF: V-25871244",
+        "Teléfono: 04123020256",
+        "Cédula: 25871244 (V)",
         "Titular: Javier Ortiz",
         "Monto: *Bs 1.250,00*",
+        "En el banco: 1250,00",
         "",
-        "Abajo va cada dato solo para copiarlo y pegarlo en el banco 👇",
+        "_Toca el teléfono o la cédula y elige Copiar._",
       ].join("\n"),
     );
-    expect(textOf(sent[2])).toBe("04123020256");
-    expect(textOf(sent[3])).toBe("25871244");
-    expect(textOf(sent[4])).toBe("1250,00");
-    const draft = textOf(sent[5]);
+    const draft = textOf(sent[2]);
     expect(draft.startsWith("💸 ¿Es un gasto? Si lo es, toca *Guardar*")).toBe(true);
     expect(draft).toContain("Pago móvil a Javier Ortiz");
     const att = (await attachments()).at(-1);
-    await tap(client, fakeVision(PAGO_MOVIL), fx.saveIdFrom(buttonsOf(sent[5])), "Guardar");
+    await tap(client, fakeVision(PAGO_MOVIL), fx.saveIdFrom(buttonsOf(sent[2])), "Guardar");
     const [mv] = await withTenant(t.db, tenantId, (tx) =>
       tx
         .select()
@@ -744,12 +744,12 @@ describe("fotos de facturas", () => {
     const { sent, client } = fakeMeta();
     await sendImage(client, fakeVision({ ...PAGO_MOVIL, total: "10", currency: "USD" }), true);
     expect(textOf(sent[1])).toContain("Monto: *Bs 8.580,00* ($10,00 a tasa BCV 858,00)");
-    expect(textOf(sent[4])).toBe("8580,00");
+    expect(textOf(sent[1])).toContain("En el banco: 8580,00");
     // Deja la cola limpia para los casos siguientes.
     await tap(
       client,
       null,
-      buttonsOf(sent[5]).find((b) => b.title === "Cancelar")?.id as string,
+      buttonsOf(sent[2]).find((b) => b.title === "Cancelar")?.id as string,
       "Cancelar",
     );
   });
@@ -757,16 +757,17 @@ describe("fotos de facturas", () => {
   it("pago móvil sin monto: pregunta, y la respuesta arma el gasto con la foto", async () => {
     const { sent, client } = fakeMeta();
     await sendImage(client, fakeVision({ ...PAGO_MOVIL, total: "" }), true);
-    expect(sent).toHaveLength(5);
-    expect(textOf(sent[3])).toBe("25871244");
-    expect(textOf(sent[4])).toContain("Escríbeme el *monto* y *en qué es*");
+    // Un solo mensaje: los datos y la pregunta del monto.
+    expect(sent).toHaveLength(2);
+    expect(textOf(sent[1])).toContain("Cédula: 25871244 (V)");
+    expect(textOf(sent[1])).toContain("Escríbeme el *monto* y *en qué es*");
     const att = (await attachments()).at(-1);
     jobs.length = 0;
     const p = fx.textMessage(`wamid.PM${++seq}`, "1250 bs del gas");
     await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
     await processInbound(deps(client, null), jobs[0] as ProcessMessageJob);
-    expect(textOf(sent[5])).toContain("Gasto guardado");
-    await tap(client, null, fx.saveIdFrom(buttonsOf(sent[5])), "Guardar");
+    expect(textOf(sent[2])).toContain("Gasto guardado");
+    await tap(client, null, fx.saveIdFrom(buttonsOf(sent[2])), "Guardar");
     const [mv] = await withTenant(t.db, tenantId, (tx) =>
       tx
         .select()

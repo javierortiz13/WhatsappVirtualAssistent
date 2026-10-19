@@ -1510,7 +1510,8 @@ async function handlePagoMovil(
       source: "pago_movil",
     };
     return {
-      ...none([...info, es.pagoMovilAskAmount()]),
+      // Un solo mensaje: los datos para copiar y la pregunta del monto.
+      ...none([info]),
       toolCalls: [{ name: UNCLEAR_RECEIPT, args: { ...follow, attachmentId } }],
       ...readCost,
     };
@@ -1534,7 +1535,7 @@ async function handlePagoMovil(
     tokensIn: result.tokensIn + readCost.tokensIn,
     tokensOut: result.tokensOut + readCost.tokensOut,
     outbound: [
-      ...info,
+      info,
       ...(first && isDraft
         ? [...mergeOutbound(es.pagoMovilDraftLead(), first), ...result.outbound.slice(1)]
         : result.outbound),

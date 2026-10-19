@@ -769,18 +769,20 @@ function parseLooseAmount(s: string): Decimal | null {
 }
 
 /**
- * Datos de pago móvil de una foto (03/10): un resumen y después cada dato solo en su mensaje,
- * para copiarlo con un toque y pegarlo en el banco. El monto va en bolívares sin puntos de mil.
+ * Datos de pago móvil de una foto (03/10) en UN mensaje (19/10, antes eran 4): el teléfono y la
+ * cédula van en dígitos corridos para que WhatsApp los subraye y se copien con un toque. El monto
+ * va también como se escribe en el banco (sin puntos de mil). Sin monto, la misma burbuja pregunta
+ * si es un gasto; con monto, el borrador de gasto va aparte (lleva botones).
  */
 export function pagoMovil(
   d: PagoMovilData,
   amount: { ves: Decimal; usd: Decimal | null; rate: Decimal | null } | null,
-): Outbound[] {
+): Outbound {
   const lines = ["📲 *Pago móvil*"];
   const bank = [d.bankCode, d.bankName].filter(Boolean).join(" · ");
   if (bank) lines.push(`Banco: ${bank}`);
-  if (d.phone) lines.push(`Teléfono: ${d.phone.slice(0, 4)}-${d.phone.slice(4)}`);
-  if (d.idNumber) lines.push(`Cédula/RIF: ${d.idLetter ?? "V"}-${d.idNumber}`);
+  if (d.phone) lines.push(`Teléfono: ${d.phone}`);
+  if (d.idNumber) lines.push(`Cédula: ${d.idNumber} (${d.idLetter ?? "V"})`);
   if (d.holder) lines.push(`Titular: ${d.holder}`);
   if (amount) {
     const usd =
@@ -788,26 +790,25 @@ export function pagoMovil(
         ? ` (${formatMoney(amount.usd, "USD")} a tasa BCV ${formatMoney(amount.rate, "VES").replace("Bs ", "")})`
         : "";
     lines.push(`Monto: *${formatMoney(amount.ves, "VES")}*${usd}`);
+    lines.push(`En el banco: ${amount.ves.toFixed(2).replace(".", ",")}`);
   }
-  lines.push("", "Abajo va cada dato solo para copiarlo y pegarlo en el banco 👇");
-  const copies: Outbound[] = [];
-  if (d.phone) copies.push({ type: "text", body: d.phone });
-  if (d.idNumber) copies.push({ type: "text", body: d.idNumber });
-  if (amount) copies.push({ type: "text", body: amount.ves.toFixed(2).replace(".", ",") });
-  return [{ type: "text", body: lines.join("\n") }, ...copies];
+  if (d.phone || d.idNumber)
+    lines.push(
+      "",
+      `_Toca ${d.phone && d.idNumber ? "el teléfono o la cédula" : d.phone ? "el teléfono" : "la cédula"} y elige Copiar._`,
+    );
+  if (!amount)
+    lines.push(
+      "",
+      "💸 ¿Es un gasto? Escríbeme el *monto* y *en qué es* y te lo dejo listo para guardar.",
+      "Ejemplo: _1.250 Bs del gas_",
+    );
+  return { type: "text", body: lines.join("\n") };
 }
 
 /** Va arriba del borrador de gasto que sigue a los datos de pago móvil. */
 export function pagoMovilDraftLead(): Outbound {
   return { type: "text", body: "💸 ¿Es un gasto? Si lo es, toca *Guardar* cuando hagas el pago." };
-}
-
-/** Datos de pago móvil sin monto: la respuesta siguiente arma el gasto con la foto. */
-export function pagoMovilAskAmount(): Outbound {
-  return {
-    type: "text",
-    body: "💸 ¿Es un gasto? Escríbeme el *monto* y *en qué es* y te lo dejo listo para guardar.\nEjemplo: _1.250 Bs del gas_",
-  };
 }
 
 export function pagoMovilUnclear(): Outbound {
