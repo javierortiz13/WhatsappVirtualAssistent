@@ -489,6 +489,9 @@ export const IncomeSingleDraft = z.object({
   attachmentId: z.string().uuid().nullable().default(null),
   transcript: z.string().nullable(),
   fixing: z.boolean().optional(),
+  /** Fuente del ingreso en cuentas personales (salario, freelance…); null en negocios. */
+  categoryId: z.string().uuid().nullable().optional(),
+  categoryName: z.string().nullable().optional(),
   ...AccountFields,
 });
 export type IncomeSingleDraft = z.infer<typeof IncomeSingleDraft>;
@@ -671,6 +674,7 @@ export type IncomeSingleInput = {
   manualRate?: Rate | null;
   replaces?: string | null;
   account?: { id: string; name: string } | null;
+  category?: { id: string; name: string } | null;
 };
 
 export async function createIncomeSingleDraft(
@@ -701,6 +705,7 @@ export async function createIncomeSingleDraft(
     transcript: input.transcript,
     accountId: input.account?.id ?? null,
     accountName: input.account?.name ?? null,
+    ...(input.category ? { categoryId: input.category.id, categoryName: input.category.name } : {}),
   };
   const { pendingId, replacedPrevious } = await insertDraft(
     tx,

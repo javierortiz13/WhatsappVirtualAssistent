@@ -320,7 +320,11 @@ describe("onboarding por código de vinculación", () => {
         .where(eq(schema.category.tenantId, r.tenantId))
         .orderBy(schema.category.sortOrder),
     );
-    expect(cats.map((c) => c.name)).toEqual(["Mercado", "Gasolina", "Mascotas", "Otros"]);
+    const named = (kind: string) => cats.filter((c) => c.kind === kind).map((c) => c.name);
+    expect(named("expense")).toEqual(["Mercado", "Gasolina", "Mascotas", "Otros"]);
+    // Una persona registra ingresos por fuente (19/10): vienen de una vez.
+    expect(named("income")).toContain("Salario");
+    expect(named("income")).toContain("Otros ingresos");
     const accounts = await withTenant(t.db, r.tenantId, (tx) =>
       tx.select().from(schema.account).where(eq(schema.account.tenantId, r.tenantId)),
     );

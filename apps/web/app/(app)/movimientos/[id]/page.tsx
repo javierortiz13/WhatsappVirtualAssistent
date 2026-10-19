@@ -5,7 +5,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { categoriesOf, movementById } from "@/lib/queries";
-import { requireTenant } from "@/lib/session";
+import { isPersonalTenant, requireTenant } from "@/lib/session";
 import {
   IconArrowDown,
   IconArrowUp,
@@ -47,13 +47,17 @@ export default async function Movimiento({
   const { id } = await params;
   const sp = await searchParams;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) notFound();
-  const [m, categories, accounts] = await Promise.all([
+  const [m, categories, sources, accounts, personal] = await Promise.all([
     movementById(tenant.id, id),
     categoriesOf(tenant.id),
+    categoriesOf(tenant.id, "income"),
     withTenant(db(), tenant.id, (tx) => listAccounts(tx, tenant.id)),
+    isPersonalTenant(tenant.id),
   ]);
   if (!m) notFound();
   const isExpense = m.type === "expense";
+  // Una persona no vende: su ingreso lleva fuente (salario, freelance…).
+  const incomeWord = personal ? "Ingreso" : "Venta";
   const locked = !!m.deletedAt;
   const notice = sp.ok ? MSG[sp.ok] : sp.error ? MSG[sp.error] : null;
   const amountText = `${isExpense ? "−" : "+"}${formatMoney(m.amount, m.currency as "USD" | "VES")}`;
@@ -72,7 +76,7 @@ export default async function Movimiento({
         </a>
         <span className={`tag ${isExpense ? "expense" : "income"}`}>
           {isExpense ? <IconArrowDown size={14} /> : <IconArrowUp size={14} />}
-          {isExpense ? "Gasto" : "Venta"}
+          {isExpense ? "Gasto" : incomeWord}
         </span>
         <span style={{ flex: 1 }} />
         {m.deletedAt ? <span className="badge warn">eliminado</span> : null}
@@ -83,7 +87,7 @@ export default async function Movimiento({
       ) : null}
 
       <section className="card center-text">
-        <span className="label">{m.description ?? (isExpense ? "Gasto" : "Venta")}</span>
+        <span className="label">{m.description ?? (isExpense ? "Gasto" : incomeWord)}</span>
         <p
           className={`big num ${isExpense ? "amber" : "mint"}${amountText.length > 12 ? " long" : ""}`}
         >
@@ -189,6 +193,30 @@ export default async function Movimiento({
             </span>
           </label>
         )}
+        {!isExpense && personal && (sources.length || m.categoryId) ? (
+          <label className="field">
+            <span>Fuente</span>
+            <span className="sel">
+              <select
+                className="input"
+                name="category_id"
+                defaultValue={m.categoryId ?? ""}
+                disabled={locked}
+              >
+                <option value="">Sin fuente</option>
+                {sources.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+                {m.categoryId && !sources.some((c) => c.id === m.categoryId) ? (
+                  <option value={m.categoryId}>{m.categoryName ?? "Fuente desactivada"}</option>
+                ) : null}
+              </select>
+              <IconChevronDown size={16} />
+            </span>
+          </label>
+        ) : null}
         {accounts.length || m.accountId ? (
           <label className="field">
             <span>{isExpense ? "Salió de la cuenta" : "Entró a la cuenta"}</span>
@@ -283,7 +311,7 @@ export default async function Movimiento({
         <form action={deleteMovementAction} className="center">
           <input type="hidden" name="id" value={m.id} />
           <button className="btn danger" type="submit">
-            Eliminar {isExpense ? "gasto" : "venta"}
+            Eliminar {isExpense ? "gasto" : incomeWord.toLowerCase()}
           </button>
         </form>
       ) : null}

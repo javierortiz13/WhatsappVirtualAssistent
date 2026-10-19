@@ -31,6 +31,12 @@ const MENU_BUTTONS = [
   { id: IDS.menuIncome, title: "Registrar venta" },
   { id: IDS.menuClose, title: "Ver cierre" },
 ];
+/** Una persona no vende: registra ingresos (19/10). */
+const PERSONAL_MENU_BUTTONS = [
+  { id: IDS.menuExpense, title: "Registrar gasto" },
+  { id: IDS.menuIncome, title: "Registrar ingreso" },
+  { id: IDS.menuClose, title: "Ver cierre" },
+];
 
 export function rateLine(r: RateInfo): string {
   if (!r.current) return "Tasa BCV: no disponible por ahora";
@@ -39,22 +45,33 @@ export function rateLine(r: RateInfo): string {
   return r.stale ? `${base} ⚠️ puede estar desactualizada` : base;
 }
 
-export function menu(r: RateInfo): Outbound {
-  return { type: "buttons", body: `${rateLine(r)}\n¿Qué quieres hacer?`, buttons: MENU_BUTTONS };
+export function menu(r: RateInfo, personal = false): Outbound {
+  return {
+    type: "buttons",
+    body: `${rateLine(r)}\n¿Qué quieres hacer?`,
+    buttons: personal ? PERSONAL_MENU_BUTTONS : MENU_BUTTONS,
+  };
 }
 
-export function welcomeOwner(tenantName: string, assistantName: string, r: RateInfo): Outbound {
+export function welcomeOwner(
+  tenantName: string,
+  assistantName: string,
+  r: RateInfo,
+  personal = false,
+): Outbound {
   return {
     type: "buttons",
     body:
       `✅ Listo, tu número quedó vinculado a *${tenantName}*.\n\n` +
       `¡Epa! Soy *${assistantName}* 🐾, tu pana con las finanzas. Soy un asistente automático: me escribes como a un amigo y yo te llevo la cuenta, pendiente de la tasa por ti:\n` +
       "• _gasté 15$ en champú_\n" +
-      "• _hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto_\n" +
+      (personal
+        ? "• _me pagaron el sueldo, 300$_\n"
+        : "• _hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto_\n") +
       "• _cómo va el mes_\n\n" +
       "También me puedes mandar una nota de voz o la factura en foto o PDF.\n\n" +
       rateLine(r),
-    buttons: MENU_BUTTONS,
+    buttons: personal ? PERSONAL_MENU_BUTTONS : MENU_BUTTONS,
   };
 }
 
@@ -94,11 +111,13 @@ export function rate(r: RateInfo): Outbound {
   return { type: "text", body: lines.join("\n") };
 }
 
-export function help(dashboardUrl: string, supportHint: string | null): Outbound {
+export function help(dashboardUrl: string, supportHint: string | null, personal = false): Outbound {
   const lines = [
     "Soy Rocco 🐾. Esto es todo lo que puedo hacer por ti:",
     "• Registrar gastos: _gasté 15$ en champú_, o nota de voz, o la factura en foto o PDF",
-    "• Registrar ventas: _hoy vendí 350$: 200 efectivo, 150 pago móvil_",
+    personal
+      ? "• Registrar ingresos: _me pagaron el sueldo, 300$_, _cobré 80$ de un freelance_, _me llegó una remesa de 50$_"
+      : "• Registrar ventas: _hoy vendí 350$: 200 efectivo, 150 pago móvil_",
     "• Cierre: _cierre de hoy_, _cómo va el mes_, _cuánto gasté en insumos esta semana_",
     "• Tasa: _tasa_ (igual yo estoy pendiente de ella en cada movimiento)",
     "• Calculadora: _cuánto es 8000 bs en $_, _17€ en bs_, _suma 12.030,30 + 26.171,78 + 56.706_, _divide 120$ entre 4_",
@@ -551,10 +570,12 @@ export function promptExpense(): Outbound {
   };
 }
 
-export function promptIncome(): Outbound {
+export function promptIncome(personal = false): Outbound {
   return {
     type: "text",
-    body: "Dime la venta del día. Ejemplo: _hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto_",
+    body: personal
+      ? "Dime qué te entró. Ejemplo: _me pagaron el sueldo, 300$_ o _cobré 80$ de un freelance_"
+      : "Dime la venta del día. Ejemplo: _hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 punto_",
   };
 }
 
@@ -625,7 +646,7 @@ export function savedCard(
   const rest = plain
     ? saved.body.split("\n").slice(1).join("\n")
     : saved.body.replace(
-        /^✅ (Guardados? ?(\d+ gastos)?|Venta guardada|Corregido|Eliminado)\.\s*/,
+        /^✅ (Guardados? ?(\d+ gastos)?|Venta guardada|Ingreso guardado|Corregido|Eliminado)\.\s*/,
         "",
       );
   if (rest.trim()) body = `${body}\n\n${rest.trim()}`;
@@ -1699,6 +1720,8 @@ export type IncomeSingleView = {
   transcript: string | null;
   replacedPrevious: boolean;
   accountName?: string | null | undefined;
+  /** Fuente del ingreso en cuentas personales: "Salario", "Freelance"… */
+  categoryName?: string | null | undefined;
 };
 
 export function incomeSingleDraft(v: IncomeSingleView): Outbound {
@@ -1710,6 +1733,7 @@ export function incomeSingleDraft(v: IncomeSingleView): Outbound {
   const how = v.method === "unspecified" ? "" : ` por ${v.methodLabel}`;
   lines.push(v.description ? `${v.description}: *${main}*${how}` : `*${main}*${how}`);
   lines.push(equivalentLine(v));
+  if (v.categoryName) lines.push(`Fuente: ${v.categoryName}`);
   if (v.accountName) lines.push(`Cuenta: ${v.accountName}`);
   lines.push(dateLine(v.businessDate, v.today));
   if (v.currencyInferred) lines.push(inferredNote(v.currency));
@@ -1726,9 +1750,14 @@ export function incomeSingleDraft(v: IncomeSingleView): Outbound {
 export function incomeSaved(
   salesUsd: Decimal.Value,
   expensesUsd: Decimal.Value,
-  opts: { replaced: number; isToday: boolean; dateLabel: string },
+  opts: { replaced: number; isToday: boolean; dateLabel: string; personal?: boolean },
 ): Outbound {
   const when = opts.isToday ? "Hoy" : opts.dateLabel;
+  if (opts.personal)
+    return {
+      type: "text",
+      body: `✅ Ingreso guardado. ${when}: te entraron *${formatMoney(salesUsd, "USD")}*, gastaste *${formatMoney(expensesUsd, "USD")}*.`,
+    };
   const note = opts.replaced > 0 ? " Reemplacé la venta anterior de ese día." : "";
   return {
     type: "text",
@@ -1745,6 +1774,9 @@ export type DailyCloseView = {
   salesByMethod: { label: string; usd: Decimal.Value; originalVes: Decimal.Value }[];
   expensesUsd: Decimal.Value;
   expensesByCategory: { name: string; usd: Decimal.Value }[];
+  /** Cuentas personales: "Ingresos" por fuente en vez de "Ventas" por método. */
+  personal?: boolean;
+  incomeBySource?: { name: string; usd: Decimal.Value }[];
   netUsd: Decimal.Value;
   netVes: Decimal.Value | null;
   rateValue: Decimal.Value | null;
@@ -1823,10 +1855,19 @@ export function dailyClose(v: DailyCloseView): Outbound {
       ? `📊 Cierre diario · hoy, ${formatShortDate(asIsoDate(v.date))}`
       : `📊 Cierre diario · ${formatShortDate(asIsoDate(v.date))}`;
   const lines = [title, ""];
-  lines.push(`*Ventas: ${formatMoney(v.salesUsd, "USD")}*`);
+  if (v.personal) {
+    lines.push(`*Ingresos: ${formatMoney(v.salesUsd, "USD")}*`);
+    lines.push(
+      ...capped(
+        v.incomeBySource ?? [],
+        (c) => `${c.name} ${formatMoney(c.usd, "USD")}`,
+        (n, items) => `Otros ${n} · ${formatMoney(sumUsd(items), "USD")}`,
+      ),
+    );
+  } else lines.push(`*Ventas: ${formatMoney(v.salesUsd, "USD")}*`);
   lines.push(
     ...capped(
-      v.salesByMethod,
+      v.personal ? [] : v.salesByMethod,
       (m) =>
         new Decimal(m.originalVes).gt(0)
           ? `${m.label} ${formatMoney(m.usd, "USD")} (${formatMoney(m.originalVes, "VES")})`
@@ -1844,7 +1885,7 @@ export function dailyClose(v: DailyCloseView): Outbound {
     ),
   );
   lines.push("");
-  const net = `*Ventas menos gastos: ${signedUsd(v.netUsd)}*`;
+  const net = `*${v.personal ? "Ingresos" : "Ventas"} menos gastos: ${signedUsd(v.netUsd)}*`;
   lines.push(
     v.netVes !== null && v.rateValue !== null
       ? `${net} (${formatMoney(v.netVes, "VES")} a tasa ${formatMoney(v.rateValue, "VES").replace("Bs ", "")})`
@@ -1864,7 +1905,7 @@ export function dailyClose(v: DailyCloseView): Outbound {
       lines.push(
         `Ojo: ${missing.text} sin cuenta ${missing.one ? "no entra" : "no entran"} en lo que debería haber en caja. ${missing.one ? "Ponle" : "Ponles"} la cuenta en el panel, en Movimientos.`,
       );
-  } else {
+  } else if (!v.personal) {
     lines.push(
       // Solo las ventas cobradas en efectivo: no resta lo que salió de la gaveta (C1).
       `Ventas en efectivo: ${formatMoney(v.cashSalesUsd, "USD")} · ${formatMoney(v.cashSalesVes, "VES")}`,
@@ -1879,10 +1920,10 @@ export function dailyClose(v: DailyCloseView): Outbound {
   return { type: "text", body: lines.join("\n") };
 }
 
-export function noMovements(label: string): Outbound {
+export function noMovements(label: string, personal = false): Outbound {
   return {
     type: "text",
-    body: `No tengo movimientos registrados ${label}. Si vendiste o gastaste algo, dímelo y lo anoto al toque.`,
+    body: `No tengo movimientos registrados ${label}. Si ${personal ? "te entró" : "vendiste"} o gastaste algo, dímelo y lo anoto al toque.`,
   };
 }
 
@@ -1892,15 +1933,25 @@ export type PeriodSummaryView = {
   expensesUsd: Decimal.Value;
   netUsd: Decimal.Value;
   topExpenses: { name: string; usd: Decimal.Value }[];
+  /** Cuentas personales: "Ingresos" y de dónde entraron. */
+  personal?: boolean;
+  incomeBySource?: { name: string; usd: Decimal.Value }[];
   daysWithMovements: number;
   dashboardUrl: string;
 };
 
 export function periodSummary(v: PeriodSummaryView): Outbound {
   const lines = [`📊 ${v.title}`, ""];
-  lines.push(`*Ventas: ${formatMoney(v.salesUsd, "USD")}*`);
+  const sales = v.personal ? "Ingresos" : "Ventas";
+  lines.push(`*${sales}: ${formatMoney(v.salesUsd, "USD")}*`);
   lines.push(`*Gastos: ${formatMoney(v.expensesUsd, "USD")}*`);
-  lines.push(`*Ventas menos gastos: ${signedUsd(v.netUsd)}*`);
+  lines.push(`*${sales} menos gastos: ${signedUsd(v.netUsd)}*`);
+  if (v.personal && v.incomeBySource?.length) {
+    lines.push("");
+    lines.push("De dónde entró:");
+    for (const c of v.incomeBySource.slice(0, 5))
+      lines.push(`${c.name} ${formatMoney(c.usd, "USD")}`);
+  }
   if (v.topExpenses.length) {
     lines.push("");
     lines.push("Gastos más grandes:");
@@ -1916,6 +1967,8 @@ export function periodSummary(v: PeriodSummaryView): Outbound {
 }
 
 export function categoryTotal(v: {
+  /** Fuente de ingreso (cuentas personales) en vez de categoría de gasto. */
+  kind?: "expense" | "income";
   name: string;
   periodLabel: string;
   usd: Decimal.Value;
@@ -1931,10 +1984,11 @@ export function categoryTotal(v: {
   /** Movimientos del panel filtrados por esta categoría. */
   link?: string;
 }): Outbound {
+  const [one, many] = v.kind === "income" ? ["ingreso", "ingresos"] : ["gasto", "gastos"];
   if (v.count === 0)
-    return { type: "text", body: `${v.name}, ${v.periodLabel}: sin gastos registrados.` };
+    return { type: "text", body: `${v.name}, ${v.periodLabel}: sin ${many} registrados.` };
   const lines = [
-    `${v.name}, ${v.periodLabel}: *${formatMoney(v.usd, "USD")}* (${formatMoney(v.ves, "VES")}) en ${v.count === 1 ? "1 gasto" : `${v.count} gastos`}.`,
+    `${v.name}, ${v.periodLabel}: *${formatMoney(v.usd, "USD")}* (${formatMoney(v.ves, "VES")}) en ${v.count === 1 ? `1 ${one}` : `${v.count} ${many}`}.`,
   ];
   const items = v.items ?? [];
   if (items.length) {

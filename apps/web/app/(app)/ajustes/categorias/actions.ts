@@ -39,8 +39,10 @@ export async function createCategoryAction(formData: FormData): Promise<void> {
   const ref = await owner();
   const name = z.string().max(60).safeParse(formData.get("name"));
   if (!name.success) redirect(`${BACK}?error=invalid`);
+  // Fuente de ingreso (cuentas personales) o categoría de gasto.
+  const kind = formData.get("kind") === "income" ? "income" : "expense";
   try {
-    await withTenant(db(), ref.tenantId, (tx) => createCategory(tx, ref, name.data));
+    await withTenant(db(), ref.tenantId, (tx) => createCategory(tx, ref, name.data, kind));
   } catch (err) {
     fail(err);
   }

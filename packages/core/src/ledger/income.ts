@@ -40,6 +40,8 @@ export type IncomeLine = {
   currency: Currency;
   /** Cuenta a la que entró (0013). */
   accountId?: string | null;
+  /** Fuente del ingreso (categoría de tipo income): salario, freelance… (cuentas personales). */
+  categoryId?: string | null;
 };
 
 type Common = {
@@ -87,7 +89,7 @@ async function insertIncome(
       rateValue: toDbRate(c.rateValue),
       amountUsd: toDbAmount(c.amountUsd),
       amountVes: toDbAmount(c.amountVes),
-      categoryId: null,
+      categoryId: line.categoryId ?? null,
       paymentMethod: line.method,
       description,
       origin,

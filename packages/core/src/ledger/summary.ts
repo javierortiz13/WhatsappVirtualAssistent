@@ -18,8 +18,11 @@ export async function renderSummary(
     from: string | null;
     to: string | null;
     categoryName: string | null;
+    /** Cuenta personal: "Ingresos" por fuente, y la categoría puede ser una fuente de ingreso. */
+    personal?: boolean;
   },
 ): Promise<Outbound> {
+  const personal = input.personal ?? false;
   const range = resolvePeriod(input.period, input.today, {
     from: input.from ? asIsoDate(input.from) : null,
     to: input.to ? asIsoDate(input.to) : null,
@@ -30,11 +33,23 @@ export async function renderSummary(
   }
   const label = es.periodLabel(input.period, range.from, range.to, input.today);
   if (input.categoryName) {
-    const r = await categoryTotal(tx, input.tenantId, range.from, range.to, input.categoryName);
-    if (!r.found) return es.categoryNotFound(input.categoryName, r.suggestions);
+    const name = input.categoryName;
+    const expense = await categoryTotal(tx, input.tenantId, range.from, range.to, name);
+    // En una cuenta personal también puede preguntar por una fuente ("cuánto me entró de
+    // freelance"): gana la que se llama igual; si no, la de gasto, y si no hay, la de ingreso.
+    const income = personal
+      ? await categoryTotal(tx, input.tenantId, range.from, range.to, name, "income")
+      : null;
+    const same = (n: string) => plain(n).includes(plain(name)) || plain(name).includes(plain(n));
+    const r =
+      income?.found && (same(income.name) || !expense.found)
+        ? { ...income, kind: "income" as const }
+        : { ...expense, kind: "expense" as const };
+    if (!r.found) return es.categoryNotFound(name, expense.found ? [] : expense.suggestions);
     // El panel lista por mes: el del final del período.
-    const q = new URLSearchParams({ mes: range.to.slice(0, 7), tipo: "expense", categoria: r.id });
+    const q = new URLSearchParams({ mes: range.to.slice(0, 7), tipo: r.kind, categoria: r.id });
     return es.categoryTotal({
+      kind: r.kind,
       name: r.name,
       periodLabel: label,
       usd: r.usd,
@@ -46,9 +61,10 @@ export async function renderSummary(
   }
   if (range.from === range.to) {
     const c = await dailyClose(tx, input.tenantId, range.from);
-    if (c.count === 0) return es.noMovements(label);
+    if (c.count === 0) return es.noMovements(label, personal);
     return es.dailyClose({
       ...c,
+      personal,
       today: input.today,
       salesByMethod: c.salesByMethod.map((m) => ({
         label: PAYMENT_METHOD_LABELS[m.method as PaymentMethod] ?? m.method,
@@ -59,10 +75,17 @@ export async function renderSummary(
     });
   }
   const p = await periodSummary(tx, input.tenantId, range.from, range.to);
-  if (p.count === 0) return es.noMovements(label);
+  if (p.count === 0) return es.noMovements(label, personal);
   const title =
     input.period === "this_month" || input.period === "last_month"
       ? `Cierre del mes · ${label.charAt(0).toUpperCase()}${label.slice(1)}`
       : `Resumen · ${label}`;
-  return es.periodSummary({ ...p, title, dashboardUrl: input.dashboardUrl });
+  return es.periodSummary({ ...p, personal, title, dashboardUrl: input.dashboardUrl });
 }
+
+const plain = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();

@@ -92,6 +92,7 @@ import {
   EditLastDraft,
   ExpenseDraft,
   ExpensesDraft,
+  ensureIncomeCategories,
   ensureOtherCategory,
   existingDayTotal,
   expenseTotalForDay,
@@ -418,6 +419,7 @@ export async function processInbound(
       neverPaid: tenant.paidUntil === null,
       tenantId: resolved.tenantId,
       tenantName: tenant.name,
+      personal: tenant.businessType === "personal",
       phoneId: resolved.phoneId,
       role: resolved.role,
       defaultCurrency: (tenant.defaultExpenseCurrency as "USD" | "VES" | null) ?? null,
@@ -645,12 +647,17 @@ async function handlePendingOwner(
     if (result === "expired")
       return { reply: es.codeExpired(registerUrl), note: "pendiente: código vencido" };
     const [tenant] = await tx
-      .select({ name: schema.tenant.name })
+      .select({ name: schema.tenant.name, businessType: schema.tenant.businessType })
       .from(schema.tenant)
       .where(eq(schema.tenant.id, resolved.tenantId));
     const rate = await getRateInfo(tx, businessDateOf(nowTs));
     return {
-      reply: es.welcomeOwner(tenant?.name ?? "tu negocio", deps.config.assistantName, rate),
+      reply: es.welcomeOwner(
+        tenant?.name ?? "tu negocio",
+        deps.config.assistantName,
+        rate,
+        tenant?.businessType === "personal",
+      ),
       note: null,
     };
   });
@@ -686,6 +693,8 @@ type RouteCtx = {
   deleted?: { purgeAfter: Date | null } | null;
   tenantId: string;
   tenantName: string;
+  /** Cuenta personal (no un negocio): lo que entra son ingresos por fuente, no ventas (19/10). */
+  personal?: boolean;
   phoneId: string;
   role: "owner" | "employee";
   defaultCurrency: "USD" | "VES" | null;
@@ -956,10 +965,11 @@ async function routeMessage(
             ? await renewOfferReply(tx, renewCtx(deps, ctx))
             : rechargeOfferReply(renewCtx(deps, ctx)),
         ]);
-      if (keyword === "menu") return none([es.menu(await getRateInfo(tx, ctx.today))]);
+      if (keyword === "menu")
+        return none([es.menu(await getRateInfo(tx, ctx.today), ctx.personal)]);
       if (keyword === "rate") return none([es.rate(await getRateInfo(tx, ctx.today))]);
       if (keyword === "help")
-        return none([es.help(deps.config.dashboardUrl, deps.config.supportHint)]);
+        return none([es.help(deps.config.dashboardUrl, deps.config.supportHint, ctx.personal)]);
       if (keyword === "dashboard")
         return none([
           es.dashboardLink(
@@ -1689,7 +1699,7 @@ async function routeInteractive(
   switch (parsed.kind) {
     case "menu":
       if (parsed.action === "expense") return none([es.promptExpense()]);
-      if (parsed.action === "income") return none([es.promptIncome()]);
+      if (parsed.action === "income") return none([es.promptIncome(ctx.personal)]);
       return closeToday(tx, deps, ctx);
     case "confirm":
     case "fix":
@@ -1974,6 +1984,7 @@ async function closeToday(tx: Tx, deps: ProcessDeps, ctx: RouteCtx): Promise<Rou
       from: null,
       to: null,
       categoryName: null,
+      personal: ctx.personal ?? false,
     }),
   ]);
 }
@@ -2059,6 +2070,21 @@ async function runAgent(
       ),
     };
   await ensureOtherCategory(tx, ctx.tenantId);
+  // Cuentas personales: lo que entra va por fuente (salario, freelance…); se crean la primera vez.
+  if (ctx.personal) await ensureIncomeCategories(tx, ctx.tenantId);
+  const incomeCategories = ctx.personal
+    ? await tx
+        .select({ id: schema.category.id, name: schema.category.name })
+        .from(schema.category)
+        .where(
+          and(
+            eq(schema.category.tenantId, ctx.tenantId),
+            eq(schema.category.kind, "income"),
+            eq(schema.category.isActive, true),
+          ),
+        )
+        .orderBy(schema.category.sortOrder)
+    : [];
   const categories = await tx
     .select({ id: schema.category.id, name: schema.category.name })
     .from(schema.category)
@@ -2089,6 +2115,7 @@ async function runAgent(
         bsRateMode: ctx.bsRateMode ?? "bcv",
         accounts: await listAccounts(tx, ctx.tenantId),
         categories,
+        ...(ctx.personal ? { personal: true, incomeCategories } : {}),
         categoryExamples: await categoryExamples(tx, ctx.tenantId),
         today: ctx.today,
         sourceMessageDbId: current?.id ?? null,
@@ -2336,6 +2363,7 @@ async function executePending(
           replaced: created.replaced,
           isToday: draft.businessDate === ctx.today,
           dateLabel: formatShortDate(asIsoDate(draft.businessDate)),
+          personal: ctx.personal ?? false,
         }),
         "✅ Venta guardada.",
       );
@@ -2356,6 +2384,7 @@ async function executePending(
           amount: new Decimal(draft.amount),
           currency: draft.currency,
           accountId: draft.accountId ?? null,
+          categoryId: draft.categoryId ?? null,
         },
         description: draft.description,
         actor: { phoneId: ctx.phoneId },
@@ -2380,8 +2409,9 @@ async function executePending(
           replaced: 0,
           isToday: draft.businessDate === ctx.today,
           dateLabel: formatShortDate(asIsoDate(draft.businessDate)),
+          personal: ctx.personal ?? false,
         }),
-        "✅ Venta guardada.",
+        ctx.personal ? "✅ Ingreso guardado." : "✅ Venta guardada.",
       );
       return none([
         await withLeftLines(tx, ctx, saved, { accountIds: [draft.accountId], fromLots: false }),

@@ -1,5 +1,5 @@
 import "server-only";
-import { rows, sql } from "@caja/db";
+import { eq, rows, schema, sql, withTenant } from "@caja/db";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { db } from "./db";
@@ -55,3 +55,17 @@ export async function requireTenant(): Promise<
   if (!session.tenant) redirect("/registro");
   return { ...session, tenant: session.tenant };
 }
+
+/**
+ * ¿Es una cuenta personal? Una persona no vende: el panel dice "Ingresos" y los agrupa por fuente
+ * (salario, freelance…) en vez de "Ventas" por método (19/10). Cacheado por petición.
+ */
+export const isPersonalTenant = cache(async (tenantId: string): Promise<boolean> => {
+  const [row] = await withTenant(db(), tenantId, (tx) =>
+    tx
+      .select({ businessType: schema.tenant.businessType })
+      .from(schema.tenant)
+      .where(eq(schema.tenant.id, tenantId)),
+  );
+  return row?.businessType === "personal";
+});

@@ -24,6 +24,7 @@ import { FOUNDER, founderUntilFrom, type PlanId } from "../billing/plans";
 import { businessDateOf } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import { type AccountKind, createAccount } from "../ledger/accounts";
+import { ensureIncomeCategories } from "../ledger/categories";
 
 /**
  * Onboarding (US-A1, US-A2, US-A4). El dueño crea el negocio en el dashboard y prueba que el
@@ -143,6 +144,8 @@ export async function registerBusiness(
       await tx
         .insert(schema.category)
         .values(names.map((name, i) => ({ tenantId, name, kind: "expense", sortOrder: i })));
+    // Una persona no vende: sus ingresos van por fuente (salario, freelance…).
+    if (input.businessType === "personal") await ensureIncomeCategories(tx, tenantId);
     await tx
       .insert(schema.tenantMember)
       .values({ tenantId, userId: input.userId, role: "owner" })
@@ -454,6 +457,7 @@ export async function registerFromChat(
           .values(names.map((name, i) => ({ tenantId, name, kind: "expense", sortOrder: i })))
           .returning({ id: schema.category.id, name: schema.category.name })
       : [];
+    if (input.businessType === "personal") await ensureIncomeCategories(tx, tenantId);
     const [phone] = await tx
       .insert(schema.phoneNumber)
       .values({

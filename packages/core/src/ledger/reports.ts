@@ -24,6 +24,8 @@ export type DailyClose = {
   salesByMethod: MethodTotal[];
   expensesUsd: Decimal;
   expensesByCategory: CategoryTotal[];
+  /** Ingresos por fuente (cuentas personales: salario, freelance…). */
+  incomeBySource: CategoryTotal[];
   netUsd: Decimal;
   netVes: Decimal | null;
   rateValue: Decimal | null;
@@ -82,6 +84,7 @@ export async function dailyClose(tx: Tx, tenantId: string, date: IsoDate): Promi
     })),
     expensesUsd,
     expensesByCategory: categories,
+    incomeBySource: await incomeByCategory(tx, tenantId, date, date),
     netUsd,
     netVes: rate ? netUsd.mul(rate.value).toDecimalPlaces(2, Decimal.ROUND_HALF_UP) : null,
     rateValue: rate?.value ?? null,
@@ -141,6 +144,8 @@ export type PeriodSummary = {
   expensesUsd: Decimal;
   netUsd: Decimal;
   topExpenses: CategoryTotal[];
+  /** Ingresos por fuente (cuentas personales: salario, freelance…). */
+  incomeBySource: CategoryTotal[];
   daysWithMovements: number;
   count: number;
 };
@@ -177,17 +182,38 @@ export async function periodSummary(
     expensesUsd,
     netUsd: salesUsd.minus(expensesUsd),
     topExpenses: (await expensesByCategory(tx, tenantId, from, to)).slice(0, 5),
+    incomeBySource: await incomeByCategory(tx, tenantId, from, to),
     daysWithMovements: Number(t?.days ?? 0),
     count: Number(t?.count ?? 0),
   };
 }
 
 /** Gastos de un período por categoría, de mayor a menor (el panel los enlaza a Movimientos). */
-export async function expensesByCategory(
+export function expensesByCategory(
   tx: Tx,
   tenantId: string,
   from: IsoDate,
   to: IsoDate,
+): Promise<CategoryTotal[]> {
+  return totalsByCategory(tx, tenantId, from, to, "expense");
+}
+
+/** Ingresos de un período por fuente (salario, freelance…), de mayor a menor. Sin fuente: "Otros ingresos". */
+export function incomeByCategory(
+  tx: Tx,
+  tenantId: string,
+  from: IsoDate,
+  to: IsoDate,
+): Promise<CategoryTotal[]> {
+  return totalsByCategory(tx, tenantId, from, to, "income");
+}
+
+async function totalsByCategory(
+  tx: Tx,
+  tenantId: string,
+  from: IsoDate,
+  to: IsoDate,
+  type: "expense" | "income",
 ): Promise<CategoryTotal[]> {
   const found = rows<{
     id: string | null;
@@ -199,14 +225,14 @@ export async function expensesByCategory(
       select c.id, c.name, sum(m.amount_usd)::text as usd, count(*) as count
       from ${schema.movement} m
       left join ${schema.category} c on c.id = m.category_id
-      where m.tenant_id = ${tenantId} and m.type = 'expense'
+      where m.tenant_id = ${tenantId} and m.type = ${type}
         and m.business_date between ${from}::date and ${to}::date and m.deleted_at is null
       group by c.id, c.name order by sum(m.amount_usd) desc
     `),
   );
   return found.map((r) => ({
     id: r.id,
-    name: r.name ?? "Otros",
+    name: r.name ?? (type === "income" ? "Otros ingresos" : "Otros"),
     usd: num(r.usd),
     count: Number(r.count),
   }));
@@ -244,6 +270,7 @@ export async function categoryTotal(
   from: IsoDate,
   to: IsoDate,
   name: string,
+  kind: "expense" | "income" = "expense",
 ): Promise<
   | {
       found: true;
@@ -260,7 +287,7 @@ export async function categoryTotal(
   const all = await tx
     .select({ id: schema.category.id, name: schema.category.name })
     .from(schema.category)
-    .where(and(eq(schema.category.tenantId, tenantId), eq(schema.category.kind, "expense")));
+    .where(and(eq(schema.category.tenantId, tenantId), eq(schema.category.kind, kind)));
   const match = matchCategoryName(all, name);
   if (!match) {
     return { found: false, suggestions: all.slice(0, 3).map((c) => c.name) };
@@ -270,7 +297,7 @@ export async function categoryTotal(
       select coalesce(sum(amount_usd), 0)::text as usd, coalesce(sum(amount_ves), 0)::text as ves,
              count(*) as count
       from ${schema.movement}
-      where tenant_id = ${tenantId} and type = 'expense' and category_id = ${match.id}
+      where tenant_id = ${tenantId} and type = ${kind} and category_id = ${match.id}
         and business_date between ${from}::date and ${to}::date and deleted_at is null
     `),
   );
@@ -283,7 +310,7 @@ export async function categoryTotal(
     await tx.execute(sql`
       select business_date::text as date, description, amount::text as amount, currency
       from ${schema.movement}
-      where tenant_id = ${tenantId} and type = 'expense' and category_id = ${match.id}
+      where tenant_id = ${tenantId} and type = ${kind} and category_id = ${match.id}
         and business_date between ${from}::date and ${to}::date and deleted_at is null
       order by business_date desc, created_at desc
       limit ${CATEGORY_ITEMS}

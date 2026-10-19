@@ -137,6 +137,7 @@ describe("ventas por WhatsApp", () => {
           currency: "USD",
           method: "zelle",
           description: "Carro del abogado",
+          category_name: "",
           when: "",
           rate: "",
           corrects_draft: false,

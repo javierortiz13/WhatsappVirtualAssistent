@@ -22,7 +22,29 @@ export class CategoryError extends Error {
 
 const normalize = (name: string) => name.trim().replace(/\s+/g, " ");
 
-export async function listCategories(tx: Tx, tenantId: string): Promise<CategoryRow[]> {
+/**
+ * Fuentes de ingreso de una cuenta personal (19/10): lo que entra no son ventas sino sueldo,
+ * trabajos por cuenta propia, remesas… Se crean solas la primera vez (`ensureIncomeCategories`) y
+ * el usuario las cambia en Ajustes → Categorías.
+ */
+export const PERSONAL_INCOME_CATEGORIES = [
+  "Salario",
+  "Freelance",
+  "Negocio propio",
+  "Remesas",
+  "Bonos y extras",
+  "Alquileres",
+  "Otros ingresos",
+] as const;
+export const OTHER_INCOME = "Otros ingresos";
+
+export type CategoryKind = "expense" | "income";
+
+export async function listCategories(
+  tx: Tx,
+  tenantId: string,
+  kind: CategoryKind = "expense",
+): Promise<CategoryRow[]> {
   const c = schema.category;
   const list = await tx
     .select({
@@ -35,19 +57,23 @@ export async function listCategories(tx: Tx, tenantId: string): Promise<Category
       movements: sql<number>`(select count(*)::int from ${schema.movement} m where m.category_id = ${c}.id and m.deleted_at is null)`,
     })
     .from(c)
-    .where(and(eq(c.tenantId, tenantId), eq(c.kind, "expense")))
+    .where(and(eq(c.tenantId, tenantId), eq(c.kind, kind)))
     .orderBy(c.sortOrder, c.name);
   return list.map((r) => ({ ...r, movements: Number(r.movements) }));
 }
 
-async function nameTaken(tx: Tx, tenantId: string, name: string, exceptId?: string) {
+async function nameTaken(
+  tx: Tx,
+  tenantId: string,
+  name: string,
+  kind: CategoryKind,
+  exceptId?: string,
+) {
   const c = schema.category;
   const rows = await tx
     .select({ id: c.id })
     .from(c)
-    .where(
-      and(eq(c.tenantId, tenantId), eq(c.kind, "expense"), sql`lower(${c.name}) = lower(${name})`),
-    );
+    .where(and(eq(c.tenantId, tenantId), eq(c.kind, kind), sql`lower(${c.name}) = lower(${name})`));
   return rows.some((r) => r.id !== exceptId);
 }
 
@@ -55,20 +81,21 @@ export async function createCategory(
   tx: Tx,
   ref: { tenantId: string; userId: string },
   rawName: string,
+  kind: CategoryKind = "expense",
 ): Promise<string> {
   const name = normalize(rawName);
   if (name.length < 2 || name.length > 40) throw new CategoryError("invalid");
-  if (await nameTaken(tx, ref.tenantId, name)) throw new CategoryError("duplicate");
+  if (await nameTaken(tx, ref.tenantId, name, kind)) throw new CategoryError("duplicate");
   const [max] = await tx
     .select({ n: sql<number>`coalesce(max(${schema.category.sortOrder}), -1)` })
     .from(schema.category)
     .where(eq(schema.category.tenantId, ref.tenantId));
   const [row] = await tx
     .insert(schema.category)
-    .values({ tenantId: ref.tenantId, name, kind: "expense", sortOrder: Number(max?.n ?? -1) + 1 })
+    .values({ tenantId: ref.tenantId, name, kind, sortOrder: Number(max?.n ?? -1) + 1 })
     .returning({ id: schema.category.id });
   if (!row) throw new Error("no se pudo crear la categoría");
-  await audit(tx, ref, "create", "category", row.id, null, { name });
+  await audit(tx, ref, "create", "category", row.id, null, { name, kind });
   return row.id;
 }
 
@@ -86,7 +113,8 @@ export async function renameCategory(
     .where(and(eq(schema.category.tenantId, ref.tenantId), eq(schema.category.id, id)));
   if (!before) throw new CategoryError("missing");
   if (before.name === name) return;
-  if (await nameTaken(tx, ref.tenantId, name, id)) throw new CategoryError("duplicate");
+  if (await nameTaken(tx, ref.tenantId, name, before.kind === "income" ? "income" : "expense", id))
+    throw new CategoryError("duplicate");
   await tx.update(schema.category).set({ name }).where(eq(schema.category.id, id));
   await audit(tx, ref, "update", "category", id, { name: before.name }, { name });
 }
@@ -223,6 +251,52 @@ export async function ensureOtherCategory(tx: Tx, tenantId: string): Promise<voi
     .values({ tenantId, name: "Otros", kind: "expense", sortOrder: Number(max?.n ?? -1) + 1 })
     .returning({ id: c.id });
   if (created) await entry(created.id, null, { name: "Otros" }, "create");
+}
+
+/**
+ * Las fuentes de ingreso de una cuenta personal: si no tiene ninguna (ni activa ni apagada), se
+ * crean las de `PERSONAL_INCOME_CATEGORIES`; si apagó "Otros ingresos", se reactiva (es la red
+ * cuando la IA no sabe de dónde vino). Lo hace el sistema, con su auditoría.
+ */
+export async function ensureIncomeCategories(
+  tx: Tx,
+  tenantId: string,
+  channel: "whatsapp" | "dashboard" = "whatsapp",
+): Promise<void> {
+  const c = schema.category;
+  const existing = await tx
+    .select({ id: c.id, name: c.name, isActive: c.isActive })
+    .from(c)
+    .where(and(eq(c.tenantId, tenantId), eq(c.kind, "income")));
+  const entry = (entityId: string, before: unknown, after: unknown, action: "create" | "update") =>
+    tx.insert(schema.auditLog).values({
+      tenantId,
+      actorType: "system",
+      actorId: null,
+      action,
+      entity: "category",
+      entityId,
+      before,
+      after,
+      channel,
+    });
+  const other = existing.find((r) => r.name.toLowerCase() === OTHER_INCOME.toLowerCase());
+  if (other && !other.isActive) {
+    await tx.update(c).set({ isActive: true }).where(eq(c.id, other.id));
+    await entry(other.id, { isActive: false }, { isActive: true }, "update");
+  }
+  const missing = existing.length ? (other ? [] : [OTHER_INCOME]) : [...PERSONAL_INCOME_CATEGORIES];
+  if (!missing.length) return;
+  const [max] = await tx
+    .select({ n: sql<number>`coalesce(max(${c.sortOrder}), -1)` })
+    .from(c)
+    .where(eq(c.tenantId, tenantId));
+  let order = Number(max?.n ?? -1);
+  const created = await tx
+    .insert(c)
+    .values(missing.map((name) => ({ tenantId, name, kind: "income", sortOrder: ++order })))
+    .returning({ id: c.id, name: c.name });
+  for (const r of created) await entry(r.id, null, { name: r.name, kind: "income" }, "create");
 }
 
 export type CategoryExample = { description: string; category: string };

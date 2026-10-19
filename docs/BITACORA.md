@@ -1401,3 +1401,44 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - 474 tests en verde, lint y typecheck limpios.
 
 **Pendiente:** cambió la descripción de una herramienta del agente, así que toca correr `pnpm evals` en la máquina de Javier (necesita `ANTHROPIC_API_KEY`).
+
+### S3 · 19/10/2026 · Cuentas personales: ingresos por fuente, no ventas
+
+**Pedido (Javier):** en las cuentas personales no hay ventas sino ingresos (salario, freelance…), y se tienen que poder listar por fuente.
+
+**Hecho:**
+- **Fuentes de ingreso.** Son categorías de tipo `income` (el esquema ya lo permitía; sin migración).
+  - Por defecto: Salario, Freelance, Negocio propio, Remesas, Bonos y extras, Alquileres y Otros ingresos.
+  - `ensureIncomeCategories` las crea si la cuenta no tiene ninguna, y reactiva "Otros ingresos" si se apagó, porque es la red de la IA. Deja auditoría con `actor_type` system.
+  - Se crean al registrarse una cuenta personal (web y WhatsApp). Las cuentas personales que ya existen las reciben con su próximo mensaje o al abrir Ajustes → Categorías.
+- **Ingresos con fuente.** `movement.category_id` en ingresos (antes siempre null) vía `IncomeLine.categoryId`. El borrador del ingreso suelto guarda `categoryId`/`categoryName`.
+- **IA.**
+  - `draft_income_single` lleva `category_name`.
+  - En una cuenta personal, el prompt dice que es una persona: todo lo que entra (sueldo, "me pagaron", un freelance, una remesa, un bono) va con `draft_income_single` y su fuente, nunca como venta del día.
+  - La fuente se reconoce aunque la diga con otras palabras ("freelance" → Freelance). Si ninguna sirve, va a "Otros ingresos".
+  - Los negocios no cambian: sus ventas no llevan fuente.
+- **Bot, solo en cuentas personales:**
+  - el menú dice "Registrar ingreso" y la ayuda da ejemplos de sueldo, freelance y remesa;
+  - la tarjeta dice "Fuente: Salario" y "Hoy: te entraron $X, gastaste $Y";
+  - el cierre dice "*Ingresos*" por fuente, "Ingresos menos gastos" y no muestra "Ventas en efectivo"; el resumen del mes añade "De dónde entró:";
+  - "¿cuánto me entró de freelance?" da el total, la lista de ingresos y el enlace a esa fuente en el panel. Gana la fuente que se llama igual; si no, la categoría de gasto.
+- **Panel, solo en cuentas personales (`isPersonalTenant`):**
+  - Inicio: el cuadro "Ingresos" y la tarjeta "Ingresos de octubre" con las 3 fuentes principales, en lugar de "Ventas en efectivo".
+  - Cierres: "Ingresos" por fuente, cada una con enlace.
+  - Movimientos: el filtro "Ingresos" con la tarjeta **Por fuente**; al tocar una fuente se ven sus ingresos del mes.
+  - Detalle de un ingreso: selector **Fuente**.
+  - Ajustes → Categorías: sección **Fuentes de ingreso** para renombrar, agregar, desactivar y "Ver ingresos del mes ›".
+
+**Verificado:**
+- `personal-income.test.ts` (nuevo), de punta a punta:
+  - el sueldo se guarda en Salario y las 7 fuentes se crean solas;
+  - "un diseño" con fuente "freelance" queda en Freelance, y "cosas raras" en Otros ingresos;
+  - el cierre por fuente sin "Ventas", "cuánto me entró de freelance", el menú y la ayuda.
+- `category-smart.test.ts`: las fuentes no se duplican, y "Otros ingresos" vuelve si la apagan.
+- `onboarding.test.ts`: una cuenta personal nueva trae sus fuentes.
+- Tarjetas con el CSS real a 390 y 1280 px, sin scroll horizontal.
+- 480 tests en verde, lint y typecheck limpios.
+
+**Pendiente:**
+- Cambió el prompt (regla de ingresos personales y el campo `category_name`): toca correr `pnpm evals` en la máquina de Javier.
+- Cambiar la fuente con "corrige" después de 15 minutos (`amend_last_movement`) todavía no toca la fuente; se cambia en el panel.

@@ -166,6 +166,7 @@ const llm: LlmClient = {
             currency: "USD",
             method: "unspecified",
             description: "Ferretería El Tornillo",
+            category_name: "",
             when: "",
             rate: "",
             corrects_draft: true,

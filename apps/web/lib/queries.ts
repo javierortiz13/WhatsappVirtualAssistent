@@ -221,12 +221,15 @@ export async function movementById(tenantId: string, id: string): Promise<Moveme
   };
 }
 
-export async function categoriesOf(tenantId: string): Promise<{ id: string; name: string }[]> {
+export async function categoriesOf(
+  tenantId: string,
+  kind: "expense" | "income" = "expense",
+): Promise<{ id: string; name: string }[]> {
   return withTenant(db(), tenantId, (tx) =>
     tx
       .select({ id: schema.category.id, name: schema.category.name })
       .from(schema.category)
-      .where(and(eq(schema.category.kind, "expense"), eq(schema.category.isActive, true)))
+      .where(and(eq(schema.category.kind, kind), eq(schema.category.isActive, true)))
       .orderBy(schema.category.sortOrder),
   );
 }

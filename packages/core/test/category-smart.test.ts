@@ -5,7 +5,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { defaultCategoryId } from "../src/agent/tools";
 import { asIsoDate } from "../src/domain/dates";
 import { Decimal } from "../src/domain/money";
-import { categoryExamples, ensureOtherCategory } from "../src/ledger/categories";
+import {
+  categoryExamples,
+  ensureIncomeCategories,
+  ensureOtherCategory,
+} from "../src/ledger/categories";
 import { createExpense } from "../src/ledger/expenses";
 import { deleteMovement } from "../src/ledger/last-movement";
 
@@ -126,5 +130,44 @@ describe("categorías: Otros como red y ejemplos del usuario", () => {
     );
     const examples = await run((tx) => categoryExamples(tx, tenantId));
     expect(examples).toEqual([{ description: "brocha y batería", category: second?.name }]);
+  });
+
+  it("fuentes de ingreso: se crean una vez, no se duplican y 'Otros ingresos' vuelve si la apagan", async () => {
+    const income = () =>
+      run((tx) =>
+        tx
+          .select({ name: schema.category.name, isActive: schema.category.isActive })
+          .from(schema.category)
+          .where(and(eq(schema.category.tenantId, tenantId), eq(schema.category.kind, "income")))
+          .orderBy(schema.category.sortOrder),
+      );
+    await run((tx) => ensureIncomeCategories(tx, tenantId));
+    await run((tx) => ensureIncomeCategories(tx, tenantId));
+    expect((await income()).map((c) => c.name)).toEqual([
+      "Salario",
+      "Freelance",
+      "Negocio propio",
+      "Remesas",
+      "Bonos y extras",
+      "Alquileres",
+      "Otros ingresos",
+    ]);
+    // Apagar "Freelance" se respeta; apagar "Otros ingresos" no (es la red de la IA).
+    await run((tx) =>
+      tx
+        .update(schema.category)
+        .set({ isActive: false })
+        .where(
+          and(
+            eq(schema.category.kind, "income"),
+            sql`${schema.category.name} in ('Freelance', 'Otros ingresos')`,
+          ),
+        ),
+    );
+    await run((tx) => ensureIncomeCategories(tx, tenantId));
+    const after = await income();
+    expect(after).toHaveLength(7);
+    expect(after.find((c) => c.name === "Freelance")?.isActive).toBe(false);
+    expect(after.find((c) => c.name === "Otros ingresos")?.isActive).toBe(true);
   });
 });

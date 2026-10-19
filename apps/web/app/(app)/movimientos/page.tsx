@@ -1,4 +1,4 @@
-import { expensesByCategory } from "@caja/core";
+import { expensesByCategory, incomeByCategory } from "@caja/core";
 import { formatMoney, monthNameEs } from "@caja/core/domain";
 import { and, eq, schema, withTenant } from "@caja/db";
 import type { Metadata } from "next";
@@ -11,7 +11,7 @@ import {
   todayInCaracas,
   totalsBetween,
 } from "@/lib/queries";
-import { requireTenant } from "@/lib/session";
+import { isPersonalTenant, requireTenant } from "@/lib/session";
 import { IconChevronLeft, IconChevronRight, IconDownload } from "../icons";
 import { MovementsList } from "../movements-list";
 
@@ -27,6 +27,16 @@ const ERRORS: Record<string, string> = {
   datos: "Revisa los datos: falta algo o hay un campo que no se ve bien.",
   noexiste: "Ese movimiento ya no existe.",
 };
+
+/** "1 gasto", "3 ingresos". */
+const count = (n: number, type: "expense" | "income") =>
+  type === "income"
+    ? n === 1
+      ? "1 ingreso"
+      : `${n} ingresos`
+    : n === 1
+      ? "1 gasto"
+      : `${n} gastos`;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -59,19 +69,32 @@ export default async function Movimientos({
       : UUID.test(sp.categoria ?? "")
         ? (sp.categoria as string)
         : undefined;
+  const personal = await isPersonalTenant(tenant.id);
+  // Una categoría es de gasto, o (cuentas personales) una fuente de ingreso con ?tipo=income.
+  const categoryType = sp.tipo === "income" ? ("income" as const) : ("expense" as const);
   const filter: MovementFilter = {
     ...(categoryId !== undefined
-      ? { type: "expense" as const, categoryId }
+      ? { type: categoryType, categoryId }
       : sp.tipo === "expense" || sp.tipo === "income"
         ? { type: sp.tipo }
         : {}),
     ...(sp.eliminados === "1" ? { deleted: true } : {}),
   };
+  // El desglose por categoría: gastos siempre; ingresos por fuente solo en cuentas personales.
+  const grouped =
+    !filter.deleted && (filter.type === "expense" || (filter.type === "income" && personal));
   const [rows, totals, byCategory, categoryName] = await Promise.all([
     movementsBetween(tenant.id, month.from, month.to, 500, filter),
     totalsBetween(tenant.id, month.from, month.to),
-    filter.type === "expense" && !filter.deleted
-      ? withTenant(db(), tenant.id, (tx) => expensesByCategory(tx, tenant.id, month.from, month.to))
+    grouped
+      ? withTenant(db(), tenant.id, (tx) =>
+          (filter.type === "income" ? incomeByCategory : expensesByCategory)(
+            tx,
+            tenant.id,
+            month.from,
+            month.to,
+          ),
+        )
       : Promise.resolve([]),
     categoryId
       ? withTenant(db(), tenant.id, async (tx) => {
@@ -83,7 +106,13 @@ export default async function Movimientos({
             );
           return c?.name ?? null;
         })
-      : Promise.resolve(categoryId === null ? "Otros (sin categoría)" : null),
+      : Promise.resolve(
+          categoryId === null
+            ? categoryType === "income"
+              ? "Otros ingresos (sin fuente)"
+              : "Otros (sin categoría)"
+            : null,
+        ),
   ]);
   const shown = categoryId !== undefined ? byCategory.find((c) => c.id === categoryId) : undefined;
   const net = totals.incomeUsd.minus(totals.expensesUsd);
@@ -125,7 +154,7 @@ export default async function Movimientos({
       </div>
       <div className="card grid-3 kpis">
         <div>
-          <span className="label">Ventas</span>
+          <span className="label">{personal ? "Ingresos" : "Ventas"}</span>
           <strong className="num mint">{formatMoney(totals.incomeUsd, "USD")}</strong>
         </div>
         <div>
@@ -146,7 +175,7 @@ export default async function Movimientos({
           link({ tipo: undefined, eliminados: undefined, categoria: undefined }),
         )}
         {chip(
-          "Ventas",
+          personal ? "Ingresos" : "Ventas",
           filter.type === "income" && !filter.deleted,
           link({ tipo: "income", eliminados: undefined, categoria: undefined }),
         )}
@@ -169,22 +198,21 @@ export default async function Movimientos({
         // Gastos de una categoría en el mes: el total y la lista de abajo.
         <div className="card rate">
           <div>
-            <span className="label">Categoría</span>
+            <span className="label">{categoryType === "income" ? "Fuente" : "Categoría"}</span>
             <strong>{categoryName ?? "Categoría"}</strong>
             <p className="kpi-sub num">
-              {formatMoney(shown?.usd ?? 0, "USD")} en{" "}
-              {shown?.count === 1 ? "1 gasto" : `${shown?.count ?? 0} gastos`} en{" "}
+              {formatMoney(shown?.usd ?? 0, "USD")} en {count(shown?.count ?? 0, categoryType)} en{" "}
               {monthNameEs(month.from).toLowerCase()}
             </p>
           </div>
-          <a className="chip" href={link({ tipo: "expense", categoria: undefined })}>
+          <a className="chip" href={link({ tipo: categoryType, categoria: undefined })}>
             Todas ›
           </a>
         </div>
       ) : byCategory.length ? (
         // Gastos del mes por categoría: tocar una muestra sus gastos.
         <section className="card">
-          <span className="label">Por categoría</span>
+          <span className="label">{filter.type === "income" ? "Por fuente" : "Por categoría"}</span>
           {byCategory.map((c) => (
             <a
               className="line"
@@ -192,8 +220,7 @@ export default async function Movimientos({
               href={link({ categoria: c.id ?? "ninguna" })}
             >
               <span>
-                {c.name}{" "}
-                <span className="muted">· {c.count === 1 ? "1 gasto" : `${c.count} gastos`}</span>
+                {c.name} <span className="muted">· {count(c.count, filter.type ?? "expense")}</span>
               </span>
               <span className="num">{formatMoney(c.usd, "USD")} ›</span>
             </a>

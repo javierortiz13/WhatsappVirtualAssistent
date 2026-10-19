@@ -13,6 +13,10 @@ export type AgentContext = {
   defaultCurrency: "USD" | "VES" | null;
   vesThreshold: string;
   categories: { id: string; name: string }[];
+  /** Cuenta personal (19/10): lo que entra son ingresos por fuente, no ventas. */
+  personal?: boolean;
+  /** Fuentes de ingreso activas de una cuenta personal (Salario, Freelance…). */
+  incomeCategories?: { id: string; name: string }[];
   /** Cómo categoriza este negocio sus gastos recientes (16/10): la IA los sigue en gastos parecidos. */
   categoryExamples?: { description: string; category: string }[];
   today: IsoDate;

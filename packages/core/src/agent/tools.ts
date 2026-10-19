@@ -31,6 +31,7 @@ import {
   resolveAccount,
 } from "../ledger/accounts";
 import { budgetStatuses } from "../ledger/budgets";
+import { OTHER_INCOME } from "../ledger/categories";
 import {
   createExpenseDraft,
   createExpensesDraft,
@@ -393,10 +394,28 @@ export const DraftIncomeSingleInput = z.object({
     .string()
     .max(120)
     .describe("Por qué le pagaron, en 1 a 6 palabras, sin el monto. Ej: 'Carro del abogado'."),
+  category_name: z
+    .string()
+    .describe(
+      'Solo en cuentas personales: de dónde vino, una de sus fuentes de ingreso copiada exactamente ("Salario", "Freelance", "Remesas"…). "" en un negocio.',
+    ),
   when: z.string().describe('"hoy", "ayer", día de la semana o fecha ISO. "" si no lo dijo.'),
   rate: RATE_FIELD,
   corrects_draft: CORRECTS_FIELD,
 });
+
+/**
+ * Fuente de un ingreso en una cuenta personal: la nombrada (o la más parecida) entre sus fuentes,
+ * o "Otros ingresos". Null en un negocio, que no usa fuentes.
+ */
+function incomeSourceFor(ctx: AgentContext, name: string): { id: string; name: string } | null {
+  const list = ctx.incomeCategories ?? [];
+  if (!ctx.personal || !list.length) return null;
+  const hit = nz(name) ? matchCategoryName(list, name) : null;
+  const other = list.find((c) => norm(c.name) === norm(OTHER_INCOME));
+  const pick = hit ?? other ?? null;
+  return pick ? { id: pick.id, name: pick.name } : null;
+}
 
 /**
  * Sin categoría que encaje: "Otros" (el procesador se asegura de que exista). Nunca la primera
@@ -1123,6 +1142,7 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
           manualRate: mr,
           replaces: target?.id ?? null,
           account: accountFor(run, currency, { target, method }),
+          category: incomeSourceFor(run.ctx, input.category_name),
         },
         run.now,
       );
@@ -1164,6 +1184,7 @@ const getSummary: ToolSpec<typeof GetSummaryInput> = {
       from: input.from && isIsoDate(input.from) ? input.from : null,
       to: input.to && isIsoDate(input.to) ? input.to : null,
       categoryName: nz(input.category_name),
+      personal: run.ctx.personal ?? false,
     });
     return { kind: "terminal", status: "ok", outbound: [outbound] };
   },
@@ -1528,7 +1549,9 @@ const rejectOutOfScope: ToolSpec<typeof RejectOutOfScopeInput> = {
     if (input.reason === "help")
       return {
         kind: "terminal",
-        outbound: [es.help(run.ctx.dashboardUrl, run.ctx.billing?.supportHint ?? null)],
+        outbound: [
+          es.help(run.ctx.dashboardUrl, run.ctx.billing?.supportHint ?? null, run.ctx.personal),
+        ],
         status: "ok",
       };
     if (input.reason === "dashboard_link")

@@ -54,8 +54,19 @@ export function tenantSystem(ctx: AgentContext): string {
   const accounts = ctx.accounts?.length
     ? `\nCuentas: ${ctx.accounts.map((a) => `${a.name} (${accountUnit(a)})`).join(", ")}.`
     : "";
+  if (ctx.personal) {
+    const sources = (ctx.incomeCategories ?? []).map((c) => `- ${c.name}`).join("\n");
+    return `Cuenta personal de ${ctx.tenantName}: es una persona, no un negocio.\n${currency}\n${role}\n${PERSONAL_INCOME_RULE}\nFuentes de ingreso (usa el nombre exacto):\n${sources}\nCategorías de gasto (usa el nombre exacto):\n${cats}${accounts}`;
+  }
   return `Negocio: ${ctx.tenantName}.\n${currency}\n${role}\nCategorías de gasto (usa el nombre exacto):\n${cats}${accounts}`;
 }
+
+/**
+ * Cuentas personales (19/10): lo que le entra a una persona no es una venta del día sino un
+ * ingreso con su fuente (sueldo, freelance, remesa…).
+ */
+const PERSONAL_INCOME_RULE =
+  'INGRESOS: todo dinero que le ENTRÓ (sueldo, quincena, "me pagaron", "cobré", un trabajo o cliente freelance, una remesa o "me mandaron", un bono, un alquiler que cobra) es un ingreso: usa draft_income_single con category_name = la fuente de la lista que corresponda ("Otros ingresos" si ninguna sirve). Nunca draft_income_day_total, salvo que diga que vendió en un negocio con desglose por método de pago. Si pregunta cuánto le entró de una fuente ("cuánto me entró de freelance"), get_summary con category_name.';
 
 type DraftForPrompt = { tool: string; payload: Record<string, unknown> };
 

@@ -20,7 +20,7 @@ import { withTenant } from "@caja/db";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { dailyNets, todayInCaracas } from "@/lib/queries";
-import { requireTenant } from "@/lib/session";
+import { isPersonalTenant, requireTenant } from "@/lib/session";
 import { CashNote } from "../cash-note";
 import { IconCalendar, IconDownload } from "../icons";
 
@@ -63,12 +63,13 @@ export default async function Cierres({
           : resolvePeriod("custom", today, custom);
   const ok = !("error" in range);
   const weekFrom = addDays(today, -6);
-  const [close, summary, nets] = await Promise.all([
+  const [close, summary, nets, personal] = await Promise.all([
     withTenant(db(), tenant.id, (tx) => dailyClose(tx, tenant.id, ok ? range.to : today)),
     ok
       ? withTenant(db(), tenant.id, (tx) => periodSummary(tx, tenant.id, range.from, range.to))
       : null,
     dailyNets(tenant.id, weekFrom, today),
+    isPersonalTenant(tenant.id),
   ]);
   const title = !ok
     ? "Elige un rango"
@@ -163,9 +164,40 @@ export default async function Cierres({
 
           <div className="grid-2 stack-sm">
             <section className="card">
-              <span className="label">Ventas</span>
+              <span className="label">{personal ? "Ingresos" : "Ventas"}</span>
               <p className="kpi mint">{formatMoney(sales, "USD")}</p>
-              {periodo === "dia" ? (
+              {personal ? (
+                // Una persona: de dónde entró (salario, freelance…); tocar una lista sus ingresos.
+                <div style={{ marginTop: "var(--space-2)" }}>
+                  {(periodo === "dia" ? close.incomeBySource : (summary?.incomeBySource ?? []))
+                    .length === 0 ? (
+                    <p className="sub" style={{ margin: 0 }}>
+                      sin ingresos
+                    </p>
+                  ) : (
+                    (periodo === "dia"
+                      ? close.incomeBySource
+                      : (summary?.incomeBySource ?? [])
+                    ).map((c) =>
+                      linkMonth ? (
+                        <a
+                          className="line"
+                          key={c.name}
+                          href={`/movimientos?mes=${linkMonth}&tipo=income&categoria=${c.id ?? "ninguna"}`}
+                        >
+                          <span className="muted">{c.name}</span>
+                          <span className="num">{formatMoney(c.usd, "USD")} ›</span>
+                        </a>
+                      ) : (
+                        <div className="line" key={c.name}>
+                          <span className="muted">{c.name}</span>
+                          <span className="num">{formatMoney(c.usd, "USD")}</span>
+                        </div>
+                      ),
+                    )
+                  )}
+                </div>
+              ) : periodo === "dia" ? (
                 <div style={{ marginTop: "var(--space-2)" }}>
                   {close.salesByMethod.length === 0 ? (
                     <p className="sub" style={{ margin: 0 }}>
@@ -255,7 +287,7 @@ export default async function Cierres({
               </div>
               <CashNote unassigned={close.unassigned} day={close.date} />
             </section>
-          ) : periodo === "dia" ? (
+          ) : periodo === "dia" && !personal ? (
             <section className="card rate">
               <div>
                 <span className="label">Ventas en efectivo</span>

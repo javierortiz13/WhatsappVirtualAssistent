@@ -10,6 +10,7 @@ import {
   formatMoney,
   formatShortDate,
   getRateInfo,
+  incomeByCategory,
   netWorth,
   ownerPhone,
 } from "@caja/core";
@@ -71,6 +72,12 @@ export default async function Inicio({
     );
     return r ?? { accounts: 0, expenses: 0, incomes: 0, personal: false };
   });
+  // Cuenta personal: lo que entró en el mes, por fuente (salario, freelance…).
+  const sources = progress.personal
+    ? await withTenant(db(), tenant.id, (tx) =>
+        incomeByCategory(tx, tenant.id, month.from, month.to),
+      )
+    : [];
   const wa = env().PLATFORM_WA_NUMBER;
   const waLink = (text: string) =>
     wa ? `https://wa.me/${wa}?text=${encodeURIComponent(text)}` : "#";
@@ -186,7 +193,7 @@ export default async function Inicio({
         </p>
         <div className="grid-2" style={{ marginTop: "var(--space-4)" }}>
           <div className="tile">
-            <span className="label">Ventas</span>
+            <span className="label">{progress.personal ? "Ingresos" : "Ventas"}</span>
             <strong className="num mint tile-n">{formatMoney(close.salesUsd, "USD")}</strong>
           </div>
           <div className="tile">
@@ -229,6 +236,21 @@ export default async function Inicio({
             </p>
             <CashNote unassigned={close.unassigned} day={today} />
           </div>
+        ) : progress.personal ? (
+          // Una persona no tiene caja: de dónde le entró la plata este mes.
+          <a className="card" href={`/movimientos?mes=${month.label}&tipo=income`}>
+            <span className="label">Ingresos de {monthNameEs(today).toLowerCase()}</span>
+            <p className="kpi mint">{formatMoney(monthTotals.incomeUsd, "USD")}</p>
+            {sources.length ? (
+              sources.slice(0, 3).map((c) => (
+                <p className="kpi-sub num" key={c.id ?? "ninguna"}>
+                  {c.name} {formatMoney(c.usd, "USD")}
+                </p>
+              ))
+            ) : (
+              <p className="kpi-sub">Escríbele a Rocco: me pagaron el sueldo, 300$</p>
+            )}
+          </a>
         ) : (
           <div className="card">
             <span className="label">Ventas en efectivo hoy</span>

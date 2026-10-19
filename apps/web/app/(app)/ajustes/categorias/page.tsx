@@ -2,6 +2,7 @@ import {
   BUDGET_WARN_PCT,
   type BudgetStatus,
   budgetStatuses,
+  ensureIncomeCategories,
   formatMoney,
   listCategories,
 } from "@caja/core";
@@ -9,7 +10,7 @@ import { withTenant } from "@caja/db";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
 import { todayInCaracas } from "@/lib/queries";
-import { requireTenant } from "@/lib/session";
+import { isPersonalTenant, requireTenant } from "@/lib/session";
 import { IconChevronLeft, IconTags } from "../../icons";
 import {
   createCategoryAction,
@@ -68,9 +69,16 @@ export default async function Categorias({
   const { tenant } = await requireTenant();
   const sp = await searchParams;
   const today = todayInCaracas();
-  const [list, budgets] = await withTenant(db(), tenant.id, (tx) =>
-    Promise.all([listCategories(tx, tenant.id), budgetStatuses(tx, tenant.id, today)]),
-  );
+  const personal = await isPersonalTenant(tenant.id);
+  const [list, budgets, sources] = await withTenant(db(), tenant.id, async (tx) => {
+    // Cuenta personal: sus fuentes de ingreso (se crean solas si aún no las tiene).
+    if (personal) await ensureIncomeCategories(tx, tenant.id, "dashboard");
+    return Promise.all([
+      listCategories(tx, tenant.id),
+      budgetStatuses(tx, tenant.id, today),
+      personal ? listCategories(tx, tenant.id, "income") : Promise.resolve([]),
+    ]);
+  });
   const budgetOf = new Map(budgets.map((b) => [b.categoryId, b]));
   const active = list.filter((c) => c.isActive);
   const inactive = list.filter((c) => !c.isActive);
@@ -216,6 +224,122 @@ export default async function Categorias({
           </div>
         </>
       ) : null}
+      {personal ? (
+        <IncomeSources list={sources} isOwner={isOwner} month={today.slice(0, 7)} />
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * Fuentes de ingreso de una cuenta personal (19/10): salario, freelance, remesas… Rocco pone cada
+ * ingreso en una; aquí se renombran, se agregan y se desactivan, igual que las de gasto.
+ */
+function IncomeSources({
+  list,
+  isOwner,
+  month,
+}: {
+  list: Awaited<ReturnType<typeof listCategories>>;
+  isOwner: boolean;
+  month: string;
+}) {
+  const active = list.filter((c) => c.isActive);
+  const inactive = list.filter((c) => !c.isActive);
+  const n = (k: number) => (k === 0 ? "sin ingresos" : k === 1 ? "1 ingreso" : `${k} ingresos`);
+  return (
+    <>
+      <div className="day">
+        <h2>Fuentes de ingreso</h2>
+      </div>
+      <p className="sub">
+        De dónde te entra la plata. Cuando le dices a Rocco &quot;me pagaron el sueldo&quot; o
+        &quot;cobré un freelance&quot;, lo anota en la que corresponde.
+      </p>
+      <div className="card tight">
+        {active.map((c) => (
+          <div className="cat" key={c.id}>
+            {isOwner ? (
+              <form action={renameCategoryAction} className="edit">
+                <input type="hidden" name="id" value={c.id} />
+                <input
+                  className="input"
+                  name="name"
+                  defaultValue={c.name}
+                  maxLength={40}
+                  required
+                  aria-label="Nombre"
+                />
+                <button className="btn save small" type="submit">
+                  Guardar
+                </button>
+              </form>
+            ) : (
+              <strong>{c.name}</strong>
+            )}
+            <div className="foot">
+              <span>
+                {n(c.movements)} ·{" "}
+                <a
+                  className="linkbtn"
+                  href={`/movimientos?mes=${month}&tipo=income&categoria=${c.id}`}
+                >
+                  Ver ingresos del mes ›
+                </a>
+              </span>
+              {isOwner ? (
+                <form action={setCategoryActiveAction}>
+                  <input type="hidden" name="id" value={c.id} />
+                  <input type="hidden" name="active" value="0" />
+                  <button className="linkbtn" type="submit">
+                    Desactivar
+                  </button>
+                </form>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
+      {isOwner ? (
+        <form action={createCategoryAction} className="card stack">
+          <h2>Nueva fuente de ingreso</h2>
+          <input type="hidden" name="kind" value="income" />
+          <input
+            className="input center"
+            name="name"
+            maxLength={40}
+            placeholder="Ej. Clases particulares"
+            aria-label="Nombre de la nueva fuente de ingreso"
+            required
+          />
+          <div className="center">
+            <button className="btn" type="submit">
+              Agregar
+            </button>
+          </div>
+        </form>
+      ) : null}
+      {inactive.length ? (
+        <div className="card tight">
+          {inactive.map((c) => (
+            <div className="row" key={c.id}>
+              <span className="what">
+                <strong className="muted">{c.name}</strong>
+                <span className="sub">{n(c.movements)}</span>
+              </span>
+              {isOwner ? (
+                <form action={setCategoryActiveAction}>
+                  <input type="hidden" name="id" value={c.id} />
+                  <input type="hidden" name="active" value="1" />
+                  <button className="linkbtn" type="submit">
+                    Reactivar
+                  </button>
+                </form>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </>
   );
 }

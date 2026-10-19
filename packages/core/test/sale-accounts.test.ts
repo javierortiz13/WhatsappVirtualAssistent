@@ -129,6 +129,7 @@ describe("ventas: a qué cuenta va cada renglón", () => {
           currency: "USD",
           method: "punto",
           description: "Lavado",
+          category_name: "",
           when: "",
           rate: "",
           corrects_draft: false,

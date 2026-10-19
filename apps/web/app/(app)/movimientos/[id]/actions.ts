@@ -55,7 +55,8 @@ export async function updateMovementAction(formData: FormData): Promise<void> {
     if (!m) return "missing" as const;
     let categoryId: string | null | undefined;
     let categoryName: string | null | undefined;
-    if (m.type === "expense") {
+    // Gastos: su categoría. Ingresos: su fuente (cuentas personales), si el formulario la trae.
+    if (m.type === "expense" || f.category_id !== undefined) {
       const wanted = f.category_id || null;
       if (wanted && !UUID.safeParse(wanted).success) return "datos" as const;
       if (wanted !== m.categoryId) {
@@ -63,7 +64,13 @@ export async function updateMovementAction(formData: FormData): Promise<void> {
           const [c] = await tx
             .select({ id: schema.category.id, name: schema.category.name })
             .from(schema.category)
-            .where(and(eq(schema.category.id, wanted), eq(schema.category.tenantId, tenant.id)));
+            .where(
+              and(
+                eq(schema.category.id, wanted),
+                eq(schema.category.tenantId, tenant.id),
+                eq(schema.category.kind, m.type),
+              ),
+            );
           if (!c) return "datos" as const;
           categoryId = c.id;
           categoryName = c.name;
