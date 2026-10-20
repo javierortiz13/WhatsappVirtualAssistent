@@ -1503,3 +1503,15 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 **Pendiente (Javier):** aplicar 0024 en producción. El MCP de Supabase se queda esperando una confirmación con cualquier SQL que contenga `DELETE`, aunque aquí solo esté dentro de la función. Se aplica con `pnpm db:migrate` usando `DATABASE_ADMIN_URL`, o pegando el archivo en el editor SQL de Supabase y registrando `0024_erase_signup.sql` en `caja_meta.schema_migrations`. Hasta entonces, eliminar una cuenta funciona como antes (sin borrar esas dos tablas).
 
 **Verificado:** 482 tests, lint y typecheck limpios.
+
+### S3 · 20/10/2026 · Handoff de la agencia del 19/10: aviso de gracia (R1) y bienvenida palabra por palabra
+
+**Contexto:** `agency/products/rocco/dev-handoff-2026-10-19.md`. Pedía cuatro cosas: R1, #7, A-0003 y confirmar el commit desplegado. Hoy, martes 20/10, vence la primera prueba.
+
+**Hecho:**
+- **R1** (`renewStateLine`, caso `grace` de una prueba): "Tienes 3 días para activar tu plan sin dejar de registrar." pasa a "**Si activas tu plan antes del {fin de la gracia}, sigo registrando sin parar.**". El fin de la gracia es `endsAt + GRACE_DAYS` (por ejemplo, "vie 23/10"). La línea de gracia de un plan pagado ("Venció el …") no cambia. Texto verbatim de cumplimiento (trial-end-review, R1).
+- **#7 verbatim:** la bienvenida ya decía los dos topes (`d2978b0`), pero con otro orden. Ahora queda palabra por palabra como la aprobó cumplimiento: "…tienes *14 días o 100 mensajes gratis* para probarme, lo que llegue primero." El resumen al terminar el registro toma la misma forma (nota N2 de la revisión).
+- **A-0003:** ya estaba (`732356f`).
+- **Commit en producción:** incluye la fase 1 (`efa2fb9`) y la fase 2 (`6c7544a`) de efectivo en caja.
+
+**Verificado:** `render.test.ts` revisa R1 con el texto exacto (prueba que vence el 20/10 → "vie 23/10") y que la línea del plan pagado no cambie; `chat-signup.test.ts` revisa la bienvenida verbatim. 484 tests, lint y typecheck limpios.

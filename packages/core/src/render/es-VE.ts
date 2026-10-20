@@ -1,5 +1,6 @@
-import { TRIAL_MESSAGES } from "../billing/plans";
+import { GRACE_DAYS, TRIAL_MESSAGES } from "../billing/plans";
 import {
+  addDays,
   asIsoDate,
   businessDateOf,
   formatShortDate,
@@ -358,9 +359,10 @@ function renewStateLine(v: RenewOfferView): string {
     case "active":
       return when ? `Vence el ${when}${left}.` : "Tu plan está activo.";
     case "grace":
+      // R1 (dev-handoff 2026-10-19, cumplimiento verbatim): la fecha en que vence la gracia (E+3).
       if (v.usage?.trial)
-        return when
-          ? `Tu prueba terminó el ${when}. Tienes 3 días para activar tu plan sin dejar de registrar.`
+        return when && v.endsAt
+          ? `Tu prueba terminó el ${when}. Si activas tu plan antes del ${formatShortDate(addDays(v.endsAt, GRACE_DAYS))}, sigo registrando sin parar.`
           : "Tu prueba terminó.";
       return when
         ? `Venció el ${when}; tienes 3 días de gracia antes de que se suspenda.`
@@ -2471,7 +2473,8 @@ export function signupIntro(dashboardUrl: string, profile: string | null): Outbo
       "¡Epa! Soy *Rocco* 🐾, tu pana con las finanzas.",
       "Te llevo los gastos, las ventas y las cuentas desde este chat, en bolívares y en dólares, y estoy pendiente de la tasa del BCV para que tú no tengas que estarlo. Soy un asistente automático.",
       "",
-      `Armamos tu cuenta aquí mismo en 2 minutos y tienes *14 días o ${TRIAL_MESSAGES} mensajes gratis*, lo que llegue primero, para probarme.`,
+      // Verbatim de cumplimiento (jpsoftwaredev#7, qa/dev-handoff-2026-10-19-review.md).
+      `Armamos tu cuenta aquí mismo en 2 minutos y tienes *14 días o ${TRIAL_MESSAGES} mensajes gratis* para probarme, lo que llegue primero.`,
       `_Al seguir aceptas la política de privacidad: ${dashboardUrl}/privacidad_`,
       "",
       "Para empezar, ¿cómo te llamas?",
@@ -2669,7 +2672,7 @@ export function signupDone(v: {
   lines.push(
     "",
     // Compliance O8 (#7): los dos topes de la prueba, y que vence el que llegue primero.
-    `Tienes *14 días o ${v.trialMessages ?? TRIAL_MESSAGES} mensajes gratis*, lo que llegue primero, para probarme.`,
+    `Tienes *14 días o ${v.trialMessages ?? TRIAL_MESSAGES} mensajes gratis* para probarme, lo que llegue primero.`,
   );
   if (v.founderUntil)
     lines.push(

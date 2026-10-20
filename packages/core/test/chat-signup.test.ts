@@ -213,7 +213,9 @@ describe("registro por WhatsApp de punta a punta", () => {
     expect(await say(NEW_NUMBER, "hola")).toBe("done");
     const intro = lastFor(NEW_NUMBER);
     expect(textOf(intro)).toContain("Soy *Rocco* 🐾");
-    expect(textOf(intro)).toContain("14 días o 100 mensajes gratis*, lo que llegue primero");
+    expect(textOf(intro)).toContain(
+      "Armamos tu cuenta aquí mismo en 2 minutos y tienes *14 días o 100 mensajes gratis* para probarme, lo que llegue primero.",
+    );
     expect(textOf(intro)).toContain("https://holarocco.test/privacidad");
     expect(idsOf(intro)).toEqual(["signup:name:profile"]);
   });

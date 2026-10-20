@@ -237,3 +237,31 @@ describe("el saldo que quedará en la tarjeta del gasto", () => {
     expect(card(false, "100")).toContain("⚠️ No alcanza lo que hay en Banesco");
   });
 });
+
+describe("aviso de gracia de la prueba (R1)", () => {
+  const offer = (trial: boolean) =>
+    es.renewOffer({
+      planName: "Negocio",
+      planId: "negocio",
+      fromPlanName: null,
+      stateKind: "grace",
+      endsAt: asIsoDate("2026-10-20"),
+      daysLeft: null,
+      months: 1,
+      quotes: [],
+      supportHint: null,
+      usage: { used: 40, cap: 100, trial },
+    }).body;
+
+  it("dice hasta qué día sigue registrando (E+3), palabra por palabra", () => {
+    expect(offer(true)).toContain(
+      "Tu prueba terminó el mar 20/10. Si activas tu plan antes del vie 23/10, sigo registrando sin parar.",
+    );
+  });
+
+  it("la de un plan pagado no cambia", () => {
+    expect(offer(false)).toContain(
+      "Venció el mar 20/10; tienes 3 días de gracia antes de que se suspenda.",
+    );
+  });
+});
