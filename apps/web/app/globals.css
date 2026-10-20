@@ -1457,8 +1457,11 @@ body:has(.wizard) {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: #0f7b5f;
-  font-size: 16px;
+  background: var(--bg);
+}
+.chat-head .chat-avatar svg {
+  width: 28px;
+  height: 28px;
 }
 .chat-body {
   display: flex;

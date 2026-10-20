@@ -318,13 +318,14 @@
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--mint), #6d5bff);
+  background: var(--bg);
   display: grid;
   place-items: center;
-  font-weight: 700;
-  color: #06120e;
-  font-size: 13px;
   flex-shrink: 0;
+}
+.chat-head .av svg {
+  width: 25px;
+  height: 25px;
 }
 .chat-head .who {
   flex: 1;

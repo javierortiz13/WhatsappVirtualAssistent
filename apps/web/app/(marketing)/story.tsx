@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { RoccoMarkSmall } from "@/app/rocco-mark";
 
 /**
  * Conversación guiada. Dos modos según el ancho:
@@ -185,7 +186,7 @@ export function Story({ scenes, children }: { scenes: Scene[]; children?: ReactN
             <div className="chat-head">
               <span className="back">‹</span>
               <span className="av" aria-hidden="true">
-                🐶
+                <RoccoMarkSmall />
               </span>
               <div className="who">
                 Rocco

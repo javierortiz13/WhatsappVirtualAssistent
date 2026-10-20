@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { RoccoMark } from "@/app/rocco-mark";
+import { RoccoMark, RoccoMarkSmall } from "@/app/rocco-mark";
 import { env } from "@/lib/env";
 import { sendMagicLink, signInWithGoogle } from "./actions";
 
@@ -140,7 +140,9 @@ function ChatMock() {
   return (
     <figure className="chat-mock" aria-label="Ejemplo de conversación con Rocco">
       <div className="chat-head">
-        <span className="chat-avatar">🐶</span>
+        <span className="chat-avatar">
+          <RoccoMarkSmall />
+        </span>
         <div>
           <strong className="chat-title">Rocco</strong>
           <small className="chat-sub">en línea</small>
