@@ -1530,3 +1530,16 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 **Fuera de este cambio (notas del README):** `metadataBase` y `og:image:alt` siguen sin definir. En Vercel el `og:image` sale absoluto con la URL de producción.
 
 **Verificado:** lint (0 errores, las mismas 18 advertencias), typecheck y 484 tests.
+
+### S3 · 20/10/2026 · BUG-1: el costo de IA se contaba doble en respuestas de 2 burbujas (jpsoftwaredev#24)
+
+**Contexto:** PRD de hábitos v2.3.3, BUG-1 (hallazgo F-1 del plan de medición). El ciclo de envío copiaba `cost_usd`, `tokens_in/out` y `tool_calls` del turno en **cada** burbuja. Un turno con el aviso del 80 % (prueba o mes) o con pago móvil con monto guardaba el costo dos veces. Eso inflaba el tope de $4 de la prueba (`trialSpend`), el uso del mes (`monthUsage`), el margen de /admin y `pnpm metrics`.
+
+**Hecho:**
+- `process.ts`: el costo y los tokens van solo en la primera burbuja; las demás quedan en null.
+- Las marcas (`tool_calls`) siguen en todas las burbujas, a propósito: `unclearReceiptBefore`, `splitBefore` y la pregunta de la leyenda leen la última burbuja del turno anterior. Quitarlas de la segunda rompería esos flujos.
+- `pnpm metrics` → "Herramientas elegidas": cuenta una vez por turno (`distinct coalesce(webhook_event_id, id)`).
+
+**Producción (solo conteos):** 3 turnos afectados de 284 con costo, todos de 1 negocio interno: $0,17 contados de más. Ningún cliente de prueba llegó antes al tope por esto. No hace falta reescribir datos.
+
+**Verificado:** `limits.test.ts` revisa que el turno de 2 burbujas guarde un solo costo, que las dos lleven las marcas y que `trialSpend` cuadre con la cuenta a mano. Sin el arreglo, la prueba falla. 484 tests, lint y typecheck limpios.

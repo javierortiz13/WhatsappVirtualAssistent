@@ -9,6 +9,7 @@ import { addExtraMessages, approvePayment } from "../src/billing/payments";
 import { founderUntilFrom } from "../src/billing/plans";
 import { withDiscount } from "../src/billing/pricing";
 import { renewOfferReply } from "../src/billing/renew-chat";
+import { trialSpend } from "../src/billing/trial";
 import { caracasMonth } from "../src/billing/usage";
 import { businessDateOf } from "../src/domain/dates";
 import { Decimal } from "../src/domain/money";
@@ -85,7 +86,8 @@ describe("límite del mes y recargas por WhatsApp", () => {
         model: "fake",
       };
     },
-    costUsd: () => new Decimal(0),
+    // Costo fijo por turno del agente, para contar a mano el gasto de la prueba (BUG-1).
+    costUsd: () => new Decimal("0.01"),
   };
 
   type Sent = { to: string; body: Record<string, unknown> };
@@ -257,6 +259,20 @@ describe("límite del mes y recargas por WhatsApp", () => {
     await send("gasté algo");
     expect(textOf(sent.at(-2))).toBe("¿Cuánto fue?");
     expect(textOf(sent.at(-1))).toContain("te quedan *20 de 100 mensajes*");
+    // BUG-1 (jpsoftwaredev#24): el turno de 2 burbujas guarda un solo costo; las marcas, en las dos.
+    const turn = await withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.message).where(eq(schema.message.direction, "out")),
+    );
+    expect(turn).toHaveLength(2);
+    expect(turn.filter((m) => m.costUsd !== null).map((m) => m.costUsd)).toEqual(["0.010000"]);
+    expect(turn.filter((m) => m.tokensIn !== null)).toHaveLength(1);
+    expect(turn.every((m) => Array.isArray(m.toolCalls) && m.toolCalls.length > 0)).toBe(true);
+    const spend = await withTenant(t.db, tenantId, async (tx) => {
+      const [tn] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId));
+      return trialSpend(tx, tn as NonNullable<typeof tn>);
+    });
+    // A mano: 1 turno del agente a $0,01, más 2 burbujas de Meta.
+    expect(spend.aiUsd.toFixed(2)).toBe("0.01");
     // Tocar botones (Guardar, Corregir…) no cuenta como mensaje (08/10).
     await withTenant(t.db, tenantId, (tx) =>
       tx.insert(schema.message).values(

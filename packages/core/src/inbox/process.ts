@@ -468,7 +468,11 @@ export async function processInbound(
       first && second
         ? [...mergeOutbound(first, second), ...route.outbound.slice(1)]
         : [...welcome, ...route.outbound];
-    for (const out of outbound) {
+    for (const [i, out] of outbound.entries()) {
+      // El costo y los tokens del turno van solo en la primera burbuja (BUG-1, jpsoftwaredev#24):
+      // copiados en cada una, un turno de 2 burbujas contaba doble en el tope de la prueba, el
+      // uso del mes y /admin. Las marcas sí van en todas: el turno siguiente lee la última.
+      const lead = i === 0;
       const [row] = await tx
         .insert(schema.message)
         .values({
@@ -480,9 +484,9 @@ export async function processInbound(
           status: "sending",
           webhookEventId: event.id,
           toolCalls: route.toolCalls.length ? route.toolCalls : null,
-          tokensIn: route.tokensIn || null,
-          tokensOut: route.tokensOut || null,
-          costUsd: route.costUsd,
+          tokensIn: (lead && route.tokensIn) || null,
+          tokensOut: (lead && route.tokensOut) || null,
+          costUsd: lead ? route.costUsd : null,
           latencyMs: now().getTime() - started.getTime(),
         })
         .returning({ id: schema.message.id });

@@ -101,7 +101,8 @@ const FREE_TIER = 1000;
   await q(
     "Herramientas elegidas por el agente",
     sql`
-      select tc->>'name' as herramienta, count(*) as veces
+      -- Una vez por turno: las marcas van en cada burbuja del turno.
+      select tc->>'name' as herramienta, count(distinct coalesce(webhook_event_id, id)) as veces
       from app.message, jsonb_array_elements(tool_calls) tc
       where created_at > now() - make_interval(days => ${days})
       group by 1 order by 2 desc`,
