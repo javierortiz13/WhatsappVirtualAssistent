@@ -2945,6 +2945,11 @@ export function trialEndedLead(): string {
   return "Se terminó tu prueba gratis. ¡Gracias por probarme en la beta! 🐶 Tus datos siguen guardados. Si quieres seguir conmigo, este es tu plan:";
 }
 
+/** La prueba se extendió desde /admin (beta, 20/10): va una vez, encima de la respuesta siguiente. */
+export function trialExtended(v: { days: number; endsOn: IsoDate }): string {
+  return `🎁 Como parte de la beta de Rocco, renové tu prueba gratis por *${v.days} días más*: ahora termina el *${formatShortDate(v.endsOn)}*. Sigue anotando como siempre.`;
+}
+
 /** Escribió con la prueba terminada y nunca pagó: lo mismo, con la oferta debajo. */
 export function trialOver(): string {
   return "Tu prueba gratis terminó y por ahora no puedo registrar nada. Tus datos siguen guardados. Para seguir conmigo, este es tu plan:";

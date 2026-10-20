@@ -1543,3 +1543,19 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 **Producción (solo conteos):** 3 turnos afectados de 284 con costo, todos de 1 negocio interno: $0,17 contados de más. Ningún cliente de prueba llegó antes al tope por esto. No hace falta reescribir datos.
 
 **Verificado:** `limits.test.ts` revisa que el turno de 2 burbujas guarde un solo costo, que las dos lleven las marcas y que `trialSpend` cuadre con la cuenta a mano. Sin el arreglo, la prueba falla. 484 tests, lint y typecheck limpios.
+
+### S3 · 20/10/2026 · Pruebas de la cohorte 0: +15 días y aviso "renové tu prueba"
+
+**Contexto:** Javier, 20/10: la gente todavía no prueba bien a Rocco. Pidió renovar 15 días las pruebas activas y que, cuando escriban, Rocco les avise que es parte de la beta.
+
+**Hecho:**
+- **Producción:** las 5 pruebas de clientes registradas antes de hoy (sin las internas ni las 2 de hoy) quedaron con +15 días, contados desde hoy si ya había vencido y desde su fin si no. Nuevos fines: 04/11, 05/11 (dos), 07/11 y 10/11. Cada una dejó su fila `extend` en `audit_log`, con la misma forma que /admin.
+- **Aviso, una sola vez:** `pendingTrialExtension` (process.ts) busca la última extensión de la prueba vigente en `audit_log`. Si no hay un saliente con la marca `trial_extended` después de ella, `es.trialExtended` va arriba de la respuesta, sin mensaje aparte (ADR-014). Texto: "🎁 Como parte de la beta de Rocco, renové tu prueba gratis por *15 días más*: ahora termina el *mié 04/11*. Sigue anotando como siempre."
+  - Solo al dueño.
+  - Si no cabe en el cuerpo, espera al turno siguiente.
+  - También sale cuando se extiende una prueba desde /admin.
+- La marca va primero en `tool_calls`, para no tapar la última (la revisa la pregunta de la leyenda).
+
+**Ojo:** la prueba que venció hoy ya había recibido el aviso de fin con precios (22:51 UTC). Como esa marca ya existe, el 04/11 no se le repite.
+
+**Verificado:** `limits.test.ts` (aviso una vez, arriba de la respuesta). 485 tests, lint y typecheck limpios.

@@ -304,6 +304,38 @@ describe("límite del mes y recargas por WhatsApp", () => {
     expect(textOf(sent.at(-1))).toBe("¿Cuánto fue?");
   });
 
+  it("prueba extendida desde /admin: el aviso va una vez, arriba de la respuesta", async () => {
+    const before = new Date(clock.getTime() - 3_600_000);
+    const until = new Date(clock.getTime() + 15 * 86_400_000);
+    await withTenant(t.db, tenantId, async (tx) => {
+      await tx
+        .update(schema.tenant)
+        .set({ trialEndsAt: until })
+        .where(eq(schema.tenant.id, tenantId));
+      await tx.insert(schema.auditLog).values({
+        tenantId,
+        actorType: "user",
+        actorId: ADMIN.userId,
+        action: "extend",
+        entity: "tenant",
+        entityId: tenantId,
+        before: { status: "trial", trialEndsAt: before.toISOString() },
+        after: { status: "trial", trialEndsAt: until.toISOString() },
+        channel: "admin",
+        createdAt: new Date(clock.getTime() - 60_000),
+      });
+    });
+    const sentBefore = sent.length;
+    await send("gasté en arepa");
+    expect(sent.length).toBe(sentBefore + 1);
+    const text = textOf(sent.at(-1));
+    expect(text).toMatch(
+      /^🎁 Como parte de la beta de Rocco, renové tu prueba gratis por \*15 días más\*: ahora termina el \*\S+ \d{2}\/\d{2}\*\. Sigue anotando como siempre\.\n\n¿Cuánto fue\?$/,
+    );
+    await send("gasté en café");
+    expect(textOf(sent.at(-1))).toBe("¿Cuánto fue?");
+  });
+
   it("renovar con precio fundador: 40 % menos y la línea que lo explica", async () => {
     await withTenant(t.db, tenantId, (tx) =>
       tx.update(schema.tenant).set({ status: "active" }).where(eq(schema.tenant.id, tenantId)),

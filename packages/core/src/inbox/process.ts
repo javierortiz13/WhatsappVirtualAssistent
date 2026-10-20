@@ -468,6 +468,26 @@ export async function processInbound(
       first && second
         ? [...mergeOutbound(first, second), ...route.outbound.slice(1)]
         : [...welcome, ...route.outbound];
+
+    // Prueba extendida desde /admin (beta, 20/10): el aviso va una vez, arriba de la respuesta y
+    // sin mensaje aparte. Si no cabe en el cuerpo, espera al turno siguiente.
+    const extension =
+      resolved.role === "owner" && tenant.status === "trial" && !tenant.deletedAt
+        ? await pendingTrialExtension(tx, tenant, started)
+        : null;
+    const at = outbound.findIndex((o) => o.type !== "reaction");
+    const target = outbound[at];
+    if (extension && target) {
+      const body = `${es.trialExtended({ days: extension.days, endsOn: businessDateOf(extension.endsAt) })}\n\n${target.body}`;
+      if (body.length <= (target.type === "text" ? LIMITS.textBody : LIMITS.interactiveBody)) {
+        outbound[at] = { ...target, body } as Outbound;
+        // Primero, para no tapar la última marca del turno (la leyenda la lee al final).
+        route.toolCalls = [
+          { name: TRIAL_EXTENDED, args: { until: extension.endsAt.toISOString() } },
+          ...route.toolCalls,
+        ];
+      }
+    }
     for (const [i, out] of outbound.entries()) {
       // El costo y los tokens del turno van solo en la primera burbuja (BUG-1, jpsoftwaredev#24):
       // copiados en cada una, un turno de 2 burbujas contaba doble en el tope de la prueba, el
@@ -806,6 +826,57 @@ const TRIAL_CAP = "trial_cap";
 /** Marca del aviso "llegaste a los mensajes de tu plan este mes" (0019). */
 const MONTH_CAP = "month_cap";
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Marca del aviso "renové tu prueba" (beta, 20/10). */
+const TRIAL_EXTENDED = "trial_extended";
+
+const ExtendAudit = z.object({ trialEndsAt: z.string().nullable() }).passthrough();
+
+/**
+ * La extensión de la prueba que el dueño todavía no vio: los días sumados y el nuevo fin. Solo la
+ * última, si su fin sigue siendo el de la prueba y está por delante, y si no hay un saliente con la
+ * marca después de ella.
+ */
+async function pendingTrialExtension(
+  tx: Tx,
+  tenant: { id: string; trialEndsAt: Date | null },
+  now: Date,
+): Promise<{ days: number; endsAt: Date } | null> {
+  const endsAt = tenant.trialEndsAt;
+  if (!endsAt || endsAt.getTime() <= now.getTime()) return null;
+  const a = schema.auditLog;
+  const [last] = await tx
+    .select({ before: a.before, after: a.after, createdAt: a.createdAt })
+    .from(a)
+    .where(and(eq(a.tenantId, tenant.id), eq(a.entity, "tenant"), eq(a.action, "extend")))
+    .orderBy(desc(a.createdAt))
+    .limit(1);
+  if (!last) return null;
+  const after = ExtendAudit.safeParse(last.after);
+  const before = ExtendAudit.safeParse(last.before);
+  if (!after.success || !after.data.trialEndsAt) return null;
+  const until = new Date(after.data.trialEndsAt).getTime();
+  if (Math.abs(until - endsAt.getTime()) > 1000) return null;
+  const from = Math.max(
+    last.createdAt.getTime(),
+    before.success && before.data.trialEndsAt ? new Date(before.data.trialEndsAt).getTime() : 0,
+  );
+  const days = Math.round((until - from) / DAY_MS);
+  if (days < 1) return null;
+  const [seen] = await tx
+    .select({ id: schema.message.id })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.tenantId, tenant.id),
+        eq(schema.message.direction, "out"),
+        gt(schema.message.createdAt, last.createdAt),
+        sql`${schema.message.toolCalls} @> ${JSON.stringify([{ name: TRIAL_EXTENDED }])}::jsonb`,
+      ),
+    )
+    .limit(1);
+  return seen ? null : { days, endsAt };
+}
 
 /** ¿Este número recibió, desde `since`, un saliente con la marca `name` en `tool_calls`? */
 async function markSentSince(tx: Tx, phoneId: string, name: string, since: Date): Promise<boolean> {
