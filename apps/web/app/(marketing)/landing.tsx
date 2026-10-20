@@ -1,3 +1,4 @@
+import { RoccoMarkSmall } from "@/app/rocco-mark";
 import { PILOT_NOTE, PLANS } from "@/lib/plans";
 import { Effects } from "./effects";
 import { type Scene, Story } from "./story";
@@ -27,7 +28,7 @@ export function Landing({
       <header className="lp-nav">
         <div className="wrap">
           <a className="logo" href="/">
-            <Logo />
+            <RoccoMarkSmall />
             Rocco
           </a>
           <nav className="links" aria-label="Secciones">
@@ -410,30 +411,6 @@ const FAQ = [
     a: "Durante la beta lo pruebas gratis: 14 días desde que empiezas a usarlo o 100 mensajes, lo que llegue primero. Al terminar la prueba, Rocco te dice el precio de tu plan (los primeros 50 con precio de fundador) y pagas por pago móvil, Zelle o USDT desde el mismo chat.",
   },
 ];
-
-/** Rocco provisional: un pug sencillo en los colores de la marca, hasta tener el logo final. */
-function Logo() {
-  return (
-    <svg viewBox="0 0 64 64" aria-hidden="true">
-      <rect width="64" height="64" rx="14" fill="#0f7b5f" />
-      <path d="M13 24c-1-7 4-11 10-9l-1 12z" fill="#0a3d30" />
-      <path d="M51 24c1-7-4-11-10-9l1 12z" fill="#0a3d30" />
-      <ellipse cx="32" cy="35" rx="17" ry="15" fill="#f4efe6" />
-      <ellipse cx="32" cy="41.5" rx="9.5" ry="7.5" fill="#0a3d30" />
-      <circle cx="24.5" cy="31.5" r="3.2" fill="#0a3d30" />
-      <circle cx="39.5" cy="31.5" r="3.2" fill="#0a3d30" />
-      <circle cx="25.5" cy="30.5" r="1" fill="#fff" />
-      <circle cx="40.5" cy="30.5" r="1" fill="#fff" />
-      <path
-        d="M28.5 44q3.5 2.2 7 0"
-        stroke="#f4efe6"
-        strokeWidth="1.6"
-        fill="none"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
 
 function WaIcon() {
   return (

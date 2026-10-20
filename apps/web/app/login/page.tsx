@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { RoccoMark } from "@/app/rocco-mark";
 import { env } from "@/lib/env";
 import { sendMagicLink, signInWithGoogle } from "./actions";
 
@@ -25,7 +26,7 @@ export default async function LoginPage({
     <main className="auth">
       <section className="auth-intro">
         <div className="brand">
-          <BrandMark />
+          <RoccoMark />
           <div>
             <strong className="brand-name">Rocco</strong>
             <p>Tu amigo fiel con tus finanzas</p>
@@ -131,30 +132,6 @@ export default async function LoginPage({
         </p>
       </section>
     </main>
-  );
-}
-
-/** Rocco provisional (un pug en los colores de la marca), hasta tener el logo final. */
-function BrandMark() {
-  return (
-    <svg viewBox="0 0 64 64" aria-hidden="true">
-      <rect width="64" height="64" rx="16" fill="#0f7b5f" />
-      <path d="M13 24c-1-7 4-11 10-9l-1 12z" fill="#0a3d30" />
-      <path d="M51 24c1-7-4-11-10-9l1 12z" fill="#0a3d30" />
-      <ellipse cx="32" cy="35" rx="17" ry="15" fill="#f4efe6" />
-      <ellipse cx="32" cy="41.5" rx="9.5" ry="7.5" fill="#0a3d30" />
-      <circle cx="24.5" cy="31.5" r="3.2" fill="#0a3d30" />
-      <circle cx="39.5" cy="31.5" r="3.2" fill="#0a3d30" />
-      <circle cx="25.5" cy="30.5" r="1" fill="#fff" />
-      <circle cx="40.5" cy="30.5" r="1" fill="#fff" />
-      <path
-        d="M28.5 44q3.5 2.2 7 0"
-        stroke="#f4efe6"
-        strokeWidth="1.6"
-        fill="none"
-        strokeLinecap="round"
-      />
-    </svg>
   );
 }
 
