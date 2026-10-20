@@ -548,7 +548,13 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
         kind: "terminal",
         status: "ok",
         outbound: [
-          expenseDraftOutbound(draft.pendingId, draft.draft, run.ctx.today, draft.replacedPrevious),
+          expenseDraftOutbound(
+            draft.pendingId,
+            draft.draft,
+            run.ctx.today,
+            draft.replacedPrevious,
+            run.ctx.role === "owner",
+          ),
         ],
       };
     } catch (err) {
@@ -669,6 +675,7 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
             draft.draft.items,
             run.ctx.today,
             draft.replacedPrevious,
+            run.ctx.role === "owner",
           ),
         ],
       };
@@ -749,6 +756,7 @@ export function expenseDraftOutbound(
   d: ExpenseDraft,
   today: IsoDate,
   replacedPrevious = false,
+  showBalance = true,
 ): Outbound {
   if (d.bsChoice)
     return es.bsRateQuestion({
@@ -778,6 +786,7 @@ export function expenseDraftOutbound(
     replacedPrevious,
     exchange: d.exchange ?? null,
     accountName: d.accountName ?? null,
+    showBalance,
   });
 }
 
@@ -787,6 +796,7 @@ export function expensesDraftOutbound(
   items: ExpenseDraft[],
   today: IsoDate,
   replacedPrevious = false,
+  showBalance = true,
 ): Outbound {
   const asked = items.filter((i) => i.bsChoice);
   if (asked.length) {
@@ -811,6 +821,7 @@ export function expensesDraftOutbound(
     today,
     transcript: items[0]?.transcript ?? null,
     replacedPrevious,
+    showBalance,
   });
 }
 

@@ -203,3 +203,37 @@ describe("gastos de una categoría por chat", () => {
     expect(body.length).toBeLessThan(LIMITS.textBody);
   });
 });
+
+describe("el saldo que quedará en la tarjeta del gasto", () => {
+  const card = (showBalance: boolean, uncoveredVes = "0") =>
+    es.expenseDraft({
+      pendingId: "p1",
+      amount: "970",
+      currency: "VES",
+      currencyInferred: false,
+      amountUsd: "1",
+      amountVes: "970",
+      rateValue: "970",
+      rateEffectiveDate: "2026-10-19",
+      rateSource: "exchange",
+      businessDate: "2026-10-19",
+      today: asIsoDate("2026-10-19"),
+      categoryName: "Comida",
+      description: "Pan",
+      transcript: null,
+      replacedPrevious: false,
+      exchange: { remainingAfter: "87300", uncoveredVes, lastRate: "970" },
+      accountName: "Banesco",
+      showBalance,
+    }).body;
+
+  it("lo ve el dueño, no el empleado (jpsoftwaredev#18)", () => {
+    expect(card(true)).toContain("Quedarán Bs 87.300,00 en Banesco.");
+    expect(card(false)).not.toContain("Quedarán");
+    expect(card(false)).not.toContain("87.300");
+  });
+
+  it("el aviso de que no alcanza sí lo ven los dos: es de este gasto, no un saldo", () => {
+    expect(card(false, "100")).toContain("⚠️ No alcanza lo que hay en Banesco");
+  });
+});

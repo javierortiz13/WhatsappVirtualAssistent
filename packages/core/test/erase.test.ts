@@ -132,6 +132,17 @@ describe("eliminar un negocio", () => {
         tx.insert(schema.tenantMember).values({ tenantId, userId: user, role: "owner" }),
       );
     await t.db.insert(schema.unknownSenderHit).values({ e164: "584127806000", hits: 1 });
+    // Registro por WhatsApp (0018): el del que se va quedó a medias (sin negocio, por su número);
+    // el del que se queda, completo. Y un enlace al panel por negocio.
+    await t.db.insert(schema.signup).values([
+      { e164: "584127806000", step: "name", data: { name: "Ana" } },
+      { e164: "584120000009", step: "done", tenantId: kept, completedAt: new Date() },
+      { e164: "584120000001", step: "done", tenantId: gone, completedAt: new Date() },
+    ]);
+    await t.db.insert(schema.dashboardLink).values([
+      { userId, codeHash: "h1", expiresAt: new Date("2026-10-05"), tenantId: gone },
+      { userId: sharedUser, codeHash: "h2", expiresAt: new Date("2026-10-05"), tenantId: kept },
+    ]);
   });
   afterAll(() => t.close());
 
@@ -162,6 +173,8 @@ describe("eliminar un negocio", () => {
       "phone_number",
       "tenant_member",
       "audit_log",
+      "signup",
+      "dashboard_link",
     ];
     const before = Object.fromEntries(
       await Promise.all(tables.map(async (x) => [x, await count(x, kept)] as const)),
@@ -182,6 +195,8 @@ describe("eliminar un negocio", () => {
     const events = await t.db.select().from(schema.webhookEvent);
     expect(events.map((e) => e.eventKey)).toEqual(["ev-584120000009"]);
     expect(await t.db.select().from(schema.unknownSenderHit)).toEqual([]);
+    // El registro a medias de su número también se va (jpsoftwaredev#18).
+    expect((await t.db.select().from(schema.signup)).map((x) => x.e164)).toEqual(["584120000009"]);
 
     // El otro negocio, intacto.
     for (const x of tables) expect(await count(x, kept), x).toBe(before[x]);

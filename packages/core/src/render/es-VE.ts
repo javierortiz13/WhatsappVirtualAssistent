@@ -891,6 +891,8 @@ export type ExpenseDraftView = {
     | undefined;
   /** Cuenta de donde sale (0013). */
   accountName?: string | null | undefined;
+  /** El dueño ve cuánto quedará en la cuenta o en sus cambios; el empleado no. */
+  showBalance?: boolean | undefined;
 };
 
 type LotPartView = {
@@ -924,15 +926,20 @@ const rateNum = (v: Decimal.Value) => formatMoney(v, "VES").replace("Bs ", "");
 const shortBs = (v: Decimal.Value) => formatMoney(v, "VES").replace(/,00$/, "");
 const shortRate = (v: Decimal.Value) => rateNum(v).replace(/,00$/, "");
 
-/** Debajo de un borrador de los lotes: cuánto quedará, o qué no alcanzó. */
+/**
+ * Debajo de un borrador de los lotes: cuánto quedará, o qué no alcanzó. El saldo que quedará es un
+ * saldo: solo para el dueño (la landing promete que el empleado no ve totales, jpsoftwaredev#18).
+ */
 function exchangeNote(
   x: { remainingAfter: string; uncoveredVes: string; lastRate: string },
   accountName?: string | null,
-): string {
+  showBalance = true,
+): string | null {
   if (new Decimal(x.uncoveredVes).gt(0))
     return accountName
       ? `⚠️ No alcanza lo que hay en ${accountName}: ${formatMoney(x.uncoveredVes, "VES")} van a la tasa de tu último cambio (${rateNum(x.lastRate)}).`
       : `⚠️ Tus cambios no alcanzan: ${formatMoney(x.uncoveredVes, "VES")} van a la tasa de tu último cambio (${rateNum(x.lastRate)}). Si cambiaste de nuevo, dímelo: _cambié 100 usdt a 980_`;
+  if (!showBalance) return null;
   return accountName
     ? `Quedarán ${formatMoney(x.remainingAfter, "VES")} en ${accountName}.`
     : `Quedarán ${formatMoney(x.remainingAfter, "VES")} de tus cambios.`;
@@ -1366,7 +1373,8 @@ export function expenseDraft(d: ExpenseDraftView): Outbound {
   if (d.accountName) lines.push(`Cuenta: ${d.accountName}`);
   lines.push(dateLine(d.businessDate, d.today));
   if (d.currencyInferred) lines.push(inferredNote(d.currency));
-  if (d.exchange) lines.push(exchangeNote(d.exchange, d.accountName));
+  const note = d.exchange ? exchangeNote(d.exchange, d.accountName, d.showBalance ?? true) : null;
+  if (note) lines.push(note);
   return {
     type: "buttons",
     body: lines.join("\n"),
@@ -1383,6 +1391,8 @@ export type ExpensesDraftView = {
   today: IsoDate;
   transcript: string | null;
   replacedPrevious: boolean;
+  /** El dueño ve cuánto quedará en la cuenta o en sus cambios; el empleado no. */
+  showBalance?: boolean | undefined;
 };
 
 /** Varios gastos de un mensaje: un renglón por gasto, el total en dólares y una sola confirmación. */
@@ -1428,9 +1438,12 @@ export function expensesDraft(v: ExpensesDraftView): Outbound {
       (s, i) => s.plus(i.exchange?.uncoveredVes ?? 0),
       new Decimal(0),
     );
-    lines.push(
-      exchangeNote({ ...lastLot, uncoveredVes: uncovered.toFixed(2) }, oneAccount ?? null),
+    const note = exchangeNote(
+      { ...lastLot, uncoveredVes: uncovered.toFixed(2) },
+      oneAccount ?? null,
+      v.showBalance ?? true,
     );
+    if (note) lines.push(note);
   }
   return {
     type: "buttons",

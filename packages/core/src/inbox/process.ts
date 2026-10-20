@@ -1809,7 +1809,9 @@ async function routeInteractive(
             .update(schema.pendingAction)
             .set({ payload: item, expiresAt: new Date(nowTs.getTime() + DRAFT_TTL_MS) })
             .where(eq(schema.pendingAction.id, pending.id));
-          return none([expenseDraftOutbound(pending.id, item, ctx.today)]);
+          return none([
+            expenseDraftOutbound(pending.id, item, ctx.today, false, ctx.role === "owner"),
+          ]);
         }
         if (pending.kind === "create_expenses") {
           const draft = ExpensesDraft.parse(pending.payload);
@@ -1821,7 +1823,9 @@ async function routeInteractive(
               expiresAt: new Date(nowTs.getTime() + DRAFT_TTL_MS),
             })
             .where(eq(schema.pendingAction.id, pending.id));
-          return none([expensesDraftOutbound(pending.id, items, ctx.today)]);
+          return none([
+            expensesDraftOutbound(pending.id, items, ctx.today, false, ctx.role === "owner"),
+          ]);
         }
         return none([es.confirmationExpired()]);
       }

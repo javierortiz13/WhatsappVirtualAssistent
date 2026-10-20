@@ -8,7 +8,7 @@ export default function Privacidad() {
   return (
     <main className="legal">
       <h1>Política de privacidad</h1>
-      <p className="updated">Rocco · última actualización: 7 de octubre de 2026</p>
+      <p className="updated">Rocco · última actualización: 19 de octubre de 2026</p>
 
       <p>
         Rocco (antes «Asistente de Caja») es un servicio para personas y dueños de negocios pequeños
@@ -61,6 +61,11 @@ export default function Privacidad() {
           voz. Estos proveedores no conservan tus datos para entrenar modelos.
         </li>
         <li>Resend para los correos de acceso al panel.</li>
+        <li>
+          Sentry para registrar fallas técnicas del servicio (qué falló, dónde y datos técnicos como
+          el navegador), nunca el contenido de tus mensajes. Better Stack para vigilar que el
+          servicio esté en línea; no recibe datos tuyos.
+        </li>
       </ul>
 
       <h2>Conservación</h2>

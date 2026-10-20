@@ -1486,3 +1486,20 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 **Además:** el formato de Biome en `landing.tsx` y la nota de /admin ("La web dice …") con la frase nueva.
 
 **Verificado:** 480 tests, lint y typecheck limpios. La evidencia antes y después a 360 y 1440 px está en el repo de la agencia (`design/landing-fixes-2026-10-17/evidence`).
+
+### S3 · 20/10/2026 · Privacidad (jpsoftwaredev#18)
+
+**Hecho:**
+- **Migración 0024 (`0024_erase_signup.sql`):** `app.erase_tenant` ahora también borra:
+  - `app.signup` del negocio o de sus números, incluido un registro a medias del mismo número;
+  - `app.dashboard_link` del negocio.
+
+  Ambas tablas llegaron en 0018, después de 0017, y quedaban al eliminar una cuenta. `erase.test.ts` lo prueba: sin 0024 falla y con 0024 pasa.
+- **Saldo solo al dueño:**
+  - "Quedarán Bs … en {cuenta}" / "de tus cambios" en la tarjeta de un gasto en Bs (uno o varios) ya no se le muestra a un empleado (`showBalance`, desde `run.ctx.role` / `ctx.role`). La landing promete que el empleado no ve totales.
+  - El aviso "No alcanza lo que hay en …" sí lo ven los dos: es de ese gasto, no un saldo.
+- **`/privacidad`:** agrega Sentry (fallas técnicas, nunca el contenido de los mensajes) y Better Stack (vigila que el servicio esté en línea; no recibe datos). Última actualización: 19 de octubre de 2026.
+
+**Pendiente (Javier):** aplicar 0024 en producción. El MCP de Supabase se queda esperando una confirmación con cualquier SQL que contenga `DELETE`, aunque aquí solo esté dentro de la función. Se aplica con `pnpm db:migrate` usando `DATABASE_ADMIN_URL`, o pegando el archivo en el editor SQL de Supabase y registrando `0024_erase_signup.sql` en `caja_meta.schema_migrations`. Hasta entonces, eliminar una cuenta funciona como antes (sin borrar esas dos tablas).
+
+**Verificado:** 482 tests, lint y typecheck limpios.
