@@ -1515,3 +1515,18 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - **Commit en producción:** incluye la fase 1 (`efa2fb9`) y la fase 2 (`6c7544a`) de efectivo en caja.
 
 **Verificado:** `render.test.ts` revisa R1 con el texto exacto (prueba que vence el 20/10 → "vie 23/10") y que la línea del plan pagado no cambie; `chat-signup.test.ts` revisa la bienvenida verbatim. 484 tests, lint y typecheck limpios.
+
+### S3 · 20/10/2026 · Logo Rocco V1 en la web (A-0005, jpsoftwaredev#11)
+
+**Contexto:** parche de la agencia `agency/products/rocco/design/logo-2026-10/landing-patch/logo-v1.patch` (versión con el arreglo W1, sha256 `aa454a1d…c6d4d4`), aprobado por Javier el 20/10 con sus dos commits. Aplicado con `git am` sobre `bdc3ee5`; los árboles resultantes son los aprobados (`1a0a645c` y `1f875d0e`).
+
+**Hecho:**
+- Sale el pug provisional. Rocco V1 en el encabezado de la landing (corte pequeño, 30 px) y en `/login` (completo, 44 px), desde un solo componente `app/rocco-mark.tsx`.
+- Íconos: `icon.svg`, `favicon.ico`, `apple-icon.png` y los 4 PNG del PWA en `public/` (192 y 512, normal y maskable) en `manifest.ts`.
+- Tarjeta al compartir el enlace: `app/opengraph-image.png` ("Rocco" + "Fiel a tus cuentas."), por defecto en todas las rutas.
+- Commit 2: Rocco en vez de 🐶 en los dos chats de ejemplo (landing y login).
+- Ningún texto, lógica, dato ni medición cambia.
+
+**Fuera de este cambio (notas del README):** `metadataBase` y `og:image:alt` siguen sin definir. En Vercel el `og:image` sale absoluto con la URL de producción.
+
+**Verificado:** lint (0 errores, las mismas 18 advertencias), typecheck y 484 tests.
