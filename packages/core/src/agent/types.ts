@@ -31,6 +31,12 @@ export type AgentContext = {
   bsRateMode?: "bcv" | "usdt" | "ask";
   /** Cuentas activas del negocio (0013), en el orden del dueño; vacío si no usa cuentas. */
   accounts?: AccountRef[];
+  /**
+   * Negocio con al menos una cuenta de efectivo activa (PRD cash-in-drawer US-003): la cuenta se
+   * elige en orden (dicha, la única posible, la de siempre) y si no se sabe, la tarjeta pregunta.
+   * Sin esto, la principal de la moneda como siempre.
+   */
+  asksAccount?: boolean;
   /** Datos de cobro para renovar el plan por el bot (03/10). */
   billing?: { dest: PaymentDest; supportHint: string | null };
 };

@@ -59,7 +59,19 @@ export type BsChoicePreview = z.infer<typeof BsChoicePreview>;
 const AccountFields = {
   accountId: z.string().uuid().nullable().optional(),
   accountName: z.string().nullable().optional(),
+  /** Cómo se eligió (PRD cash-in-drawer US-003); null: no se supo y la tarjeta pregunta. */
+  accountSource: z.enum(["stated", "only", "learned"]).nullable().optional(),
 };
+
+/**
+ * Lo que la tarjeta pregunta cuando no se supo la cuenta (US-004, US-006): las cuentas posibles,
+ * en el orden del dueño, y la de arranque que falta si el mensaje dijo un tipo que no tiene.
+ */
+export const AccountAsk = z.object({
+  candidates: z.array(z.string().uuid()),
+  starter: z.string().nullable(),
+});
+export type AccountAsk = z.infer<typeof AccountAsk>;
 
 /**
  * Borradores de escritura (ADR-006). Una herramienta de escritura nunca toca `movement`: crea
@@ -90,6 +102,7 @@ export const ExpenseDraft = z.object({
   /** Modo "preguntar": los dos cálculos, para mostrar los botones Mi cambio USDT / Tasa BCV. */
   bsChoice: BsChoicePreview.nullable().optional(),
   ...AccountFields,
+  accountAsk: AccountAsk.optional(),
 });
 export type ExpenseDraft = z.infer<typeof ExpenseDraft>;
 
@@ -134,7 +147,11 @@ export type DraftInput = {
   bsRate?: "exchange" | "ask" | null;
   /** Cuenta de donde salió (0013): sus lotes son los que cuentan. */
   account?: { id: string; name: string } | null;
+  accountSource?: AccountSourceValue | null;
+  accountAsk?: AccountAsk;
 };
+
+type AccountSourceValue = "stated" | "only" | "learned";
 
 /**
  * Convierte un gasto dicho por el usuario al payload del borrador, con la tasa del día (o la de los
@@ -193,6 +210,8 @@ async function buildExpenseDraft(
         : null,
     accountId: input.account?.id ?? null,
     accountName: input.account?.name ?? null,
+    ...(input.accountSource !== undefined ? { accountSource: input.accountSource } : {}),
+    ...(input.accountAsk ? { accountAsk: input.accountAsk } : {}),
   };
   return { draft, usedPriorDay };
 }
@@ -298,6 +317,7 @@ export async function createExpenseDraft(
 export const ExpensesDraft = z.object({
   items: z.array(ExpenseDraft).min(1),
   fixing: z.boolean().optional(),
+  accountAsk: AccountAsk.optional(),
 });
 export type ExpensesDraft = z.infer<typeof ExpensesDraft>;
 
@@ -305,6 +325,7 @@ export async function createExpensesDraft(
   tx: Tx,
   inputs: DraftInput[],
   now: Date,
+  extra: { accountAsk?: AccountAsk } = {},
 ): Promise<{
   pendingId: string;
   draft: ExpensesDraft;
@@ -321,7 +342,11 @@ export async function createExpensesDraft(
     items.push(draft);
     usedPriorDayRate ||= usedPriorDay;
   }
-  const draft: ExpensesDraft = { items };
+  const draft: ExpensesDraft = {
+    // La pregunta es de la tarjeta entera, no de cada renglón.
+    items: items.map(({ accountAsk: _, ...item }) => item),
+    ...(extra.accountAsk ? { accountAsk: extra.accountAsk } : {}),
+  };
   const { pendingId, replacedPrevious } = await insertDraft(
     tx,
     {
@@ -461,6 +486,7 @@ export const IncomeDayTotalDraft = z.object({
   attachmentId: z.string().uuid().nullable().default(null),
   transcript: z.string().nullable(),
   fixing: z.boolean().optional(),
+  accountAsk: AccountAsk.optional(),
   /** Cuenta principal por moneda, para la línea que agrega "Total X" al cuadrar (0013). */
   fallbackAccounts: z
     .object({
@@ -493,6 +519,7 @@ export const IncomeSingleDraft = z.object({
   categoryId: z.string().uuid().nullable().optional(),
   categoryName: z.string().nullable().optional(),
   ...AccountFields,
+  accountAsk: AccountAsk.optional(),
 });
 export type IncomeSingleDraft = z.infer<typeof IncomeSingleDraft>;
 
@@ -507,7 +534,9 @@ export type IncomeDayTotalInput = {
     amount: Decimal;
     currency: Currency;
     account?: { id: string; name: string } | null;
+    accountSource?: AccountSourceValue | null;
   }[];
+  accountAsk?: AccountAsk;
   /** Cuenta principal por moneda (0013), para el total sin desglose o la línea que cuadra. */
   fallbackAccounts?: IncomeDayTotalDraft["fallbackAccounts"];
   sourceChannel: "text" | "voice" | "image";
@@ -527,6 +556,7 @@ function toLine(l: IncomeDayTotalInput["lines"][number], rate: Rate): IncomeLine
     amountUsd: toDbAmount(c.amountUsd),
     amountVes: toDbAmount(c.amountVes),
     ...(l.account ? { accountId: l.account.id, accountName: l.account.name } : {}),
+    ...(l.accountSource !== undefined ? { accountSource: l.accountSource } : {}),
   };
 }
 
@@ -574,7 +604,19 @@ export async function createIncomeDayTotalDraft(
     }
   }
   const totals = sumLines(lines);
-  const existing = await existingDayTotal(tx, input.tenantId, input.businessDate);
+  // Corregir una venta ya guardada (0023): lo que guardó esa tarjeta se va a deshacer, no cuenta.
+  const [replaced] = input.replaces
+    ? await tx
+        .select({ savedIds: schema.pendingAction.savedIds })
+        .from(schema.pendingAction)
+        .where(eq(schema.pendingAction.id, input.replaces))
+    : [];
+  const existing = await existingDayTotal(
+    tx,
+    input.tenantId,
+    input.businessDate,
+    replaced?.savedIds ?? [],
+  );
   const draft: IncomeDayTotalDraft = {
     businessDate: input.businessDate,
     lines,
@@ -592,6 +634,7 @@ export async function createIncomeDayTotalDraft(
     attachmentId: input.attachmentId ?? null,
     transcript: input.transcript,
     ...(input.fallbackAccounts ? { fallbackAccounts: input.fallbackAccounts } : {}),
+    ...(input.accountAsk ? { accountAsk: input.accountAsk } : {}),
   };
   const { pendingId, replacedPrevious } = await insertDraft(
     tx,
@@ -674,6 +717,8 @@ export type IncomeSingleInput = {
   manualRate?: Rate | null;
   replaces?: string | null;
   account?: { id: string; name: string } | null;
+  accountSource?: AccountSourceValue | null;
+  accountAsk?: AccountAsk;
   category?: { id: string; name: string } | null;
 };
 
@@ -705,6 +750,8 @@ export async function createIncomeSingleDraft(
     transcript: input.transcript,
     accountId: input.account?.id ?? null,
     accountName: input.account?.name ?? null,
+    ...(input.accountSource !== undefined ? { accountSource: input.accountSource } : {}),
+    ...(input.accountAsk ? { accountAsk: input.accountAsk } : {}),
     ...(input.category ? { categoryId: input.category.id, categoryName: input.category.name } : {}),
   };
   const { pendingId, replacedPrevious } = await insertDraft(

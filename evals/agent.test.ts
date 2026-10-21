@@ -126,6 +126,7 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
           ...a,
           id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
         })),
+        ...(c.accounts.some((a) => a.kind === "cash") ? { asksAccount: true } : {}),
         sourceChannel: c.receipt ? "image" : c.kind,
       };
       const started = Date.now();

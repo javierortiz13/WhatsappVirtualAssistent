@@ -45,6 +45,12 @@ export const IDS = {
   survey: (question: string, answer: string) => `survey:${question}:${answer}`,
   /** Recarga elegida (07/10): "recharge:s" (+20 por $1) o "recharge:m" (+100 por $4). */
   recharge: (id: string) => `recharge:${id}`,
+  /** De qué cuenta fue lo de la tarjeta (PRD cash-in-drawer US-005). */
+  pay: (pendingId: string, accountId: string) => `pay:${pendingId}:${accountId}`,
+  /** "Varios métodos": la venta se cobró de varias formas (US-005, C8). */
+  paySplit: (pendingId: string) => `paysplit:${pendingId}`,
+  /** Una cuenta de arranque que todavía no tiene: se crea al tocarla (US-006). */
+  payNew: (pendingId: string, starterId: string) => `paynew:${pendingId}:${starterId}`,
 } as const;
 
 export const BS_MODES = ["bcv", "usdt", "ask"] as const;
@@ -72,7 +78,12 @@ export type ParsedReplyId =
   | { kind: "signup"; value: string }
   | { kind: "survey"; question: "fair" | "expensive" | "continue"; answer: string }
   | { kind: "recharge"; id: string }
+  | { kind: "pay"; pendingId: string; accountId: string }
+  | { kind: "pay_split"; pendingId: string }
+  | { kind: "pay_new"; pendingId: string; starterId: string }
   | { kind: "unknown"; raw: string };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function parseReplyId(raw: string): ParsedReplyId {
   const [prefix, ...rest] = raw.split(":");
@@ -122,6 +133,21 @@ export function parseReplyId(raw: string): ParsedReplyId {
     case "signup":
       if (value) return { kind: "signup", value };
       break;
+    case "pay": {
+      const [pendingId, accountId] = rest;
+      if (UUID.test(pendingId ?? "") && UUID.test(accountId ?? "") && rest.length === 2)
+        return { kind: "pay", pendingId: pendingId as string, accountId: accountId as string };
+      break;
+    }
+    case "paysplit":
+      if (UUID.test(value)) return { kind: "pay_split", pendingId: value };
+      break;
+    case "paynew": {
+      const [pendingId, starterId] = rest;
+      if (UUID.test(pendingId ?? "") && /^[a-z_]{1,12}$/.test(starterId ?? "") && rest.length === 2)
+        return { kind: "pay_new", pendingId: pendingId as string, starterId: starterId as string };
+      break;
+    }
     case "recharge":
       if (/^[a-z]{1,4}$/.test(value)) return { kind: "recharge", id: value };
       break;

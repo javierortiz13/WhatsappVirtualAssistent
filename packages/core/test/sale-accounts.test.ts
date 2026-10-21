@@ -186,15 +186,17 @@ describe("ventas: a qué cuenta va cada renglón", () => {
     ]);
   });
 
-  it("un renglón sin método no toma el 'efectivo' de otro renglón: va a la principal", async () => {
+  // Fase 3 (US-003): con una cuenta de efectivo, lo que no se sabe queda sin cuenta y la tarjeta
+  // pregunta; ya no va a la principal en silencio.
+  it("un renglón sin método no toma el 'efectivo' de otro renglón: queda sin cuenta", async () => {
     expect(await send("hoy vendí 300$: 200 efectivo, 100 otra cosa")).toEqual([
       ["200.00", "Efectivo $"],
-      ["100.00", "BofA"],
+      ["100.00", null],
     ]);
   });
 
-  it("sin desglose o con un solo renglón, como antes: la principal, o lo que dice el mensaje", async () => {
-    expect(await send("hoy vendí 20$")).toEqual([["20.00", "BofA"]]);
+  it("sin desglose: sin cuenta si hay varias posibles; con un solo renglón, lo que dice el mensaje", async () => {
+    expect(await send("hoy vendí 20$")).toEqual([["20.00", null]]);
     expect(await send("ayer vendí 30$ todo por zelle")).toEqual([["30.00", "Zelle"]]);
   });
 

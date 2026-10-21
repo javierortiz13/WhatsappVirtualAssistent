@@ -1,7 +1,8 @@
-import { and, asc, eq, isNull, rows, schema, sql, type Tx } from "@caja/db";
-import type { IsoDate } from "../domain/dates";
+import { and, asc, eq, gt, isNull, rows, schema, sql, type Tx } from "@caja/db";
+import { addDays, type IsoDate } from "../domain/dates";
 import { type Currency, Decimal } from "../domain/money";
 import { BANK_ALIAS_CODE } from "../domain/pago-movil";
+import { STARTER_ACCOUNTS, type StarterAccount } from "../domain/starters";
 import type { Actor } from "./expenses";
 import type { PaymentMethod } from "./income";
 import { NoRateError, rateFor } from "./rate-for";
@@ -578,7 +579,7 @@ const METHOD_KIND: Partial<Record<PaymentMethod, { kind: AccountKind; currency: 
 
 /** Palabras del mensaje que dicen el tipo de cuenta ("con pago móvil", "en efectivo", "por binance"). */
 const KIND_WORDS: [RegExp, AccountKind][] = [
-  [/\b(pago ?movil|punto|transferencia|transferi|debito|tarjeta)\b/, "bank"],
+  [/\b(pago ?movil|punto|transferencia|transferi|debito|tarjeta|banco)\b/, "bank"],
   [/\b(efectivo|cash|billete|billetes|fisico)\b/, "cash"],
   [/\bzelle\b/, "zelle"],
   [/\b(binance|usdt|cripto|crypto|tether|p2p)\b/, "crypto"],
@@ -652,10 +653,15 @@ export function resolveAccount(
     const hit = pool.find((a) => a.kind === kind);
     if (hit) return hit;
   }
-  // 3. Nombrada aunque sea de otra moneda: "pagué 10$ con Banesco" sale de la cuenta en Bs.
+  // 3. Nombrada aunque sea de otra moneda: "pagué 10$ con Banesco" sale de la cuenta en Bs. Si se
+  // va a preguntar (sin la principal), un nombre que solo dice el tipo ("Efectivo $") no cuenta:
+  // "en efectivo" en Bs no es esa cuenta.
   if (!input.strictCurrency)
     for (const t of texts) {
-      const named = namedAccount(accounts, t);
+      const named = namedAccount(
+        input.noFallback ? accounts.filter((a) => !genericName(a.name)) : accounts,
+        t,
+      );
       if (named) return named;
     }
   if (input.preferKind) {
@@ -688,6 +694,127 @@ function lineAccount(
     }
   }
   return input.noFallback ? null : (sameCurrency[0] ?? null);
+}
+
+// ---------------------------------------------------------------- de qué cuenta fue (fase 3)
+
+/** Cómo se eligió la cuenta de un movimiento (PRD cash-in-drawer US-003, métricas §7). */
+export type AccountSource = "stated" | "only" | "learned";
+
+export function starterById(id: string): StarterAccount | null {
+  return STARTER_ACCOUNTS.find((s) => s.id === id) ?? null;
+}
+
+/** Las de arranque que el negocio todavía no tiene (ninguna activa de ese tipo y moneda). */
+export function missingStarters(accounts: AccountRef[]): StarterAccount[] {
+  return STARTER_ACCOUNTS.filter(
+    (s) => !accounts.some((a) => a.kind === s.kind && a.currency === s.currency),
+  );
+}
+
+/**
+ * La de arranque para un tipo dicho en una moneda ("en efectivo" en Bs → Efectivo Bs), si el
+ * negocio no tiene ninguna así. Un banco siempre es en Bs (pago móvil, punto, transferencia).
+ */
+export function starterFor(
+  accounts: AccountRef[],
+  kind: AccountKind,
+  currency: Currency,
+): StarterAccount | null {
+  const cur = kind === "bank" ? "VES" : kind === "zelle" || kind === "crypto" ? "USD" : currency;
+  const hit = STARTER_ACCOUNTS.find((s) => s.kind === kind && s.currency === cur) ?? null;
+  return hit && missingStarters(accounts).some((s) => s.id === hit.id) ? hit : null;
+}
+
+/** Tipos de cuenta que dice un texto o un método ("en efectivo", "por pago móvil"). */
+export function namedKinds(text: string, method?: PaymentMethod | null): AccountKind[] {
+  const kinds: AccountKind[] = [];
+  const m = method ? METHOD_KIND[method] : undefined;
+  if (m) kinds.push(m.kind);
+  const p = plain(text);
+  for (const [re, kind] of KIND_WORDS) if (re.test(p) && !kinds.includes(kind)) kinds.push(kind);
+  return kinds;
+}
+
+/**
+ * Las cuentas posibles de un movimiento (US-003 paso 2, ER-16). Un monto en $: las cuentas en $
+ * y la principal en Bs (en Venezuela un precio en $ se paga muchas veces en Bs). En Bs: las de Bs.
+ * Si el mensaje dijo un tipo, solo las de ese tipo (un banco, en Bs). En el orden del dueño.
+ */
+export function accountCandidates(
+  accounts: AccountRef[],
+  currency: Currency,
+  kind?: AccountKind | null,
+): AccountRef[] {
+  if (kind === "bank") return accounts.filter((a) => a.kind === "bank" && a.currency === "VES");
+  const bs = accounts.filter((a) => a.currency === "VES");
+  const mainBs = bs.find((a) => a.kind === "bank") ?? bs[0];
+  const pool =
+    currency === "USD" ? accounts.filter((a) => a.currency === "USD" || a.id === mainBs?.id) : bs;
+  return kind ? pool.filter((a) => a.kind === kind) : pool;
+}
+
+/** Días hacia atrás que mira la cuenta aprendida (US-003 paso 3, ER-17). */
+export const LEARNED_DAYS = 30;
+
+/**
+ * La cuenta de siempre para esto (ER-17): en los movimientos del mismo tipo de los últimos 30 días
+ * (por fecha del movimiento y con su cuenta de hoy). Por descripción: 2 o más con cuenta y una con
+ * 2/3 o más. Si hubo 2 o más por descripción sin mayoría, no se mira la categoría: varía, se
+ * pregunta. Si no, por categoría: 3 o más y una con 2/3. Tiene que ser una de las candidatas.
+ */
+export async function learnedAccount(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    type: "expense" | "income";
+    description: string | null;
+    categoryId: string | null;
+    today: IsoDate;
+    candidates: AccountRef[];
+  },
+): Promise<AccountRef | null> {
+  if (!input.candidates.length) return null;
+  const m = schema.movement;
+  const found = await tx
+    .select({ accountId: m.accountId, description: m.description, categoryId: m.categoryId })
+    .from(m)
+    .where(
+      and(
+        eq(m.tenantId, input.tenantId),
+        eq(m.type, input.type),
+        isNull(m.deletedAt),
+        sql`${m.accountId} is not null`,
+        gt(m.businessDate, addDays(input.today, -LEARNED_DAYS)),
+      ),
+    );
+  const majority = (rows: { accountId: string | null }[]) => {
+    const counts = new Map<string, number>();
+    for (const r of rows)
+      if (r.accountId) counts.set(r.accountId, (counts.get(r.accountId) ?? 0) + 1);
+    const [id, n] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [null, 0];
+    return id && n * 3 >= rows.length * 2 ? id : null;
+  };
+  const pick = (id: string | null) => input.candidates.find((a) => a.id === id) ?? null;
+  const desc = input.description ? plain(input.description) : "";
+  if (desc) {
+    const same = found.filter((r) => r.description && plain(r.description) === desc);
+    if (same.length >= 2) return pick(majority(same));
+  }
+  if (input.categoryId) {
+    const same = found.filter((r) => r.categoryId === input.categoryId);
+    if (same.length >= 3) return pick(majority(same));
+  }
+  return null;
+}
+
+/** Un nombre que es solo el tipo de cuenta y la moneda: "Efectivo $", "Efectivo Bs", "Zelle". */
+function genericName(name: string): boolean {
+  const n = plain(name)
+    .replace(/[^\p{L}\p{N} ]/gu, " ")
+    .replace(/\b(bs|usd|dolares|bolivares|en)\b/g, " ")
+    .trim();
+  return /^(efectivo|cash|zelle|binance|usdt|banco)$/.test(n);
 }
 
 /** Una cuenta cuyo nombre aparece en el texto, o el mismo banco con otro nombre ("bdv"). */

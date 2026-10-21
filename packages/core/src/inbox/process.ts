@@ -133,6 +133,13 @@ import {
 } from "../vision/receipt";
 import { LIMITS, LimitError, MetaApiError, type MetaClient } from "../whatsapp/client";
 import type { InboundMessage } from "../whatsapp/types";
+import {
+  accountAnswer,
+  accountAskFor,
+  paySplit,
+  payWithAccount,
+  payWithNewAccount,
+} from "./account-ask";
 import { saveSurveyAnswer } from "./lifecycle";
 import { SPLIT_WORDS, splitFollowUp, splitFromPhoto } from "./split";
 
@@ -1044,7 +1051,14 @@ async function routeMessage(
         return none([es.menu(await getRateInfo(tx, ctx.today), ctx.personal)]);
       if (keyword === "rate") return none([es.rate(await getRateInfo(tx, ctx.today))]);
       if (keyword === "help")
-        return none([es.help(deps.config.dashboardUrl, deps.config.supportHint, ctx.personal)]);
+        return none([
+          es.help(
+            deps.config.dashboardUrl,
+            deps.config.supportHint,
+            ctx.personal,
+            !ctx.personal && (await listAccounts(tx, ctx.tenantId)).some((a) => a.kind === "cash"),
+          ),
+        ]);
       if (keyword === "dashboard")
         return none([
           es.dashboardLink(
@@ -1067,6 +1081,15 @@ async function routeMessage(
         );
         if (split) return split;
       }
+      // Respuesta corta a "¿Cómo lo pagaste?" (cash-in-drawer US-007): sin la IA.
+      const paid = await accountAnswer(
+        tx,
+        ctx,
+        msg.text,
+        (deps.now ?? (() => new Date()))(),
+        deps.config.dashboardUrl,
+      );
+      if (paid) return none([paid]);
       const result = await runAgent(tx, deps, ctx, msg.waMessageId, {
         kind: "text",
         text: msg.text,
@@ -1935,6 +1958,25 @@ async function routeInteractive(
       }
       return executePending(tx, pending, ctx, nowTs);
     }
+    case "pay":
+    case "pay_split":
+    case "pay_new": {
+      const nowTs = (deps.now ?? (() => new Date()))();
+      if (parsed.kind === "pay")
+        return none([await payWithAccount(tx, ctx, parsed.pendingId, parsed.accountId, nowTs)]);
+      if (parsed.kind === "pay_split")
+        return none([await paySplit(tx, ctx, parsed.pendingId, nowTs)]);
+      return none([
+        await payWithNewAccount(
+          tx,
+          ctx,
+          parsed.pendingId,
+          parsed.starterId,
+          nowTs,
+          deps.config.dashboardUrl,
+        ),
+      ]);
+    }
     case "currency": {
       // Respuesta a "¿500 en qué moneda?": vuelve al agente con el historial de los últimos
       // 30 minutos, que contiene el mensaje original y la pregunta.
@@ -2182,6 +2224,7 @@ async function runAgent(
         .from(schema.message)
         .where(eq(schema.message.waMessageId, waMessageId))
     : [];
+  const accounts = await listAccounts(tx, ctx.tenantId);
   try {
     const result = await deps.agent.run(
       tx,
@@ -2193,7 +2236,8 @@ async function runAgent(
         defaultCurrency: ctx.defaultCurrency,
         vesThreshold: ctx.vesThreshold,
         bsRateMode: ctx.bsRateMode ?? "bcv",
-        accounts: await listAccounts(tx, ctx.tenantId),
+        accounts,
+        ...(!ctx.personal && accounts.some((a) => a.kind === "cash") ? { asksAccount: true } : {}),
         categories,
         ...(ctx.personal ? { personal: true, incomeCategories } : {}),
         categoryExamples: await categoryExamples(tx, ctx.tenantId),
@@ -2980,10 +3024,14 @@ async function settleTurnDrafts(
       .set({ status: "pending", resolvedAt: null, savedIds })
       .where(eq(pa.id, p.id));
     const saved = result.outbound[0];
+    // Lo que quedó sin cuenta: la tarjeta pregunta (cash-in-drawer US-004). Si lo guardado ya trae
+    // sus botones (la primera pregunta de la tasa de un cambio), esos mandan.
+    const ask =
+      saved && saved.type !== "buttons" ? await accountAskFor(tx, ctx, p, savedIds) : null;
     if (saved)
       out = [
         ...out.slice(0, card),
-        es.savedCard(out[card] as Outbound, saved, p.id, p.kind),
+        es.savedCard(out[card] as Outbound, saved, p.id, p.kind, ask),
         ...out.slice(card + 1),
       ];
   }

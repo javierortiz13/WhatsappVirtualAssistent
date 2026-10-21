@@ -1,3 +1,5 @@
+import { STARTER_ACCOUNTS, type StarterId } from "@caja/core/domain";
+
 /**
  * Datos de presentación del onboarding (05/10/2026): íconos y colores de categorías, plantillas
  * de cuentas y tipos de negocio. Solo se ven en la web; el bot no los usa.
@@ -67,59 +69,33 @@ export type AccountTemplate = {
   unit: string;
 };
 
-/** Las cuentas más comunes en Venezuela, para crearlas con un toque. */
-export const ACCOUNT_TEMPLATES: AccountTemplate[] = [
-  {
-    id: "bank_ves",
+/** Cómo se ve cada cuenta de arranque en el asistente; nombre, moneda y tipo salen del núcleo. */
+const TEMPLATE_LOOK: Record<
+  StarterId,
+  Pick<AccountTemplate, "label" | "hint" | "icon" | "unit">
+> = {
+  bank_ves: {
     label: "Banco en Bs",
     hint: "Pago móvil, punto, transferencias",
     icon: "🏦",
-    name: "Banco",
-    currency: "VES",
-    kind: "bank",
     unit: "Bs",
   },
-  {
-    id: "binance",
-    label: "Binance",
-    hint: "Tus USDT",
-    icon: "🪙",
-    name: "Binance",
-    currency: "USD",
-    kind: "crypto",
-    unit: "USDT",
-  },
-  {
-    id: "zelle",
-    label: "Zelle",
-    hint: "Dólares en cuenta",
-    icon: "💳",
-    name: "Zelle",
-    currency: "USD",
-    kind: "zelle",
-    unit: "$",
-  },
-  {
-    id: "cash_usd",
-    label: "Efectivo $",
-    hint: "Los verdes en mano",
-    icon: "💵",
-    name: "Efectivo $",
-    currency: "USD",
-    kind: "cash",
-    unit: "$",
-  },
-  {
-    id: "cash_ves",
-    label: "Efectivo Bs",
-    hint: "Billetes en bolívares",
-    icon: "💴",
-    name: "Efectivo Bs",
-    currency: "VES",
-    kind: "cash",
-    unit: "Bs",
-  },
-];
+  binance: { label: "Binance", hint: "Tus USDT", icon: "🪙", unit: "USDT" },
+  zelle: { label: "Zelle", hint: "Dólares en cuenta", icon: "💳", unit: "$" },
+  cash_usd: { label: "Efectivo $", hint: "Los verdes en mano", icon: "💵", unit: "$" },
+  cash_ves: { label: "Efectivo Bs", hint: "Billetes en bolívares", icon: "💴", unit: "Bs" },
+};
+
+/**
+ * Las cuentas más comunes en Venezuela, para crearlas con un toque. Las mismas cinco que ofrece
+ * el bot cuando pregunta de qué cuenta fue (cash-in-drawer US-006), en el orden del asistente.
+ */
+export const ACCOUNT_TEMPLATES: AccountTemplate[] = (
+  ["bank_ves", "binance", "zelle", "cash_usd", "cash_ves"] as const
+).map((id) => {
+  const s = STARTER_ACCOUNTS.find((a) => a.id === id) as (typeof STARTER_ACCOUNTS)[number];
+  return { id, name: s.name, currency: s.currency, kind: s.kind, ...TEMPLATE_LOOK[id] };
+});
 
 export const BUSINESS_TYPE_ICONS: Record<string, string> = {
   car_wash: "🚗",

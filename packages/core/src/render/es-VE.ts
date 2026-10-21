@@ -113,7 +113,13 @@ export function rate(r: RateInfo): Outbound {
   return { type: "text", body: lines.join("\n") };
 }
 
-export function help(dashboardUrl: string, supportHint: string | null, personal = false): Outbound {
+export function help(
+  dashboardUrl: string,
+  supportHint: string | null,
+  personal = false,
+  /** Negocio con cuenta de efectivo (cash-in-drawer C17): dice que pregunta cuando no sabe. */
+  asksAccount = false,
+): Outbound {
   const lines = [
     "Soy Rocco 🐾. Esto es todo lo que puedo hacer por ti:",
     "• Registrar gastos: _gasté 15$ en champú_, o nota de voz, o la factura en foto o PDF",
@@ -127,7 +133,9 @@ export function help(dashboardUrl: string, supportHint: string | null, personal 
     "• Pago móvil: mándame la foto de los datos y te los paso listos para copiar en el banco",
     "• Cambios USDT: _cambié 100 usdt a 970_ y tus gastos en Bs salen a esa tasa",
     "• Presupuestos: _cuánto me queda en insumos_",
-    "• Cuentas: _crea la cuenta Banesco en bolívares con 5.000_, _mis cuentas_, _cómo va Banesco_, y al gastar _con Banesco_ o _en efectivo_",
+    asksAccount
+      ? "• Cuentas: _crea la cuenta Banesco en bolívares con 5.000_, _mis cuentas_, _cómo va Banesco_, y al gastar _con Banesco_ o _en efectivo_. Si no me lo dices y no sé de qué cuenta fue, te pregunto."
+      : "• Cuentas: _crea la cuenta Banesco en bolívares con 5.000_, _mis cuentas_, _cómo va Banesco_, y al gastar _con Banesco_ o _en efectivo_",
     "• Transferencias: _pasé 100$ de Zelle a Binance_, _compré 50 usdt con 49.000 bs_",
     "• Corregir o borrar lo último: _no, eran 25_, _bórralo_",
     `Para ver, corregir o exportar todo: ${dashboardUrl}`,
@@ -635,11 +643,139 @@ const SAVED_TITLES: [RegExp, string][] = [
  * guardado (totales del día, presupuesto, saldo de la cuenta) sin repetir el "✅ Guardado", y
  * los botones Corregir y Deshacer. Transferencias y cambios no se corrigen: solo Deshacer.
  */
+/** Una cuenta en la pregunta de la tarjeta. `balance` solo en la tarjeta del dueño. */
+export type AskAccount = {
+  id: string;
+  name: string;
+  currency: string;
+  kind: string;
+  balance?: Decimal.Value | null;
+};
+
+/**
+ * "¿Cómo lo pagaste?" en la tarjeta guardada (PRD cash-in-drawer US-004…US-006, textos C5–C13).
+ * Las candidatas primero, luego las demás cuentas, la de arranque que falta y "Varios métodos".
+ */
+export type AccountAskView = {
+  candidates: AskAccount[];
+  others: AskAccount[];
+  starter: { id: string; name: string } | null;
+  /** Venta del día con un renglón sin método (C8). */
+  varios: boolean;
+  /** Tarjeta del dueño: las filas muestran el saldo (C7). */
+  owner: boolean;
+  /** Para C13: el nombre a sugerir entre las candidatas que no cupieron, si alguna pasa las guardas. */
+  hintFor?: (leftOut: AskAccount[]) => string | null;
+};
+
+/** Título cortado: el límite menos uno y "…", para que no parezca otra cuenta (C7). */
+function cut(name: string, max: number): string {
+  return name.length > max ? `${name.slice(0, max - 1)}…` : name;
+}
+
+/** C7: el saldo para el dueño; para los demás, solo la moneda. */
+function askRowDescription(a: AskAccount, owner: boolean): string {
+  if (owner && a.balance !== undefined && a.balance !== null)
+    return `Saldo: ${accountMoney(a, a.balance)}`;
+  if (a.currency === "VES") return "En bolívares";
+  return a.kind === "crypto" ? "En USDT" : "En dólares";
+}
+
+/** C5: la pregunta, según lo que se guardó. */
+function askQuestion(kind: string, several: boolean): string {
+  if (kind === "create_income_day_total" || kind === "create_income_single")
+    return "¿Cómo te pagaron?";
+  return several ? "¿Cómo los pagaste?" : "¿Cómo lo pagaste?";
+}
+
+const LIST_ROWS = 10;
+
+/** La tarjeta con la pregunta: botones con 2 o menos candidatas; si no, una lista (US-004). */
+function askCard(
+  body: string,
+  pendingId: string,
+  kind: string,
+  several: boolean,
+  ask: AccountAskView,
+): Outbound {
+  const question = `${body}\n\n${askQuestion(kind, several)}`;
+  const [a, b] = ask.candidates;
+  const sameStart =
+    a && b && a.name.slice(0, LIMIT_BUTTON - 1) === b.name.slice(0, LIMIT_BUTTON - 1);
+  if (
+    ask.candidates.length <= 2 &&
+    ask.candidates.length &&
+    !ask.starter &&
+    !ask.varios &&
+    !sameStart
+  )
+    return {
+      type: "buttons",
+      body: question,
+      buttons: [
+        ...ask.candidates.map((c) => ({
+          id: IDS.pay(pendingId, c.id),
+          title: cut(c.name, LIMIT_BUTTON),
+        })),
+        { id: IDS.cancel(pendingId), title: "Deshacer" },
+      ],
+    };
+  const fixed = [
+    ...(ask.varios
+      ? [
+          {
+            id: IDS.paySplit(pendingId),
+            title: "Varios métodos",
+            description: "Me escribes cuánto fue por cada uno",
+          },
+        ]
+      : []),
+    { id: IDS.fix(pendingId), title: "Corregir" },
+    { id: IDS.cancel(pendingId), title: "Deshacer" },
+  ];
+  const starter = ask.starter
+    ? [
+        {
+          id: IDS.payNew(pendingId, ask.starter.id),
+          title: cut(ask.starter.name, LIMIT_ROW),
+          description: "Cuenta nueva: la creo al tocarla",
+        },
+      ]
+    : [];
+  const room = LIST_ROWS - fixed.length - starter.length;
+  // Si no caben, salen primero las otras cuentas y después las candidatas, desde el final.
+  const shownCandidates = ask.candidates.slice(0, Math.max(0, room));
+  const shownOthers = ask.others.slice(0, Math.max(0, room - shownCandidates.length));
+  const leftOut = ask.candidates.slice(shownCandidates.length);
+  const hint = leftOut.length && ask.hintFor ? ask.hintFor(leftOut) : null;
+  const row = (c: AskAccount) => ({
+    id: IDS.pay(pendingId, c.id),
+    title: cut(c.name, LIMIT_ROW),
+    description: askRowDescription(c, ask.owner),
+  });
+  return {
+    type: "list",
+    body:
+      hint && question.length + hint.length + 50 <= LIMIT_BODY
+        ? `${question}\n\n¿No ves la cuenta? Escríbela: _fue de ${hint}_`
+        : question,
+    buttonLabel: "Elegir cuenta",
+    sections: [
+      { rows: [...starter, ...shownCandidates.map(row), ...shownOthers.map(row), ...fixed] },
+    ],
+  };
+}
+
+const LIMIT_BUTTON = 20;
+const LIMIT_BODY = 1024;
+const LIMIT_ROW = 24;
+
 export function savedCard(
   draft: Outbound,
   saved: Outbound,
   pendingId: string,
   kind: string,
+  ask?: AccountAskView | null,
 ): Outbound {
   let body = draft.body;
   for (const [re, title] of SAVED_TITLES) body = body.replace(re, title);
@@ -655,6 +791,9 @@ export function savedCard(
   if (rest.trim()) body = `${body}\n\n${rest.trim()}`;
   // El primer cambio con la tasa BCV pregunta de dónde salen los Bs: esos botones mandan.
   if (saved.type === "buttons") return { type: "buttons", body, buttons: saved.buttons };
+  // Una tarjeta muy larga no cabe con la pregunta (1.024): va la de siempre y el cierre lo muestra.
+  if (ask && body.length + 80 <= LIMIT_BODY)
+    return askCard(body, pendingId, kind, kind === "create_expenses", ask);
   return {
     type: "buttons",
     body,
@@ -664,6 +803,35 @@ export function savedCard(
           { id: IDS.fix(pendingId), title: "Corregir" },
           { id: IDS.cancel(pendingId), title: "Deshacer" },
         ],
+  };
+}
+
+/** La cuenta quedó puesta (US-005, US-007): ✅ sobre el toque o la respuesta, sin texto. */
+export function accountSet(inboundId: string): Outbound {
+  return { type: "reaction", body: "✅", waMessageId: inboundId };
+}
+
+/** C12: después de tocar "Varios métodos". */
+export function promptSplitMethods(): Outbound {
+  return {
+    type: "text",
+    body: "Dime cuánto fue por cada método. Ejemplo: _200 efectivo, 150 pago móvil_",
+  };
+}
+
+/** C10: la cuenta de arranque se creó al tocarla y lo de la tarjeta quedó ahí. */
+export function starterCreated(v: {
+  name: string;
+  several: boolean;
+  owner: boolean;
+  dashboardUrl: string;
+}): Outbound {
+  const lo = v.several ? "los" : "lo";
+  return {
+    type: "text",
+    body: v.owner
+      ? `✅ Creé la cuenta *${v.name}* y ${lo} anoté ahí. Si ya tenías plata en ella, ponle el saldo inicial en el panel: ${v.dashboardUrl}/ajustes/cuentas`
+      : `✅ Creé la cuenta *${v.name}* y ${lo} anoté ahí. Si ya tenía plata, el dueño le pone el saldo inicial en el panel.`,
   };
 }
 

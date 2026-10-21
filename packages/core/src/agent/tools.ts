@@ -18,17 +18,23 @@ import {
   parseVenezuelanAmount,
   type Rate,
 } from "../domain/money";
+import type { StarterId } from "../domain/starters";
 import {
   AccountError,
   type AccountKind,
   type AccountRef,
+  type AccountSource,
   accountBalances,
+  accountCandidates,
   accountFromWords,
   accountStatement,
   createAccount,
+  learnedAccount,
   namedAccount,
+  namedKinds,
   netWorth,
   resolveAccount,
+  starterFor,
 } from "../ledger/accounts";
 import { budgetStatuses } from "../ledger/budgets";
 import { OTHER_INCOME } from "../ledger/categories";
@@ -519,7 +525,11 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
     const categoryId = category?.id ?? defaultCategoryId(run.ctx.categories);
     const categoryName =
       category?.name ?? run.ctx.categories.find((c) => c.id === categoryId)?.name ?? "Otros";
-    const account = accountFor(run, inferred.currency, { target, dollarsFromBs: true });
+    const picked = await pickAccount(run, inferred.currency, {
+      target,
+      dollarsFromBs: true,
+      learn: { type: "expense", description: input.description ?? null, categoryId },
+    });
     try {
       const draft = await createExpenseDraft(
         run.tx,
@@ -540,7 +550,8 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
           manualRate: mr,
           replaces: target?.id ?? null,
           bsRate: bsRateFor(run.ctx, inferred.currency, mr, eurNote),
-          account,
+          ...accountFields(picked),
+          ...askFields(run, [picked]),
         },
         run.now,
       );
@@ -579,6 +590,7 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
     if (first === "invalid") return rateError(first);
     const inputs: DraftInput[] = [];
     const ambiguous: string[] = [];
+    const picks: PickedAccount[] = [];
     const target = draftTarget(run, input.corrects_draft);
     for (const item of input.items) {
       const parsedAmount = parseAmount(item.amount);
@@ -645,11 +657,14 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
         transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
         manualRate: itemRate,
         bsRate: bsRateFor(run.ctx, inferred.currency, itemRate, eurNote),
-        account: accountFor(run, inferred.currency, {
-          target,
-          itemText: item.description,
-          dollarsFromBs: true,
-        }),
+        ...accountFields(
+          await pickAccount(run, inferred.currency, {
+            target,
+            itemText: item.description,
+            dollarsFromBs: true,
+            learn: { type: "expense", description: item.description ?? null, categoryId },
+          }).then(keep(picks)),
+        ),
       });
     }
     // Con moneda ambigua en algún renglón se pregunta una sola vez por todos (los botones vuelven
@@ -661,10 +676,12 @@ const draftExpenses: ToolSpec<typeof DraftExpensesInput> = {
         status: "ok",
       };
     try {
+      const accountAsk = accountAskOf(run, picks);
       const draft = await createExpensesDraft(
         run.tx,
         inputs.map((i) => ({ ...i, replaces: target?.id ?? null })),
         run.now,
+        accountAsk ? { accountAsk } : {},
       );
       return {
         kind: "terminal",
@@ -709,6 +726,8 @@ function accountFor(
      * "pago móvil" de otro renglón (ver `lineOnly` en `resolveAccount`).
      */
     lineOnly?: boolean;
+    /** Solo la dicha (US-003 paso 1): sin la principal al final. */
+    noFallback?: boolean;
   } = {},
 ): { id: string; name: string } | null {
   const accounts = run.ctx.accounts ?? [];
@@ -730,8 +749,99 @@ function accountFor(
       ...common,
       text: run.userText,
       ...(opts.target && run.groundingText ? { context: run.groundingText } : {}),
+      ...(opts.noFallback ? { noFallback: true } : {}),
     });
   return a ? { id: a.id, name: a.name } : null;
+}
+
+/** La cuenta elegida en orden (US-003) y, si no se supo, lo que la tarjeta va a preguntar. */
+type PickedAccount = {
+  account: { id: string; name: string } | null;
+  /** Solo en negocios que preguntan: cómo se eligió, o null si la tarjeta pregunta. */
+  source?: AccountSource | null;
+  candidates: AccountRef[];
+  starter: StarterId | null;
+};
+
+/**
+ * De qué cuenta fue (PRD cash-in-drawer US-003). En un negocio con cuenta de efectivo
+ * (`asksAccount`), en este orden: (1) la dicha en el mensaje o por el método; (2) la única
+ * posible para esa moneda (y ese tipo, si lo dijo); (3) la de siempre para esa descripción o
+ * categoría (30 días); (4) ninguna: la tarjeta pregunta. Los demás negocios, como siempre.
+ */
+async function pickAccount(
+  run: ToolRunCtx,
+  currency: "USD" | "VES",
+  opts: Parameters<typeof accountFor>[2] & {
+    /** Para la cuenta de siempre: gastos y ventas sueltas (no la venta del día). */
+    learn?: { type: "expense" | "income"; description: string | null; categoryId: string | null };
+  } = {},
+): Promise<PickedAccount> {
+  const accounts = run.ctx.accounts ?? [];
+  if (!run.ctx.asksAccount || !accounts.length)
+    return { account: accountFor(run, currency, opts), candidates: [], starter: null };
+  const ref = (a: AccountRef) => ({ id: a.id, name: a.name });
+  const stated = accountFor(run, currency, { ...opts, noFallback: true });
+  if (stated) return { account: stated, source: "stated", candidates: [], starter: null };
+  // Un renglón de un desglose solo se guía por su método: las palabras son de todos.
+  const said = opts.lineOnly
+    ? namedKinds("", opts.method)
+    : namedKinds(
+        opts.itemText?.trim() ? `${opts.itemText} ${run.userText}` : run.userText,
+        opts.method,
+      );
+  const kind = said[0] ?? null;
+  const candidates = accountCandidates(accounts, currency, kind);
+  const starter = kind ? (starterFor(accounts, kind, currency)?.id ?? null) : null;
+  if (candidates.length === 1 && candidates[0])
+    return { account: ref(candidates[0]), source: "only", candidates, starter: null };
+  if (opts.learn) {
+    const learned = await learnedAccount(run.tx, {
+      tenantId: run.ctx.tenantId,
+      ...opts.learn,
+      today: run.ctx.today,
+      candidates,
+    });
+    if (learned) return { account: ref(learned), source: "learned", candidates, starter: null };
+  }
+  return { account: null, source: null, candidates, starter };
+}
+
+/** La pregunta de la tarjeta: las candidatas de lo que quedó sin cuenta, sin repetir, y la nueva. */
+function accountAskOf(
+  run: ToolRunCtx,
+  picks: PickedAccount[],
+): { candidates: string[]; starter: string | null } | undefined {
+  const open = picks.filter((p) => p.source === null);
+  if (!open.length) return undefined;
+  const ids = new Set(open.flatMap((p) => p.candidates.map((c) => c.id)));
+  return {
+    // En el orden del dueño.
+    candidates: (run.ctx.accounts ?? []).filter((a) => ids.has(a.id)).map((a) => a.id),
+    starter: open.find((p) => p.starter)?.starter ?? null,
+  };
+}
+
+/** Guarda lo elegido para armar la pregunta de la tarjeta, y lo devuelve. */
+function keep(picks: PickedAccount[]) {
+  return (p: PickedAccount) => {
+    picks.push(p);
+    return p;
+  };
+}
+
+/** `accountAsk` para el borrador, solo si hay algo que preguntar. */
+function askFields(run: ToolRunCtx, picks: PickedAccount[]) {
+  const accountAsk = accountAskOf(run, picks);
+  return accountAsk ? { accountAsk } : {};
+}
+
+/** Los campos de cuenta de un borrador a partir de lo elegido. */
+function accountFields(p: PickedAccount) {
+  return {
+    account: p.account,
+    ...(p.source !== undefined ? { accountSource: p.source } : {}),
+  };
 }
 
 /**
@@ -1007,7 +1117,9 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
       amount: Decimal;
       currency: "USD" | "VES";
       account: { id: string; name: string } | null;
+      accountSource?: AccountSource | null;
     }[] = [];
+    const picks: PickedAccount[] = [];
     for (const l of input.lines) {
       let amount = parseAmount(l.amount);
       if (!amount)
@@ -1040,20 +1152,28 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
         amount,
         currency,
         // Con varios renglones, cada uno va por su método: las palabras del mensaje son de todos.
-        account: accountFor(run, currency, {
-          target,
-          method: l.method,
-          lineOnly: input.lines.length > 1,
-        }),
+        ...accountFields(
+          await pickAccount(run, currency, {
+            target,
+            method: l.method,
+            lineOnly: input.lines.length > 1,
+          }).then(keep(picks)),
+        ),
       });
     }
     // Lo que falta para el total no dijo método: si hubo desglose, a la principal de la moneda.
-    const fallbackAccounts = run.ctx.accounts?.length
+    const fallback = run.ctx.accounts?.length
       ? {
-          USD: accountFor(run, "USD", { target, lineOnly: input.lines.length > 0 }),
-          VES: accountFor(run, "VES", { target, lineOnly: input.lines.length > 0 }),
+          USD: await pickAccount(run, "USD", { target, lineOnly: input.lines.length > 0 }),
+          VES: await pickAccount(run, "VES", { target, lineOnly: input.lines.length > 0 }),
         }
       : undefined;
+    const fallbackAccounts = fallback
+      ? { USD: fallback.USD.account, VES: fallback.VES.account }
+      : undefined;
+    // El resto sin método va en la moneda del total dicho: su pregunta también es de la tarjeta.
+    if (fallback && statedCurrency) picks.push(fallback[statedCurrency]);
+    const accountAsk = accountAskOf(run, picks);
     try {
       const r = await createIncomeDayTotalDraft(
         run.tx,
@@ -1067,6 +1187,7 @@ const draftIncomeDayTotal: ToolSpec<typeof DraftIncomeDayTotalInput> = {
               : null,
           lines,
           ...(fallbackAccounts ? { fallbackAccounts } : {}),
+          ...(accountAsk ? { accountAsk } : {}),
           ...attachmentFields(run, target),
           sourceMessageId: run.ctx.sourceMessageDbId,
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
@@ -1152,7 +1273,14 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
           transcript: run.ctx.sourceChannel === "voice" ? run.userText : null,
           manualRate: mr,
           replaces: target?.id ?? null,
-          account: accountFor(run, currency, { target, method }),
+          ...(await pickAccount(run, currency, {
+            target,
+            method,
+            learn: { type: "income", description: input.description ?? null, categoryId: null },
+          }).then((p) => ({
+            ...accountFields(p),
+            ...askFields(run, [p]),
+          }))),
           category: incomeSourceFor(run.ctx, input.category_name),
         },
         run.now,

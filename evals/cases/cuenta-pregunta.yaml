@@ -1,0 +1,54 @@
+# Fase 3 de efectivo (PRD cash-in-drawer US-007): el modelo nunca pregunta cómo se pagó; si el
+# sistema no sabe la cuenta, la tarjeta guardada pregunta con botones.
+- name: gasto en efectivo no pregunta la cuenta
+  input: "gasté 25$ en champú en efectivo"
+  accounts: &ejemplo
+    - { name: Efectivo $, currency: USD, kind: cash }
+    - { name: BofA, currency: USD, kind: bank }
+    - { name: Zelle, currency: USD, kind: zelle }
+    - { name: Banesco, currency: VES, kind: bank }
+    - { name: Efectivo Bs, currency: VES, kind: cash }
+  expect:
+    tool: draft_expense
+    tool_not: ask_clarification
+
+- name: con la tarjeta no pregunta la cuenta
+  input: "pagué 10$ con la tarjeta"
+  accounts: *ejemplo
+  expect:
+    tool: draft_expense
+    tool_not: ask_clarification
+
+- name: venta suelta por zelle no pregunta la cuenta
+  input: "me pagaron 30$ por zelle del carro rojo"
+  accounts: *ejemplo
+  expect:
+    tool: draft_income_single
+    tool_not: ask_clarification
+
+- name: venta del día con desglose no pregunta la cuenta
+  input: "hoy vendí 350$: 200 efectivo, 100 pago móvil, 50 zelle"
+  accounts: *ejemplo
+  expect:
+    tool: draft_income_day_total
+    tool_not: ask_clarification
+
+- name: hielo sin cuenta dicha no pregunta la cuenta
+  input: "pagué 12 mil de hielo"
+  accounts: *ejemplo
+  expect:
+    tool: draft_expense
+    tool_not: ask_clarification
+
+- name: respuesta larga a la pregunta corrige el registro sin otro movimiento
+  input: "lo pagué con la tarjeta de Banesco de la empresa"
+  accounts: *ejemplo
+  history:
+    - { role: in, body: "gasté 25$ en champú" }
+    - { role: out, body: "✅ *Gasto guardado*\nChampú: *$25,00*\nFecha: hoy\n\n¿Cómo lo pagaste?" }
+  pending:
+    - { amount: "25", currency: USD, description: champú }
+  expect:
+    tool: draft_expense
+    args: { corrects_draft: true }
+    pending_after: 1

@@ -1559,3 +1559,44 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 **Ojo:** la prueba que venció hoy ya había recibido el aviso de fin con precios (22:51 UTC). Como esa marca ya existe, el 04/11 no se le repite.
 
 **Verificado:** `limits.test.ts` (aviso una vez, arriba de la respuesta). 485 tests, lint y typecheck limpios.
+
+### S3 · 21/10/2026 · Efectivo en caja, fase 3: Rocco pregunta de qué cuenta fue (US-003 a US-007)
+
+**Contexto:** PRD `prd-cash-in-drawer.md` v4.4, fase 3; textos finales de `copy/cash-strings-es-VE.md` (C5–C13, C17). Aplica solo a negocios con al menos una cuenta de efectivo activa (`asksAccount`). Las cuentas personales y los negocios sin efectivo siguen como antes.
+
+**Hecho:**
+- **US-003, la cuenta en orden** (`pickAccount` en `tools.ts`):
+  1. La dicha en el mensaje o por el método.
+  2. La única posible: en $, las cuentas en $ más la principal en Bs; en Bs, las de Bs; y solo las del tipo si lo dijo.
+  3. La de siempre, por los movimientos del mismo tipo de los últimos 30 días: por descripción, 2 o más con 2/3; si no, por categoría, 3 o más con 2/3.
+  4. Ninguna: el movimiento queda sin cuenta.
+
+  Además:
+  - Cada borrador guarda `accountSource` (`stated`, `only`, `learned` o null) y, si queda algo sin cuenta, `accountAsk` (las candidatas y la cuenta de arranque que falta).
+  - "banco" se suma a las palabras de tipo.
+  - Un nombre que es solo el tipo ("Efectivo $") ya no responde a "en efectivo" en Bs cuando se va a preguntar.
+- **US-004, la tarjeta pregunta** (`inbox/account-ask.ts`):
+  - Con 2 candidatas o menos: botones `[Cuenta A] [Cuenta B] [Deshacer]`.
+  - Si no: una lista "Elegir cuenta", con las candidatas, las demás cuentas, la de arranque, "Varios métodos", Corregir y Deshacer.
+  - Las filas muestran el saldo solo al dueño; al cajero, solo la moneda.
+  - C13 aparece si una candidata no cupo en las 10 filas y "fue de {cuenta}" la pone sin la IA.
+  - Si la tarjeta no cabe con la pregunta (1.024 caracteres), va la de siempre.
+- **US-005, el toque:** pone la cuenta en lo que quedó sin cuenta y responde con una reacción ✅, sin texto. Una venta "sin especificar" toma el método de la cuenta. "Varios métodos" funciona como Corregir y responde C12.
+- **US-006, cuenta nueva desde la pregunta:**
+  - Las 5 de arranque viven ahora en `domain/starters.ts`; el asistente web y el bot usan la misma lista.
+  - El toque crea la cuenta sin saldo dicho (`openingKnown = false`; una de efectivo no adopta lotes), la usa y responde C10.
+- **US-007, respuesta escrita corta:**
+  - "en efectivo", "fue zelle" o "con Banesco" se aplican sin la IA, solo si la última tarjeta preguntó, es del mismo día, el texto no tiene cifras, tiene 5 palabras o menos y no es una pregunta.
+  - Las mismas guardas deciden C13.
+  - Prompt 6d: nunca preguntar cómo se pagó.
+  - 6 casos nuevos en `evals/cases/cuenta-pregunta.yaml`.
+- **C17:** la ayuda de esos negocios dice "Si no me lo dices y no sé de qué cuenta fue, te pregunto."
+- **Bug de antes, corregido:** corregir una venta del día ya guardada (Corregir o "Varios métodos") ya no la cuenta como "otra venta del día" ni pregunta Reemplazar/Agregar sobre sí misma.
+
+**Quién lo ve:** solo Piloto 1 cuando tenga sus cuentas Efectivo $ / Efectivo Bs. Hoy ningún negocio tiene cuenta de efectivo, así que nadie nota cambios hasta crearlas.
+
+**Pendiente:**
+- `pnpm evals` en la máquina de Javier (cambió el prompt).
+- Una venta del día que espera Reemplazar/Agregar se guarda sin preguntar la cuenta; lo que quede sin cuenta sale en el cierre (C4a).
+
+**Verificado:** `account-ask.test.ts` (18 pruebas: orden, candidatas, de siempre por descripción y categoría, botones, lista, cajero sin saldos, toque, Deshacer, respuesta escrita y sus negativas, otro día, Varios métodos, cuenta nueva y C13 de ida y vuelta). `sale-accounts.test.ts` queda con las reglas de la fase 3. 503 tests, lint y typecheck limpios.

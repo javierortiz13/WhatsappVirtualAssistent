@@ -201,13 +201,21 @@ export async function existingDayTotal(
   tx: Tx,
   tenantId: string,
   businessDate: IsoDate,
+  /** Lo que guardó la tarjeta que se está corrigiendo: no es "otra" venta del día. */
+  exclude: string[] = [],
 ): Promise<{ count: number; usd: Decimal }> {
+  const others = exclude.length
+    ? sql`and id not in (${sql.join(
+        exclude.map((id) => sql`${id}::uuid`),
+        sql`, `,
+      )})`
+    : sql``;
   const found = rows<{ total: string | null; count: number | string }>(
     await tx.execute(sql`
       select coalesce(sum(amount_usd), 0)::text as total, count(*) as count
       from ${schema.movement}
       where tenant_id = ${tenantId} and type = 'income' and origin = 'day_total'
-        and business_date = ${businessDate}::date and deleted_at is null
+        and business_date = ${businessDate}::date and deleted_at is null ${others}
     `),
   );
   return { count: Number(found[0]?.count ?? 0), usd: new Decimal(found[0]?.total ?? 0) };
