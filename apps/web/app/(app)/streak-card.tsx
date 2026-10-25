@@ -26,7 +26,7 @@ export function StreakCard({ streak, personal }: { streak: Streak; personal: boo
         <p className="kpi-sub">Cada día que anotes algo, tu racha suma uno.</p>
       ) : (
         <p className="kpi num">
-          🔥 {streak.current === 1 ? "1 día" : `${streak.current} días seguidos`}
+          {streak.current === 1 ? "1 día" : `${streak.current} días seguidos`}
         </p>
       )}
       {streak.best >= 1 ? (

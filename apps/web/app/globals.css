@@ -2125,6 +2125,8 @@ figure.chat-mock {
 }
 .streak-day.no_spend .streak-dot {
   border-color: var(--mint);
+  /* Medio lleno: se distingue de "sin registros" por la forma, no solo por el color (WCAG 1.4.1). */
+  background: linear-gradient(90deg, var(--mint) 50%, transparent 50%);
 }
 .streak-legend {
   display: flex;

@@ -1648,3 +1648,13 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - Queda un aviso moderado (`uuid` dentro de `exceljs`), que no frena el CI.
 
 **Verificado:** `pnpm audit --prod --audit-level high` sin altos ni críticos; `next build` de la web en verde; 517 tests, lint y typecheck limpios.
+
+### S3 · 25/10/2026 · Hábitos P1: arreglos de cumplimiento en Inicio (F-1, F-2)
+
+**Contexto:** `dev-handoff-2026-10-25-habits-p1.md`, revisión de cumplimiento de `a4f0d92`. El chat pasa tal cual; la tarjeta "Tu racha" de Inicio necesitaba dos arreglos.
+
+**Hecho:**
+- **F-1:** sin 🔥 antes del número grande de la tarjeta; no estaba en los textos aprobados (v1.2.3).
+- **F-2 (WCAG 1.4.1):** el punto de un día sin gastos va medio lleno (`linear-gradient`), así que ya no se distingue de "sin registros" solo por el color.
+
+**Pendiente (Javier):** migraciones 0024 y 0025 en producción, antes de encender cualquier interruptor de hábitos.
