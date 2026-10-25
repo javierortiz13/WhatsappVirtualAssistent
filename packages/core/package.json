@@ -19,7 +19,7 @@
     "@caja/db": "workspace:*",
     "decimal.js": "^10.6.0",
     "yaml": "^2.9.1",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "vitest": "^5.0.2"

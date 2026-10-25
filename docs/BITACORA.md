@@ -1633,3 +1633,18 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - Encender los interruptores en /admin solo después de la aprobación.
 
 **Verificado:** `habits.test.ts` (14 pruebas: frases, textos, racha, borrados, récord, días sin gastos, `habitStats`, interruptores apagados, cajero, H52c y la línea de racha una vez al día). 517 tests, lint y typecheck limpios.
+
+### S3 · 25/10/2026 · Seguridad: Next 16.4.3 y zod 4.6.7
+
+**Contexto:** el CI empezó a fallar en `pnpm audit --prod --audit-level high` por avisos nuevos que no vienen del código:
+- dos **críticos** de Next.js, ejecución remota de código sin autenticación (GHSA…, todas las versiones 16.0–16.4.0);
+- uno alto de Next.js, denegación de servicio en Server Actions;
+- uno alto de zod (< 4.6.6).
+
+**Hecho:**
+- `next` ~16.3.8 → ~16.4.3.
+- `zod` ^4.6.5 → ^4.6.7 en todos los paquetes, incluido `evals`.
+- Lockfile regenerado con pnpm.
+- Queda un aviso moderado (`uuid` dentro de `exceljs`), que no frena el CI.
+
+**Verificado:** `pnpm audit --prod --audit-level high` sin altos ni críticos; `next build` de la web en verde; 517 tests, lint y typecheck limpios.
