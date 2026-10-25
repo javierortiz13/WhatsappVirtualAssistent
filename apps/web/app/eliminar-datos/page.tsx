@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PRIVACY_CONTACT } from "@/lib/contact";
 import "../legal.css";
 
 export const metadata: Metadata = { title: "Eliminar mis datos" };
@@ -19,9 +20,8 @@ export default function EliminarDatos() {
           nombre del negocio para confirmar.
         </li>
         <li>
-          Por correo: escribe a{" "}
-          <a href="mailto:privacidad@caja.jpsoftwaredev.com">privacidad@caja.jpsoftwaredev.com</a>{" "}
-          desde el correo con el que entras al panel, indicando el nombre de tu negocio.
+          Por correo: escribe a <a href={`mailto:${PRIVACY_CONTACT}`}>{PRIVACY_CONTACT}</a> desde el
+          correo con el que entras al panel, indicando el nombre de tu negocio.
         </li>
       </ul>
       <p>

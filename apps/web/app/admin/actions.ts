@@ -13,6 +13,7 @@ import {
   RECHARGE,
   recordPayment,
   rejectPayment,
+  saveHabitSettings,
   saveLaunchSettings,
   setTenantBilling,
   subscriptionState,
@@ -364,4 +365,28 @@ export async function saveLaunchAction(formData: FormData): Promise<void> {
   }
   revalidatePath("/", "layout");
   redirect("/admin?ok=lanzamiento");
+}
+
+/**
+ * Interruptores del hábito (PRD hábitos, fase 1). Se encienden solo después de su aprobación;
+ * apagarlos es el freno de emergencia (una racha mal calculada se apaga el mismo día).
+ */
+export async function saveHabitsAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  try {
+    await saveHabitSettings(
+      db(),
+      {
+        streakLine: formData.get("streak_line") === "on",
+        noSpend: formData.get("no_spend") === "on",
+      },
+      admin.email,
+      new Date(),
+    );
+  } catch (err) {
+    console.error(JSON.stringify({ level: "error", msg: "admin hábito", detail: String(err) }));
+    redirect("/admin?error=servidor");
+  }
+  revalidatePath("/", "layout");
+  redirect("/admin?ok=habito");
 }

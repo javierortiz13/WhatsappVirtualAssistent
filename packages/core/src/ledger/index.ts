@@ -5,6 +5,7 @@ export * from "./categories";
 export * from "./drafts";
 export * from "./exchange";
 export * from "./expenses";
+export * from "./habits";
 export * from "./income";
 export * from "./last-movement";
 export * from "./purge";

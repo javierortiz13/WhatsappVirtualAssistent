@@ -10,9 +10,11 @@ import {
   formatMoney,
   formatShortDate,
   getRateInfo,
+  habitSettings,
   incomeByCategory,
   netWorth,
   ownerPhone,
+  streakFor,
 } from "@caja/core";
 import { monthNameEs } from "@caja/core/domain";
 import { rows, schema, sql, withTenant } from "@caja/db";
@@ -26,6 +28,7 @@ import { requireTenant } from "@/lib/session";
 import { CashNote } from "../cash-note";
 import { IconWallet } from "../icons";
 import { MovementRowView } from "../movements-list";
+import { StreakCard } from "../streak-card";
 
 export const metadata: Metadata = { title: "Inicio" };
 export const dynamic = "force-dynamic";
@@ -72,6 +75,10 @@ export default async function Inicio({
     );
     return r ?? { accounts: 0, expenses: 0, incomes: 0, personal: false };
   });
+  // Tu racha (hábitos US-103), solo con su interruptor encendido.
+  const streak = (await habitSettings(db())).streakLine
+    ? await withTenant(db(), tenant.id, (tx) => streakFor(tx, tenant.id, new Date()))
+    : null;
   // Cuenta personal: lo que entró en el mes, por fuente (salario, freelance…).
   const sources = progress.personal
     ? await withTenant(db(), tenant.id, (tx) =>
@@ -202,6 +209,8 @@ export default async function Inicio({
           </div>
         </div>
       </section>
+
+      {streak ? <StreakCard streak={streak} personal={progress.personal} /> : null}
 
       {accounts.length ? <Accounts list={accounts} bcv={rate.current?.value ?? null} /> : null}
 

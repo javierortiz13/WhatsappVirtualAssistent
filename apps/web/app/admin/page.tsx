@@ -1,8 +1,17 @@
-import { Decimal, es, launchSettings, PLANS, premiumOverUsd, quote } from "@caja/core";
+import {
+  Decimal,
+  es,
+  habitSettings,
+  launchSettings,
+  PLANS,
+  premiumOverUsd,
+  quote,
+} from "@caja/core";
 import { businessDateOf, formatShortDate } from "@caja/core/domain";
 import {
   type Health,
   loadFunnel,
+  loadHabits,
   loadPendingPayments,
   loadRates,
   loadTenants,
@@ -11,7 +20,12 @@ import {
 } from "@/lib/admin";
 import { db } from "@/lib/db";
 import { formatE164 } from "@/lib/phone";
-import { approvePaymentAction, rejectPaymentAction, saveLaunchAction } from "./actions";
+import {
+  approvePaymentAction,
+  rejectPaymentAction,
+  saveHabitsAction,
+  saveLaunchAction,
+} from "./actions";
 import { dueClass, dueText, METHOD_LABEL, planClass, STATE, usd, ves } from "./format";
 
 /** Semáforo del CRM: cuándo escribió por última vez. */
@@ -39,6 +53,7 @@ const OK: Record<string, string> = {
   eliminado: "Negocio borrado para siempre con todos sus datos.",
   papelera: "Negocio en la papelera: se borra solo en 15 días.",
   lanzamiento: "Modo de lanzamiento guardado. Rocco lo usa desde el próximo mensaje.",
+  habito: "Interruptores del hábito guardados. Rocco los usa desde el próximo mensaje.",
 };
 
 /** Resumen de la plataforma: ingresos, costos del mes, pagos por verificar y negocios. */
@@ -68,6 +83,7 @@ export default async function AdminHome({
   const overCap = tenants.filter((t) => t.usage.inbound > t.cap);
   const premium = rates ? premiumOverUsd(rates) : null;
   const funnel = await loadFunnel(tenants, now);
+  const [habits, habitFlags] = await Promise.all([loadHabits(tenants, now), habitSettings(db())]);
   const survey = surveyTally(tenants);
   const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)} %` : "—");
   const steps: [string, number, string][] = [
@@ -187,6 +203,69 @@ export default async function AdminHome({
             <strong className="num">{n}</strong>
           </div>
         ))}
+      </section>
+
+      <section className="card tight">
+        <span className="sect">Hábito · clientes</span>
+        <div className="row">
+          <span className="what">
+            <strong>Racha 7+ días</strong>
+            <span className="sub num">
+              de {habits.active} activos (7 d) · 2–6: {habits.streak2to6} · 30+: {habits.streak30}
+            </span>
+          </span>
+          <strong className="num">{habits.streak7}</strong>
+        </div>
+        <div className="row">
+          <span className="what">
+            <strong>Días con registro (28 d)</strong>
+            <span className="sub num">
+              {habits.recordDays} de {habits.eligibleDays} días · mediana por usuario{" "}
+              {habits.medianPct === null ? "—" : `${habits.medianPct} %`} · sin gastos (7 d):{" "}
+              {habits.noSpendDays7}
+            </span>
+          </span>
+          <strong className="num">
+            {habits.eligibleDays
+              ? `${Math.round((habits.recordDays / habits.eligibleDays) * 100)} %`
+              : "—"}
+          </strong>
+        </div>
+        <div className="row">
+          <span className="what">
+            <strong>Ventana abierta a las 8 pm (7 d)</strong>
+            <span className="sub num">
+              {habits.windowOpen} de {habits.ownerDays} días-dueño · sin registro aún:{" "}
+              {habits.windowOpenNoRecord}
+            </span>
+          </span>
+          <strong className="num">{habits.windowOpen}</strong>
+        </div>
+        <div className="row">
+          <span className="what">
+            <strong>Retención (registró)</strong>
+            <span className="sub num">
+              semana 2 (D7): {habits.d7.n ? `${habits.d7.yes} de ${habits.d7.n}` : "—"} · semana 5
+              (D30): {habits.d30.n ? `${habits.d30.yes} de ${habits.d30.n}` : "—"}
+            </span>
+          </span>
+        </div>
+        <form action={saveHabitsAction} className="stack-sm">
+          <label className="check">
+            <input type="checkbox" name="streak_line" defaultChecked={habitFlags.streakLine} />{" "}
+            Línea de racha en la tarjeta y en Inicio
+          </label>
+          <label className="check">
+            <input type="checkbox" name="no_spend" defaultChecked={habitFlags.noSpend} /> «Hoy no
+            gasté nada»
+          </label>
+          <p className="sub">
+            Enciéndelos solo con su aprobación. Si una racha sale mal, apágalos aquí el mismo día.
+          </p>
+          <button className="btn small secondary" type="submit">
+            Guardar hábito
+          </button>
+        </form>
       </section>
 
       {funnel.abandoned.length ? (

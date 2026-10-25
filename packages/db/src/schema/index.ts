@@ -540,6 +540,26 @@ export const budget = app.table(
   ],
 );
 
+/**
+ * "Hoy no gasté nada" (0025, PRD hábitos US-105): un día sin gastos por negocio y día de Caracas.
+ * Cuenta para la racha, no como registro. Sin texto: solo el día y el teléfono que lo dijo.
+ */
+export const noSpendDay = app.table(
+  "no_spend_day",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id, { onDelete: "cascade" }),
+    phoneId: uuid("phone_id")
+      .notNull()
+      .references(() => phoneNumber.id, { onDelete: "cascade" }),
+    day: date("day").notNull(),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("no_spend_day_tenant_day_key").on(t.tenantId, t.day)],
+);
+
 /** Cuenta donde vive el dinero (0013): banco en Bs, Binance, Zelle, efectivo. */
 export const account = app.table(
   "account",

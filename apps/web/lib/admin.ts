@@ -1,6 +1,8 @@
 import "server-only";
 import {
   Decimal,
+  type HabitStats,
+  habitStats,
   latestRates,
   type MonthUsage,
   monthUsage,
@@ -302,4 +304,60 @@ export async function loadRates() {
   // Defensa en profundidad: el layout no se vuelve a renderizar en cada navegación.
   await requireAdmin();
   return latestRates(db());
+}
+
+/**
+ * Tarjeta "Hábito" (PRD hábitos US-107, plan de medición §5 filas 1–4): solo clientes, solo
+ * conteos. Los mismos números que `pnpm metrics` (los dos usan `habitStats`).
+ */
+export type HabitSummary = {
+  active: number;
+  streak7: number;
+  streak2to6: number;
+  streak30: number;
+  recordDays: number;
+  eligibleDays: number;
+  medianPct: number | null;
+  noSpendDays7: number;
+  windowOpen: number;
+  windowOpenNoRecord: number;
+  ownerDays: number;
+  d7: { yes: number; n: number };
+  d30: { yes: number; n: number };
+};
+
+export async function loadHabits(tenants: TenantRow[], now: Date): Promise<HabitSummary> {
+  await requireAdmin();
+  const conn = db();
+  const stats: HabitStats[] = [];
+  for (const t of tenants) {
+    if (t.internal || t.purgeAfter) continue;
+    stats.push(await withTenant(conn, t.id, (tx) => habitStats(tx, t, now)));
+  }
+  const active = stats.filter((s) => s.active7);
+  const pcts = stats
+    .filter((s) => s.eligibleDays28 > 0)
+    .map((s) => s.recordDays28 / s.eligibleDays28)
+    .sort((a, b) => a - b);
+  const mid = pcts.length ? (pcts[Math.floor((pcts.length - 1) / 2)] ?? null) : null;
+  const sum = (f: (s: HabitStats) => number) => stats.reduce((n, s) => n + f(s), 0);
+  const cohort = (f: (s: HabitStats) => boolean | null) => {
+    const mature = stats.map(f).filter((v): v is boolean => v !== null);
+    return { yes: mature.filter(Boolean).length, n: mature.length };
+  };
+  return {
+    active: active.length,
+    streak7: active.filter((s) => s.current >= 7).length,
+    streak2to6: active.filter((s) => s.current >= 2 && s.current <= 6).length,
+    streak30: active.filter((s) => s.current >= 30).length,
+    recordDays: sum((s) => s.recordDays28),
+    eligibleDays: sum((s) => s.eligibleDays28),
+    medianPct: mid === null ? null : Math.round(mid * 100),
+    noSpendDays7: sum((s) => s.noSpendDays7),
+    windowOpen: sum((s) => s.windowOpen7),
+    windowOpenNoRecord: sum((s) => s.windowOpenNoRecord7),
+    ownerDays: sum((s) => s.ownerDays7),
+    d7: cohort((s) => s.d7),
+    d30: cohort((s) => s.d30),
+  };
 }

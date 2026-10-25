@@ -96,15 +96,21 @@ import {
   ensureOtherCategory,
   existingDayTotal,
   expenseTotalForDay,
+  habitSettings,
   IncomeDayTotalDraft,
   IncomeSingleDraft,
   insertDraft,
+  isNoSpendPhrase,
   listAccounts,
+  markNoSpend,
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,
   renderSummary,
   resolveAccount,
   resolveMismatch,
+  streakFor,
+  streakLineEverShown,
+  streakShownToday,
   TransferDraft,
   TransferError,
   transferAmounts,
@@ -440,7 +446,10 @@ export async function processInbound(
     const route = await routeMessage(tx, deps, msg, ctx);
     // Guardado al instante (0023): lo que el turno dejó anotado se guarda ya, y lo que una
     // corrección reemplazó se borra. Las tarjetas salen como "guardado" con Corregir y Deshacer.
-    route.outbound = await settleTurnDrafts(tx, ctx, route.outbound, now());
+    const habitMarks: { name: string; args: unknown }[] = [];
+    route.outbound = await settleTurnDrafts(tx, ctx, route.outbound, now(), habitMarks);
+    // Primero: la pregunta de la leyenda lee la última marca del turno.
+    if (habitMarks.length) route.toolCalls = [...habitMarks, ...route.toolCalls];
 
     // Aviso único al 80 % de los mensajes de la prueba, después de la respuesta (solo al dueño).
     if (
@@ -834,6 +843,54 @@ const TRIAL_CAP = "trial_cap";
 const MONTH_CAP = "month_cap";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** "Hoy no gasté nada" (hábitos US-106): anota el día y responde una sola vez, con la racha. */
+async function noSpend(
+  tx: Tx,
+  deps: ProcessDeps,
+  ctx: RouteCtx,
+  via: "word" | "button",
+): Promise<RouteResult> {
+  const now = (deps.now ?? (() => new Date()))();
+  const r = await markNoSpend(tx, { tenantId: ctx.tenantId, phoneId: ctx.phoneId, now });
+  if (r.kind === "already_recorded") return none([es.noSpendReply({ kind: "already_recorded" })]);
+  const reply =
+    r.kind === "already_marked"
+      ? es.noSpendReply({ kind: "already_marked", current: r.streak.current })
+      : es.noSpendReply({
+          kind: "marked",
+          personal: !!ctx.personal,
+          current: r.streak.current,
+          bestBefore: r.streak.bestBefore,
+          previous: r.streak.previous,
+        });
+  return {
+    ...none([reply]),
+    toolCalls: [{ name: "habit_no_spend", args: { n: r.streak.current, via } }],
+  };
+}
+
+/**
+ * La línea de racha para la tarjeta que se acaba de guardar (hábitos US-102), si toca: interruptor
+ * `streakLine` encendido, 2 días o más y sin línea de racha hoy en este teléfono.
+ */
+async function streakLineFor(
+  tx: Tx,
+  ctx: RouteCtx,
+  now: Date,
+): Promise<{ text: string; args: { n: number; milestone?: number } } | null> {
+  if (!(await habitSettings(tx)).streakLine) return null;
+  if (await streakShownToday(tx, ctx.phoneId, now)) return null;
+  const s = await streakFor(tx, ctx.tenantId, now);
+  const text = es.streakLine({
+    current: s.current,
+    bestBefore: s.bestBefore,
+    firstTime: !(await streakLineEverShown(tx, ctx.tenantId)),
+  });
+  if (!text) return null;
+  const milestone = [7, 30, 100, 365].includes(s.current) ? { milestone: s.current } : {};
+  return { text, args: { n: s.current, ...milestone } };
+}
+
 /** Marca del aviso "renové tu prueba" (beta, 20/10). */
 const TRIAL_EXTENDED = "trial_extended";
 
@@ -1070,6 +1127,9 @@ async function routeMessage(
       if (keyword === "close") return closeToday(tx, deps, ctx);
       if (keyword === "delete") return deleteLast(tx, deps, ctx, msg);
       if (msg.text.length > deps.config.maxTextLength) return none([es.tooLong()]);
+      // "Hoy no gasté nada" (hábitos US-106): sin la IA, solo el dueño y con su interruptor.
+      if (ctx.role === "owner" && isNoSpendPhrase(msg.text) && (await habitSettings(tx)).noSpend)
+        return noSpend(tx, deps, ctx, "word");
       // Respuesta a "¿quién consumió qué?" de una cuenta para dividir (06/10).
       if (deps.bills) {
         const split = await splitFollowUp(
@@ -2979,6 +3039,8 @@ async function settleTurnDrafts(
   ctx: RouteCtx,
   outbound: Outbound[],
   now: Date,
+  /** Marcas del hábito que deja este turno (`habit_streak_line`). */
+  marks: { name: string; args: unknown }[] = [],
 ): Promise<Outbound[]> {
   const pa = schema.pendingAction;
   const replaced = await tx
@@ -3004,6 +3066,9 @@ async function settleTurnDrafts(
     )
     .orderBy(pa.createdAt);
   let out = outbound;
+  // Racha (hábitos US-102): una vez al día, en la primera tarjeta guardada del dueño; no en una
+  // corrección (este turno reemplazó una tarjeta guardada).
+  let streakDone = ctx.role !== "owner" || replaced.length > 0;
   for (const p of fresh) {
     // Solo el borrador cuya tarjeta sale en este turno: "Guardar mi parte" de una cuenta dividida
     // o lo que espera una decisión siguen esperando su botón.
@@ -3028,12 +3093,21 @@ async function settleTurnDrafts(
     // sus botones (la primera pregunta de la tasa de un cambio), esos mandan.
     const ask =
       saved && saved.type !== "buttons" ? await accountAskFor(tx, ctx, p, savedIds) : null;
-    if (saved)
-      out = [
-        ...out.slice(0, card),
-        es.savedCard(out[card] as Outbound, saved, p.id, p.kind, ask),
-        ...out.slice(card + 1),
-      ];
+    if (saved) {
+      let next = es.savedCard(out[card] as Outbound, saved, p.id, p.kind, ask);
+      if (!streakDone) {
+        streakDone = true;
+        const line = await streakLineFor(tx, ctx, now);
+        if (line) {
+          const withLine = es.withStreakLine(next, line.text);
+          if (withLine !== next) {
+            next = withLine;
+            marks.push({ name: "habit_streak_line", args: line.args });
+          }
+        }
+      }
+      out = [...out.slice(0, card), next, ...out.slice(card + 1)];
+    }
   }
   return out;
 }

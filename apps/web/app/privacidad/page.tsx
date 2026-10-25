@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PRIVACY_CONTACT } from "@/lib/contact";
 import "../legal.css";
 
 export const metadata: Metadata = { title: "Política de privacidad" };
@@ -20,7 +21,7 @@ export default function Privacidad() {
       <h2>Responsable</h2>
       <p>
         JP Software Dev (Javier Ortiz). Contacto:{" "}
-        <a href="mailto:privacidad@caja.jpsoftwaredev.com">privacidad@caja.jpsoftwaredev.com</a>.
+        <a href={`mailto:${PRIVACY_CONTACT}`}>{PRIVACY_CONTACT}</a>.
       </p>
 
       <h2>Datos que tratamos</h2>
@@ -89,9 +90,8 @@ export default function Privacidad() {
       <h2>Tus derechos</h2>
       <p>
         Puedes pedir acceso, corrección, exportación o eliminación de tus datos escribiendo a{" "}
-        <a href="mailto:privacidad@caja.jpsoftwaredev.com">privacidad@caja.jpsoftwaredev.com</a> o
-        siguiendo las instrucciones en <a href="/eliminar-datos">/eliminar-datos</a>. Respondemos en
-        un máximo de 15 días.
+        <a href={`mailto:${PRIVACY_CONTACT}`}>{PRIVACY_CONTACT}</a> o siguiendo las instrucciones en{" "}
+        <a href="/eliminar-datos">/eliminar-datos</a>. Respondemos en un máximo de 15 días.
       </p>
 
       <h2>Seguridad</h2>

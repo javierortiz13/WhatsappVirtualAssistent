@@ -3131,3 +3131,84 @@ export function valueDoubts(supportHint: string | null): Outbound {
       : "Cuéntame qué te frena o qué te gustaría que hiciera, y lo resolvemos.",
   };
 }
+
+// ---------------------------------------------------------------- hábito: racha (PRD hábitos P1)
+
+/** Textos de la racha, tal cual `copy/habits-strings-es-VE.md` v1.2.3 (H1–H3b, H52–H52d). */
+const MILESTONES: Record<number, string> = {
+  7: "Una semana completa.",
+  30: "Ya es un mes.",
+  100: "Eso sí es constancia.",
+  365: "Un año entero conmigo.",
+};
+
+export type StreakLineView = {
+  current: number;
+  /** La racha más larga antes de la actual. */
+  bestBefore: number;
+  /** Primera vez que este negocio ve la línea (H1a). */
+  firstTime: boolean;
+};
+
+/** ¿Hoy la racha pasa el récord anterior por primera vez? (H3: récord anterior de 3 o más.) */
+function isNewRecord(v: { current: number; bestBefore: number }): boolean {
+  return v.bestBefore >= 3 && v.current === v.bestBefore + 1;
+}
+
+/** La línea de racha bajo la primera tarjeta guardada del día (H1, H1a, H2, H3, H3b). */
+export function streakLine(v: StreakLineView): string | null {
+  if (v.current < 2) return null;
+  const record = isNewRecord(v);
+  const milestone = MILESTONES[v.current];
+  if (milestone)
+    return `🔥 ¡${v.current} días seguidos! ${milestone}${record ? " Y es tu récord." : ""}`;
+  if (v.firstTime && !record)
+    return `🔥 Llevas ${v.current} días seguidos. Cada día que anotes algo, tu racha sigue.`;
+  return `🔥 Llevas ${v.current} días seguidos${record ? ". ¡Nuevo récord!" : ""}`;
+}
+
+/** La tarjeta guardada con la línea de racha como último renglón del cuerpo (US-102). */
+export function withStreakLine(card: Outbound, line: string): Outbound {
+  if (card.type === "reaction") return card;
+  const body = `${card.body}\n\n${line}`;
+  return body.length <= (card.type === "text" ? 4096 : 1024) ? { ...card, body } : card;
+}
+
+export type NoSpendView =
+  | { kind: "marked"; personal: boolean; current: number; bestBefore: number; previous: number }
+  | { kind: "already_recorded" }
+  | { kind: "already_marked"; current: number };
+
+/** La respuesta a "hoy no gasté nada" (H52 personal, H52b negocio, H52c, H52d). */
+export function noSpendReply(v: NoSpendView): Outbound {
+  const text = (body: string): Outbound => ({ type: "text", body });
+  if (v.kind === "already_recorded")
+    return text("Hoy ya hay movimientos anotados, así que el día ya cuenta para tu racha.");
+  if (v.kind === "already_marked")
+    return text(
+      v.current <= 1
+        ? "Ya lo tenía anotado. Tu racha empieza hoy."
+        : `Ya lo tenía anotado. Tu racha sigue: ${v.current} días.`,
+    );
+  if (!v.personal)
+    return text(
+      v.current <= 1
+        ? "Listo, anoté que hoy no hubo nada que registrar. Tu racha empieza hoy."
+        : `Listo, anoté que hoy no hubo nada que registrar. Tu racha sigue: ${v.current} días.`,
+    );
+  const close = "Hoy quedó anotado sin gastos.";
+  if (v.current <= 1)
+    return text(
+      v.previous >= 3
+        ? `¡Arrancamos una racha nueva! 🔥 Tu récord: ${v.bestBefore} días. ${close}`
+        : `¡Arranca tu racha! 🔥 1 día. ${close}`,
+    );
+  const record = isNewRecord(v);
+  const milestone = MILESTONES[v.current];
+  const extra = milestone
+    ? ` ${milestone}${record ? " Y es tu récord." : ""}`
+    : record
+      ? " Es tu nuevo récord."
+      : "";
+  return text(`¡Tu racha sigue viva! 🔥 ${v.current} días seguidos.${extra} ${close}`);
+}

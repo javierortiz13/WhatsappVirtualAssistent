@@ -1,3 +1,4 @@
+import { habitStats } from "@caja/core";
 import { createDb, loadNearestEnvFile, rows, sql } from "@caja/db";
 
 /**
@@ -123,9 +124,58 @@ const FREE_TIER = 1000;
       where deleted_at is null and created_at > now() - make_interval(days => ${days})
       group by 1 order by 1`,
   );
+  await habits();
   await close();
 })().catch(async (err) => {
   console.error(err);
   await close();
   process.exit(1);
 });
+
+/**
+ * Hábito (PRD hábitos US-104): racha por cliente en tramos, días con registro sobre los días
+ * posibles, días sin gastos y tarjetas con la línea de racha. Solo clientes (sin "interna"), solo
+ * conteos. Mismo cálculo que la tarjeta "Hábito" de /admin.
+ */
+async function habits() {
+  const now = new Date();
+  const tenants = rows<{ id: string; created_at: string }>(
+    await db.execute(sql`
+      select id, created_at::text from app.tenant
+      where deleted_at is null
+        and not exists (select 1 from unnest(crm_tags) g where lower(btrim(g)) = 'interna')`),
+  );
+  const buckets = { "0": 0, "1": 0, "2-6": 0, "7-29": 0, "30+": 0 };
+  let recordDays = 0;
+  let eligible = 0;
+  let noSpend = 0;
+  for (const t of tenants) {
+    const s = await db.transaction((tx) =>
+      habitStats(tx, { id: t.id, createdAt: new Date(t.created_at) }, now),
+    );
+    const n = s.current;
+    buckets[n === 0 ? "0" : n === 1 ? "1" : n < 7 ? "2-6" : n < 30 ? "7-29" : "30+"] += 1;
+    recordDays += s.recordDays28;
+    eligible += s.eligibleDays28;
+    noSpend += s.noSpendDays7;
+  }
+  console.log("\n== Hábito: clientes por racha actual");
+  console.table([{ ...buckets, "7+": buckets["7-29"] + buckets["30+"] }]);
+  console.log("\n== Hábito: días con registro (28 d) y días sin gastos (7 d)");
+  console.table([
+    {
+      dias_con_registro: recordDays,
+      dias_posibles: eligible,
+      pct: eligible ? Math.round((recordDays / eligible) * 100) : null,
+      dias_sin_gastos_7d: noSpend,
+    },
+  ]);
+  await q(
+    "Hábito: tarjetas con la línea de racha (una por turno)",
+    sql`
+      select count(distinct coalesce(webhook_event_id, id)) as tarjetas_con_racha
+      from app.message
+      where tool_calls @> '[{"name": "habit_streak_line"}]'::jsonb
+        and created_at > now() - make_interval(days => ${days})`,
+  );
+}

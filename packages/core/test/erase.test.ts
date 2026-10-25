@@ -143,6 +143,17 @@ describe("eliminar un negocio", () => {
       { userId, codeHash: "h1", expiresAt: new Date("2026-10-05"), tenantId: gone },
       { userId: sharedUser, codeHash: "h2", expiresAt: new Date("2026-10-05"), tenantId: kept },
     ]);
+    // Días sin gastos (0025): se van en cascada con el teléfono y el negocio.
+    for (const tenantId of [gone, kept])
+      await withTenant(t.db, tenantId, async (tx) => {
+        const [phone] = await tx
+          .select()
+          .from(schema.phoneNumber)
+          .where(eq(schema.phoneNumber.tenantId, tenantId));
+        await tx
+          .insert(schema.noSpendDay)
+          .values({ tenantId, phoneId: phone?.id as string, day: "2026-10-04" });
+      });
   });
   afterAll(() => t.close());
 
@@ -175,6 +186,7 @@ describe("eliminar un negocio", () => {
       "audit_log",
       "signup",
       "dashboard_link",
+      "no_spend_day",
     ];
     const before = Object.fromEntries(
       await Promise.all(tables.map(async (x) => [x, await count(x, kept)] as const)),
