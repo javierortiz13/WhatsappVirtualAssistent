@@ -207,49 +207,58 @@ export default async function AdminHome({
 
       <section className="card tight">
         <span className="sect">Hábito · clientes</span>
-        <div className="row">
-          <span className="what">
-            <strong>Racha 7+ días</strong>
-            <span className="sub num">
-              de {habits.active} activos (7 d) · 2–6: {habits.streak2to6} · 30+: {habits.streak30}
-            </span>
-          </span>
-          <strong className="num">{habits.streak7}</strong>
-        </div>
-        <div className="row">
-          <span className="what">
-            <strong>Días con registro (28 d)</strong>
-            <span className="sub num">
-              {habits.recordDays} de {habits.eligibleDays} días · mediana por usuario{" "}
-              {habits.medianPct === null ? "—" : `${habits.medianPct} %`} · sin gastos (7 d):{" "}
-              {habits.noSpendDays7}
-            </span>
-          </span>
-          <strong className="num">
-            {habits.eligibleDays
-              ? `${Math.round((habits.recordDays / habits.eligibleDays) * 100)} %`
-              : "—"}
-          </strong>
-        </div>
-        <div className="row">
-          <span className="what">
-            <strong>Ventana abierta a las 8 pm (7 d)</strong>
-            <span className="sub num">
-              {habits.windowOpen} de {habits.ownerDays} días-dueño · sin registro aún:{" "}
-              {habits.windowOpenNoRecord}
-            </span>
-          </span>
-          <strong className="num">{habits.windowOpen}</strong>
-        </div>
-        <div className="row">
-          <span className="what">
-            <strong>Retención (registró)</strong>
-            <span className="sub num">
-              semana 2 (D7): {habits.d7.n ? `${habits.d7.yes} de ${habits.d7.n}` : "—"} · semana 5
-              (D30): {habits.d30.n ? `${habits.d30.yes} de ${habits.d30.n}` : "—"}
-            </span>
-          </span>
-        </div>
+        {habits ? (
+          <>
+            <div className="row">
+              <span className="what">
+                <strong>Racha 7+ días</strong>
+                <span className="sub num">
+                  de {habits.active} activos (7 d) · 2–6: {habits.streak2to6} · 30+:{" "}
+                  {habits.streak30}
+                </span>
+              </span>
+              <strong className="num">{habits.streak7}</strong>
+            </div>
+            <div className="row">
+              <span className="what">
+                <strong>Días con registro (28 d)</strong>
+                <span className="sub num">
+                  {habits.recordDays} de {habits.eligibleDays} días · mediana por usuario{" "}
+                  {habits.medianPct === null ? "—" : `${habits.medianPct} %`} · sin gastos (7 d):{" "}
+                  {habits.noSpendDays7}
+                </span>
+              </span>
+              <strong className="num">
+                {habits.eligibleDays
+                  ? `${Math.round((habits.recordDays / habits.eligibleDays) * 100)} %`
+                  : "—"}
+              </strong>
+            </div>
+            <div className="row">
+              <span className="what">
+                <strong>Ventana abierta a las 8 pm (7 d)</strong>
+                <span className="sub num">
+                  {habits.windowOpen} de {habits.ownerDays} días-dueño · sin registro aún:{" "}
+                  {habits.windowOpenNoRecord}
+                </span>
+              </span>
+              <strong className="num">{habits.windowOpen}</strong>
+            </div>
+            <div className="row">
+              <span className="what">
+                <strong>Retención (registró)</strong>
+                <span className="sub num">
+                  semana 2 (D7): {habits.d7.n ? `${habits.d7.yes} de ${habits.d7.n}` : "—"} · semana
+                  5 (D30): {habits.d30.n ? `${habits.d30.yes} de ${habits.d30.n}` : "—"}
+                </span>
+              </span>
+            </div>
+          </>
+        ) : (
+          <p className="sub">
+            No se pudo calcular: falta aplicar la migración 0025 (días sin gastos) en la base.
+          </p>
+        )}
         <form action={saveHabitsAction} className="stack-sm">
           <label className="check">
             <input type="checkbox" name="streak_line" defaultChecked={habitFlags.streakLine} />{" "}

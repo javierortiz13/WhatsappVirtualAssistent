@@ -326,13 +326,19 @@ export type HabitSummary = {
   d30: { yes: number; n: number };
 };
 
-export async function loadHabits(tenants: TenantRow[], now: Date): Promise<HabitSummary> {
+export async function loadHabits(tenants: TenantRow[], now: Date): Promise<HabitSummary | null> {
   await requireAdmin();
   const conn = db();
   const stats: HabitStats[] = [];
-  for (const t of tenants) {
-    if (t.internal || t.purgeAfter) continue;
-    stats.push(await withTenant(conn, t.id, (tx) => habitStats(tx, t, now)));
+  try {
+    for (const t of tenants) {
+      if (t.internal || t.purgeAfter) continue;
+      stats.push(await withTenant(conn, t.id, (tx) => habitStats(tx, t, now)));
+    }
+  } catch (err) {
+    // Sin la migración 0025 (app.no_spend_day) la tarjeta no se puede calcular; el resto sigue.
+    console.error(JSON.stringify({ level: "error", msg: "admin hábito", detail: String(err) }));
+    return null;
   }
   const active = stats.filter((s) => s.active7);
   const pcts = stats

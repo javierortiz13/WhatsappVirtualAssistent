@@ -1600,3 +1600,36 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - Una venta del día que espera Reemplazar/Agregar se guarda sin preguntar la cuenta; lo que quede sin cuenta sale en el cierre (C4a).
 
 **Verificado:** `account-ask.test.ts` (18 pruebas: orden, candidatas, de siempre por descripción y categoría, botones, lista, cajero sin saldos, toque, Deshacer, respuesta escrita y sus negativas, otro día, Varios métodos, cuenta nueva y C13 de ida y vuelta). `sale-accounts.test.ts` queda con las reglas de la fase 3. 503 tests, lint y typecheck limpios.
+
+### S3 · 25/10/2026 · Hábitos, fase 1: racha y "hoy no gasté nada" (apagado) · contacto de privacidad
+
+**Contexto:** PRD `prd-habits.md` v2.3.3, fase 1 (US-105, US-101, US-106, US-102, US-103, US-104, US-107). Textos de `copy/habits-strings-es-VE.md` v1.2.3, tal cual. Javier pidió arrancar sin esperar la revisión técnica del PRD.
+
+**Hecho:**
+- **US-105, migración 0025 `app.no_spend_day`:** un día sin gastos por negocio y día, sin texto, con RLS.
+  - Las llaves borran **en cascada**, en vez de reescribir `erase_tenant` como pedía el PRD (DQ-18): esa función tiene DELETE, y el MCP de Supabase no deja aplicarlos.
+  - `erase.test.ts` comprueba que se borran.
+- **US-101 `streakFor`:** racha actual, récord, récord anterior, racha anterior y los últimos 7 días.
+  - Cuenta el día de Caracas en que se creó un movimiento, una transferencia o un cambio; si se borró ese mismo día, no cuenta.
+  - Los días sin gastos mantienen la racha.
+- **US-106 "hoy no gasté nada":**
+  - Frases exactas y solo el mensaje entero; solo el dueño; sin la IA.
+  - Respuestas: H52 para una persona (con sus variantes de inicio, récord e hitos), H52b para un negocio, H52c si hoy ya hay registros, H52d si ya estaba anotado.
+  - Marca `habit_no_spend`.
+- **US-102 línea de racha:** H1, H1a, H2, H3 o H3b en la primera tarjeta guardada del día del dueño. No sale en una corrección, ni si la respuesta sin gastos ya la mostró, ni si no cabe en el cuerpo. Marca `habit_streak_line`.
+- **US-103 Inicio "Tu racha":** H5, H6 y H6b. El estado de cada día va en la forma del punto y el lector de pantalla lo dice en texto.
+- **US-104 y US-107:** `habitStats`, un mismo cálculo para `pnpm metrics` y la tarjeta "Hábito" de /admin:
+  - rachas por tramos;
+  - días con registro sobre los días posibles en 28 días;
+  - ventana abierta a las 8 pm;
+  - semanas 2 y 5.
+
+  En /admin quedan los interruptores `habits.streakLine` y `habits.noSpend`. Sin la migración 0025, la tarjeta dice que falta en vez de romper la página.
+- **Todo apagado por defecto.** Con los interruptores apagados, nada cambia para nadie.
+- **Contacto de privacidad (US-200, parte):** el correo de /privacidad y /eliminar-datos sale de `PRIVACY_CONTACT` (por defecto privacidad@caja.jpsoftwaredev.com), sin cambiar textos. El resto de US-200 espera a que existan el aviso de las 8 pm y los recordatorios, a que lo vean el abogado y cumplimiento, y a su fila de aprobación.
+
+**Pendiente (Javier):**
+- Aplicar 0025 en producción, junto con 0024, con `pnpm db:migrate`; o aceptar la confirmación del MCP si me lo pides.
+- Encender los interruptores en /admin solo después de la aprobación.
+
+**Verificado:** `habits.test.ts` (14 pruebas: frases, textos, racha, borrados, récord, días sin gastos, `habitStats`, interruptores apagados, cajero, H52c y la línea de racha una vez al día). 517 tests, lint y typecheck limpios.
