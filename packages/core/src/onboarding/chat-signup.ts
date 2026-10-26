@@ -767,3 +767,55 @@ export async function hasDashboardMember(tx: Tx, tenantId: string): Promise<bool
     .limit(1);
   return Boolean(m);
 }
+
+// ---------------------------------------------------------------- prueba del «hola» (26/10)
+
+export type ParkedStep = "accounts" | "categories";
+
+/**
+ * Deja un número de prueba con el registro a medias, para la prueba del «hola» del handoff del
+ * 26/10: en `accounts` como lo dejaba el flujo viejo (ya con categorías) o en `categories`.
+ * `hoursAgo` mueve `updated_at` atrás (7 h por defecto) para que el mensaje de regreso salga al
+ * primer texto. Nunca toca un número que ya tiene negocio: ese mensaje iría al agente.
+ */
+export async function parkSignup(
+  db: Db,
+  opts: {
+    e164: string;
+    step: ParkedStep;
+    kind?: "personal" | "business";
+    hoursAgo?: number;
+  },
+  now: Date = new Date(),
+): Promise<{ e164: string; step: ParkedStep; data: SignupData; updatedAt: Date }> {
+  const e164 = opts.e164.replace(/\D/g, "");
+  if (!/^\d{10,15}$/.test(e164)) throw new Error(`número inválido: ${opts.e164}`);
+  const [phone] = await db
+    .select({ id: schema.phoneNumber.id })
+    .from(schema.phoneNumber)
+    .where(eq(schema.phoneNumber.e164, e164));
+  if (phone) throw new Error(`${e164} ya tiene un negocio; usa un número sin cuenta`);
+
+  const kind = opts.kind ?? "personal";
+  const businessType: BusinessType = kind === "business" ? "food" : "personal";
+  const data: SignupData = {
+    name: "Prueba",
+    kind,
+    businessType,
+    ...(kind === "business" ? { businessName: "Negocio de prueba" } : {}),
+    currency: "USD",
+    ...(opts.step === "accounts"
+      ? { categories: onboardingCategories(undefined, businessType) }
+      : {}),
+  };
+  const updatedAt = new Date(now.getTime() - (opts.hoursAgo ?? 7) * 3_600_000);
+  const s = schema.signup;
+  await db
+    .insert(s)
+    .values({ e164, step: opts.step, data, messages: 4, updatedAt })
+    .onConflictDoUpdate({
+      target: s.e164,
+      set: { step: opts.step, data, messages: 4, completedAt: null, tenantId: null, updatedAt },
+    });
+  return { e164, step: opts.step, data, updatedAt };
+}

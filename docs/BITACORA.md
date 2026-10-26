@@ -1699,7 +1699,14 @@ Handoff `dev-handoff-2026-10-26-signup.md` (auditoría del registro). **No despl
 
 **Verificado:** `chat-signup.test.ts` pasa de 10 a 31 pruebas: textos letra por letra, N en cada paso, filas viejas, 25 h y 2 h, cada palabra de SÍ/SALTAR, cuerpo ≤ 1024 y títulos ≤ 20/24. Total 541, con lint y typecheck limpios.
 
-**Pendiente (Javier):**
-- Antes del deploy, dejar un número interno parado en «cuentas» (flujo de hoy) y otro en «categorías».
-- Después del deploy, mover su `updated_at` 7 h atrás, escribir «hola» en cada uno y mandar la captura.
-- Hasta entonces nadie dice «escríbele hola».
+**Prueba del «hola» sin números trancados:** `parkSignup` (core) deja un número sin negocio parado en `accounts` (como lo dejaba el flujo viejo, ya con categorías) o en `categories`, con `updated_at` 7 h atrás. No toca un número que ya tiene negocio.
+- Comando: `pnpm --filter @caja/worker signup:park <número> [accounts|categories] [personal|business] [horas]`. Sin paso, solo muestra el registro.
+- Pruebas: con un solo número, categorías → «hola» → cuentas → «hola» → termina sin cuenta "Hola". También negocio, número con negocio rechazado y 0 h (solo repite la pregunta).
+
+**Pendiente (Javier):** con un número de prueba sin cuenta:
+1. Antes del deploy, parar el número en «cuentas».
+2. Después del deploy, escribir «hola».
+3. Re-parar el número en «categorías» y volver a escribir «hola».
+4. Mandar las capturas.
+
+Hasta entonces nadie dice «escríbele hola».

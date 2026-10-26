@@ -11,6 +11,7 @@ import { type ProcessDeps, processInbound } from "../src/inbox/process";
 import {
   cleanProfileName,
   createDashboardLink,
+  parkSignup,
   parseAccounts,
   parseBudgets,
   parseBusinessType,
@@ -794,5 +795,88 @@ describe("registro por WhatsApp de punta a punta", () => {
       expect(textOf(lastFor(n)), word).toBe("¿Cómo te llamas?");
       expect(await rowOf(n)).toMatchObject({ step: "name", data: {} });
     }
+  });
+  describe("prueba del «hola» con un número de prueba (parkSignup)", () => {
+    const TEST_NUMBER = "+58 414-555-7777";
+    const E164 = "584145557777";
+    const accountsOf = async (tenantId: string) =>
+      (
+        await withTenant(t.db, tenantId, (tx) =>
+          tx.select({ name: schema.account.name }).from(schema.account),
+        )
+      ).map((a) => a.name);
+
+    it('un solo número: categorías primero, después cuentas, y al final se registra sin cuenta "Hola"', async () => {
+      // 1) Parado en categorías desde hace 7 h: «hola» → regreso (2 pasos) + la pregunta.
+      const parked = await parkSignup(t.db, { e164: TEST_NUMBER, step: "categories" }, clock);
+      expect(parked.e164).toBe(E164);
+      let before = sentTo(E164);
+      await say(E164, "hola");
+      expect(sentTo(E164) - before).toBe(2);
+      expect(textOf(lastFor(E164, 2))).toBe(
+        [
+          "¡Epa, Prueba! Qué bueno que volviste. Seguimos armando tu cuenta donde quedamos: te faltan 2 pasos para que puedas anotar tus gastos.",
+          "Si prefieres empezar de cero, escribe *empezar de nuevo*.",
+        ].join("\n"),
+      );
+      expect(textOf(lastFor(E164))).toMatch(/^\*4 de 4\* · Ahora tus \*categorías de gastos\*/);
+      let row = await rowOf(E164);
+      expect(row?.step).toBe("categories");
+      expect(row?.data).toEqual(parked.data);
+
+      // 2) El mismo número, ahora parado en cuentas como lo dejaba el flujo viejo.
+      const old = await parkSignup(t.db, { e164: E164, step: "accounts" }, clock);
+      expect(old.data.categories?.length).toBeGreaterThan(0);
+      before = sentTo(E164);
+      await say(E164, "hola");
+      expect(sentTo(E164) - before).toBe(2);
+      expect(textOf(lastFor(E164, 2))).toContain("¡Epa, Prueba! Qué bueno que volviste.");
+      expect(textOf(lastFor(E164, 2))).toContain(
+        "te falta 1 paso para que puedas anotar tus gastos.",
+      );
+      expect(textOf(lastFor(E164))).toMatch(
+        /^Último paso, y es opcional: ¿en qué se te va más la plata\?/,
+      );
+      row = await rowOf(E164);
+      expect(row?.step).toBe("budget");
+      expect(row?.data).toMatchObject({ categories: old.data.categories, accounts: [] });
+
+      // 3) Termina: el negocio no tiene la cuenta "Hola".
+      await tap(E164, "signup:bud:skip", "Ahora no");
+      row = await rowOf(E164);
+      expect(row?.step).toBe("done");
+      expect(await accountsOf(row?.tenantId as string)).not.toContain("Hola");
+      expect(textOf(lastFor(E164))).toContain("• *Cuentas (opcional):*");
+    });
+
+    it("no toca un número que ya tiene negocio", async () => {
+      await expect(parkSignup(t.db, { e164: E164, step: "categories" }, clock)).rejects.toThrow(
+        /ya tiene un negocio/,
+      );
+      await expect(parkSignup(t.db, { e164: "123", step: "accounts" }, clock)).rejects.toThrow(
+        /número inválido/,
+      );
+    });
+
+    it("negocio parado en cuentas: «hola» → regreso y presupuesto del negocio", async () => {
+      const n = "584145557778";
+      await parkSignup(t.db, { e164: n, step: "accounts", kind: "business" }, clock);
+      await say(n, "hola");
+      expect(textOf(lastFor(n, 2))).toContain("te falta 1 paso");
+      expect(textOf(lastFor(n))).toMatch(
+        /^Último paso, y es opcional: ¿en qué se va más la plata del negocio\?/,
+      );
+      expect((await rowOf(n))?.data).toMatchObject({ accounts: [] });
+    });
+
+    it("sin mover updated_at (0 h), «hola» en categorías solo repite la pregunta", async () => {
+      const n = "584145557779";
+      await parkSignup(t.db, { e164: n, step: "categories", hoursAgo: 0 }, clock);
+      const before = sentTo(n);
+      await say(n, "hola");
+      expect(sentTo(n) - before).toBe(1);
+      expect(textOf(lastFor(n))).toMatch(/^\*4 de 4\* · /);
+      expect((await rowOf(n))?.step).toBe("categories");
+    });
   });
 });
