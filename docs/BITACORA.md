@@ -1769,6 +1769,7 @@ Ningún texto del registro ni de hábitos cambió (`render/` intacto).
 Con esto se cumple la condición de 0024 y 0025 para encender los hábitos (A-0013). Los interruptores siguen apagados hasta que Javier apruebe.
 
 **Evals (`pnpm evals`, claude-sonnet-5-5):** 117 de 128, $0,63. Los 11 que fallaron (`cola`, parte de `correcciones` y «empleado que pide el cierre») cortaron por `ETIMEDOUT` contra api.anthropic.com desde la red local, no por respuestas del modelo. Los 117 que llegaron al modelo pasaron. Falta repetir esos 11.
+- Repetición (26/10, 17:15): los 11 más los de `correcciones` que sí habían pasado, **18 de 18**, $0,12. La corrida completa era de una copia vieja (128 casos). Con el código actual son 134; faltan los 6 de `cuenta-pregunta` (efectivo, fase 3).
 
 ### S3 · 26/10/2026 · Hábitos P1 encendidos en producción
 
