@@ -1758,3 +1758,14 @@ Ningún texto del registro ni de hábitos cambió (`render/` intacto).
 **Verificado:** 556 pruebas; lint, typecheck y `next build` limpios.
 
 **Pendiente (Javier, C-S1):** desde esta sesión no hay acceso a Sentry. En Sentry, buscar `params:`, `Failing row contains` y los eventos de `/api/whatsapp/webhook`. Anotar aquí **solo cuántos** son y borrarlos.
+
+### S3 · 26/10/2026 · Migraciones 0024 y 0025 en producción · evals
+
+**Migraciones (F-1):** Javier las aplicó desde su máquina con `pnpm db:migrate`. Verificado en la base de producción:
+- `0024_erase_signup.sql` y `0025_no_spend_day.sql` registradas en `caja_meta.schema_migrations` el 26/10 a las 18:46 UTC;
+- `app.no_spend_day` existe, con RLS;
+- `app.erase_tenant` ya borra `app.signup` y `app.dashboard_link`.
+
+Con esto se cumple la condición de 0024 y 0025 para encender los hábitos (A-0013). Los interruptores siguen apagados hasta que Javier apruebe.
+
+**Evals (`pnpm evals`, claude-sonnet-5-5):** 117 de 128, $0,63. Los 11 que fallaron (`cola`, parte de `correcciones` y «empleado que pide el cierre») cortaron por `ETIMEDOUT` contra api.anthropic.com desde la red local, no por respuestas del modelo. Los 117 que llegaron al modelo pasaron. Falta repetir esos 11.
