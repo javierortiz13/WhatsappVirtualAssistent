@@ -10,6 +10,8 @@ export function initSentry(dsn: string | undefined, environment: string): boolea
     environment,
     tracesSampleRate: 0,
     beforeSend: (event) => scrubSentryEvent(event),
+    // SDK 11: sin cuerpos, IP, cookies ni query string (SEC-1, S-1a).
+    dataCollection: { userInfo: false, httpBodies: [], cookies: false, urlQueryParams: false },
   });
   return true;
 }

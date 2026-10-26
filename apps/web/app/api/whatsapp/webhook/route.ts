@@ -1,3 +1,4 @@
+import { scrubLogFields } from "@caja/core/log";
 import { enqueueProcessMessage } from "@caja/db/queue";
 import { noteInvalidSignature } from "@/lib/alerts";
 import { boss } from "@/lib/boss";
@@ -11,11 +12,11 @@ export const dynamic = "force-dynamic";
 const log = {
   debug: () => {},
   info: (o: Record<string, unknown>, m?: string) =>
-    console.info(JSON.stringify({ level: "info", msg: m, ...o })),
+    console.info(JSON.stringify({ level: "info", msg: m, ...scrubLogFields(o) })),
   warn: (o: Record<string, unknown>, m?: string) =>
-    console.warn(JSON.stringify({ level: "warn", msg: m, ...o })),
+    console.warn(JSON.stringify({ level: "warn", msg: m, ...scrubLogFields(o) })),
   error: (o: Record<string, unknown>, m?: string) =>
-    console.error(JSON.stringify({ level: "error", msg: m, ...o })),
+    console.error(JSON.stringify({ level: "error", msg: m, ...scrubLogFields(o) })),
 };
 
 export async function GET(req: Request) {

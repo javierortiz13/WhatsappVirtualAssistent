@@ -12,6 +12,7 @@ import {
   TooManyPendingError,
   withDiscount,
 } from "@caja/core";
+import { errorText } from "@caja/core/log";
 import { and, eq, schema, withTenant } from "@caja/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -41,7 +42,7 @@ export async function updateProfileAction(formData: FormData): Promise<void> {
         ),
     );
   } catch (err) {
-    console.error(JSON.stringify({ level: "error", msg: "perfil", detail: String(err) }));
+    console.error(JSON.stringify({ level: "error", msg: "perfil", detail: errorText(err) }));
     redirect("/ajustes/perfil?error=servidor");
   }
   revalidatePath("/ajustes");
@@ -97,7 +98,7 @@ export async function reportPaymentAction(formData: FormData): Promise<void> {
     );
   } catch (err) {
     if (err instanceof TooManyPendingError) redirect("/ajustes/plan?error=pendientes#reportar");
-    console.error(JSON.stringify({ level: "error", msg: "reportar pago", detail: String(err) }));
+    console.error(JSON.stringify({ level: "error", msg: "reportar pago", detail: errorText(err) }));
     redirect("/ajustes/plan?error=servidor#reportar");
   }
   revalidatePath("/ajustes/plan");

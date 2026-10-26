@@ -796,6 +796,35 @@ describe("registro por WhatsApp de punta a punta", () => {
       expect(await rowOf(n)).toMatchObject({ step: "name", data: {} });
     }
   });
+  it("«¡Hola!» o «Hola, buenas» en categorías repiten la pregunta, sin guardar nada (N1)", async () => {
+    for (const word of ["¡Hola!", "Hola, buenas", "buenas, ¿qué tal?"]) {
+      const n = await park("categories", PERSONAL, 1);
+      await say(n, word);
+      expect(textOf(lastFor(n)), word).toMatch(/^\*4 de 4\* · Ahora tus \*categorías de gastos\*/);
+      const row = await rowOf(n);
+      expect(row?.step, word).toBe("categories");
+      expect((row?.data as SignupData | undefined)?.categories, word).toBeUndefined();
+    }
+  });
+
+  it("fila vieja en cuentas: «ayuda» o una nota de voz también pasan al presupuesto (N2)", async () => {
+    const n = await park("accounts", withCats(PERSONAL), 1);
+    await say(n, "ayuda");
+    expect(textOf(lastFor(n, 2))).toContain("te falta 1 paso");
+    expect(textOf(lastFor(n))).toMatch(/^Último paso/);
+    expect((await rowOf(n))?.step).toBe("budget");
+    const v = await park("accounts_confirm", withCats(PERSONAL), 1);
+    await deliver(v, structuredClone(fx.audioMessage) as unknown as Record<string, unknown>);
+    expect(textOf(lastFor(v, 2))).toContain("te falta 1 paso");
+    expect(textOf(lastFor(v))).toMatch(/^Último paso/);
+    expect(
+      meta.sent
+        .filter((m) => m.to === v)
+        .map(textOf)
+        .join("\n"),
+    ).not.toMatch(/\*cuentas\*/);
+  });
+
   describe("prueba del «hola» con un número de prueba (parkSignup)", () => {
     const TEST_NUMBER = "+58 414-555-7777";
     const E164 = "584145557777";
@@ -847,6 +876,14 @@ describe("registro por WhatsApp de punta a punta", () => {
       expect(row?.step).toBe("done");
       expect(await accountsOf(row?.tenantId as string)).not.toContain("Hola");
       expect(textOf(lastFor(E164))).toContain("• *Cuentas (opcional):*");
+    });
+
+    it("no toca un registro real a medias (K1)", async () => {
+      const real = await park("categories", PERSONAL, 1);
+      await expect(parkSignup(t.db, { e164: real, step: "accounts" }, clock)).rejects.toThrow(
+        /registro real/,
+      );
+      expect(await rowOf(real)).toMatchObject({ step: "categories", data: PERSONAL });
     });
 
     it("no toca un número que ya tiene negocio", async () => {

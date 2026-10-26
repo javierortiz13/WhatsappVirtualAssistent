@@ -11,6 +11,7 @@ import {
   listAccounts,
   parseVenezuelanAmount,
 } from "@caja/core";
+import { errorText } from "@caja/core/log";
 import { withTenant } from "@caja/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -78,7 +79,7 @@ export async function createExchangeAction(formData: FormData): Promise<void> {
     });
   } catch (err) {
     if (err instanceof ExchangeError) redirect(`${BACK}?error=datos`);
-    console.error(JSON.stringify({ level: "error", msg: "cambio", detail: String(err) }));
+    console.error(JSON.stringify({ level: "error", msg: "cambio", detail: errorText(err) }));
     redirect(`${BACK}?error=servidor`);
   }
   revalidatePath("/ajustes", "layout");
@@ -105,7 +106,7 @@ export async function deleteExchangeAction(formData: FormData): Promise<void> {
   } catch (err) {
     if (err instanceof ExchangeError)
       redirect(`${BACK}?error=${err.code === "in_use" ? "usado" : "datos"}`);
-    console.error(JSON.stringify({ level: "error", msg: "borrar cambio", detail: String(err) }));
+    console.error(JSON.stringify({ level: "error", msg: "borrar cambio", detail: errorText(err) }));
     redirect(`${BACK}?error=servidor`);
   }
   revalidatePath("/ajustes", "layout");

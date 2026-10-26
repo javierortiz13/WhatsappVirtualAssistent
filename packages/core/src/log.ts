@@ -29,8 +29,8 @@ export function maskPhone(e164: string | null | undefined): string {
 export function scrubErrorText(text: string): string {
   return text
     .replace(/\s*params:[\s\S]*$/i, "\nparams: [omitidos]")
-    .replace(/Failing row contains \([\s\S]*?\)(?=\.?\s|\.?$)/g, "Failing row contains (…)")
-    .replace(/Key \(([^)]*)\)=\([^)]*\)/g, "Key ($1)=(…)");
+    .replace(/Key \(([^)]*)\)=\(.*?\)(?= already exists| is not present|\.?$)/gm, "Key ($1)=(…)")
+    .replace(/Failing row contains \(.*$/gm, "Failing row contains (…)");
 }
 
 /** El mensaje de un error, sin datos del usuario. */
@@ -49,16 +49,27 @@ export function scrubLogFields(obj: Record<string, unknown>): Record<string, unk
 type SentryLikeEvent = {
   message?: string;
   exception?: { values?: { value?: string }[] };
-  breadcrumbs?: { message?: string }[];
+  breadcrumbs?: { message?: string; data?: Record<string, unknown> }[];
+  request?: { data?: unknown; query_string?: unknown; cookies?: unknown };
+  user?: { ip_address?: string | null };
 };
 
 /**
  * `beforeSend` de Sentry (worker, servidor web y navegador; SEC-1): el mismo recorte en el mensaje,
- * en cada excepción y en los breadcrumbs.
+ * en cada excepción y en los breadcrumbs, y sin cuerpo, query string, cookies ni IP de la solicitud.
  */
 export function scrubSentryEvent<E extends SentryLikeEvent>(event: E): E {
   if (event.message) event.message = scrubErrorText(event.message);
   for (const v of event.exception?.values ?? []) if (v.value) v.value = scrubErrorText(v.value);
-  for (const b of event.breadcrumbs ?? []) if (b.message) b.message = scrubErrorText(b.message);
+  for (const b of event.breadcrumbs ?? []) {
+    if (b.message) b.message = scrubErrorText(b.message);
+    if (b.data) delete b.data.arguments;
+  }
+  if (event.request) {
+    delete event.request.data;
+    delete event.request.query_string;
+    delete event.request.cookies;
+  }
+  if (event.user) delete event.user.ip_address;
   return event;
 }

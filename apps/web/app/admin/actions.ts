@@ -19,6 +19,7 @@ import {
   subscriptionState,
 } from "@caja/core";
 import { businessDateOf } from "@caja/core/domain";
+import { errorText } from "@caja/core/log";
 import { eq, schema, withTenant } from "@caja/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -33,7 +34,7 @@ const back = (tenantId: string, q: string) => redirect(`/admin/negocios/${tenant
 
 function fail(tenantId: string, code: string, err?: unknown): never {
   if (err)
-    console.error(JSON.stringify({ level: "error", msg: `admin ${code}`, detail: String(err) }));
+    console.error(JSON.stringify({ level: "error", msg: `admin ${code}`, detail: errorText(err) }));
   return back(tenantId, `error=${code}`);
 }
 
@@ -359,7 +360,7 @@ export async function saveLaunchAction(formData: FormData): Promise<void> {
     );
   } catch (err) {
     console.error(
-      JSON.stringify({ level: "error", msg: "admin lanzamiento", detail: String(err) }),
+      JSON.stringify({ level: "error", msg: "admin lanzamiento", detail: errorText(err) }),
     );
     redirect("/admin?error=servidor");
   }
@@ -384,7 +385,7 @@ export async function saveHabitsAction(formData: FormData): Promise<void> {
       new Date(),
     );
   } catch (err) {
-    console.error(JSON.stringify({ level: "error", msg: "admin hábito", detail: String(err) }));
+    console.error(JSON.stringify({ level: "error", msg: "admin hábito", detail: errorText(err) }));
     redirect("/admin?error=servidor");
   }
   revalidatePath("/", "layout");

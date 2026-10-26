@@ -5,6 +5,7 @@ import { createDb, eq, loadNearestEnvFile, schema } from "@caja/db";
  * Prueba del «hola» (handoff del 26/10): deja un número de prueba con el registro a medias.
  * `pnpm --filter @caja/worker signup:park <número> <accounts|categories> [personal|business] [horas]`
  * Sin paso, solo muestra cómo está el registro de ese número (para revisar después del «hola»).
+ * Solo acepta los números de SIGNUP_PARK_NUMBERS (separados por coma, en el .env local).
  */
 loadNearestEnvFile();
 const url = process.env.DATABASE_ADMIN_URL ?? process.env.DATABASE_URL;
@@ -15,6 +16,15 @@ if (!url) {
 const [number, step, kind, hours] = process.argv.slice(2);
 if (!number || (step && step !== "accounts" && step !== "categories")) {
   console.error("uso: signup:park <número> [accounts|categories] [personal|business] [horas]");
+  process.exit(2);
+}
+// Solo los números internos de la lista (K1). Van en el .env local, nunca en el repo.
+const allow = (process.env.SIGNUP_PARK_NUMBERS ?? "")
+  .split(",")
+  .map((n) => n.replace(/\D/g, ""))
+  .filter(Boolean);
+if (!allow.includes(number.replace(/\D/g, ""))) {
+  console.error("ese número no está en SIGNUP_PARK_NUMBERS");
   process.exit(2);
 }
 const { db, close } = createDb(url, { max: 1 });

@@ -15,6 +15,8 @@ export async function register() {
     tracesSampleRate: 0,
     // Los errores de la base traen los parámetros de la consulta: se recortan antes de salir (ER-3).
     beforeSend: (event) => scrubSentryEvent(event),
+    // SDK 11: sin cuerpos, IP, cookies ni query string (SEC-1, S-1a).
+    dataCollection: { userInfo: false, httpBodies: [], cookies: false, urlQueryParams: false },
   });
 }
 

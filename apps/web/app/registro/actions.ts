@@ -10,6 +10,7 @@ import {
   parseVenezuelanAmount,
   registerBusiness,
 } from "@caja/core";
+import { errorText } from "@caja/core/log";
 import { withTenant } from "@caja/db";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -104,7 +105,7 @@ export async function registerWizardAction(
         error: "Dos de tus cuentas tienen el mismo nombre. Cámbiale el nombre a una.",
         step: 3,
       };
-    console.error(JSON.stringify({ level: "error", msg: "registro", detail: String(err) }));
+    console.error(JSON.stringify({ level: "error", msg: "registro", detail: errorText(err) }));
     return { error: "No pudimos crear tu cuenta. Inténtalo en unos minutos." };
   }
   redirect("/registro");

@@ -1,5 +1,6 @@
 "use server";
 
+import { errorText } from "@caja/core/log";
 import { redirect } from "next/navigation";
 import { restoreBusiness } from "@/lib/erase";
 import { currentSession } from "@/lib/session";
@@ -15,7 +16,7 @@ export async function restoreMyBusinessAction(): Promise<void> {
     await restoreBusiness(t.id, { type: "user", id: session.user.id }, "dashboard");
   } catch (err) {
     console.error(
-      JSON.stringify({ level: "error", msg: "recuperar negocio", detail: String(err) }),
+      JSON.stringify({ level: "error", msg: "recuperar negocio", detail: errorText(err) }),
     );
     redirect("/recuperar?error=servidor");
   }

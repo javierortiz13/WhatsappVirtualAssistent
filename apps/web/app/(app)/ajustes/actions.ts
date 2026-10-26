@@ -8,6 +8,7 @@ import {
   setPhoneStatus,
   updateTenantSettings,
 } from "@caja/core";
+import { errorText } from "@caja/core/log";
 import { withTenant } from "@caja/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -40,7 +41,7 @@ export async function addEmployeeAction(formData: FormData): Promise<void> {
     );
   } catch (err) {
     if (err instanceof PhoneTakenError) redirect("/ajustes/numeros?error=ocupado");
-    console.error(JSON.stringify({ level: "error", msg: "alta empleado", detail: String(err) }));
+    console.error(JSON.stringify({ level: "error", msg: "alta empleado", detail: errorText(err) }));
     redirect("/ajustes/numeros?error=servidor");
   }
   revalidatePath("/ajustes/numeros");
@@ -95,7 +96,7 @@ export async function updateSettingsAction(formData: FormData): Promise<void> {
     );
   } catch (err) {
     if (err instanceof CategoryError) redirect("/ajustes/negocio?error=datos");
-    console.error(JSON.stringify({ level: "error", msg: "ajustes", detail: String(err) }));
+    console.error(JSON.stringify({ level: "error", msg: "ajustes", detail: errorText(err) }));
     redirect("/ajustes/negocio?error=servidor");
   }
   revalidatePath("/", "layout");
@@ -114,7 +115,9 @@ export async function eraseMyBusinessAction(formData: FormData): Promise<void> {
   try {
     await trashBusiness(tenant.id, "owner", { type: "user", id: user.id }, "dashboard");
   } catch (err) {
-    console.error(JSON.stringify({ level: "error", msg: "eliminar negocio", detail: String(err) }));
+    console.error(
+      JSON.stringify({ level: "error", msg: "eliminar negocio", detail: errorText(err) }),
+    );
     redirect("/ajustes/negocio?error=servidor#eliminar");
   }
   try {

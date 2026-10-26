@@ -10,6 +10,8 @@ if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
     tracesSampleRate: 0,
     // El mismo recorte que en el servidor (SEC-1).
     beforeSend: (event) => scrubSentryEvent(event),
+    // SDK 11: sin cuerpos, IP, cookies ni query string (SEC-1, S-1a).
+    dataCollection: { userInfo: false, httpBodies: [], cookies: false, urlQueryParams: false },
   });
 }
 

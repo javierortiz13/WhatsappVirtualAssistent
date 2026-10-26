@@ -1738,3 +1738,23 @@ El recorte de ER-3 ya cubría el worker y el servidor web. Para cumplir SEC-1 (P
 - /admin muestra la retención por semana; `pnpm metrics` imprime M1, M2, B4 y la tabla M3 con las columnas del plan.
 
 **Verificado:** una prueba arma datos donde las reglas viejas y nuevas difieren en cada punto, corre la SQL del plan (M2, B4 a 7 días, M3) en PGlite y compara: dan igual. 551 pruebas; lint, typecheck y `next build` limpios.
+
+### S3 · 26/10/2026 · SEC-1, arreglos de cumplimiento (S-1 a S-4), K1, N1 y N2
+
+Handoff `dev-handoff-2026-10-26-sec1-fixes.md`, con el código exacto de `habits/qa-review.md` «Deploy check 2026-10-26: SEC-1, H4, habitStats».
+
+**Hecho:**
+- **S-1a:** Sentry SDK 11 ya no tiene `sendDefaultPii` y por defecto manda los cuerpos de las peticiones, la IP, las cookies y el query string. Un evento del webhook llevaba el texto y el número. Los tres inits (worker, servidor web y navegador) llevan ahora `dataCollection: { userInfo: false, httpBodies: [], cookies: false, urlQueryParams: false }`.
+- **S-1b:** `scrubSentryEvent` borra también `request.data`, `query_string`, `cookies`, `user.ip_address` y los argumentos de los breadcrumbs de consola.
+- **S-2:** `scrubErrorText` corta la fila y la llave hasta el final de la línea; un «)» dentro del texto del usuario ya no se escapa.
+- **S-3:** los `console.error` de la web pasan el error por `errorText`, y el logger del webhook por `scrubLogFields`. El worker guarda el error ya recortado en `webhook_event`.
+- **S-4:** la prueba de inits revisa `apps` y `packages`. Falla si alguna llamada a `Sentry.init` tiene otra forma o le falta `beforeSend` o `dataCollection`.
+- **K1:** `signup:park` solo acepta los números de `SIGNUP_PARK_NUMBERS`, que van en el .env local. `parkSignup` rechaza un registro existente que no sea de «Prueba».
+- **N1:** «¡Hola!» o «Hola, buenas» en categorías repiten la pregunta.
+- **N2:** en una fila vieja de cuentas, «ayuda» o una nota de voz también pasan al presupuesto.
+
+Ningún texto del registro ni de hábitos cambió (`render/` intacto).
+
+**Verificado:** 556 pruebas; lint, typecheck y `next build` limpios.
+
+**Pendiente (Javier, C-S1):** desde esta sesión no hay acceso a Sentry. En Sentry, buscar `params:`, `Failing row contains` y los eventos de `/api/whatsapp/webhook`. Anotar aquí **solo cuántos** son y borrarlos.

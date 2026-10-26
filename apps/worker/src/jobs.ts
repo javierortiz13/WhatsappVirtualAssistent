@@ -3,6 +3,7 @@ import {
   bcvSource,
   dolarApiSource,
   enforceBilling,
+  errorText,
   expirePendingActions,
   type Logger,
   markWebhookEvent,
@@ -91,7 +92,7 @@ export async function registerJobs(opts: {
           if (job.retryCount < PROCESS_MESSAGE_RETRY_LIMIT) throw err;
           // Último intento: en `failed` bloquearía para siempre la cola FIFO de este teléfono.
           // Se cierra el job, se marca el evento y se avisa; el mensaje no se responde.
-          const message = err instanceof Error ? err.message : String(err);
+          const message = errorText(err);
           log.error(
             { jobId: job.id, retry: job.retryCount, err: message },
             "job agotó los reintentos; se cierra para no bloquear el teléfono",

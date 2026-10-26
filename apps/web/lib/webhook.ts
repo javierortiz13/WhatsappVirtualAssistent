@@ -1,4 +1,5 @@
 import { type IngestDeps, ingestWebhook, type Logger, whatsapp } from "@caja/core";
+import { errorText } from "@caja/core/log";
 
 /**
  * Lógica del webhook separada de Next para poder probarla con `Request` estándar.
@@ -35,12 +36,7 @@ export async function handleInbound(req: Request, deps: WebhookDeps): Promise<Re
     if (deps.onInvalidSignature)
       await deps
         .onInvalidSignature()
-        .catch((err) =>
-          deps.log.warn(
-            { err: err instanceof Error ? err.message : String(err) },
-            "contador de firmas",
-          ),
-        );
+        .catch((err) => deps.log.warn({ err: errorText(err) }, "contador de firmas"));
     return new Response("invalid signature", { status: 401 });
   }
   let payload: unknown;
@@ -56,10 +52,10 @@ export async function handleInbound(req: Request, deps: WebhookDeps): Promise<Re
     return Response.json({ ok: true });
   } catch (err) {
     if (err instanceof Error && err.name === "ZodError") {
-      deps.log.warn({ err: err.message }, "webhook con forma desconocida");
+      deps.log.warn({ err: errorText(err) }, "webhook con forma desconocida");
       return new Response("ignored", { status: 200 });
     }
-    deps.log.error({ err: err instanceof Error ? err.message : String(err) }, "ingesta falló");
+    deps.log.error({ err: errorText(err) }, "ingesta falló");
     // Base o cola caídas: 500 para que Meta reintente (ADR-004).
     return new Response("temporarily unavailable", { status: 500 });
   }

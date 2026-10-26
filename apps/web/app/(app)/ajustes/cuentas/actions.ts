@@ -16,6 +16,7 @@ import {
   transferAmounts,
   updateAccount,
 } from "@caja/core";
+import { errorText } from "@caja/core/log";
 import { withTenant } from "@caja/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -54,7 +55,7 @@ function fail(err: unknown, what: string): never {
     redirect(
       `${BACK}?error=${err.code === "duplicate" ? "repetida" : err.code === "too_many" ? "tope" : "datos"}`,
     );
-  console.error(JSON.stringify({ level: "error", msg: what, detail: String(err) }));
+  console.error(JSON.stringify({ level: "error", msg: what, detail: errorText(err) }));
   redirect(`${BACK}?error=servidor`);
 }
 
@@ -225,7 +226,7 @@ export async function createTransferAction(formData: FormData): Promise<void> {
       else throw err;
     }
   }).catch((err) => {
-    console.error(JSON.stringify({ level: "error", msg: "transferir", detail: String(err) }));
+    console.error(JSON.stringify({ level: "error", msg: "transferir", detail: errorText(err) }));
     error = "servidor";
   });
   if (error) redirect(`${BACK}?error=${error}`);
@@ -256,7 +257,7 @@ export async function deleteTransferAction(formData: FormData): Promise<void> {
     if (err instanceof TransferError) error = TRANSFER_ERRORS[err.code] ?? "datos";
     else {
       console.error(
-        JSON.stringify({ level: "error", msg: "borrar transferencia", detail: String(err) }),
+        JSON.stringify({ level: "error", msg: "borrar transferencia", detail: errorText(err) }),
       );
       error = "servidor";
     }

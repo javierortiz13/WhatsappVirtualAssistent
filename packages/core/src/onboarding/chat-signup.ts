@@ -174,6 +174,18 @@ export async function handleSignup(
     await save("name", {});
     return { outbound: [es.signupAskName(profile)], step: "name" };
   }
+  // Registro viejo parado en cuentas: un texto, «ayuda» o una nota de voz pasan al presupuesto, sin
+  // volver a mostrar la pregunta de cuentas (N2). Los botones de cuentas siguen abajo.
+  if ((step === "accounts" || step === "accounts_confirm") && !choice?.startsWith("acc:")) {
+    await save("budget", { ...data, accounts: [], pendingAccounts: undefined });
+    return {
+      outbound: [
+        es.signupWelcomeBack(data.name ?? null, remainingSteps("budget", data)),
+        prompt("budget", data, profile),
+      ],
+      step,
+    };
+  }
   if (!text && !choice) {
     await save(step);
     return { outbound: [es.signupTextOnly(), prompt(step, data, profile)], step };
@@ -282,7 +294,12 @@ export async function handleSignup(
       // (antes «hola» quedaba como categoría).
       if (choice === "cat:ok" || (text && YES.test(intentOf(text))))
         categories = onboardingCategories(undefined, type);
-      else if (text && !GREETING.test(text) && !SKIP.test(intentOf(text)))
+      else if (
+        text &&
+        !GREETING.test(intentOf(text)) &&
+        !/^(hola+|buen[oa]s?)\b/.test(intentOf(text)) &&
+        !SKIP.test(intentOf(text))
+      )
         categories = parseCategoryList(text, type);
       if (!categories) {
         await save("categories");
@@ -795,6 +812,13 @@ export async function parkSignup(
     .from(schema.phoneNumber)
     .where(eq(schema.phoneNumber.e164, e164));
   if (phone) throw new Error(`${e164} ya tiene un negocio; usa un número sin cuenta`);
+  // Nunca pisa un registro real a medias (K1): solo uno vacío o uno que ya era de prueba.
+  const [existing] = await db
+    .select({ data: schema.signup.data })
+    .from(schema.signup)
+    .where(eq(schema.signup.e164, e164));
+  if (existing && (existing.data as SignupData | null)?.name !== "Prueba")
+    throw new Error(`${e164} tiene un registro real; usa un número interno`);
 
   const kind = opts.kind ?? "personal";
   const businessType: BusinessType = kind === "business" ? "food" : "personal";

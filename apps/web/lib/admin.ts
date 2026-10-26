@@ -15,6 +15,7 @@ import {
   tenantPhones,
   trialSpend,
 } from "@caja/core";
+import { errorText } from "@caja/core/log";
 import { and, desc, eq, everyTenantId, gte, rows, schema, sql, withTenant } from "@caja/db";
 import { notFound, redirect } from "next/navigation";
 import { db } from "./db";
@@ -334,7 +335,7 @@ export async function loadHabits(tenants: TenantRow[], now: Date): Promise<Habit
     }
   } catch (err) {
     // Sin la migración 0025 (app.no_spend_day) la tarjeta no se puede calcular; el resto sigue.
-    console.error(JSON.stringify({ level: "error", msg: "admin hábito", detail: String(err) }));
+    console.error(JSON.stringify({ level: "error", msg: "admin hábito", detail: errorText(err) }));
     return null;
   }
   return summarizeHabits(stats);
