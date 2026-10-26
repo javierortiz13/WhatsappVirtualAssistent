@@ -1769,3 +1769,9 @@ Ningún texto del registro ni de hábitos cambió (`render/` intacto).
 Con esto se cumple la condición de 0024 y 0025 para encender los hábitos (A-0013). Los interruptores siguen apagados hasta que Javier apruebe.
 
 **Evals (`pnpm evals`, claude-sonnet-5-5):** 117 de 128, $0,63. Los 11 que fallaron (`cola`, parte de `correcciones` y «empleado que pide el cierre») cortaron por `ETIMEDOUT` contra api.anthropic.com desde la red local, no por respuestas del modelo. Los 117 que llegaron al modelo pasaron. Falta repetir esos 11.
+
+### S3 · 26/10/2026 · Hábitos P1 encendidos en producción
+
+- Javier encendió `habits.streakLine` y `habits.noSpend` en /admin a las 16:34 (Caracas).
+- Primera prueba en su cuenta interna «Finanzas personales» (racha de 7), a las 17:02: la tarjeta trajo «🔥 ¡7 días seguidos! Una semana completa.». En la base queda un turno con la marca `habit_streak_line { n: 7, milestone: 7 }`.
+- Para la lectura del 13/11, las dos semanas de datos cuentan desde hoy.
