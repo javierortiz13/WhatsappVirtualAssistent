@@ -2,6 +2,7 @@ import "server-only";
 import {
   Decimal,
   type HabitStats,
+  type HabitSummary,
   habitStats,
   latestRates,
   type MonthUsage,
@@ -9,6 +10,7 @@ import {
   planById,
   type SubscriptionState,
   subscriptionState,
+  summarizeHabits,
   type TenantPhone,
   tenantPhones,
   trialSpend,
@@ -52,6 +54,8 @@ export type TenantRow = {
   state: SubscriptionState;
   /** En la papelera (0017): cuándo se borra para siempre. */
   purgeAfter: Date | null;
+  deletedAt: Date | null;
+  suspendedAt: Date | null;
   owner: TenantPhone | null;
   usage: MonthUsage;
   pendingPayments: number;
@@ -144,6 +148,8 @@ export async function loadTenants(now: Date): Promise<TenantRow[]> {
       createdAt: t.createdAt,
       state,
       purgeAfter: t.deletedAt ? t.purgeAfter : null,
+      deletedAt: t.deletedAt,
+      suspendedAt: t.suspendedAt,
       owner: phones.find((p) => p.role === "owner") ?? null,
       usage,
       pendingPayments: pendingCount,
@@ -314,31 +320,16 @@ export async function loadRates() {
 
 /**
  * Tarjeta "Hábito" (PRD hábitos US-107, plan de medición §5 filas 1–4): solo clientes, solo
- * conteos. Los mismos números que `pnpm metrics` (los dos usan `habitStats`).
+ * conteos. Los mismos números que `pnpm metrics`: los dos usan `habitStats` y `summarizeHabits`.
+ * Los de la papelera entran solo donde el plan los cuenta (días antes de borrarse y su cohorte).
  */
-export type HabitSummary = {
-  active: number;
-  streak7: number;
-  streak2to6: number;
-  streak30: number;
-  recordDays: number;
-  eligibleDays: number;
-  medianPct: number | null;
-  noSpendDays7: number;
-  windowOpen: number;
-  windowOpenNoRecord: number;
-  ownerDays: number;
-  d7: { yes: number; n: number };
-  d30: { yes: number; n: number };
-};
-
 export async function loadHabits(tenants: TenantRow[], now: Date): Promise<HabitSummary | null> {
   await requireAdmin();
   const conn = db();
   const stats: HabitStats[] = [];
   try {
     for (const t of tenants) {
-      if (t.internal || t.purgeAfter) continue;
+      if (t.internal) continue;
       stats.push(await withTenant(conn, t.id, (tx) => habitStats(tx, t, now)));
     }
   } catch (err) {
@@ -346,30 +337,5 @@ export async function loadHabits(tenants: TenantRow[], now: Date): Promise<Habit
     console.error(JSON.stringify({ level: "error", msg: "admin hábito", detail: String(err) }));
     return null;
   }
-  const active = stats.filter((s) => s.active7);
-  const pcts = stats
-    .filter((s) => s.eligibleDays28 > 0)
-    .map((s) => s.recordDays28 / s.eligibleDays28)
-    .sort((a, b) => a - b);
-  const mid = pcts.length ? (pcts[Math.floor((pcts.length - 1) / 2)] ?? null) : null;
-  const sum = (f: (s: HabitStats) => number) => stats.reduce((n, s) => n + f(s), 0);
-  const cohort = (f: (s: HabitStats) => boolean | null) => {
-    const mature = stats.map(f).filter((v): v is boolean => v !== null);
-    return { yes: mature.filter(Boolean).length, n: mature.length };
-  };
-  return {
-    active: active.length,
-    streak7: active.filter((s) => s.current >= 7).length,
-    streak2to6: active.filter((s) => s.current >= 2 && s.current <= 6).length,
-    streak30: active.filter((s) => s.current >= 30).length,
-    recordDays: sum((s) => s.recordDays28),
-    eligibleDays: sum((s) => s.eligibleDays28),
-    medianPct: mid === null ? null : Math.round(mid * 100),
-    noSpendDays7: sum((s) => s.noSpendDays7),
-    windowOpen: sum((s) => s.windowOpen7),
-    windowOpenNoRecord: sum((s) => s.windowOpenNoRecord7),
-    ownerDays: sum((s) => s.ownerDays7),
-    d7: cohort((s) => s.d7),
-    d30: cohort((s) => s.d30),
-  };
+  return summarizeHabits(stats);
 }

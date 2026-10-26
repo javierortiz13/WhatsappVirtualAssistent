@@ -1721,3 +1721,20 @@ El recorte de ER-3 ya cubría el worker y el servidor web. Para cumplir SEC-1 (P
 **Verificado:** 546 pruebas pasan; lint, typecheck y `next build` limpios.
 
 **Pendiente (Javier):** en Sentry, buscar `params:` y `Failing row contains`, anotar solo cuántos hay y borrar esos issues. Después, cumplimiento re-lee las dos líneas de Sentry en /privacidad.
+
+### S3 · 26/10/2026 · Hábitos: H4 en la tarjeta (1A) y números alineados con el plan de medición (ER-4, 5A)
+
+**H4 (ER-5, decisión 1A):**
+- La primera tarjeta guardada del día, con `current = 1` y una racha anterior de 3 días o más, lleva «🔥 Arrancamos una racha nueva. Tu récord: {best} días.» (copy v1).
+- Sale una vez por corte, con las mismas exclusiones y el mismo «una línea por día» que H1.
+- Marca `habit_streak_line { n: 1, restart: true }`.
+- Va detrás de `habits.streakLine`, que sigue apagado.
+
+**ER-4 (decisión 5A):** `habitStats` ahora cuenta como la SQL del plan, y /admin y `pnpm metrics` suman con la misma función, `summarizeHabits`:
+- M2: los 28 días **hasta ayer**, solo quien escribió en la ventana, sin los días en papelera ni suspendidos; la mediana es interpolada.
+- B4: por teléfono dueño, y «sin registro a las 8 pm» mira gastos, transferencias y cambios.
+- M3: D7 y D30 **por semana de registro**, contados cuando la semana ya terminó. También trae «escribió» y «pagando».
+- Los de la papelera salen de M1 y de la ventana de las 8 pm, pero siguen en M2 hasta el día que se borraron y en su cohorte.
+- /admin muestra la retención por semana; `pnpm metrics` imprime M1, M2, B4 y la tabla M3 con las columnas del plan.
+
+**Verificado:** una prueba arma datos donde las reglas viejas y nuevas difieren en cada punto, corre la SQL del plan (M2, B4 a 7 días, M3) en PGlite y compara: dan igual. 551 pruebas; lint, typecheck y `next build` limpios.

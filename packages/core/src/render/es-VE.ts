@@ -3179,6 +3179,8 @@ export type StreakLineView = {
   bestBefore: number;
   /** Primera vez que este negocio ve la línea (H1a). */
   firstTime: boolean;
+  /** La racha que terminó antes de la actual (H4). */
+  previous?: number;
 };
 
 /** ¿Hoy la racha pasa el récord anterior por primera vez? (H3: récord anterior de 3 o más.) */
@@ -3186,8 +3188,12 @@ function isNewRecord(v: { current: number; bestBefore: number }): boolean {
   return v.bestBefore >= 3 && v.current === v.bestBefore + 1;
 }
 
-/** La línea de racha bajo la primera tarjeta guardada del día (H1, H1a, H2, H3, H3b). */
+/** La línea de racha bajo la primera tarjeta guardada del día (H1, H1a, H2, H3, H3b, H4). */
 export function streakLine(v: StreakLineView): string | null {
+  // H4 (ER-5, decisión 1A): el primer día después de cortarse una racha de 3 o más. Nunca se habla
+  // de la racha perdida; el récord es la meta.
+  if (v.current === 1 && (v.previous ?? 0) >= 3)
+    return `🔥 Arrancamos una racha nueva. Tu récord: ${v.bestBefore} días.`;
   if (v.current < 2) return null;
   const record = isNewRecord(v);
   const milestone = MILESTONES[v.current];

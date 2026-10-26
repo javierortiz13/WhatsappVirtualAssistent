@@ -1,5 +1,5 @@
 import { and, eq, type Queryable, rows, schema, sql, type Tx } from "@caja/db";
-import { addDays, businessDateOf, type IsoDate } from "../domain/dates";
+import { addDays, businessDateOf, type IsoDate, weekday } from "../domain/dates";
 
 /**
  * Hábito diario (PRD hábitos, fase 1): la racha cuenta los días seguidos que el negocio anotó algo
@@ -248,56 +248,71 @@ export async function streakLineEverShown(tx: Tx, tenantId: string): Promise<boo
 
 // ---------------------------------------------------------------- números del hábito (US-104, US-107)
 
+/** Lo que `habitStats` necesita del negocio. */
+export type HabitTenant = {
+  id: string;
+  createdAt: Date;
+  /** En la papelera desde (0017). */
+  deletedAt?: Date | null;
+  /** Suspensión actual (solo la última; el plan lo acepta a esta escala). */
+  suspendedAt?: Date | null;
+  status?: string;
+};
+
 /**
- * Números de un negocio para /admin "Hábito" y `pnpm metrics` (plan de medición §5, filas 1–4).
- * Solo conteos: ni nombres ni textos. Los dos lados usan esta función, así que dicen lo mismo.
+ * Números de un negocio para /admin "Hábito" y `pnpm metrics` (plan de medición §1.2 M1–M3 y §5
+ * filas 1–4, alineado en ER-4). Solo conteos: ni nombres ni textos. Los dos lados suman con
+ * `summarizeHabits`, así que dicen lo mismo, y lo mismo que la SQL del plan.
  */
 export type HabitStats = {
   current: number;
-  /** Escribió en los últimos 7 días. */
+  /** Escribió en los últimos 7 días (M1). */
   active7: boolean;
-  /** Días con registro (no cuenta "sin gastos") en los últimos 28, y días posibles desde que se registró. */
+  /** Escribió en la ventana de 28 días que termina ayer (M2). */
+  active28: boolean;
+  /**
+   * M2: días con registro (no cuenta "sin gastos") y días posibles en los 28 que terminan ayer:
+   * desde el registro, antes de la papelera y antes de la suspensión. Ambos 0 si no escribió en la
+   * ventana.
+   */
   recordDays28: number;
   eligibleDays28: number;
   /** Días sin gastos marcados en los últimos 7. */
   noSpendDays7: number;
-  /** De los últimos 7 días cumplidos: con el dueño en la ventana de 24 h a las 8 pm, y de esos, sin registro antes de las 8 pm. */
+  /** B4, últimos 7 días cumplidos, por teléfono dueño: con la ventana de 24 h abierta a las 8 pm, y de esos sin ningún registro todavía. */
   windowOpen7: number;
   windowOpenNoRecord7: number;
   ownerDays7: number;
-  /** Retención: registró en la semana 2 (días 7–13) y en la semana 5 (días 28–34); null si todavía no llega. */
+  /** M3: lunes de la semana (Caracas) en que se registró. */
+  cohortWeek: IsoDate;
+  /** Registró (o escribió) en los días 7–13 y 28–34; null si esa semana no ha terminado. */
   d7: boolean | null;
+  d7Wrote: boolean | null;
   d30: boolean | null;
+  d30Wrote: boolean | null;
+  /** En la papelera: fuera de M1 y de la ventana de las 8 pm; sigue en su cohorte (M3). */
+  trashed: boolean;
+  /** `status = 'active'` (pagó), para partir D30. */
+  paid: boolean;
 };
 
-export async function habitStats(
-  tx: Tx,
-  tenant: { id: string; createdAt: Date },
-  now: Date,
-): Promise<HabitStats> {
+export async function habitStats(tx: Tx, tenant: HabitTenant, now: Date): Promise<HabitStats> {
   const today = businessDateOf(now);
   const signup = businessDateOf(tenant.createdAt);
+  const trashDay = tenant.deletedAt ? businessDateOf(tenant.deletedAt) : null;
+  const suspendDay = tenant.suspendedAt ? businessDateOf(tenant.suspendedAt) : null;
   const kept = await keptDays(tx, tenant.id);
   const streak = await streakFor(tx, tenant.id, now);
   const recorded = (d: IsoDate) => kept.get(d) === "recorded";
-  const daysBetween = (a: IsoDate, b: IsoDate) =>
-    Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86_400_000);
-  let recordDays28 = 0;
-  let eligibleDays28 = 0;
-  for (let i = 0; i < 28; i++) {
-    const d = addDays(today, -i);
-    if (d < signup) break;
-    eligibleDays28 += 1;
-    if (recorded(d)) recordDays28 += 1;
-  }
-  let noSpendDays7 = 0;
-  for (let i = 0; i < 7; i++) if (kept.get(addDays(today, -i)) === "no_spend") noSpendDays7 += 1;
-  const week = (from: number, to: number) => {
-    if (daysBetween(signup, today) < to) return null;
-    for (let i = from; i <= to; i++) if (recorded(addDays(signup, i))) return true;
-    return false;
-  };
-  const [w] = rows<{ open: number; open_no_record: number; days: number; active: boolean }>(
+
+  const [w] = rows<{
+    open: number;
+    open_no_record: number;
+    days: number;
+    active7: boolean;
+    active28: boolean;
+    wrote: string[] | null;
+  }>(
     await tx.execute(sql`
       with owner as (
         select id from app.phone_number
@@ -307,45 +322,185 @@ export async function habitStats(
         select d::date as d,
                ((d::date)::timestamp + interval '20 hours') at time zone 'America/Caracas' as at8
         from generate_series(${today}::date - 7, ${today}::date - 1, interval '1 day') d
-        where d::date >= ${signup}::date
       ),
-      firsts as (
-        select (created_at at time zone 'America/Caracas')::date as d, min(created_at) as first_at
-        from app.movement where tenant_id = ${tenant.id} and deleted_at is null
-        group by 1
+      rec as (
+        select created_at from (
+          select created_at, deleted_at from app.movement where tenant_id = ${tenant.id}
+          union all
+          select created_at, deleted_at from app.account_transfer where tenant_id = ${tenant.id}
+          union all
+          select created_at, deleted_at from app.exchange_lot
+          where tenant_id = ${tenant.id} and source = 'exchange'
+        ) r
+        where deleted_at is null
+           or (deleted_at at time zone 'America/Caracas')::date
+              > (created_at at time zone 'America/Caracas')::date
+      ),
+      slots as (
+        select
+          exists (
+            select 1 from app.message m
+            where m.phone_id = o.id and m.direction = 'in'
+              and m.created_at > days.at8 - interval '23 hours 30 minutes'
+              and m.created_at <= days.at8
+          ) as open,
+          exists (
+            select 1 from rec x
+            where (x.created_at at time zone 'America/Caracas')::date = days.d
+              and x.created_at <= days.at8
+          ) as before20
+        from days cross join owner o
       )
       select
-        count(*) filter (where open)::int as open,
-        count(*) filter (where open and (f.first_at is null or f.first_at > days.at8))::int
-          as open_no_record,
-        count(*)::int as days,
+        (select count(*) filter (where open) from slots)::int as open,
+        (select count(*) filter (where open and not before20) from slots)::int as open_no_record,
+        (select count(*) from slots)::int as days,
         exists (
           select 1 from app.message
           where tenant_id = ${tenant.id} and direction = 'in'
-            and created_at > ${now.toISOString()}::timestamptz - interval '7 days'
-        ) as active
-      from days
-      left join firsts f on f.d = days.d
-      cross join lateral (
-        select exists (
-          select 1 from app.message m join owner o on o.id = m.phone_id
-          where m.direction = 'in'
-            and m.created_at > days.at8 - interval '23 hours 30 minutes'
-            and m.created_at <= days.at8
-        ) as open
-      ) w
+            and created_at >= ${now.toISOString()}::timestamptz - interval '7 days'
+        ) as active7,
+        exists (
+          select 1 from app.message
+          where tenant_id = ${tenant.id} and direction = 'in'
+            and (created_at at time zone 'America/Caracas')::date
+                between ${today}::date - 28 and ${today}::date - 1
+        ) as active28,
+        (
+          select array_agg(distinct (created_at at time zone 'America/Caracas')::date::text)
+          from app.message
+          where tenant_id = ${tenant.id} and direction = 'in' and kind <> 'reaction'
+            and (created_at at time zone 'America/Caracas')::date
+                between ${signup}::date + 7 and ${signup}::date + 34
+        ) as wrote
     `),
   );
+
+  // M2: los 28 días que terminan ayer, desde el registro, antes de la papelera y de la suspensión.
+  let recordDays28 = 0;
+  let eligibleDays28 = 0;
+  if (w?.active28)
+    for (let i = 1; i <= 28; i++) {
+      const d = addDays(today, -i);
+      if (d < signup) break;
+      if ((trashDay && d >= trashDay) || (suspendDay && d >= suspendDay)) continue;
+      eligibleDays28 += 1;
+      if (recorded(d)) recordDays28 += 1;
+    }
+  let noSpendDays7 = 0;
+  for (let i = 0; i < 7; i++) if (kept.get(addDays(today, -i)) === "no_spend") noSpendDays7 += 1;
+
+  // M3: la semana cuenta cuando ya terminó (su último día es antes de hoy).
+  const wrote = new Set(w?.wrote ?? []);
+  const week = (from: number, to: number, hit: (d: IsoDate) => boolean) => {
+    if (!(addDays(signup, to) < today)) return null;
+    for (let i = from; i <= to; i++) if (hit(addDays(signup, i))) return true;
+    return false;
+  };
+  const wroteOn = (d: IsoDate) => wrote.has(d);
   return {
     current: streak.current,
-    active7: !!w?.active,
+    active7: !!w?.active7,
+    active28: !!w?.active28,
     recordDays28,
     eligibleDays28,
     noSpendDays7,
     windowOpen7: w?.open ?? 0,
     windowOpenNoRecord7: w?.open_no_record ?? 0,
     ownerDays7: w?.days ?? 0,
-    d7: week(7, 13),
-    d30: week(28, 34),
+    cohortWeek: addDays(signup, -((weekday(signup) + 6) % 7)),
+    d7: week(7, 13, recorded),
+    d7Wrote: week(7, 13, wroteOn),
+    d30: week(28, 34, recorded),
+    d30Wrote: week(28, 34, wroteOn),
+    trashed: !!tenant.deletedAt,
+    paid: tenant.status === "active",
+  };
+}
+
+export type HabitCohort = {
+  week: IsoDate;
+  signedUp: number;
+  d7Mature: number;
+  d7Recorded: number;
+  d7Wrote: number;
+  d30Mature: number;
+  d30Recorded: number;
+  d30RecordedPaid: number;
+  d30Wrote: number;
+};
+
+/** Tarjeta "Hábito" de /admin y `pnpm metrics`, filas 1–4 del plan (§5). */
+export type HabitSummary = {
+  /** M1: activos 7 d (sin papelera) y sus rachas. */
+  active: number;
+  streak7: number;
+  streak2to6: number;
+  streak30: number;
+  /** M2: agrupado y mediana por usuario (percentil 50 interpolado, como la SQL del plan). */
+  users: number;
+  recordDays: number;
+  eligibleDays: number;
+  medianPct: number | null;
+  noSpendDays7: number;
+  /** Fila 3 (B4, 7 d), sin papelera. */
+  windowOpen: number;
+  windowOpenNoRecord: number;
+  ownerDays: number;
+  /** M3 por semana de registro, de la más nueva a la más vieja (papelera incluida). */
+  cohorts: HabitCohort[];
+};
+
+export function summarizeHabits(stats: HabitStats[]): HabitSummary {
+  const live = stats.filter((s) => !s.trashed);
+  const active = live.filter((s) => s.active7);
+  const m2 = stats.filter((s) => s.eligibleDays28 > 0);
+  const shares = m2.map((s) => s.recordDays28 / s.eligibleDays28).sort((a, b) => a - b);
+  const median = (() => {
+    if (!shares.length) return null;
+    const pos = (shares.length - 1) / 2;
+    const lo = shares[Math.floor(pos)] ?? 0;
+    const hi = shares[Math.ceil(pos)] ?? lo;
+    return lo + (hi - lo) * (pos - Math.floor(pos));
+  })();
+  const sum = (list: HabitStats[], f: (s: HabitStats) => number) =>
+    list.reduce((n, s) => n + f(s), 0);
+  const weeks = new Map<IsoDate, HabitCohort>();
+  for (const s of stats) {
+    const c = weeks.get(s.cohortWeek) ?? {
+      week: s.cohortWeek,
+      signedUp: 0,
+      d7Mature: 0,
+      d7Recorded: 0,
+      d7Wrote: 0,
+      d30Mature: 0,
+      d30Recorded: 0,
+      d30RecordedPaid: 0,
+      d30Wrote: 0,
+    };
+    c.signedUp += 1;
+    if (s.d7 !== null) c.d7Mature += 1;
+    if (s.d7) c.d7Recorded += 1;
+    if (s.d7Wrote) c.d7Wrote += 1;
+    if (s.d30 !== null) c.d30Mature += 1;
+    if (s.d30) c.d30Recorded += 1;
+    if (s.d30 && s.paid) c.d30RecordedPaid += 1;
+    if (s.d30Wrote) c.d30Wrote += 1;
+    weeks.set(s.cohortWeek, c);
+  }
+  return {
+    active: active.length,
+    streak7: active.filter((s) => s.current >= 7).length,
+    streak2to6: active.filter((s) => s.current >= 2 && s.current <= 6).length,
+    streak30: active.filter((s) => s.current >= 30).length,
+    users: m2.length,
+    recordDays: sum(m2, (s) => s.recordDays28),
+    eligibleDays: sum(m2, (s) => s.eligibleDays28),
+    medianPct: median === null ? null : Math.round(median * 1000) / 10,
+    noSpendDays7: sum(live, (s) => s.noSpendDays7),
+    windowOpen: sum(live, (s) => s.windowOpen7),
+    windowOpenNoRecord: sum(live, (s) => s.windowOpenNoRecord7),
+    ownerDays: sum(live, (s) => s.ownerDays7),
+    cohorts: [...weeks.values()].sort((a, b) => (a.week < b.week ? 1 : -1)),
   };
 }

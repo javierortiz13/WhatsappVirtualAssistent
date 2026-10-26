@@ -1,4 +1,4 @@
-import { eq, schema, withTenant } from "@caja/db";
+import { eq, rows, schema, sql, withTenant } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
@@ -9,7 +9,14 @@ import { addDays, businessDateOf } from "../src/domain/dates";
 import { Decimal } from "../src/domain/money";
 import { ingestWebhook } from "../src/inbox/ingest";
 import { type ProcessDeps, processInbound } from "../src/inbox/process";
-import { habitStats, isNoSpendPhrase, saveHabitSettings, streakFor } from "../src/ledger/habits";
+import {
+  type HabitStats,
+  habitStats,
+  isNoSpendPhrase,
+  saveHabitSettings,
+  streakFor,
+  summarizeHabits,
+} from "../src/ledger/habits";
 import { es } from "../src/render/index";
 import { MetaClient } from "../src/whatsapp/client";
 import * as fx from "./fixtures";
@@ -66,6 +73,16 @@ describe("textos de la racha (copy v1.2.3)", () => {
     expect(line(13, 11)).toBe("🔥 Llevas 13 días seguidos");
     expect(line(4, 2)).toBe("🔥 Llevas 4 días seguidos");
     expect(line(100, 99)).toBe("🔥 ¡100 días seguidos! Eso sí es constancia. Y es tu récord.");
+  });
+  it("H4: el primer día después de cortarse una racha de 3 o más", () => {
+    expect(es.streakLine({ current: 1, bestBefore: 12, firstTime: false, previous: 5 })).toBe(
+      "🔥 Arrancamos una racha nueva. Tu récord: 12 días.",
+    );
+    expect(es.streakLine({ current: 1, bestBefore: 3, firstTime: true, previous: 3 })).toBe(
+      "🔥 Arrancamos una racha nueva. Tu récord: 3 días.",
+    );
+    expect(es.streakLine({ current: 1, bestBefore: 2, firstTime: false, previous: 2 })).toBeNull();
+    expect(es.streakLine({ current: 1, bestBefore: 0, firstTime: true })).toBeNull();
   });
   it("H52 (persona), H52b (negocio), H52c, H52d", () => {
     const body = (v: Parameters<typeof es.noSpendReply>[0]) => es.noSpendReply(v).body;
@@ -333,10 +350,12 @@ describe("streakFor (US-101)", () => {
     const stats = await withTenant(h.t.db, h.tenantId, (tx) =>
       habitStats(tx, { id: h.tenantId, createdAt: new Date(Date.now() - 4 * DAY) }, new Date()),
     );
+    // Sin mensajes entrantes en la ventana no entra en M2 (ER-4); la racha y los días sin gastos sí.
     expect(stats).toMatchObject({
       current: 3,
-      recordDays28: 2,
-      eligibleDays28: 5,
+      active28: false,
+      recordDays28: 0,
+      eligibleDays28: 0,
       noSpendDays7: 1,
       d7: null,
       d30: null,
@@ -412,5 +431,288 @@ describe("hoy no gasté nada y la línea de racha (US-106, US-102)", () => {
       /\n\n🔥 Llevas 2 días seguidos\. Cada día que anotes algo, tu racha sigue\.$/,
     );
     expect(await h.send("gasté 6$ en pan")).not.toMatch(/🔥/);
+  });
+
+  it("H4: racha de 5, un día sin nada y un registro → «arrancamos una racha nueva», una vez", async () => {
+    await saveHabitSettings(h.t.db, { streakLine: true, noSpend: true }, "test", new Date());
+    for (const d of [6, 5, 4, 3, 2]) await h.recordDaysAgo(d);
+    const card = await h.send("gasté 5$ en café");
+    expect(card).toMatch(/\n\n🔥 Arrancamos una racha nueva\. Tu récord: 5 días\.$/);
+    const marks = (await h.t.db.select({ tc: schema.message.toolCalls }).from(schema.message))
+      .flatMap((m) => (m.tc ?? []) as { name: string; args?: Record<string, unknown> }[])
+      .filter((c) => c.name === "habit_streak_line");
+    expect(marks.at(-1)?.args).toEqual({ n: 1, restart: true });
+    expect(await h.send("gasté 6$ en pan")).not.toMatch(/🔥/);
+  });
+
+  it("H4 no sale si la racha que se cortó era de 2", async () => {
+    await saveHabitSettings(h.t.db, { streakLine: true, noSpend: true }, "test", new Date());
+    await h.recordDaysAgo(3);
+    await h.recordDaysAgo(2);
+    expect(await h.send("gasté 5$ en café")).not.toMatch(/🔥/);
+  });
+});
+
+/**
+ * ER-4: `habitStats` + `summarizeHabits` dan lo mismo que la SQL del plan de medición (M2, B4 a
+ * 7 días, M3). Datos armados para que las reglas de antes y las de ahora den distinto en cada punto:
+ * ventana hasta ayer, días suspendidos, transferencias antes de las 8 pm y semanas por cohorte.
+ */
+describe("números del hábito = SQL del plan de medición (ER-4)", () => {
+  let h: Awaited<ReturnType<typeof harness>>;
+  const today = businessDateOf(new Date());
+  /** Hora `hh` de Caracas, `daysAgo` días atrás (Caracas es UTC−4, sin horario de verano). */
+  const at = (daysAgo: number, hh: number) =>
+    new Date(`${addDays(today, -daysAgo)}T${String(hh + 4).padStart(2, "0")}:00:00Z`);
+  const SHARED = `
+    with
+    customers as (
+      select t.id as tenant_id,
+             (t.created_at at time zone 'America/Caracas')::date as signup_day,
+             t.status, t.deleted_at, t.suspended_at
+      from app.tenant t
+      where not exists (select 1 from unnest(t.crm_tags) g where lower(btrim(g)) = 'interna')
+    ),
+    rec_raw as (
+      select tenant_id, created_at, deleted_at from app.movement
+      union all
+      select tenant_id, created_at, deleted_at from app.account_transfer
+      union all
+      select tenant_id, created_at, deleted_at from app.exchange_lot where source = 'exchange'
+    ),
+    rec as (
+      select tenant_id, created_at from rec_raw
+      where deleted_at is null
+         or (deleted_at at time zone 'America/Caracas')::date > (created_at at time zone 'America/Caracas')::date
+    ),
+    rec_days as (
+      select distinct tenant_id, (created_at at time zone 'America/Caracas')::date as day from rec
+    ),
+    owners as (
+      select p.id as phone_id, p.tenant_id
+      from app.phone_number p join customers k using (tenant_id)
+      where p.role = 'owner' and p.status = 'active' and k.deleted_at is null
+    ),
+    today as (select (now() at time zone 'America/Caracas')::date as d)`;
+  const M2 = `${SHARED}
+    , bounds as (select today.d - 28 as d0, today.d - 1 as d1 from today),
+    days as (select generate_series(d0, d1, interval '1 day')::date as day from bounds),
+    act as (select distinct m.tenant_id from app.message m, bounds b
+            where m.direction = 'in'
+              and (m.created_at at time zone 'America/Caracas')::date between b.d0 and b.d1),
+    elig as (
+      select k.tenant_id, d.day
+      from customers k join act using (tenant_id) cross join days d
+      where d.day >= k.signup_day
+        and (k.deleted_at   is null or d.day < (k.deleted_at   at time zone 'America/Caracas')::date)
+        and (k.suspended_at is null or d.day < (k.suspended_at at time zone 'America/Caracas')::date)
+    ),
+    per_user as (
+      select e.tenant_id, count(*) as days, count(r.day) as rec_days
+      from elig e left join rec_days r on r.tenant_id = e.tenant_id and r.day = e.day
+      group by e.tenant_id
+    )
+    select count(*)::int as users, coalesce(sum(days), 0)::int as user_days,
+           coalesce(sum(rec_days), 0)::int as record_days
+    from per_user`;
+  const B4 = `${SHARED}
+    , slots as (
+      select g::date as d, ((g::date + time '20:00') at time zone 'America/Caracas') as ts
+      from today, generate_series(today.d - 7, today.d - 1, interval '1 day') g
+    )
+    select count(*)::int as owners,
+           count(*) filter (where w.open)::int as window_open_2000,
+           count(*) filter (where w.open and not r.before20)::int as open_no_record_yet
+    from slots s cross join owners o
+    cross join lateral (select exists (select 1 from app.message m where m.phone_id = o.phone_id and m.direction = 'in'
+              and m.created_at > s.ts - interval '23 hours 30 minutes' and m.created_at <= s.ts) as open) w
+    cross join lateral (select
+              exists (select 1 from rec x where x.tenant_id = o.tenant_id
+                      and (x.created_at at time zone 'America/Caracas')::date = s.d and x.created_at <= s.ts) as before20) r`;
+  const M3 = `${SHARED}
+    , wrote as (select distinct tenant_id, (created_at at time zone 'America/Caracas')::date as day
+                from app.message where direction = 'in' and kind <> 'reaction')
+    select date_trunc('week', k.signup_day)::date::text as cohort_week,
+           count(*)::int as signed_up,
+           count(*) filter (where k.signup_day + 13 < t.d)::int as d7_mature,
+           count(*) filter (where k.signup_day + 13 < t.d and exists (select 1 from rec_days r
+                            where r.tenant_id = k.tenant_id and r.day between k.signup_day + 7 and k.signup_day + 13))::int as d7_recorded,
+           count(*) filter (where k.signup_day + 13 < t.d and exists (select 1 from wrote w
+                            where w.tenant_id = k.tenant_id and w.day between k.signup_day + 7 and k.signup_day + 13))::int as d7_wrote,
+           count(*) filter (where k.signup_day + 34 < t.d)::int as d30_mature,
+           count(*) filter (where k.signup_day + 34 < t.d and exists (select 1 from rec_days r
+                            where r.tenant_id = k.tenant_id and r.day between k.signup_day + 28 and k.signup_day + 34))::int as d30_recorded,
+           count(*) filter (where k.signup_day + 34 < t.d and k.status = 'active' and exists (select 1 from rec_days r
+                            where r.tenant_id = k.tenant_id and r.day between k.signup_day + 28 and k.signup_day + 34))::int as d30_recorded_paid,
+           count(*) filter (where k.signup_day + 34 < t.d and exists (select 1 from wrote w
+                            where w.tenant_id = k.tenant_id and w.day between k.signup_day + 28 and k.signup_day + 34))::int as d30_wrote
+    from customers k, today t
+    group by 1 order by 1`;
+
+  beforeAll(async () => {
+    h = await harness("food");
+    const db = h.t.db;
+    const [owner] = await db
+      .select({ id: schema.phoneNumber.id })
+      .from(schema.phoneNumber)
+      .where(eq(schema.phoneNumber.e164, OWNER));
+    const ownerId = owner?.id as string;
+    // Se registró hace 40 días; suspendido desde hace 5 (los días 1–5 no son posibles en M2).
+    await db
+      .update(schema.tenant)
+      .set({ createdAt: at(40, 9), suspendedAt: at(5, 12), status: "suspended" })
+      .where(eq(schema.tenant.id, h.tenantId));
+    // Gastos: hoy (antes contaba en la ventana), hace 3 (día suspendido), hace 10 (D30 y M2) y
+    // hace 32 (día 8 desde el registro: D7).
+    for (const d of [0, 3, 10, 32]) await h.recordDaysAgo(d);
+    await withTenant(db, h.tenantId, async (tx) => {
+      const [a, b] = await tx
+        .insert(schema.account)
+        .values([
+          { tenantId: h.tenantId, name: "Banesco", currency: "VES", openingDate: today },
+          { tenantId: h.tenantId, name: "Efectivo", currency: "USD", openingDate: today },
+        ])
+        .returning({ id: schema.account.id });
+      // Hace 2 días: solo una transferencia a las 10 am, y el dueño escribió a las 7 pm. A las 8 pm
+      // la ventana estaba abierta y ya había registro (antes solo se miraban los gastos).
+      await tx.insert(schema.accountTransfer).values({
+        tenantId: h.tenantId,
+        fromAccountId: a?.id as string,
+        toAccountId: b?.id as string,
+        fromAmount: "100.00",
+        toAmount: "0.50",
+        businessDate: addDays(today, -2),
+        createdAt: at(2, 10),
+      });
+      await tx.insert(schema.message).values([
+        {
+          tenantId: h.tenantId,
+          phoneId: ownerId,
+          direction: "in",
+          kind: "text",
+          createdAt: at(2, 19),
+        },
+        // Día 31 desde el registro: escribió en la semana 5.
+        {
+          tenantId: h.tenantId,
+          phoneId: ownerId,
+          direction: "in",
+          kind: "text",
+          createdAt: at(9, 8),
+        },
+        // Una reacción en la semana 2 no es "escribió".
+        {
+          tenantId: h.tenantId,
+          phoneId: ownerId,
+          direction: "in",
+          kind: "reaction",
+          createdAt: at(30, 8),
+        },
+      ]);
+    });
+  });
+  afterAll(() => h.t.close());
+
+  it("M2, B4 y M3 dan lo mismo que la SQL del plan, y lo esperado a mano", async () => {
+    const [tenant] = await h.t.db
+      .select()
+      .from(schema.tenant)
+      .where(eq(schema.tenant.id, h.tenantId));
+    const stats = await withTenant(h.t.db, h.tenantId, (tx) =>
+      habitStats(tx, tenant as NonNullable<typeof tenant>, new Date()),
+    );
+    const sum = summarizeHabits([stats]);
+    const [m2] = rows<{ users: number; user_days: number; record_days: number }>(
+      await h.t.db.execute(sql.raw(M2)),
+    );
+    const [b4] = rows<{ owners: number; window_open_2000: number; open_no_record_yet: number }>(
+      await h.t.db.execute(sql.raw(B4)),
+    );
+    const m3 = rows<Record<string, number | string>>(await h.t.db.execute(sql.raw(M3)));
+
+    // A mano: 28 días hasta ayer menos los 5 suspendidos; solo el de hace 10 tiene registro.
+    expect({ users: sum.users, days: sum.eligibleDays, rec: sum.recordDays }).toEqual({
+      users: 1,
+      days: 23,
+      rec: 1,
+    });
+    expect({ users: sum.users, days: sum.eligibleDays, rec: sum.recordDays }).toEqual({
+      users: m2?.users,
+      days: m2?.user_days,
+      rec: m2?.record_days,
+    });
+    expect({ days: sum.ownerDays, open: sum.windowOpen, noRec: sum.windowOpenNoRecord }).toEqual({
+      days: 7,
+      open: 1,
+      noRec: 0,
+    });
+    expect({ days: sum.ownerDays, open: sum.windowOpen, noRec: sum.windowOpenNoRecord }).toEqual({
+      days: b4?.owners,
+      open: b4?.window_open_2000,
+      noRec: b4?.open_no_record_yet,
+    });
+    expect(sum.cohorts).toEqual([
+      {
+        week: stats.cohortWeek,
+        signedUp: 1,
+        d7Mature: 1,
+        d7Recorded: 1,
+        d7Wrote: 0,
+        d30Mature: 1,
+        d30Recorded: 1,
+        d30RecordedPaid: 0,
+        d30Wrote: 1,
+      },
+    ]);
+    expect(m3).toEqual([
+      {
+        cohort_week: stats.cohortWeek,
+        signed_up: 1,
+        d7_mature: 1,
+        d7_recorded: 1,
+        d7_wrote: 0,
+        d30_mature: 1,
+        d30_recorded: 1,
+        d30_recorded_paid: 0,
+        d30_wrote: 1,
+      },
+    ]);
+  });
+
+  it("resumen: la papelera sale de M1 y de la ventana, sigue en su cohorte; mediana interpolada", () => {
+    const base: HabitStats = {
+      current: 8,
+      active7: true,
+      active28: true,
+      recordDays28: 1,
+      eligibleDays28: 4,
+      noSpendDays7: 1,
+      windowOpen7: 2,
+      windowOpenNoRecord7: 1,
+      ownerDays7: 7,
+      cohortWeek: "2026-10-05" as HabitStats["cohortWeek"],
+      d7: true,
+      d7Wrote: true,
+      d30: null,
+      d30Wrote: null,
+      trashed: false,
+      paid: false,
+    };
+    const sum = summarizeHabits([
+      base,
+      { ...base, recordDays28: 3, eligibleDays28: 4, trashed: true },
+      { ...base, active7: false, active28: false, recordDays28: 0, eligibleDays28: 0, d7: false },
+    ]);
+    expect(sum).toMatchObject({
+      active: 1,
+      streak7: 1,
+      users: 2,
+      recordDays: 4,
+      eligibleDays: 8,
+      medianPct: 50,
+      windowOpen: 4,
+      ownerDays: 14,
+    });
+    expect(sum.cohorts[0]).toMatchObject({ signedUp: 3, d7Mature: 3, d7Recorded: 2 });
   });
 });

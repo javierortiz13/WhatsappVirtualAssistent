@@ -224,8 +224,8 @@ export default async function AdminHome({
                 <strong>Días con registro (28 d)</strong>
                 <span className="sub num">
                   {habits.recordDays} de {habits.eligibleDays} días · mediana por usuario{" "}
-                  {habits.medianPct === null ? "—" : `${habits.medianPct} %`} · sin gastos (7 d):{" "}
-                  {habits.noSpendDays7}
+                  {habits.medianPct === null ? "—" : `${Math.round(habits.medianPct)} %`} · sin
+                  gastos (7 d): {habits.noSpendDays7}
                 </span>
               </span>
               <strong className="num">
@@ -246,11 +246,18 @@ export default async function AdminHome({
             </div>
             <div className="row">
               <span className="what">
-                <strong>Retención (registró)</strong>
-                <span className="sub num">
-                  semana 2 (D7): {habits.d7.n ? `${habits.d7.yes} de ${habits.d7.n}` : "—"} · semana
-                  5 (D30): {habits.d30.n ? `${habits.d30.yes} de ${habits.d30.n}` : "—"}
-                </span>
+                <strong>Retención (registró) por semana de registro</strong>
+                {habits.cohorts.length ? (
+                  habits.cohorts.slice(0, 8).map((c) => (
+                    <span className="sub num" key={c.week}>
+                      {formatShortDate(c.week)} · {c.signedUp} · semana 2 (D7):{" "}
+                      {c.d7Mature ? `${c.d7Recorded} de ${c.d7Mature}` : "—"} · semana 5 (D30):{" "}
+                      {c.d30Mature ? `${c.d30Recorded} de ${c.d30Mature}` : "—"}
+                    </span>
+                  ))
+                ) : (
+                  <span className="sub">—</span>
+                )}
               </span>
             </div>
           </>

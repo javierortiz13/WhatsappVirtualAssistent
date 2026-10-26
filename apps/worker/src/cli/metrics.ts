@@ -1,4 +1,4 @@
-import { habitStats } from "@caja/core";
+import { habitStats, summarizeHabits } from "@caja/core";
 import { createDb, loadNearestEnvFile, rows, sql } from "@caja/db";
 
 /**
@@ -133,43 +133,90 @@ const FREE_TIER = 1000;
 });
 
 /**
- * Hábito (PRD hábitos US-104): racha por cliente en tramos, días con registro sobre los días
- * posibles, días sin gastos y tarjetas con la línea de racha. Solo clientes (sin "interna"), solo
- * conteos. Mismo cálculo que la tarjeta "Hábito" de /admin.
+ * Hábito (PRD hábitos US-104, plan de medición M1–M3 y B4, alineado en ER-4): los mismos números
+ * que la tarjeta "Hábito" de /admin (`habitStats` + `summarizeHabits`). Solo clientes (sin
+ * "interna"), solo conteos. Los de la papelera cuentan donde el plan los cuenta (M2 hasta el día
+ * del borrado, M3 en su cohorte).
  */
 async function habits() {
   const now = new Date();
-  const tenants = rows<{ id: string; created_at: string }>(
+  const tenants = rows<{
+    id: string;
+    created_at: string;
+    deleted_at: string | null;
+    suspended_at: string | null;
+    status: string;
+  }>(
     await db.execute(sql`
-      select id, created_at::text from app.tenant
-      where deleted_at is null
-        and not exists (select 1 from unnest(crm_tags) g where lower(btrim(g)) = 'interna')`),
+      select id, created_at::text, deleted_at::text, suspended_at::text, status from app.tenant
+      where not exists (select 1 from unnest(crm_tags) g where lower(btrim(g)) = 'interna')`),
   );
   const buckets = { "0": 0, "1": 0, "2-6": 0, "7-29": 0, "30+": 0 };
-  let recordDays = 0;
-  let eligible = 0;
-  let noSpend = 0;
+  const stats = [];
   for (const t of tenants) {
     const s = await db.transaction((tx) =>
-      habitStats(tx, { id: t.id, createdAt: new Date(t.created_at) }, now),
+      habitStats(
+        tx,
+        {
+          id: t.id,
+          createdAt: new Date(t.created_at),
+          deletedAt: t.deleted_at ? new Date(t.deleted_at) : null,
+          suspendedAt: t.suspended_at ? new Date(t.suspended_at) : null,
+          status: t.status,
+        },
+        now,
+      ),
     );
+    stats.push(s);
+    if (s.trashed) continue;
     const n = s.current;
     buckets[n === 0 ? "0" : n === 1 ? "1" : n < 7 ? "2-6" : n < 30 ? "7-29" : "30+"] += 1;
-    recordDays += s.recordDays28;
-    eligible += s.eligibleDays28;
-    noSpend += s.noSpendDays7;
   }
-  console.log("\n== Hábito: clientes por racha actual");
+  const h = summarizeHabits(stats);
+  console.log("\n== Hábito: clientes por racha actual (sin papelera)");
   console.table([{ ...buckets, "7+": buckets["7-29"] + buckets["30+"] }]);
-  console.log("\n== Hábito: días con registro (28 d) y días sin gastos (7 d)");
+  console.log("\n== Hábito M1: activos 7 d con racha");
   console.table([
     {
-      dias_con_registro: recordDays,
-      dias_posibles: eligible,
-      pct: eligible ? Math.round((recordDays / eligible) * 100) : null,
-      dias_sin_gastos_7d: noSpend,
+      activos_7d: h.active,
+      racha_2_6: h.streak2to6,
+      racha_7plus: h.streak7,
+      racha_30plus: h.streak30,
     },
   ]);
+  console.log("\n== Hábito M2: días con registro (28 d hasta ayer) y días sin gastos (7 d)");
+  console.table([
+    {
+      usuarios: h.users,
+      dias_posibles: h.eligibleDays,
+      dias_con_registro: h.recordDays,
+      pct: h.eligibleDays ? Math.round((h.recordDays / h.eligibleDays) * 1000) / 10 : null,
+      mediana_pct: h.medianPct,
+      dias_sin_gastos_7d: h.noSpendDays7,
+    },
+  ]);
+  console.log("\n== Hábito B4 (7 d): días-dueño con la ventana abierta a las 8 pm");
+  console.table([
+    {
+      dias_dueno: h.ownerDays,
+      ventana_abierta: h.windowOpen,
+      sin_registro_aun: h.windowOpenNoRecord,
+    },
+  ]);
+  console.log("\n== Hábito M3: retención por semana de registro");
+  console.table(
+    h.cohorts.map((c) => ({
+      semana: c.week,
+      registrados: c.signedUp,
+      d7_maduros: c.d7Mature,
+      d7_registro: c.d7Recorded,
+      d7_escribio: c.d7Wrote,
+      d30_maduros: c.d30Mature,
+      d30_registro: c.d30Recorded,
+      d30_registro_pago: c.d30RecordedPaid,
+      d30_escribio: c.d30Wrote,
+    })),
+  );
   await q(
     "Hábito: tarjetas con la línea de racha (una por turno)",
     sql`

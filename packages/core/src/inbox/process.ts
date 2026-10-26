@@ -871,13 +871,14 @@ async function noSpend(
 
 /**
  * La línea de racha para la tarjeta que se acaba de guardar (hábitos US-102), si toca: interruptor
- * `streakLine` encendido, 2 días o más y sin línea de racha hoy en este teléfono.
+ * `streakLine` encendido, 2 días o más (o el primer día tras cortarse una de 3 o más, H4) y sin línea
+ * de racha hoy en este teléfono.
  */
 async function streakLineFor(
   tx: Tx,
   ctx: RouteCtx,
   now: Date,
-): Promise<{ text: string; args: { n: number; milestone?: number } } | null> {
+): Promise<{ text: string; args: { n: number; milestone?: number; restart?: true } } | null> {
   if (!(await habitSettings(tx)).streakLine) return null;
   if (await streakShownToday(tx, ctx.phoneId, now)) return null;
   const s = await streakFor(tx, ctx.tenantId, now);
@@ -885,10 +886,12 @@ async function streakLineFor(
     current: s.current,
     bestBefore: s.bestBefore,
     firstTime: !(await streakLineEverShown(tx, ctx.tenantId)),
+    previous: s.previous,
   });
   if (!text) return null;
   const milestone = [7, 30, 100, 365].includes(s.current) ? { milestone: s.current } : {};
-  return { text, args: { n: s.current, ...milestone } };
+  const restart = s.current === 1 ? { restart: true as const } : {};
+  return { text, args: { n: s.current, ...milestone, ...restart } };
 }
 
 /** Marca del aviso "renové tu prueba" (beta, 20/10). */
