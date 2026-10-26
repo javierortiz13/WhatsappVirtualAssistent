@@ -1776,3 +1776,15 @@ Con esto se cumple la condición de 0024 y 0025 para encender los hábitos (A-00
 - Javier encendió `habits.streakLine` y `habits.noSpend` en /admin a las 16:34 (Caracas).
 - Primera prueba en su cuenta interna «Finanzas personales» (racha de 7), a las 17:02: la tarjeta trajo «🔥 ¡7 días seguidos! Una semana completa.». En la base queda un turno con la marca `habit_streak_line { n: 7, milestone: 7 }`.
 - Para la lectura del 13/11, las dos semanas de datos cuentan desde hoy.
+
+### S3 · 26/10/2026 · C-S1 (Sentry): 0 eventos con datos · pg-boss sin oyente en la web
+
+**C-S1:** Javier revisó Sentry. El issue revisado a fondo es `JAVASCRIPT-NEXTJS-2`, del 26/10 a las 04:54 UTC:
+- un `Error: Unhandled error` de pg-boss / pg-pool («Connection terminated due to connection timeout») en el servidor web;
+- no tiene `params:`, ni `Failing row contains`, ni nada del webhook, ni cuerpo de petición, ni IP.
+
+Los demás issues, según Javier, también eran cortes de conexión y los marcó como resueltos.
+
+**Conteo: 0 eventos con datos del usuario.** No hay exposición pasada que registrar. No se ve proyecto del worker.
+
+**Arreglo:** el productor de pg-boss de la web (`apps/web/lib/boss.ts`) no tenía `on("error")`. Un corte de conexión salía como «Unhandled error» y podía tumbar la instancia. Ahora se registra, recortado con `errorText`, y el pool se reconecta solo. El worker ya lo tenía.
