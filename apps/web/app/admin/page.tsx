@@ -266,15 +266,33 @@ export default async function AdminHome({
             No se pudo calcular: falta aplicar la migración 0025 (días sin gastos) en la base.
           </p>
         )}
-        <form action={saveHabitsAction} className="stack-sm">
-          <label className="check">
-            <input type="checkbox" name="streak_line" defaultChecked={habitFlags.streakLine} />{" "}
-            Línea de racha en la tarjeta y en Inicio
-          </label>
-          <label className="check">
-            <input type="checkbox" name="no_spend" defaultChecked={habitFlags.noSpend} /> «Hoy no
-            gasté nada»
-          </label>
+        <form action={saveHabitsAction} className="stack-sm admin-flags">
+          <span className="label">Interruptores (para todos los clientes)</span>
+          {(
+            [
+              [
+                "streak_line",
+                habitFlags.streakLine,
+                "Línea de racha",
+                "En la primera tarjeta guardada del día y la tarjeta «Tu racha» en Inicio",
+              ],
+              [
+                "no_spend",
+                habitFlags.noSpend,
+                "«Hoy no gasté nada»",
+                "El día sin gastos cuenta para la racha",
+              ],
+            ] as const
+          ).map(([name, on, title, note]) => (
+            <label className="flag" key={name}>
+              <input type="checkbox" name={name} defaultChecked={on} />
+              <span className="what">
+                <strong>{title}</strong>
+                <span className="sub">{note}</span>
+              </span>
+              <span className={`badge ${on ? "ok" : ""}`}>{on ? "encendido" : "apagado"}</span>
+            </label>
+          ))}
           <p className="sub">
             Enciéndelos solo con su aprobación. Si una racha sale mal, apágalos aquí el mismo día.
           </p>
