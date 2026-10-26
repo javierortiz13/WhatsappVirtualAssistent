@@ -116,7 +116,7 @@ import {
   transferAmounts,
 } from "../ledger/index";
 import { NoRateError, rateFor } from "../ledger/rate-for";
-import { type Logger, maskPhone, silentLogger } from "../log";
+import { errorText, type Logger, maskPhone, silentLogger } from "../log";
 import {
   canStartSignup,
   handleSignup,
@@ -2949,7 +2949,7 @@ function reviveInbound(payload: unknown): InboundMessage {
 }
 
 function errMsg(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return errorText(err);
 }
 
 type PendingRow = typeof schema.pendingAction.$inferSelect;

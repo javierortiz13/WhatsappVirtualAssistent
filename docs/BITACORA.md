@@ -1658,3 +1658,22 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
 - **F-2 (WCAG 1.4.1):** el punto de un día sin gastos va medio lleno (`linear-gradient`), así que ya no se distingue de "sin registros" solo por el color.
 
 **Pendiente (Javier):** migraciones 0024 y 0025 en producción, antes de encender cualquier interruptor de hábitos.
+
+### S3 · 26/10/2026 · Revisión técnica del PRD de hábitos y ER-3: errores sin datos del usuario
+
+**Revisión técnica:** escrita en `prd-habits.md` "§ Engineering review" (repo de la agencia, `e909905`) sobre `eb6969d`:
+- ER-1 a ER-10, las respuestas DQ-1 a DQ-26 y un plan revisado.
+- Lo principal:
+  - Las tablas nuevas borran en cascada; `reminder.linked_movement_id` debe ser `SET NULL`.
+  - La puerta de alcance da 2 < 3, así que los recordatorios van antes que el aviso de las 8 pm.
+  - `/privacidad` sale junto con P2 + P3, con todo apagado.
+  - ER-3, abajo.
+
+**ER-3 (privacidad, aplicaba hoy):**
+- **El problema:** el error de una consulta de Drizzle trae la SQL **y sus parámetros** ("params: …") y Postgres agrega "Failing row contains (…)". Los errores de los jobs van completos a Sentry y a los logs, así que el texto de un mensaje podía terminar ahí.
+- **El arreglo:** `scrubErrorText` (core/log.ts) corta en "params:" y quita la fila y la llave. Se usa en:
+  - el `beforeSend` de Sentry del worker y de la web;
+  - el `formatters.log` del logger del worker (`err`, `error`, `detail`, `msg`);
+  - `errMsg` de `process.ts`.
+
+**Verificado:** `log.test.ts` (consulta de Drizzle, fila y llave de Postgres, Sentry y logger). 520 tests, lint, typecheck y `next build` limpios.

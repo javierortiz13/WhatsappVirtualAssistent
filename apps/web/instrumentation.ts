@@ -1,3 +1,4 @@
+import { scrubSentryEvent } from "@caja/core/log";
 import * as Sentry from "@sentry/nextjs";
 
 /**
@@ -12,6 +13,8 @@ export async function register() {
     environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV,
     release: process.env.VERCEL_GIT_COMMIT_SHA,
     tracesSampleRate: 0,
+    // Los errores de la base traen los parámetros de la consulta: se recortan antes de salir (ER-3).
+    beforeSend: (event) => scrubSentryEvent(event),
   });
 }
 

@@ -8,7 +8,8 @@
     "./domain": "./src/domain/index.ts",
     "./plans": "./src/billing/plans.ts",
     "./whatsapp": "./src/whatsapp/index.ts",
-    "./inbox": "./src/inbox/index.ts"
+    "./inbox": "./src/inbox/index.ts",
+    "./log": "./src/log.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
