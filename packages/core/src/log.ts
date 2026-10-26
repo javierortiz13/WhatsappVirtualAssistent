@@ -49,11 +49,16 @@ export function scrubLogFields(obj: Record<string, unknown>): Record<string, unk
 type SentryLikeEvent = {
   message?: string;
   exception?: { values?: { value?: string }[] };
+  breadcrumbs?: { message?: string }[];
 };
 
-/** `beforeSend` de Sentry (web y worker): el mismo recorte en el mensaje y en cada excepción. */
+/**
+ * `beforeSend` de Sentry (worker, servidor web y navegador; SEC-1): el mismo recorte en el mensaje,
+ * en cada excepción y en los breadcrumbs.
+ */
 export function scrubSentryEvent<E extends SentryLikeEvent>(event: E): E {
   if (event.message) event.message = scrubErrorText(event.message);
   for (const v of event.exception?.values ?? []) if (v.value) v.value = scrubErrorText(v.value);
+  for (const b of event.breadcrumbs ?? []) if (b.message) b.message = scrubErrorText(b.message);
   return event;
 }

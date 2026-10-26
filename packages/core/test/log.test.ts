@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { scrubErrorText, scrubLogFields, scrubSentryEvent } from "../src/log";
 
@@ -23,10 +25,37 @@ describe("scrubErrorText", () => {
     const event = scrubSentryEvent({
       message: drizzle,
       exception: { values: [{ value: drizzle }] },
+      breadcrumbs: [{ message: drizzle }, {}],
     });
+    expect(event.breadcrumbs?.[0]?.message).toContain('insert into "app"."message"');
     expect(JSON.stringify(event)).not.toMatch(/novia/);
     expect(JSON.stringify(scrubLogFields({ err: drizzle, to: "58412****567" }))).not.toMatch(
       /novia/,
     );
+  });
+});
+
+/** SEC-1: ningún `Sentry.init` del repo sale sin el recorte. */
+describe("Sentry.init siempre con beforeSend", () => {
+  const root = join(__dirname, "../../..");
+  const files = (dir: string): string[] =>
+    readdirSync(dir).flatMap((f) => {
+      if (f === "node_modules" || f.startsWith(".")) return [];
+      const p = join(dir, f);
+      return statSync(p).isDirectory() ? files(p) : /\.(ts|tsx)$/.test(f) ? [p] : [];
+    });
+  it("worker, servidor web y navegador", () => {
+    const inits = files(join(root, "apps")).flatMap((f) => {
+      const src = readFileSync(f, "utf8");
+      return [...src.matchAll(/Sentry\.init\(\{([\s\S]*?)\n\s*\}\);/g)].map((m) => ({
+        f,
+        body: m[1] ?? "",
+      }));
+    });
+    expect(inits.length).toBeGreaterThanOrEqual(3);
+    for (const { f, body } of inits) {
+      expect(body, f).toContain("beforeSend: (event) => scrubSentryEvent(event)");
+      expect(body, f).not.toMatch(/sendDefaultPii:\s*true/);
+    }
   });
 });

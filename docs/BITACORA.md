@@ -1710,3 +1710,14 @@ Handoff `dev-handoff-2026-10-26-signup.md` (auditoría del registro). **No despl
 4. Mandar las capturas.
 
 Hasta entonces nadie dice «escríbele hola».
+
+### S3 · 26/10/2026 · SEC-1: lo que faltaba para que ningún mensaje llegue a Sentry
+
+El recorte de ER-3 ya cubría el worker y el servidor web. Para cumplir SEC-1 (PRD de hábitos v3) faltaban tres cosas:
+- `scrubSentryEvent` también recorta los breadcrumbs.
+- El Sentry del navegador (`instrumentation-client.ts`) usa el mismo `beforeSend`.
+- Una prueba falla si algún `Sentry.init` de `apps/` sale sin `beforeSend` o con `sendDefaultPii: true`.
+
+**Verificado:** 546 pruebas pasan; lint, typecheck y `next build` limpios.
+
+**Pendiente (Javier):** en Sentry, buscar `params:` y `Failing row contains`, anotar solo cuántos hay y borrar esos issues. Después, cumplimiento re-lee las dos líneas de Sentry en /privacidad.
