@@ -1677,3 +1677,29 @@ Atajos en cualquier paso: *web* (enlace al registro web), *empezar de nuevo*, *a
   - `errMsg` de `process.ts`.
 
 **Verificado:** `log.test.ts` (consulta de Drizzle, fila y llave de Postgres, Sentry y logger). 520 tests, lint, typecheck y `next build` limpios.
+
+### S3 · 26/10/2026 · Registro por WhatsApp: sin cuentas, trampas al volver y progreso (F1–F4)
+
+Handoff `dev-handoff-2026-10-26-signup.md` (auditoría del registro). **No desplegado:** espera la revisión de textos de cumplimiento y la aprobación de Javier.
+
+**Hecho:**
+- **F1, sin «cuentas»:** categorías pasa directo al presupuesto con `accounts: []`.
+  - Una fila vieja en `accounts` o `accounts_confirm` que escribe cualquier texto va al presupuesto con el mensaje de regreso, sin leerlo como cuentas. Los botones siguen igual.
+  - El tour dice «Cuentas (opcional)» cuando no hay cuentas.
+  - El presupuesto abre con «Último paso, y es opcional».
+- **F2a, palabras de intención** (sin tildes ni puntuación final):
+  - SÍ en categorías = «Usar estas».
+  - SALTAR en presupuesto = «Ahora no».
+  - Un saludo o SALTAR en categorías repite la pregunta.
+  - «buenos días», «quiero probar», «info», «rocco» y las palabras de SÍ/SALTAR no son nombre.
+  - «empezar de nuevo.» o «empezar de nuevo!» reinicia.
+- **F2b, mensaje de regreso:** con 6 h o más y un texto (no botón), desde `biz_name` hasta `budget`: `signupWelcomeBack` («te faltan N pasos») + la pregunta, sin leer el texto. En nombre y en personal/negocio queda como antes.
+- **F3:** intro más corta; progreso «*n de total* · » desde la tercera pregunta (personal 4, negocio 6); `signupCategoriesSet` sin la línea del dashboard; `signupTextOnly` nuevo.
+- **F4:** /admin «Registros sin terminar» muestra personal/negocio y cuántos mensajes.
+
+**Verificado:** `chat-signup.test.ts` pasa de 10 a 31 pruebas: textos letra por letra, N en cada paso, filas viejas, 25 h y 2 h, cada palabra de SÍ/SALTAR, cuerpo ≤ 1024 y títulos ≤ 20/24. Total 541, con lint y typecheck limpios.
+
+**Pendiente (Javier):**
+- Antes del deploy, dejar un número interno parado en «cuentas» (flujo de hoy) y otro en «categorías».
+- Después del deploy, mover su `updated_at` 7 h atrás, escribir «hola» en cada uno y mandar la captura.
+- Hasta entonces nadie dice «escríbele hola».

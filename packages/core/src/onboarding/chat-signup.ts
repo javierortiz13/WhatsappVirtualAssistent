@@ -19,8 +19,11 @@ import {
  * cuenta la crea en el chat, con lo mismo que pide el asistente web. Todo determinista: sin LLM,
  * con botones donde se puede y parsers sencillos donde hay que escribir. Pasos:
  *
- *   name → kind → (biz_name → biz_type) → currency → categories → accounts → accounts_confirm
- *   → budget → done
+ *   name → kind → (biz_name → biz_type) → currency → categories → budget → done
+ *
+ * Desde la auditoría del 26/10 el registro ya no pide cuentas (ahí se quedaba la mitad de los que
+ * no terminaban): se crean después, por el chat o en el panel. `accounts` y `accounts_confirm`
+ * siguen en la lista solo para leer los registros viejos que quedaron en esos pasos.
  *
  * El paso y lo respondido viven en `app.signup` (uno por número); si la persona vuelve otro día,
  * sigue donde quedó. Al terminar se crea el negocio con el número ya activo.
@@ -164,13 +167,29 @@ export async function handleSignup(
     await save(step);
     return { outbound: [es.signupWeb(cfg.dashboardUrl)], step };
   }
-  if (text && /^(empezar de nuevo|volver a empezar|reiniciar|empezar otra vez)$/i.test(text)) {
+  if (
+    text &&
+    /^(empezar de nuevo|volver a empezar|reiniciar|empezar otra vez)[.!¡]*$/i.test(text)
+  ) {
     await save("name", {});
     return { outbound: [es.signupAskName(profile)], step: "name" };
   }
   if (!text && !choice) {
     await save(step);
     return { outbound: [es.signupTextOnly(), prompt(step, data, profile)], step };
+  }
+  // Volvió después de 6 h o más con un texto: dónde quedamos, sin leer ese texto como respuesta (un
+  // «hola» no es una categoría). Un botón del paso actual se procesa normal aunque pasen días.
+  const away = now.getTime() - row.updatedAt.getTime() >= WELCOME_BACK_MS;
+  if (text && away && WELCOME_BACK_STEPS.includes(step)) {
+    await save(step);
+    return {
+      outbound: [
+        es.signupWelcomeBack(data.name ?? null, remainingSteps(step, data)),
+        prompt(step, data, profile),
+      ],
+      step,
+    };
   }
   if (text && /^(ayuda|\?+|no entiendo|c[oó]mo es)$/i.test(text)) {
     await save(step);
@@ -259,18 +278,19 @@ export async function handleSignup(
         return { outbound: [es.signupCategoriesWrite()], step };
       }
       let categories: string[] | null = null;
-      if (choice === "cat:ok") categories = onboardingCategories(undefined, type);
-      else if (text) categories = parseCategoryList(text, type);
+      // «sí», «dale», «esas»… es aceptar las sugeridas; un saludo o «saltar» repite la pregunta
+      // (antes «hola» quedaba como categoría).
+      if (choice === "cat:ok" || (text && YES.test(intentOf(text))))
+        categories = onboardingCategories(undefined, type);
+      else if (text && !GREETING.test(text) && !SKIP.test(intentOf(text)))
+        categories = parseCategoryList(text, type);
       if (!categories) {
         await save("categories");
         return { outbound: [prompt("categories", data, profile)], step };
       }
-      await save("accounts", { ...data, categories });
+      await save("budget", { ...data, categories, accounts: [] });
       return {
-        outbound: [
-          es.signupCategoriesSet(categories, cfg.dashboardUrl),
-          prompt("accounts", data, profile),
-        ],
+        outbound: [es.signupCategoriesSet(categories), prompt("budget", data, profile)],
         step,
       };
     }
@@ -292,17 +312,20 @@ export async function handleSignup(
         await save("accounts", { ...data, pendingAccounts: undefined });
         return { outbound: [prompt("accounts", data, profile)], step };
       }
-      const parsed = text ? parseAccounts(text, data.currency ?? "USD") : [];
-      if (!parsed.length) {
-        await save(step);
-        return { outbound: [es.signupAccountsUnclear()], step };
-      }
-      await save("accounts_confirm", { ...data, pendingAccounts: parsed });
-      return { outbound: [es.signupAccountsConfirm(parsed)], step };
+      // Registro viejo parado en cuentas: cualquier texto pasa al presupuesto, sin leerlo como
+      // cuentas (antes «hola» creaba la cuenta "Hola").
+      await save("budget", { ...data, accounts: [], pendingAccounts: undefined });
+      return {
+        outbound: [
+          es.signupWelcomeBack(data.name ?? null, remainingSteps("budget", data)),
+          prompt("budget", data, profile),
+        ],
+        step,
+      };
     }
     case "budget": {
       let budgets: { category: string; amountUsd: string }[] = [];
-      if (choice !== "bud:skip") {
+      if (choice !== "bud:skip" && !(text && SKIP.test(intentOf(text)))) {
         const parsed = text ? parseBudgets(text, data.categories ?? []) : null;
         if (!parsed?.length) {
           await save("budget");
@@ -348,7 +371,11 @@ export async function handleSignup(
               founderUntil: created.founderUntil,
               trialMessages: TRIAL_MESSAGES,
             }),
-            es.signupTour(cfg.dashboardUrl, final.kind ?? "personal"),
+            es.signupTour(
+              cfg.dashboardUrl,
+              final.kind ?? "personal",
+              Boolean(final.accounts?.length),
+            ),
           ],
           step: "done",
           created,
@@ -386,15 +413,19 @@ function prompt(step: SignupStep, data: SignupData, profile: string | null): Out
     case "kind":
       return es.signupAskKind(data.name ?? profile ?? "");
     case "biz_name":
-      return es.signupAskBusinessName();
+      return es.signupAskBusinessName(progressOf("biz_name", data));
     case "biz_type":
-      return es.signupAskBusinessType(data.businessName ?? "tu negocio");
+      return es.signupAskBusinessType(
+        data.businessName ?? "tu negocio",
+        progressOf("biz_type", data),
+      );
     case "currency":
-      return es.signupAskCurrency(data.kind === "business");
+      return es.signupAskCurrency(data.kind === "business", progressOf("currency", data));
     case "categories":
       return es.signupAskCategories(
         onboardingCategories(undefined, data.businessType ?? "personal"),
         data.kind === "business",
+        progressOf("categories", data),
       );
     case "accounts":
       return es.signupAskAccounts(data.kind === "business");
@@ -407,6 +438,57 @@ function prompt(step: SignupStep, data: SignupData, profile: string | null): Out
   }
 }
 
+/** Preguntas del registro, en orden, según sea personal o negocio (el presupuesto va aparte). */
+function questionsFor(data: SignupData): SignupStep[] {
+  return data.kind === "business"
+    ? ["name", "kind", "biz_name", "biz_type", "currency", "categories"]
+    : ["name", "kind", "currency", "categories"];
+}
+
+/** «*3 de 6* · » desde la tercera pregunta; nada en el nombre ni en personal/negocio. */
+function progressOf(step: SignupStep, data: SignupData): es.SignupProgress {
+  const qs = questionsFor(data);
+  const i = qs.indexOf(step);
+  return i >= 2 ? { n: i + 1, total: qs.length } : null;
+}
+
+/** Pasos que faltan, contando el actual, más uno por el presupuesto. En el presupuesto, 1. */
+export function remainingSteps(step: SignupStep, data: SignupData): number {
+  const qs = questionsFor(data);
+  const i = qs.indexOf(step);
+  return i < 0 ? 1 : qs.length - i + 1;
+}
+
+/** Mensaje de regreso: después de 6 h, en los pasos donde ya se sabe si es personal o negocio. */
+const WELCOME_BACK_MS = 6 * 60 * 60_000;
+const WELCOME_BACK_STEPS: SignupStep[] = [
+  "biz_name",
+  "biz_type",
+  "currency",
+  "categories",
+  "budget",
+];
+
+/** Para comparar intenciones: sin tildes, en minúsculas y sin puntuación al final. */
+function intentOf(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[.!?¡¿,;:]+$/g, "")
+    .replace(/^[¡¿]+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Palabras que son intención, no datos (auditoría del 26/10, F2a). */
+const YES =
+  /^(si|sip|ok|okey|dale|listo|perfecto|correcto|esta bien|asi esta bien|me sirven?|sirven|esas|usar estas)$/;
+const SKIP = /^(saltar|no|nop|ningun[oa]?|no tengo|despues|luego|ahora no|paso|omitir|no gracias)$/;
+
+/** Lo que alguien escribe en vez de su nombre al llegar. */
+const NOT_A_NAME = /^(quiero probar|como funciona|info|informacion|hola rocco|rocco)$/;
+
 // ---------------------------------------------------------------- lectores de respuestas
 
 /** Nombre de perfil de WhatsApp usable: el primer nombre, con letras, de 2 a 14 caracteres. */
@@ -417,7 +499,7 @@ export function cleanProfileName(raw: string | null): string | null {
 }
 
 const GREETING =
-  /^(hola+|buenas?( noches| tardes| d[ií]as)?|hey|epa|saludos|ok|okey|s[ií]|no|listo|dale)[!.\s]*$/i;
+  /^(hola+|buen[oa]s?( noches| tardes| d[ií]as)?|hey|epa|saludos|ok|okey|s[ií]|no|listo|dale)[!.\s]*$/i;
 
 /** "Me llamo Javier Ortiz" → "Javier Ortiz". Null si parece un saludo o no es un nombre. */
 export function parsePersonName(text: string): string | null {
@@ -426,7 +508,9 @@ export function parsePersonName(text: string): string | null {
     .replace(/^(hola[,!.]?\s*)?(me llamo|mi nombre es|soy|ll[aá]mame|dime)\s+/i, "")
     .replace(/[.!¡]+$/g, "")
     .trim();
+  const intent = intentOf(t);
   if (!t || GREETING.test(t) || t.length > 40 || /\d/.test(t)) return null;
+  if (NOT_A_NAME.test(intent) || YES.test(intent) || SKIP.test(intent)) return null;
   if (!/^[\p{L}][\p{L}\s'.-]*$/u.test(t)) return null;
   if (t.split(/\s+/).length > 4) return null;
   return t

@@ -2638,14 +2638,14 @@ function askNameOutbound(body: string, profile: string | null): Outbound {
 export function signupIntro(dashboardUrl: string, profile: string | null): Outbound {
   return askNameOutbound(
     [
-      "¡Epa! Soy *Rocco* 🐾, tu pana con las finanzas.",
-      "Te llevo los gastos, las ventas y las cuentas desde este chat, en bolívares y en dólares, y estoy pendiente de la tasa del BCV para que tú no tengas que estarlo. Soy un asistente automático.",
+      "¡Epa! Soy *Rocco* 🐾, tu pana con las finanzas. Soy un asistente automático.",
+      "Me escribes lo que gastas, en bolívares o en dólares, y lo anoto con la tasa BCV de ese día.",
       "",
       // Verbatim de cumplimiento (jpsoftwaredev#7, qa/dev-handoff-2026-10-19-review.md).
       `Armamos tu cuenta aquí mismo en 2 minutos y tienes *14 días o ${TRIAL_MESSAGES} mensajes gratis* para probarme, lo que llegue primero.`,
       `_Al seguir aceptas la política de privacidad: ${dashboardUrl}/privacidad_`,
       "",
-      "Para empezar, ¿cómo te llamas?",
+      "Son unas preguntas cortas. La primera: ¿cómo te llamas?",
     ].join("\n"),
     profile,
   );
@@ -2673,8 +2673,18 @@ export function signupAskKind(name: string): Outbound {
   };
 }
 
-export function signupAskBusinessName(): Outbound {
-  return { type: "text", body: "¡Buenísimo! ¿Cómo se llama tu negocio?" };
+/**
+ * Progreso del registro (auditoría del 26/10, F3): «*3 de 6* · » delante de cada pregunta desde la
+ * tercera. Personal tiene 4 preguntas; negocio, 6. Nada en el nombre ni en personal/negocio.
+ */
+export type SignupProgress = { n: number; total: number } | null;
+const progressPrefix = (p: SignupProgress | undefined) => (p ? `*${p.n} de ${p.total}* · ` : "");
+
+export function signupAskBusinessName(progress?: SignupProgress): Outbound {
+  return {
+    type: "text",
+    body: `${progressPrefix(progress)}¡Buenísimo! ¿Cómo se llama tu negocio?`,
+  };
 }
 
 const SIGNUP_TYPES: { id: string; title: string; description: string }[] = [
@@ -2685,10 +2695,10 @@ const SIGNUP_TYPES: { id: string; title: string; description: string }[] = [
   { id: "other", title: "Otro", description: "Cualquier otro tipo de negocio" },
 ];
 
-export function signupAskBusinessType(businessName: string): Outbound {
+export function signupAskBusinessType(businessName: string, progress?: SignupProgress): Outbound {
   return {
     type: "list",
-    body: `¿A qué se dedica *${businessName}*? Así te sugiero las categorías de gastos que más se usan.`,
+    body: `${progressPrefix(progress)}¿A qué se dedica *${businessName}*? Así te sugiero las categorías de gastos que más se usan.`,
     buttonLabel: "Elegir tipo",
     sections: [
       {
@@ -2702,10 +2712,10 @@ export function signupAskBusinessType(businessName: string): Outbound {
   };
 }
 
-export function signupAskCurrency(business: boolean): Outbound {
+export function signupAskCurrency(business: boolean, progress?: SignupProgress): Outbound {
   return {
     type: "buttons",
-    body: `¿En qué moneda manejas más ${business ? "los gastos del negocio" : "tu plata"}? Cuando no me digas la moneda, uso esta. Igual te muestro todo en las dos.`,
+    body: `${progressPrefix(progress)}¿En qué moneda manejas más ${business ? "los gastos del negocio" : "tu plata"}? Cuando no me digas la moneda, uso esta. Igual te muestro todo en las dos.`,
     buttons: [
       { id: IDS.signup("cur:USD"), title: "Dólares" },
       { id: IDS.signup("cur:VES"), title: "Bolívares" },
@@ -2713,11 +2723,15 @@ export function signupAskCurrency(business: boolean): Outbound {
   };
 }
 
-export function signupAskCategories(suggested: string[], business: boolean): Outbound {
+export function signupAskCategories(
+  suggested: string[],
+  business: boolean,
+  progress?: SignupProgress,
+): Outbound {
   return {
     type: "buttons",
     body: [
-      `Ahora tus *categorías de gastos*: así sabrás en qué se va ${business ? "la plata del negocio" : "tu plata"}. Te sugiero estas:`,
+      `${progressPrefix(progress)}Ahora tus *categorías de gastos*: así sabrás en qué se va ${business ? "la plata del negocio" : "tu plata"}. Te sugiero estas:`,
       ...suggested.map((c) => `• ${c}`),
       "",
       "¿Te sirven? Si prefieres otras, escríbemelas separadas por coma. Para sumar a estas: _agrega Gimnasio, Mascotas_",
@@ -2736,11 +2750,8 @@ export function signupCategoriesWrite(): Outbound {
   };
 }
 
-export function signupCategoriesSet(categories: string[], dashboardUrl: string): Outbound {
-  return {
-    type: "text",
-    body: `✅ Listo, tus categorías: ${categories.join(", ")}.\n_Puedes agregar o cambiar categorías cuando quieras en el dashboard: ${dashboardUrl}/ajustes/categorias_`,
-  };
+export function signupCategoriesSet(categories: string[]): Outbound {
+  return { type: "text", body: `✅ Listo, tus categorías: ${categories.join(", ")}.` };
 }
 
 export function signupAskAccounts(business: boolean): Outbound {
@@ -2796,9 +2807,10 @@ export function signupAskBudget(categories: string[], business: boolean): Outbou
   return {
     type: "buttons",
     body: [
-      `Último paso: ¿en qué ${business ? "se va más la plata del negocio" : "se te va más la plata"}?`,
+      `Último paso, y es opcional: ¿en qué ${business ? "se va más la plata del negocio" : "se te va más la plata"}?`,
       "Ponle un *tope mensual en dólares* a una o varias categorías y te aviso cuánto te queda cada vez que anotes un gasto.",
       `Ejemplo: ${sample}`,
+      "Si no quieres ponerlo ahora, toca *Ahora no* y tu cuenta queda lista.",
     ].join("\n"),
     buttons: [{ id: IDS.signup("bud:skip"), title: "Ahora no" }],
   };
@@ -2850,7 +2862,12 @@ export function signupDone(v: {
 }
 
 /** Recorrido corto de lo que sabe hacer, el dashboard y la invitación al primer gasto. */
-export function signupTour(dashboardUrl: string, kind: "personal" | "business"): Outbound {
+export function signupTour(
+  dashboardUrl: string,
+  kind: "personal" | "business",
+  /** Un registro viejo que creó cuentas («Así está bien») ve la línea de antes. */
+  hasAccounts = false,
+): Outbound {
   const lines = [
     "Así me usas, como si le escribieras a un pana:",
     "• *Gastos:* _gasté 15$ en champú_, una nota de voz o la foto de la factura",
@@ -2859,7 +2876,9 @@ export function signupTour(dashboardUrl: string, kind: "personal" | "business"):
   lines.push(
     "• *¿Cómo voy?:* _cierre de hoy_, _cómo va el mes_",
     "• *Tasa y calculadora:* _tasa_, _cuánto es 8000 bs en $_",
-    "• *Cuentas:* _mis cuentas_, _pasé 100$ de Zelle a Binance_",
+    hasAccounts
+      ? "• *Cuentas:* _mis cuentas_, _pasé 100$ de Zelle a Binance_"
+      : "• *Cuentas (opcional):* _crea la cuenta Banesco en bolívares con 5.000_, _mis cuentas_",
     "• *Dividir la cuenta:* la foto de la factura con _dividir: yo la pizza, Pedro la hamburguesa_",
     "• *Corregir:* _no, eran 25_ · _bórralo_",
     "Escribe *ayuda* cuando quieras ver todo.",
@@ -2881,7 +2900,19 @@ export function signupWeb(dashboardUrl: string): Outbound {
 export function signupTextOnly(): Outbound {
   return {
     type: "text",
-    body: "Para crear tu cuenta respóndeme con texto o con los botones. Las notas de voz y las fotos las leo apenas terminemos.",
+    body: "Para crear tu cuenta respóndeme con texto o con los botones. Cuando terminemos ya me puedes mandar notas de voz y fotos.",
+  };
+}
+
+/** Volvió al registro después de 6 h o más (auditoría del 26/10, F2b): dónde quedamos y cuánto falta. */
+export function signupWelcomeBack(name: string | null, remaining: number): Outbound {
+  const steps = remaining === 1 ? "te falta 1 paso" : `te faltan ${remaining} pasos`;
+  return {
+    type: "text",
+    body: [
+      `${name ? `¡Epa, ${name}!` : "¡Epa!"} Qué bueno que volviste. Seguimos armando tu cuenta donde quedamos: ${steps} para que puedas anotar tus gastos.`,
+      "Si prefieres empezar de cero, escribe *empezar de nuevo*.",
+    ].join("\n"),
   };
 }
 

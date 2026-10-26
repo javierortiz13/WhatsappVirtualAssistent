@@ -166,6 +166,8 @@ export type AbandonedSignup = {
   e164: string;
   name: string | null;
   step: string;
+  /** Personal o negocio, si ya lo dijo. */
+  kind: "personal" | "business" | null;
   messages: number;
   updatedAt: Date;
 };
@@ -192,13 +194,17 @@ export async function loadFunnel(tenants: TenantRow[], now: Date) {
   const abandoned: AbandonedSignup[] = all
     .filter((r) => !r.completedAt && now.getTime() - r.updatedAt.getTime() > 30 * 60_000)
     .slice(0, 20)
-    .map((r) => ({
-      e164: r.e164,
-      name: ((r.data ?? {}) as { name?: string }).name ?? r.profileName,
-      step: r.step,
-      messages: r.messages,
-      updatedAt: r.updatedAt,
-    }));
+    .map((r) => {
+      const data = (r.data ?? {}) as { name?: string; kind?: "personal" | "business" };
+      return {
+        e164: r.e164,
+        name: data.name ?? r.profileName,
+        step: r.step,
+        kind: data.kind ?? null,
+        messages: r.messages,
+        updatedAt: r.updatedAt,
+      };
+    });
   return {
     chatStarted: all.length,
     chatCompleted: all.filter((r) => r.completedAt).length,

@@ -285,7 +285,14 @@ export default async function AdminHome({
               <span className="what">
                 <strong>{a.name ?? "Sin nombre"}</strong>
                 <span className="sub num">
-                  {formatE164(a.e164)} · se quedó en «{STEP_LABEL[a.step] ?? a.step}» ·{" "}
+                  {formatE164(a.e164)} ·{" "}
+                  {a.kind === "business"
+                    ? "negocio"
+                    : a.kind === "personal"
+                      ? "personal"
+                      : "sin elegir"}{" "}
+                  · se quedó en «{STEP_LABEL[a.step] ?? a.step}» · {a.messages}{" "}
+                  {a.messages === 1 ? "mensaje" : "mensajes"} ·{" "}
                   {formatShortDate(businessDateOf(a.updatedAt))}
                 </span>
               </span>
