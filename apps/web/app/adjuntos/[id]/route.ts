@@ -24,7 +24,14 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     tx
       .select({ key: schema.attachment.storageKey })
       .from(schema.attachment)
-      .where(and(eq(schema.attachment.id, id), isNull(schema.attachment.deletedAt))),
+      .where(
+        and(
+          eq(schema.attachment.id, id),
+          // Seguridad F6: el negocio explícito, no solo RLS.
+          eq(schema.attachment.tenantId, tenant.id),
+          isNull(schema.attachment.deletedAt),
+        ),
+      ),
   );
   if (!row) return new NextResponse("No encontrado", { status: 404 });
   const store = new SupabaseStorage({

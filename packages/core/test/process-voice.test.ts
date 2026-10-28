@@ -7,7 +7,13 @@ import type { LlmClient } from "../src/agent/llm";
 import { createAgent } from "../src/agent/loop";
 import { Decimal } from "../src/domain/money";
 import { ingestWebhook } from "../src/inbox/ingest";
-import { AUDIO_MAX_BYTES, type ProcessDeps, processInbound } from "../src/inbox/process";
+import {
+  AUDIO_FALLBACK_BYTES,
+  AUDIO_MAX_BYTES,
+  oggDurationSeconds,
+  type ProcessDeps,
+  processInbound,
+} from "../src/inbox/process";
 import type { SpeechClient, Transcript } from "../src/speech/client";
 import { MetaClient } from "../src/whatsapp/client";
 import * as fx from "./fixtures";
@@ -15,7 +21,7 @@ import * as fx from "./fixtures";
 /** Nota de voz de punta a punta (US-B5): acuse 🎧, descarga, transcripción y borrador en un envío. */
 type Sent = { body: Record<string, unknown> };
 
-function fakeMeta(audioBytes = 1000) {
+function fakeMeta(audioBytes = 1000, payload: Uint8Array | null = null) {
   const sent: Sent[] = [];
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
@@ -27,7 +33,7 @@ function fakeMeta(audioBytes = 1000) {
         file_size: audioBytes,
       });
     if (u.startsWith("https://lookaside.test/"))
-      return new Response(new Uint8Array(audioBytes), {
+      return new Response(payload ?? new Uint8Array(audioBytes), {
         status: 200,
         headers: { "content-type": "audio/ogg", "content-length": String(audioBytes) },
       });
@@ -188,6 +194,19 @@ describe("notas de voz", () => {
     expect(textOf(big.sent[1])).toContain("menos de 2 minutos");
   });
 
+  it("seguridad F8: un Ogg de 3 minutos (o uno grande sin duración legible) no se transcribe", async () => {
+    const long = ogg(180);
+    const meta = fakeMeta(long.byteLength, long);
+    const speech = fakeSpeech({ text: "x", confidence: 1, durationSeconds: 180 });
+    await sendAudio(meta.client, speech);
+    expect(speech.calls).toBe(0);
+    expect(textOf(meta.sent[1])).toContain("menos de 2 minutos");
+    const blob = fakeMeta(AUDIO_FALLBACK_BYTES + 1);
+    const speech2 = fakeSpeech({ text: "x", confidence: 1, durationSeconds: 5 });
+    await sendAudio(blob.client, speech2);
+    expect(speech2.calls).toBe(0);
+  });
+
   it("transcripción vacía o proveedor caído: pide que lo escriba", async () => {
     const empty = fakeMeta();
     await sendAudio(empty.client, fakeSpeech({ text: "", confidence: null, durationSeconds: 2 }));
@@ -202,5 +221,23 @@ describe("notas de voz", () => {
     await sendAudio(client, null);
     expect(sent).toHaveLength(1);
     expect(textOf(sent[0])).toContain("Las notas de voz llegan pronto");
+  });
+});
+
+/** Un Ogg mínimo: dos páginas; la última con la posición granular de `seconds` a 48 kHz. */
+function ogg(seconds: number): Uint8Array {
+  const page = (granule: bigint) => {
+    const b = Buffer.alloc(40);
+    b.write("OggS", 0, "latin1");
+    b.writeBigInt64LE(granule, 6);
+    return b;
+  };
+  return new Uint8Array(Buffer.concat([page(0n), page(BigInt(seconds * 48_000)), page(-1n)]));
+}
+
+describe("oggDurationSeconds", () => {
+  it("lee la última página con posición granular; null sin páginas Ogg", () => {
+    expect(oggDurationSeconds(ogg(95))).toBe(95);
+    expect(oggDurationSeconds(new Uint8Array(500))).toBeNull();
   });
 });

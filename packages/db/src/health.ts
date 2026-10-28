@@ -65,3 +65,28 @@ export async function checkHealth(db: Queryable, now: Date = new Date()): Promis
     };
   }
 }
+
+export type AppRole = { user: string; superuser: boolean; bypassRls: boolean; ok: boolean };
+
+/** El rol de la app: `caja_app` (o `caja_app.<ref>` del pooler). */
+export function isAppRoleName(user: string): boolean {
+  return user === "caja_app" || user.startsWith("caja_app.");
+}
+
+/**
+ * Seguridad F6 (27/10): con qué rol habla la app con la base. Si no es `caja_app`, o el rol es
+ * superusuario o se salta RLS, el aislamiento por negocio no corre y la app no debe arrancar en
+ * producción. Solo banderas: nunca la URL ni la contraseña.
+ */
+export async function appRole(db: Queryable): Promise<AppRole> {
+  const [r] = rows<{ user: string; super: boolean; bypass: boolean }>(
+    await db.execute(sql`
+      select current_user::text as "user", r.rolsuper as "super", r.rolbypassrls as "bypass"
+      from pg_roles r where r.rolname = current_user
+    `),
+  );
+  const user = r?.user ?? "";
+  const superuser = Boolean(r?.super);
+  const bypassRls = Boolean(r?.bypass);
+  return { user, superuser, bypassRls, ok: isAppRoleName(user) && !superuser && !bypassRls };
+}

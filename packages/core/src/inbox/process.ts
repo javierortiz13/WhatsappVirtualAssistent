@@ -125,7 +125,7 @@ import {
   hasDashboardMember,
   redeemDashboardLink,
 } from "../onboarding/chat-signup";
-import { requestDeletion, restoreTenant } from "../onboarding/erase";
+import { releaseStalePending, requestDeletion, restoreTenant } from "../onboarding/erase";
 import { activatePhone, CODE_RE, verifyCode } from "../onboarding/register";
 import { getRateInfo } from "../rates/current";
 import {
@@ -260,7 +260,16 @@ export async function processInbound(
     .set({ status: "processing" })
     .where(eq(schema.webhookEvent.id, event.id));
 
-  const resolved = await resolveSender(deps.db, msg.sender);
+  let resolved = await resolveSender(deps.db, msg.sender);
+  // Número del dueño que alguien registró en el panel y nunca verificó: a las 48 h queda libre y
+  // el que escribe puede crear su cuenta (seguridad F2).
+  if (
+    resolved?.phoneStatus === "pending" &&
+    resolved.role === "owner" &&
+    msg.sender.e164 &&
+    (await releaseStalePending(deps.db, msg.sender.e164)).length
+  )
+    resolved = await resolveSender(deps.db, msg.sender);
   if (
     resolved &&
     resolved.phoneStatus === "pending" &&
@@ -1266,6 +1275,29 @@ async function routeMessage(
 /** Nota de voz: 5 MB y 2 minutos como máximo. */
 export const AUDIO_MAX_BYTES = 5 * 1024 * 1024;
 export const AUDIO_MAX_SECONDS = 120;
+/**
+ * Si no se puede leer la duración del Ogg: una nota de WhatsApp (Opus mono, unos 16–24 kbps) de 2
+ * minutos pesa ≈ 240–360 KB; con margen de 1,5× ≈ 540 KB. A medir con una nota real (seguridad F8).
+ */
+export const AUDIO_FALLBACK_BYTES = 540 * 1024;
+
+/**
+ * Duración de un Ogg/Opus sin decodificarlo (seguridad F8): la posición granular de la última
+ * página dividida entre 48 000 (Opus siempre cuenta a 48 kHz). Null si no se encuentra.
+ */
+export function oggDurationSeconds(bytes: Uint8Array): number | null {
+  const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let at = buf.lastIndexOf("OggS");
+  while (at >= 0) {
+    if (at + 14 <= buf.length) {
+      const granule = buf.readBigInt64LE(at + 6);
+      // -1: la página no termina ningún paquete; se busca la anterior.
+      if (granule >= 0n) return Number(granule) / 48_000;
+    }
+    at = at > 0 ? buf.lastIndexOf("OggS", at - 1) : -1;
+  }
+  return null;
+}
 
 /**
  * Nota de voz (US-B5): acuse con reacción, descarga en memoria, transcripción, y el texto va al
@@ -1286,6 +1318,13 @@ async function handleAudio(
   try {
     const info = await meta.getMediaInfo(msg.media.id);
     const media = await meta.downloadMedia(info.url, AUDIO_MAX_BYTES);
+    // Seguridad F8: el largo se mira antes de transcribir (y pagar) la nota.
+    const seconds = oggDurationSeconds(media.bytes);
+    if (
+      (seconds !== null && seconds > AUDIO_MAX_SECONDS) ||
+      (seconds === null && media.bytes.byteLength > AUDIO_FALLBACK_BYTES)
+    )
+      return none([es.audioTooLong()]);
     const t = await deps.speech.transcribe(media.bytes, media.mimeType ?? msg.media.mimeType);
     if (t.durationSeconds !== null && t.durationSeconds > AUDIO_MAX_SECONDS)
       return none([es.audioTooLong()]);

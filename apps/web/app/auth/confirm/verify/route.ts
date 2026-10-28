@@ -1,5 +1,7 @@
 import type { AuthError, EmailOtpType } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { env } from "@/lib/env";
+import { isCrossSite } from "@/lib/same-origin";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -11,6 +13,10 @@ export const dynamic = "force-dynamic";
  * y `code` (flujo PKCE por defecto, solo desde el navegador que pidió el enlace).
  */
 export async function POST(req: Request) {
+  // Seguridad F4: solo desde el propio panel (login CSRF).
+  const allowed = new URL(env().DASHBOARD_URL).origin;
+  if (isCrossSite(req, allowed))
+    return NextResponse.redirect(new URL("/login?error=enlace", allowed), { status: 303 });
   const form = await req.formData();
   const tokenHash = String(form.get("token_hash") ?? "");
   const type = String(form.get("type") ?? "") as EmailOtpType | "";

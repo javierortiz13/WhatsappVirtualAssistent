@@ -11,6 +11,7 @@ import {
   whatsapp,
 } from "@caja/core";
 import { createDb, rows, sql } from "@caja/db";
+import { appRole } from "@caja/db/health";
 import { createBoss, ensureQueues } from "@caja/db/queue";
 import { loadEnv } from "./env";
 import { registerJobs } from "./jobs";
@@ -28,6 +29,16 @@ async function main() {
   const { db, close } = createDb(env.DATABASE_URL, { max: 3 });
   const [row] = rows<{ ok: number }>(await db.execute(sql`select 1 as ok`));
   if (row?.ok !== 1) throw new Error("la base no respondió");
+  // Seguridad F6: con otro rol (o uno que se salta RLS) el aislamiento por negocio no corre.
+  const role = await appRole(db);
+  if (!role.ok) {
+    log.error(
+      { superuser: role.superuser, bypassRls: role.bypassRls, appRole: false },
+      "la base no está con caja_app",
+    );
+    if (env.NODE_ENV === "production")
+      throw new Error("rol de la base inseguro: el worker no arranca");
+  }
 
   // Un cliente de Meta por número de la plataforma. Hoy uno (del entorno); ADR-001 revisado prevé N.
   const clients = new Map<string, whatsapp.MetaClient>([

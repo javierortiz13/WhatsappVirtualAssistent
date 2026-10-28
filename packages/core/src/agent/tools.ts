@@ -1972,6 +1972,9 @@ const exchangeUsdt: ToolSpec<typeof ExchangeInput> = {
   strict: false,
   async run(input, run) {
     if (input.action === "balance") {
+      // Seguridad F11: el saldo del negocio solo lo ve el dueño.
+      if (run.ctx.role !== "owner")
+        return { kind: "terminal", status: "ok", outbound: [es.exchangeOwnerOnly()] };
       const lots = await exchangeLots(run.tx, run.ctx.tenantId, { active: true });
       const mode: BsRateMode =
         run.ctx.bsRateMode ?? (await getBsRateMode(run.tx, run.ctx.tenantId));

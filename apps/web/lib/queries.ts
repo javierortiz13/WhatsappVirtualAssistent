@@ -211,7 +211,8 @@ export async function movementById(tenantId: string, id: string): Promise<Moveme
       .leftJoin(schema.userAccount, eq(schema.userAccount.id, schema.movement.createdByUserId))
       .leftJoin(schema.message, eq(schema.message.id, schema.movement.sourceMessageId))
       .leftJoin(schema.attachment, eq(schema.attachment.id, schema.movement.attachmentId))
-      .where(eq(schema.movement.id, id)),
+      // Seguridad F6: el negocio explícito, no solo RLS.
+      .where(and(eq(schema.movement.id, id), eq(schema.movement.tenantId, tenantId))),
   );
   if (!m) return null;
   const { phoneName, phoneE164, userEmail, ...rest } = m;

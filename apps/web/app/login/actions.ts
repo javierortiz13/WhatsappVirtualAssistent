@@ -1,6 +1,5 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { env } from "@/lib/env";
@@ -15,8 +14,8 @@ const Email = z.string().trim().toLowerCase().email();
  */
 export async function signInWithGoogle(): Promise<void> {
   if (!env().GOOGLE_AUTH_ENABLED) redirect("/login");
-  const h = await headers();
-  const origin = h.get("origin") ?? env().DASHBOARD_URL;
+  // Seguridad F5: nunca el Origin de la petición, siempre el del panel.
+  const origin = new URL(env().DASHBOARD_URL).origin;
   const supabase = await supabaseServer();
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
@@ -41,8 +40,7 @@ export async function signInWithGoogle(): Promise<void> {
 export async function sendMagicLink(formData: FormData): Promise<void> {
   const parsed = Email.safeParse(formData.get("email"));
   if (!parsed.success) redirect("/login?error=correo");
-  const h = await headers();
-  const origin = h.get("origin") ?? env().DASHBOARD_URL;
+  const origin = new URL(env().DASHBOARD_URL).origin;
   const supabase = await supabaseServer();
   const { error } = await supabase.auth.signInWithOtp({
     email: parsed.data,

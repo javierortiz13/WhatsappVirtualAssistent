@@ -1,4 +1,4 @@
-import { eq, rows, schema, sql, type Tx } from "@caja/db";
+import { type Db, eq, rows, schema, sql, type Tx } from "@caja/db";
 import type { Logger } from "../log";
 import type { ObjectStore } from "../storage/index";
 
@@ -116,6 +116,48 @@ export async function eraseTenant(tx: Tx, tenantId: string): Promise<ErasedTenan
     await tx.execute(sql`select * from app.erase_tenant(${tenantId}::uuid)`),
   );
   return { storageKeys: r?.storage_keys ?? [], orphanUserIds: r?.orphan_user_ids ?? [] };
+}
+
+/** Un número del panel sin verificar deja de estar ocupado a las 48 h (seguridad F2, 0027). */
+export const STALE_PENDING = "48 hours";
+
+/** El código de Postgres de un error, también envuelto por Drizzle (`cause`). */
+function pgCode(err: unknown): string | undefined {
+  for (let e = err; e && typeof e === "object"; e = (e as { cause?: unknown }).cause) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+  }
+  return undefined;
+}
+
+/**
+ * Libera números pendientes viejos (0027): borra el negocio vacío que los tenía. Con `e164`,
+ * solo ese número. Sin la migración (42883) no hace nada: el código puede llegar antes. Fuera de
+ * una transacción (el error la abortaría). Los usuarios huérfanos solo se borran en housekeeping.
+ */
+export async function releaseStalePending(
+  db: Db,
+  e164?: string,
+): Promise<(ErasedTenant & { tenantId: string })[]> {
+  try {
+    const out = rows<{
+      tenant_id: string;
+      storage_keys: string[] | null;
+      orphan_user_ids: string[] | null;
+    }>(
+      await db.execute(
+        sql`select * from app.release_stale_pending(${STALE_PENDING}::interval, ${e164 ?? null})`,
+      ),
+    );
+    return out.map((r) => ({
+      tenantId: r.tenant_id,
+      storageKeys: r.storage_keys ?? [],
+      orphanUserIds: r.orphan_user_ids ?? [],
+    }));
+  } catch (err) {
+    if (pgCode(err) === "42883") return [];
+    throw err;
+  }
 }
 
 /** Borra usuarios de Supabase Auth con la clave service_role (solo en servidor). */

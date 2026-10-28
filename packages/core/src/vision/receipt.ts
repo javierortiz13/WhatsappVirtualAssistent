@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { LlmClient, LlmToolDef, LlmUsage } from "../agent/llm";
 import { daysBetween, type IsoDate, isIsoDate } from "../domain/dates";
@@ -232,26 +233,47 @@ export function createReceiptReader(llm: LlmClient): ReceiptReader {
  * Lo que el agente recibe como "mensaje del usuario" tras leer la factura. Un reporte de ventas
  * va a la venta del día; la leyenda del archivo, si la hay, manda sobre lo que se infirió.
  */
-export function receiptUserText(e: ReceiptExtraction, caption: string | null = null): string {
+/**
+ * Seguridad F7 (27/10): lo leído de la foto y la leyenda son datos, nunca instrucciones. Sin saltos
+ * de línea, el proveedor y el titular cortados a 60, y todo dentro de una etiqueta con un sufijo al
+ * azar por pedido (el prompt de sistema dice que lo de adentro no se obedece).
+ */
+const flat = (s: string, max: number) =>
+  s
+    .replace(/[\r\n\u2028\u2029]+/g, " ")
+    .trim()
+    .slice(0, max);
+
+export function receiptUserText(
+  e: ReceiptExtraction,
+  caption: string | null = null,
+  fence: string = randomBytes(3).toString("hex"),
+): string {
+  const tag = `datos_leidos_${fence}`;
+  const wrap = (s: string) => `<${tag}>${s}</${tag}>`;
+  const vendor = flat(e.vendor || "", 60);
   const parts = [
-    `total ${e.total || "no legible"} ${e.currency === "unknown" ? "(moneda no legible)" : e.currency}`,
-    `fecha ${e.date || "no legible"}`,
-    `${e.document_type === "sales" ? "emisor" : "proveedor"} ${e.vendor || "no legible"}`,
+    `total ${flat(e.total, 30) || "no legible"} ${e.currency === "unknown" ? "(moneda no legible)" : e.currency}`,
+    `fecha ${flat(e.date, 20) || "no legible"}`,
+    `${e.document_type === "sales" ? "emisor" : "proveedor"} ${vendor || "no legible"}`,
     `${e.line_items_count} renglones`,
   ];
-  const note = caption?.trim()
-    ? ` El usuario escribió junto al archivo: "${caption.trim().slice(0, 200)}". Si dice que es una venta o un gasto, eso manda sobre lo leído. Si dice qué se compró o en qué fue, úsalo como description, corto y sin verbos ("Registrar compra de cepillos y pala" → "Cepillos y pala"), y como category_name si encaja con una categoría.`
+  const said = caption?.trim() ? flat(caption, 200) : "";
+  const note = said
+    ? ` El usuario escribió junto al archivo: ${wrap(`"${said}"`)}. Si dice que es una venta o un gasto, eso manda sobre lo leído. Si dice qué se compró o en qué fue, úsalo como description, corto y sin verbos ("Registrar compra de cepillos y pala" → "Cepillos y pala"), y como category_name si encaja con una categoría.`
     : "";
   if (e.document_type === "pago_movil") {
     const cur = e.currency === "USD" ? "USD" : "VES";
-    const desc = caption?.trim()
+    const desc = said
       ? "lo que dice la leyenda del usuario"
-      : JSON.stringify(pagoMovilDescription(e));
-    return `Datos de pago móvil leídos por el sistema: el usuario va a PAGAR ${e.total} ${cur}${e.payee?.holder ? ` a ${e.payee.holder}` : ""}. Déjalo listo como gasto con draft_expense: amount = ${e.total}, currency = ${cur}, when = "", category_name = "" salvo que la leyenda diga en qué es, description = ${desc}. No inventes datos que no estén.${note}`;
+      : JSON.stringify(flat(pagoMovilDescription(e), 80));
+    const holder = e.payee?.holder ? flat(e.payee.holder, 60) : "";
+    const total = flat(e.total, 30);
+    return `Datos de pago móvil leídos por el sistema: ${wrap(`el usuario va a PAGAR ${total} ${cur}${holder ? ` a ${holder}` : ""}`)}. Déjalo listo como gasto con draft_expense: amount = ${total}, currency = ${cur}, when = "", category_name = "" salvo que la leyenda diga en qué es, description = ${desc}. No inventes datos que no estén.${note}`;
   }
   if (e.document_type === "sales")
-    return `Reporte de ventas leído por el sistema: ${parts.join("; ")}. Es dinero que ENTRÓ: registra la venta del día con draft_income_day_total usando esos datos: total_amount = total, total_currency = moneda leída ("unknown" si no se ve), when = fecha leída ("" si no se ve), lines vacío. No inventes datos que no estén.${note}`;
-  return `Factura leída por el sistema: ${parts.join("; ")}. Registra el gasto con draft_expense usando esos datos: amount = total, currency = moneda leída ("unknown" si no se ve), when = fecha leída ("" si no se ve), description = proveedor (o "Factura"). No inventes datos que no estén.${note}`;
+    return `Reporte de ventas leído por el sistema: ${wrap(parts.join("; "))}. Es dinero que ENTRÓ: registra la venta del día con draft_income_day_total usando esos datos: total_amount = total, total_currency = moneda leída ("unknown" si no se ve), when = fecha leída ("" si no se ve), lines vacío. No inventes datos que no estén.${note}`;
+  return `Factura leída por el sistema: ${wrap(parts.join("; "))}. Registra el gasto con draft_expense usando esos datos: amount = total, currency = moneda leída ("unknown" si no se ve), when = fecha leída ("" si no se ve), description = proveedor (o "Factura"). No inventes datos que no estén.${note}`;
 }
 
 /** "Pago móvil a Javier Ortiz" (o al banco si no se ve el titular). */

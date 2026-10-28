@@ -140,7 +140,9 @@ const llm: LlmClient = {
         },
       ]);
     const sale =
-      /Reporte de ventas leído por el sistema: total ([\d.]+) (USD|VES); fecha ([\d-]+)/.exec(text);
+      /Reporte de ventas leído por el sistema: (?:<datos_leidos_\w+>)?total ([\d.]+) (USD|VES); fecha ([\d-]+)/.exec(
+        text,
+      );
     if (sale)
       return reply([
         {
@@ -196,7 +198,7 @@ const llm: LlmClient = {
         model: "fake",
       };
     const pm =
-      /Datos de pago móvil leídos por el sistema: el usuario va a PAGAR ([\d.]+) (USD|VES)/.exec(
+      /Datos de pago móvil leídos por el sistema: (?:<datos_leidos_\w+>)?el usuario va a PAGAR ([\d.]+) (USD|VES)/.exec(
         text,
       );
     if (pm)

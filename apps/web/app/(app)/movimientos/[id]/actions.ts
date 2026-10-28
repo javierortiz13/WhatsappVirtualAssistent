@@ -51,7 +51,14 @@ export async function updateMovementAction(formData: FormData): Promise<void> {
     const [m] = await tx
       .select()
       .from(schema.movement)
-      .where(and(eq(schema.movement.id, f.id), isNull(schema.movement.deletedAt)));
+      .where(
+        and(
+          eq(schema.movement.id, f.id),
+          // Seguridad F6: el negocio explícito, no solo RLS.
+          eq(schema.movement.tenantId, tenant.id),
+          isNull(schema.movement.deletedAt),
+        ),
+      );
     if (!m) return "missing" as const;
     let categoryId: string | null | undefined;
     let categoryName: string | null | undefined;

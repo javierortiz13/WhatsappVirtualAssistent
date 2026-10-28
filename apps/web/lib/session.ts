@@ -2,7 +2,7 @@ import "server-only";
 import { eq, rows, schema, sql, withTenant } from "@caja/db";
 import { redirect } from "next/navigation";
 import { cache } from "react";
-import { db } from "./db";
+import { assertDbRole, db } from "./db";
 import { supabaseServer } from "./supabase/server";
 
 export type Session = {
@@ -27,6 +27,7 @@ export const currentSession = cache(async (): Promise<Session | null> => {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user?.email) return null;
+  await assertDbRole();
   const conn = db();
   await conn.execute(sql`select app.claim_account(${user.id}::uuid, ${user.email})`);
   const memberships = rows<MembershipRow>(

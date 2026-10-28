@@ -25,6 +25,7 @@ import { businessDateOf } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import { type AccountKind, createAccount } from "../ledger/accounts";
 import { ensureIncomeCategories } from "../ledger/categories";
+import { releaseStalePending } from "./erase";
 
 /**
  * Onboarding (US-A1, US-A2, US-A4). El dueño crea el negocio en el dashboard y prueba que el
@@ -126,6 +127,8 @@ export async function registerBusiness(
   input: RegisterInput,
   now: Date = new Date(),
 ): Promise<{ tenantId: string; phoneId: string } & IssuedCode> {
+  // Un número pendiente viejo de otro registro ya no cuenta como ocupado (seguridad F2).
+  await releaseStalePending(db, input.ownerPhone);
   if (await phoneIsTaken(db, input.ownerPhone)) throw new PhoneTakenError(input.ownerPhone);
   const tenantId = crypto.randomUUID();
   const founderUntil = await founderUntilForNew(db, now);
@@ -325,6 +328,7 @@ export async function addEmployee(
   input: { e164: string; displayName: string | null },
   now: Date = new Date(),
 ): Promise<{ phoneId: string; created: boolean }> {
+  await releaseStalePending(db, input.e164);
   return withTenant(db, ref.tenantId, async (tx) => {
     const p = schema.phoneNumber;
     const [own] = await tx
@@ -436,6 +440,7 @@ export async function registerFromChat(
   input: ChatRegisterInput,
   now: Date = new Date(),
 ): Promise<{ tenantId: string; phoneId: string; founderUntil: string | null }> {
+  await releaseStalePending(db, input.e164);
   if (await phoneIsTaken(db, input.e164)) throw new PhoneTakenError(input.e164);
   const tenantId = crypto.randomUUID();
   const founderUntil = await founderUntilForNew(db, now);

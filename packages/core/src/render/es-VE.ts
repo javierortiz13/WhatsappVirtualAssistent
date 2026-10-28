@@ -1738,6 +1738,14 @@ export function budgetsSummary(list: BudgetView[], today: IsoDate): Outbound {
   };
 }
 
+/** Seguridad F11: el saldo de los cambios USDT es del negocio; un empleado no lo ve. */
+export function exchangeOwnerOnly(): Outbound {
+  return {
+    type: "text",
+    body: "El saldo de los cambios lo ve el dueño. Tú puedes registrar gastos y ventas.",
+  };
+}
+
 export function budgetsOwnerOnly(): Outbound {
   return {
     type: "text",

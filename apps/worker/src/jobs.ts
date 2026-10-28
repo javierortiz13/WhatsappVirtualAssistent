@@ -1,6 +1,7 @@
 import {
   type AuthAdmin,
   bcvSource,
+  cleanupErased,
   deliverReminders,
   dolarApiSource,
   enforceBilling,
@@ -15,6 +16,7 @@ import {
   purgeOldTenantData,
   purgeOldWebhookPayloads,
   refreshRates,
+  releaseStalePending,
   retentionSweep,
   sendLifecycleNotices,
   sendPaymentNotices,
@@ -232,6 +234,19 @@ export async function registerJobs(opts: {
         log.error(
           { err: err instanceof Error ? err.message : String(err) },
           "retención: ¿falta la migración 0017?",
+        );
+      }
+      // Números del panel sin verificar en 48 h: se liberan con su negocio vacío (seguridad F2).
+      try {
+        const released = await releaseStalePending(db);
+        for (const r of released)
+          await cleanupErased(r, { store: opts.store ?? null, auth: opts.authAdmin ?? null, log });
+        if (released.length)
+          log.warn({ tenants: released.map((r) => r.tenantId) }, "números pendientes liberados");
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : String(err) },
+          "números pendientes: ¿falta la migración 0027?",
         );
       }
       // Pagos revisados en la consola: avisar al dueño por WhatsApp (si escribió en 24 h).
