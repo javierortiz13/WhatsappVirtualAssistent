@@ -53,6 +53,7 @@ const TITLES: [string, string][] = [
   ["/ajustes/exportar", "Exportar"],
   ["/ajustes/cuentas", "Cuentas"],
   ["/ajustes/cambios", "Cambios USDT"],
+  ["/ajustes/avisos", "Avisos"],
   ["/ajustes", "Ajustes"],
 ];
 

@@ -5,6 +5,7 @@ import {
   exchangeLots,
   formatMoney,
   getTenantSettings,
+  habitSettings,
   planById,
   subscriptionState,
   tenantPhones,
@@ -16,6 +17,7 @@ import { db } from "@/lib/db";
 import { requireTenant } from "@/lib/session";
 import {
   IconCard,
+  IconChat,
   IconChevronRight,
   IconDownload,
   IconLogout,
@@ -50,6 +52,8 @@ export default async function Ajustes() {
   const plan = planById(billing?.plan ?? "negocio");
   const state = billing ? subscriptionState(billing, new Date()) : null;
   const pending = phones.filter((p) => p.status === "pending").length;
+  // Avisos de Rocco (hábitos US-205): con su interruptor encendido y solo para el dueño.
+  const prefs = tenant.role === "owner" && (await habitSettings(db())).prefs;
   const active = phones.filter((p) => p.status === "active").length;
   const item = (
     href: string,
@@ -142,6 +146,9 @@ export default async function Ajustes() {
           "Exportar a Excel",
           "Un archivo por rango de fechas",
         )}
+        {prefs
+          ? item("/ajustes/avisos", <IconChat />, "Avisos", "Lo que Rocco te escribe por su cuenta")
+          : null}
       </div>
       <div className="card tight">
         <div className="row">

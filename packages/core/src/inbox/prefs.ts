@@ -346,3 +346,63 @@ export async function hasPrefsOff(tx: Tx, phoneId: string): Promise<boolean> {
     .where(eq(schema.phoneNumber.id, phoneId));
   return Boolean(p?.a || p?.b);
 }
+
+export type DashboardPrefSwitch = "nudge" | "unsolicited";
+export type DashboardPrefError = "tagged" | "needs_unsolicited";
+
+/**
+ * Los dos interruptores de Ajustes (US-205, H14): el mismo efecto que el chat, sin tarjeta (el
+ * diálogo H14e ya pidió la confirmación). Encender limpia la pausa y lo pendiente (R-2 b, D10).
+ * La auditoría guarda el texto que vio el dueño: H14-1/H14-2 al encender, H14e-1/H14e-2 al apagar.
+ */
+export async function setDashboardPref(
+  tx: Tx,
+  c: { tenantId: string; phoneId: string; userId: string; now: Date },
+  which: DashboardPrefSwitch,
+  on: boolean,
+): Promise<DashboardPrefError | null> {
+  const s = await prefState(tx, c.phoneId, c.tenantId);
+  if (s.tagged) return "tagged";
+  const clearPending = { prefPending: null, prefPendingAt: null };
+  let action: ConsentAction;
+  let textId: ConsentTextId;
+  if (which === "unsolicited") {
+    if (on) {
+      await setPhone(tx, c.phoneId, { unsolicitedOffAt: null, ...clearPending });
+      [action, textId] = ["all_on", "H14-2"];
+    } else {
+      await setPhone(tx, c.phoneId, {
+        unsolicitedOffAt: s.unsolicitedOffAt ?? c.now,
+        ...clearPending,
+      });
+      [action, textId] = ["all_off", "H14e-2"];
+    }
+  } else if (on) {
+    // R-2 c: el aviso de racha no se enciende con los mensajes por su cuenta apagados.
+    if (s.unsolicitedOffAt) return "needs_unsolicited";
+    await setPhone(tx, c.phoneId, {
+      nudgeOptInAt: c.now,
+      nudgeOffAt: null,
+      nudgePausedUntil: null,
+      ...clearPending,
+    });
+    [action, textId] = ["nudge_opt_in", "H14-1"];
+  } else {
+    await setPhone(tx, c.phoneId, {
+      nudgeOffAt: s.nudgeOffAt ?? c.now,
+      ...(s.prefPending === "nudges_off" ? clearPending : {}),
+    });
+    [action, textId] = ["nudge_off", "H14e-1"];
+  }
+  await tx.insert(schema.auditLog).values({
+    tenantId: c.tenantId,
+    actorType: "user",
+    actorId: c.userId,
+    action,
+    entity: "phone_number",
+    entityId: c.phoneId,
+    after: { source: "dashboard", text_id: textId, text_version: consentTextVersion[textId] },
+    channel: "dashboard",
+  });
+  return null;
+}

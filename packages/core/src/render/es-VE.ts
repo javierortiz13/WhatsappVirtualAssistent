@@ -3731,3 +3731,31 @@ export const REMINDERS_PAGE = {
   homeTitle: "Próximos recordatorios",
   homeLink: "Ver todos ›",
 } as const;
+
+/** H14, H14c y H14e (v1.2): los dos interruptores de Ajustes (US-205). Verbatim de copy. */
+export const PREFS_SWITCHES = {
+  nudge: {
+    label: "Aviso de racha y avisos adelantados",
+    help: "Rocco te escribe a las 8 pm si ese día no anotaste nada y le escribiste en las últimas 24 horas. Tras 3 avisos seguidos sin anotar, se pausa 14 días.",
+    disabledHelp: "Para encenderlo, primero enciende «Mensajes de Rocco por su cuenta».",
+    toastOn: "Aviso de racha encendido.",
+    toastOff: "Aviso de racha y avisos adelantados apagados.",
+    confirmTitle: "¿Apagar el aviso de racha?",
+    confirmBody:
+      "Rocco deja de escribirte a las 8 pm y de adelantarte avisos de tus recordatorios. Los que pidas siguen llegando a su hora o cuando le escribas.",
+  },
+  unsolicited: {
+    label: "Mensajes de Rocco por su cuenta",
+    help: "Si lo apagas, Rocco solo te responde y tus recordatorios salen cuando le escribas. Los avisos de pagos y de borrado de datos llegan igual.",
+    toastOn: "Rocco ya puede escribirte por su cuenta.",
+    toastOff: "Rocco solo te va a responder.",
+    confirmTitle: "¿Apagar los mensajes de Rocco por su cuenta?",
+    confirmBody:
+      "Rocco solo te va a responder: se apagan el aviso de racha y los mensajes sobre tu prueba, y tus recordatorios salen cuando le escribas. Los avisos de pagos y de borrado de datos llegan igual.",
+  },
+  /** H13d-tag en tercera persona del panel, con el contacto configurado. */
+  taggedHelp: (contact: string) =>
+    `Tus avisos los apagó el equipo de Rocco. Para volver a recibirlos, escríbenos a ${contact}`,
+  confirm: "Apagar",
+  cancel: "Cancelar",
+} as const;

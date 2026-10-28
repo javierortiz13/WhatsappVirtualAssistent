@@ -2,7 +2,7 @@ import { eq, schema, withTenant } from "@caja/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { isQuietHours, takeUnsolicitedSlot } from "../src/inbox/gate";
 import { sendLifecycleNotices } from "../src/inbox/lifecycle";
-import { classifyPref } from "../src/inbox/prefs";
+import { classifyPref, setDashboardPref } from "../src/inbox/prefs";
 import { saveHabitSettings } from "../src/ledger/habits";
 import { consentTextVersion } from "../src/render/es-VE";
 import { botHarness, CASHIER, idsOf, OWNER } from "./bot-harness";
@@ -299,5 +299,71 @@ describe("apagar y encender avisos por chat", () => {
     expect(await take("reminder_a")).toEqual({ allow: true });
     await msg(now, { status: "failed" });
     expect(await take("reminder_a")).toEqual({ allow: false, reason: "failed_recent" });
+  });
+});
+
+describe("interruptores de Ajustes (US-205)", () => {
+  let h: Awaited<ReturnType<typeof botHarness>>;
+  let phoneId: string;
+  const USER = "00000000-0000-4000-8000-0000000000aa";
+  const phone = async () =>
+    (await h.t.db.select().from(schema.phoneNumber).where(eq(schema.phoneNumber.id, phoneId)))[0];
+  const set = (which: "nudge" | "unsolicited", on: boolean) =>
+    withTenant(h.t.db, h.tenantId, (tx) =>
+      setDashboardPref(
+        tx,
+        { tenantId: h.tenantId, phoneId, userId: USER, now: new Date() },
+        which,
+        on,
+      ),
+    );
+  beforeAll(async () => {
+    h = await botHarness();
+    const [p] = await h.t.db
+      .select()
+      .from(schema.phoneNumber)
+      .where(eq(schema.phoneNumber.e164, OWNER));
+    phoneId = p?.id ?? "";
+  });
+  afterAll(() => h.t.close());
+
+  it("apagar y encender con el texto que vio en la auditoría (canal dashboard)", async () => {
+    await h.t.db
+      .update(schema.phoneNumber)
+      .set({ prefPending: "all_off", prefPendingAt: new Date() })
+      .where(eq(schema.phoneNumber.id, phoneId));
+    expect(await set("unsolicited", false)).toBeNull();
+    expect((await phone())?.unsolicitedOffAt).not.toBeNull();
+    expect((await phone())?.prefPending).toBeNull();
+    // Con los mensajes por su cuenta apagados, el aviso de racha no se enciende (R-2 c).
+    expect(await set("nudge", true)).toBe("needs_unsolicited");
+    expect(await set("unsolicited", true)).toBeNull();
+    expect(await set("nudge", true)).toBeNull();
+    expect(await phone()).toMatchObject({ unsolicitedOffAt: null, nudgeOffAt: null });
+    expect((await phone())?.nudgeOptInAt).not.toBeNull();
+    expect(await set("nudge", false)).toBeNull();
+    expect((await phone())?.nudgeOffAt).not.toBeNull();
+    const rows = await h.t.db
+      .select({
+        action: schema.auditLog.action,
+        after: schema.auditLog.after,
+        channel: schema.auditLog.channel,
+      })
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.entity, "phone_number"));
+    expect(
+      rows.map((r) => [r.action, (r.after as { text_id: string }).text_id, r.channel]),
+    ).toEqual([
+      ["all_off", "H14e-2", "dashboard"],
+      ["all_on", "H14-2", "dashboard"],
+      ["nudge_opt_in", "H14-1", "dashboard"],
+      ["nudge_off", "H14e-1", "dashboard"],
+    ]);
+  });
+
+  it("con la etiqueta no-contactar no cambia nada", async () => {
+    await h.t.db.update(schema.tenant).set({ crmTags: ["no-contactar"] });
+    expect(await set("unsolicited", true)).toBe("tagged");
+    await h.t.db.update(schema.tenant).set({ crmTags: [] });
   });
 });
