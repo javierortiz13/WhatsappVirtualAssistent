@@ -14,9 +14,29 @@ import { addDays, businessDateOf, type IsoDate, weekday } from "../domain/dates"
  * Cada parte del hábito se enciende por separado desde /admin, después de su aprobación. Todo
  * apagado por defecto: sin fila, nada cambia para nadie.
  */
-export type HabitSettings = { streakLine: boolean; noSpend: boolean };
+export const HABIT_FLAGS = [
+  "streakLine",
+  "noSpend",
+  /** P2/P3: apagar y encender avisos (US-204, US-211). Se enciende primero y no se apaga. */
+  "prefs",
+  /** P3: recordatorios de plata (US-301…US-309). */
+  "reminders",
+  /** P2: el aviso de las 8 pm (US-207). Solo si la lectura del 13/11 lo justifica. */
+  "nudge",
+  /** P3 camino d: la plantilla de Meta (US-310). Espera la aprobación de Meta. */
+  "reminderTemplate",
+] as const;
+export type HabitFlag = (typeof HABIT_FLAGS)[number];
+export type HabitSettings = Record<HabitFlag, boolean>;
 
-export const HABIT_DEFAULTS: HabitSettings = { streakLine: false, noSpend: false };
+export const HABIT_DEFAULTS: HabitSettings = {
+  streakLine: false,
+  noSpend: false,
+  prefs: false,
+  reminders: false,
+  nudge: false,
+  reminderTemplate: false,
+};
 const KEY = "habits";
 
 export async function habitSettings(db: Queryable): Promise<HabitSettings> {
@@ -25,15 +45,12 @@ export async function habitSettings(db: Queryable): Promise<HabitSettings> {
     .from(schema.appSetting)
     .where(eq(schema.appSetting.key, KEY));
   const v = (r?.value ?? {}) as Record<string, unknown>;
-  return {
-    streakLine: v.streakLine === true,
-    noSpend: v.noSpend === true,
-  };
+  return Object.fromEntries(HABIT_FLAGS.map((f) => [f, v[f] === true])) as HabitSettings;
 }
 
 export async function saveHabitSettings(
   db: Queryable,
-  next: HabitSettings,
+  next: Partial<HabitSettings>,
   actor: string,
   now: Date,
 ): Promise<void> {

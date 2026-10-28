@@ -20,6 +20,7 @@ import { type Logger, maskPhone, silentLogger } from "../log";
 import { es, type Outbound } from "../render/index";
 import type { MetaClient } from "../whatsapp/client";
 import { sendOutbound } from "./process";
+import { serviceWindow } from "./window";
 
 /**
  * Ciclo de la prueba gratis (0019, decisión de Javier del 07/10): para convertir sin presionar.
@@ -118,19 +119,8 @@ async function takeLifecycle(
     )
     .limit(1);
   if (!owner?.e164) return null;
-  // Ventana de servicio de Meta: el dueño escribió en las últimas 24 horas.
-  const [recent] = await tx
-    .select({ id: schema.message.id })
-    .from(schema.message)
-    .where(
-      and(
-        eq(schema.message.phoneId, owner.id),
-        eq(schema.message.direction, "in"),
-        gte(schema.message.createdAt, new Date(now.getTime() - DAY_MS + 30 * 60_000)),
-      ),
-    )
-    .limit(1);
-  if (!recent) return null;
+  // Ventana de servicio de Meta (US-202).
+  if (!(await serviceWindow(tx, owner.id, now)).open) return null;
   let out: Outbound;
   if (kind === "trialEnd") {
     const [sent] = await tx

@@ -2,6 +2,7 @@ import { and, desc, eq, gte, inArray, isNull, schema, type Tx } from "@caja/db";
 import { z } from "zod";
 import { businessDateOf } from "../domain/dates";
 import { Decimal } from "../domain/money";
+import { serviceWindow } from "../inbox/window";
 import { reportPayment, TooManyPendingError } from "./payments";
 import {
   FOUNDER,
@@ -294,8 +295,6 @@ export type PaymentNotice = {
   to: { phoneId: string; e164: string } | null;
 };
 
-const WINDOW_MS = 24 * 60 * 60 * 1000;
-
 /**
  * Pagos revisados que todavía no se avisaron. Se marcan avisados de una vez: si el dueño no
  * escribió en 24 horas, Meta exige plantilla y el aviso no sale (lo ve en "Mi plan").
@@ -330,18 +329,8 @@ export async function takePaymentNotices(
     .limit(1);
   let to: PaymentNotice["to"] = null;
   if (owner?.e164) {
-    const [last] = await tx
-      .select({ at: schema.message.createdAt })
-      .from(schema.message)
-      .where(
-        and(
-          eq(schema.message.phoneId, owner.id),
-          eq(schema.message.direction, "in"),
-          gte(schema.message.createdAt, new Date(now.getTime() - WINDOW_MS)),
-        ),
-      )
-      .limit(1);
-    if (last) to = { phoneId: owner.id, e164: owner.e164 };
+    // Ventana de servicio de Meta (US-202), con el mismo margen de 30 min que todo lo demás.
+    if ((await serviceWindow(tx, owner.id, now)).open) to = { phoneId: owner.id, e164: owner.e164 };
   }
   await tx
     .update(schema.payment)

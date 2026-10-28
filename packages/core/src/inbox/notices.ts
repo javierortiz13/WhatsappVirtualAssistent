@@ -7,6 +7,7 @@ import { type Logger, maskPhone, silentLogger } from "../log";
 import { es } from "../render/index";
 import type { MetaClient } from "../whatsapp/client";
 import { sendOutbound } from "./process";
+import { windowOpenAt } from "./window";
 
 /**
  * Avisos de "pago verificado" o "no verificado" por WhatsApp (03/10). Corre en el housekeeping:
@@ -96,8 +97,7 @@ export async function sendRetentionNotices(
   let skipped = 0;
   for (const n of notices) {
     const owner = n.owner;
-    const inWindow =
-      n.lastInboundAt !== null && opts.now.getTime() - n.lastInboundAt.getTime() < 23 * 3_600_000;
+    const inWindow = windowOpenAt(n.lastInboundAt, opts.now);
     if (!meta || !owner || (!inWindow && !opts.template)) {
       skipped += 1;
       continue;
