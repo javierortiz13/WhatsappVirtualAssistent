@@ -2365,6 +2365,12 @@ async function runAgent(
         .where(eq(schema.message.waMessageId, waMessageId))
     : [];
   const accounts = await listAccounts(tx, ctx.tenantId);
+  const reminders = await reminderAgentContext(tx, {
+    tenantId: ctx.tenantId,
+    phoneId: ctx.phoneId,
+    role: ctx.role,
+    now: (deps.now ?? (() => new Date()))(),
+  });
   try {
     const result = await deps.agent.run(
       tx,
@@ -2388,12 +2394,7 @@ async function runAgent(
         sourceChannel: input.kind === "text" ? "text" : input.kind === "voice" ? "voice" : "image",
         dashboardUrl: deps.config.dashboardUrl,
         billing: { dest: deps.config.paymentDest ?? {}, supportHint: deps.config.supportHint },
-        reminders: await reminderAgentContext(tx, {
-          tenantId: ctx.tenantId,
-          phoneId: ctx.phoneId,
-          role: ctx.role,
-          now: (deps.now ?? (() => new Date()))(),
-        }),
+        ...(reminders ? { reminders } : {}),
       },
       input,
     );

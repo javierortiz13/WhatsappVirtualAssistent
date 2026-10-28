@@ -234,7 +234,8 @@ export async function reminderAmPm(
   const hour = half === "pm" ? (d.hour < 12 ? d.hour + 12 : d.hour) : d.hour === 12 ? 0 : d.hour;
   const day: IsoDate = d.date && isIsoDate(d.date) ? d.date : businessDateOf(c.now);
   const due = dueAtOn(day, hour, d.minute, c.now, false);
-  if (due.kind !== "ok") return reply(askDate(due as Exclude<DueAt, { kind: "ok" }>, c.now));
+  if (due.kind !== "ok" && due.kind !== "ambiguous_hour") return reply(askDate(due, c.now));
+  if (due.kind !== "ok") return reply(es.reminderAskDate("no_date"));
   const actor = { phoneId: c.phoneId };
   const done = [{ name: "reminder_ampm", args: { half } }];
   if (d.id) {
