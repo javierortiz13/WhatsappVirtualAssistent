@@ -121,12 +121,14 @@ import { NoRateError, rateFor } from "../ledger/rate-for";
 import { errorText, type Logger, maskPhone, silentLogger } from "../log";
 import {
   canStartSignup,
+  claimDashboardLink,
+  confirmDashboardLink,
   handleSignup,
   hasDashboardMember,
-  redeemDashboardLink,
+  LINK_CODE_RE,
 } from "../onboarding/chat-signup";
 import { releaseStalePending, requestDeletion, restoreTenant } from "../onboarding/erase";
-import { activatePhone, CODE_RE, verifyCode } from "../onboarding/register";
+import { activatePhone, CODE_RE, releaseEmployeePhone, verifyCode } from "../onboarding/register";
 import { getRateInfo } from "../rates/current";
 import {
   isReminderListAsk,
@@ -158,9 +160,11 @@ import {
   payWithAccount,
   payWithNewAccount,
 } from "./account-ask";
+import { isQuietHours } from "./gate";
 import { saveSurveyAnswer } from "./lifecycle";
 import { hasPrefsOff, routePrefs } from "./prefs";
 import { SPLIT_WORDS, splitFollowUp, splitFromPhoto } from "./split";
+import { serviceWindow } from "./window";
 
 /**
  * Procesa un job `process-message` (Fase 3, flujo end-to-end). Corre en el worker, ya
@@ -278,6 +282,17 @@ export async function processInbound(
     resolved.tenantStatus !== "deleted"
   ) {
     return handlePendingOwner(deps, meta, msg, resolved, event.id, log, now);
+  }
+  // Empleado que el dueño agregó y todavía no aceptó (seguridad F1): no se procesa nada hasta
+  // que toque «Unirme».
+  if (
+    resolved &&
+    resolved.phoneStatus === "pending" &&
+    resolved.role === "employee" &&
+    resolved.tenantStatus !== "suspended" &&
+    resolved.tenantStatus !== "deleted"
+  ) {
+    return handlePendingEmployee(deps, meta, msg, resolved, event.id, log, now);
   }
   // Plan vencido: el dueño sigue pudiendo renovar por el bot; el resto recibe "tu plan venció".
   // En la papelera (0017), igual: el dueño puede recuperarla; el resto recibe el aviso.
@@ -768,6 +783,172 @@ async function handlePendingOwner(
   return outcome.note ? "ignored" : "done";
 }
 
+/** +58…1234: lo que el dueño ve del número de quien no aceptó o salió. */
+const maskForOwner = (e164: string) => `+${e164.slice(0, 2)}…${e164.slice(-4)}`;
+
+/**
+ * Avisa al dueño que un empleado no aceptó o salió (F1). Solo con su ventana de 24 h abierta y
+ * fuera de la noche: si no, lo ve en el panel. Un fallo no frena la respuesta al empleado.
+ */
+async function notifyOwnerEmployeeGone(
+  tx: Tx,
+  meta: MetaClient,
+  tenantId: string,
+  e164: string,
+  declined: boolean,
+  nowTs: Date,
+  log: Logger,
+): Promise<void> {
+  const [owner] = await tx
+    .select({ id: schema.phoneNumber.id, e164: schema.phoneNumber.e164 })
+    .from(schema.phoneNumber)
+    .where(
+      and(
+        eq(schema.phoneNumber.tenantId, tenantId),
+        eq(schema.phoneNumber.role, "owner"),
+        eq(schema.phoneNumber.status, "active"),
+      ),
+    );
+  if (!owner || isQuietHours(nowTs) || !(await serviceWindow(tx, owner.id, nowTs)).open) return;
+  const out = es.employeeGoneOwner(maskForOwner(e164), declined);
+  try {
+    const sent = await sendOutbound(meta, owner.e164, out);
+    await tx.insert(schema.message).values({
+      tenantId,
+      phoneId: owner.id,
+      direction: "out",
+      kind: out.type,
+      body: bodyOf(out),
+      status: "ok",
+      waMessageId: sent.waMessageId,
+      toolCalls: [{ name: "employee_gone", args: { declined } }],
+    });
+  } catch (err) {
+    log.warn({ err: errMsg(err), to: maskPhone(owner.e164) }, "aviso al dueño falló");
+  }
+}
+
+/**
+ * Empleado pendiente (F1): «Unirme» lo activa con la bienvenida; «No soy de ahí» libera el
+ * número y avisa al dueño. Cualquier otro mensaje recibe la invitación (con el límite de los
+ * desconocidos) y no se guarda.
+ */
+async function handlePendingEmployee(
+  deps: ProcessDeps,
+  meta: MetaClient,
+  msg: InboundMessage,
+  resolved: ResolvedSender,
+  eventId: string,
+  log: Logger,
+  now: () => Date,
+): Promise<ProcessOutcome> {
+  const to = msg.sender.e164;
+  const nowTs = now();
+  const tap = msg.kind === "interactive" ? /^emp:(join|no):(.+)$/.exec(msg.replyId) : null;
+  const action = tap && tap[2] === resolved.phoneId ? (tap[1] as "join" | "no") : null;
+  const key = to ?? msg.sender.waUserId ?? msg.waMessageId;
+  const allowed =
+    action !== null ||
+    (await allowUnknownReply(deps.db, key, {
+      max: deps.config.unknownReplyMax,
+      windowMs: deps.config.unknownReplyWindowMs,
+      now: nowTs,
+    }));
+  const reply = await withTenant(deps.db, resolved.tenantId, async (tx) => {
+    const [tenant] = await tx
+      .select({ name: schema.tenant.name })
+      .from(schema.tenant)
+      .where(eq(schema.tenant.id, resolved.tenantId));
+    const name = tenant?.name ?? "el negocio";
+    if (action === "join") {
+      const [phone] = await tx
+        .select({ name: schema.phoneNumber.displayName })
+        .from(schema.phoneNumber)
+        .where(eq(schema.phoneNumber.id, resolved.phoneId));
+      await activatePhone(
+        tx,
+        {
+          tenantId: resolved.tenantId,
+          phoneId: resolved.phoneId,
+          waUserId: msg.sender.waUserId,
+          displayName: msg.sender.displayName,
+        },
+        nowTs,
+      );
+      return es.welcomeEmployee(phone?.name ?? msg.sender.displayName, name);
+    }
+    if (action === "no") {
+      const released = await releaseEmployeePhone(
+        tx,
+        { tenantId: resolved.tenantId, phoneId: resolved.phoneId },
+        "employee_declined",
+      );
+      if (released && to)
+        await notifyOwnerEmployeeGone(tx, meta, resolved.tenantId, to, true, nowTs, log);
+      return es.employeeDeclined();
+    }
+    return es.employeeInvite(resolved.phoneId, name);
+  });
+  if (to && allowed) {
+    try {
+      await sendOutbound(meta, to, reply);
+    } catch (err) {
+      log.warn({ err: errMsg(err), from: maskPhone(to) }, "no se pudo responder al empleado");
+    }
+  }
+  const note = action ? null : "empleado pendiente: invitación";
+  await markEvent(deps.db, eventId, note ? "ignored" : "done", note);
+  log.info({ from: maskPhone(to), action }, "mensaje de empleado pendiente");
+  return note ? "ignored" : "done";
+}
+
+/** «salir del negocio» de un empleado activo (F1), con confirmación. */
+const LEAVE_RE = /^salir(me)? del negocio$/;
+
+async function routeEmployeeLeave(
+  tx: Tx,
+  deps: ProcessDeps,
+  msg: InboundMessage,
+  ctx: RouteCtx,
+): Promise<RouteResult | null> {
+  if (ctx.role !== "employee") return null;
+  if (msg.kind === "text") {
+    const t = msg.text
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[¿?¡!.,]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return LEAVE_RE.test(t) ? none([es.employeeLeaveConfirm(ctx.phoneId, ctx.tenantName)]) : null;
+  }
+  if (msg.kind !== "interactive") return null;
+  if (msg.replyId === "emp:stay")
+    return none([{ type: "reaction", body: "👍", waMessageId: ctx.inboundId }]);
+  if (msg.replyId !== `emp:leave:${ctx.phoneId}`) return null;
+  const [phone] = await tx
+    .select({ e164: schema.phoneNumber.e164 })
+    .from(schema.phoneNumber)
+    .where(eq(schema.phoneNumber.id, ctx.phoneId));
+  const released = await releaseEmployeePhone(
+    tx,
+    { tenantId: ctx.tenantId, phoneId: ctx.phoneId },
+    "employee_left",
+  );
+  const meta = deps.metaFor(msg.phoneNumberId);
+  if (released && meta && phone)
+    await notifyOwnerEmployeeGone(
+      tx,
+      meta,
+      ctx.tenantId,
+      phone.e164,
+      false,
+      (deps.now ?? (() => new Date()))(),
+      deps.log ?? silentLogger,
+    );
+  return none([es.employeeLeft(ctx.tenantName)]);
+}
+
 type RouteCtx = {
   /** Negocio suspendido: solo se atiende la renovación del plan, sin LLM. */
   suspended: boolean;
@@ -1137,6 +1318,28 @@ async function routeMessage(
     return { ...(await routeDeleted(tx, deps, msg, ctx, ctx.deleted)), noRider: true };
   const erase = await routeErase(tx, deps, msg, ctx);
   if (erase) return erase;
+  const leave = await routeEmployeeLeave(tx, deps, msg, ctx);
+  if (leave) return { ...leave, noRider: true };
+  // «Sí, darle acceso» / «No» del código del panel (F3).
+  const link = msg.kind === "interactive" ? /^dl:(yes|no):(.+)$/.exec(msg.replyId) : null;
+  if (link) {
+    if (ctx.role !== "owner" || !UUID_RE.test(link[2] ?? ""))
+      return none([es.dashboardLinkExpired()]);
+    const r = await confirmDashboardLink(
+      tx,
+      { tenantId: ctx.tenantId, phoneId: ctx.phoneId },
+      link[2] as string,
+      link[1] === "yes",
+      (deps.now ?? (() => new Date()))(),
+    );
+    const out =
+      r === "expired"
+        ? es.dashboardLinkExpired()
+        : r === "declined"
+          ? es.dashboardLinkDeclined()
+          : es.dashboardLinked(r.email);
+    return { ...none([out]), noRider: true };
+  }
   // Apagar y encender avisos (hábitos US-204, US-211): antes de la cuenta suspendida o sin
   // mensajes, para que un «no me escribas» siempre funcione. Sin la IA.
   const prefs = await routePrefs(
@@ -1167,16 +1370,21 @@ async function routeMessage(
     case "interactive":
       return routeInteractive(tx, deps, msg.replyId, ctx);
     case "text": {
-      // Código del panel (0018): conecta el dashboard de quien se registró por WhatsApp.
-      const linkCode = ctx.role === "owner" ? CODE_RE.exec(msg.text)?.[1] : undefined;
+      // Código del panel (0018): conecta el dashboard de quien se registró por WhatsApp. Pide
+      // confirmación antes de dar acceso (seguridad F3).
+      const linkCode = ctx.role === "owner" ? LINK_CODE_RE.exec(msg.text)?.[1] : undefined;
       if (linkCode) {
-        const linked = await redeemDashboardLink(
+        const claim = await claimDashboardLink(
           tx,
           { tenantId: ctx.tenantId, phoneId: ctx.phoneId },
           linkCode,
           (deps.now ?? (() => new Date()))(),
         );
-        if (linked) return none([es.dashboardLinked(linked.email)]);
+        if (claim)
+          return {
+            ...none([es.dashboardLinkConfirm(claim.linkId, claim.email, claim.existing)]),
+            noRider: true,
+          };
       }
       // Referencia de un pago del plan con la intención abierta ("ref 123456"): sin LLM.
       if (ctx.role === "owner") {

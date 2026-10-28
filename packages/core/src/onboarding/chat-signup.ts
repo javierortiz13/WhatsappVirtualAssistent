@@ -712,12 +712,32 @@ const cleanText = (t: string, max: number) => t.replace(/\s+/g, " ").trim().slic
 // ---------------------------------------------------------------- conectar el panel (0018)
 
 export const LINK_TTL_MS = 15 * 60_000;
+/** Seguridad F3: los códigos del panel tienen 8 dígitos (los de vincular un número, 6). */
+export const LINK_CODE_RE = /^\s*(\d{8})\s*$/;
+/** Seguridad F3: máximo de códigos del panel por usuario en una hora. */
+export const LINK_CODES_PER_HOUR = 5;
+/** Tiempo para tocar «Sí, darle acceso» después de mandar el código. */
+export const LINK_CONFIRM_MS = 10 * 60_000;
 const linkHash = (code: string) =>
   createHash("sha256").update(`dashboard-link:${code}`).digest("hex");
 
+export class LinkRateError extends Error {
+  constructor() {
+    super("demasiados códigos del panel en una hora");
+    this.name = "LinkRateError";
+  }
+}
+
+/** j***@gmail.com: lo que Rocco muestra de un correo por WhatsApp. */
+export function maskEmail(email: string): string {
+  const [user = "", domain = ""] = email.split("@");
+  return domain ? `${user.slice(0, 1)}***@${domain}` : "***";
+}
+
 /**
  * El usuario del panel (ya con correo verificado) pide conectar un negocio creado por WhatsApp:
- * recibe un código que manda a Rocco desde su número. Vence los anteriores del mismo usuario.
+ * recibe un código de 8 dígitos que manda a Rocco desde su número. Vence los anteriores del mismo
+ * usuario. Máximo 5 por hora (F3).
  */
 export async function createDashboardLink(
   db: Db,
@@ -725,34 +745,89 @@ export async function createDashboardLink(
   now: Date = new Date(),
 ): Promise<{ code: string; expiresAt: Date }> {
   const l = schema.dashboardLink;
+  const [recent] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(l)
+    .where(and(eq(l.userId, userId), gt(l.createdAt, new Date(now.getTime() - 3_600_000))));
+  if ((recent?.n ?? 0) >= LINK_CODES_PER_HOUR) throw new LinkRateError();
   await db
     .update(l)
     .set({ expiresAt: now })
     .where(and(eq(l.userId, userId), isNull(l.usedAt), gt(l.expiresAt, now)));
-  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+  const code = String(randomInt(0, 100_000_000)).padStart(8, "0");
   const expiresAt = new Date(now.getTime() + LINK_TTL_MS);
-  await db.insert(l).values({ userId, codeHash: linkHash(code), expiresAt });
+  await db.insert(l).values({ userId, codeHash: linkHash(code), expiresAt, createdAt: now });
   return { code, expiresAt };
 }
 
+export type LinkClaim = {
+  linkId: string;
+  email: string;
+  /** Correos (enmascarados) que ya tienen acceso a este panel. */
+  existing: string[];
+};
+
 /**
- * El dueño mandó por WhatsApp un código de 6 dígitos: si es de un enlace vigente, su usuario del
- * panel queda como dueño de este negocio. Devuelve el correo, o null si el código no es de enlace.
+ * El dueño mandó por WhatsApp un código del panel (F3): todavía no da acceso. El enlace queda
+ * apartado para este negocio 10 minutos, hasta que el dueño toque «Sí, darle acceso». null si el
+ * código no es de un enlace vigente sin usar.
  */
-export async function redeemDashboardLink(
+export async function claimDashboardLink(
   tx: Tx,
   ref: { tenantId: string; phoneId: string },
   code: string,
   now: Date = new Date(),
-): Promise<{ email: string } | null> {
+): Promise<LinkClaim | null> {
   const l = schema.dashboardLink;
   const [open] = await tx
     .select()
     .from(l)
-    .where(and(eq(l.codeHash, linkHash(code)), isNull(l.usedAt), gt(l.expiresAt, now)))
+    .where(
+      and(
+        eq(l.codeHash, linkHash(code)),
+        isNull(l.usedAt),
+        isNull(l.tenantId),
+        gt(l.expiresAt, now),
+      ),
+    )
     .limit(1);
   if (!open) return null;
-  await tx.update(l).set({ usedAt: now, tenantId: ref.tenantId }).where(eq(l.id, open.id));
+  const until = new Date(Math.min(open.expiresAt.getTime(), now.getTime() + LINK_CONFIRM_MS));
+  await tx.update(l).set({ tenantId: ref.tenantId, expiresAt: until }).where(eq(l.id, open.id));
+  const [u] = await tx
+    .select({ email: schema.userAccount.email })
+    .from(schema.userAccount)
+    .where(eq(schema.userAccount.id, open.userId));
+  const members = await dashboardMembers(tx, ref.tenantId);
+  return {
+    linkId: open.id,
+    email: maskEmail(u?.email ?? ""),
+    existing: members.filter((m) => m.userId !== open.userId).map((m) => maskEmail(m.email)),
+  };
+}
+
+/**
+ * «Sí, darle acceso» / «No» (F3). Con «Sí», el usuario del panel queda como dueño de este negocio;
+ * con «No», el código ya no sirve. "expired" si pasaron los 10 minutos o ya se usó.
+ */
+export async function confirmDashboardLink(
+  tx: Tx,
+  ref: { tenantId: string; phoneId: string },
+  linkId: string,
+  yes: boolean,
+  now: Date = new Date(),
+): Promise<{ email: string } | "declined" | "expired"> {
+  const l = schema.dashboardLink;
+  const [open] = await tx
+    .select()
+    .from(l)
+    .where(
+      and(eq(l.id, linkId), eq(l.tenantId, ref.tenantId), isNull(l.usedAt), gt(l.expiresAt, now)),
+    )
+    .limit(1);
+  if (!open) return "expired";
+  await tx.update(l).set({ usedAt: now }).where(eq(l.id, open.id));
+  if (!yes) return "declined";
   await tx
     .insert(schema.tenantMember)
     .values({ tenantId: ref.tenantId, userId: open.userId, role: "owner" })
@@ -773,6 +848,49 @@ export async function redeemDashboardLink(
     .from(schema.userAccount)
     .where(eq(schema.userAccount.id, open.userId));
   return { email: u?.email ?? "" };
+}
+
+export type DashboardMember = { userId: string; email: string; role: string };
+
+/** Quién tiene acceso al panel de este negocio (Ajustes → Acceso al panel, F3). */
+export async function dashboardMembers(tx: Tx, tenantId: string): Promise<DashboardMember[]> {
+  return tx
+    .select({
+      userId: schema.tenantMember.userId,
+      email: schema.userAccount.email,
+      role: schema.tenantMember.role,
+    })
+    .from(schema.tenantMember)
+    .innerJoin(schema.userAccount, eq(schema.userAccount.id, schema.tenantMember.userId))
+    .where(eq(schema.tenantMember.tenantId, tenantId))
+    .orderBy(schema.userAccount.email);
+}
+
+/** «Quitar acceso» (F3): solo el dueño, nunca a sí mismo. false si no había nada que quitar. */
+export async function removeDashboardMember(
+  tx: Tx,
+  ref: { tenantId: string; actorUserId: string },
+  userId: string,
+): Promise<boolean> {
+  if (userId === ref.actorUserId) return false;
+  const m = schema.tenantMember;
+  const gone = await tx
+    .delete(m)
+    .where(and(eq(m.tenantId, ref.tenantId), eq(m.userId, userId)))
+    .returning({ role: m.role });
+  if (!gone.length) return false;
+  await tx.insert(schema.auditLog).values({
+    tenantId: ref.tenantId,
+    actorType: "user",
+    actorId: ref.actorUserId,
+    action: "delete",
+    entity: "tenant_member",
+    entityId: userId,
+    before: { userId, role: gone[0]?.role },
+    after: null,
+    channel: "dashboard",
+  });
+  return true;
 }
 
 /** ¿Este negocio ya tiene a alguien en el panel? Para el "link del dashboard". */

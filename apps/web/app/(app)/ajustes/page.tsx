@@ -140,6 +140,14 @@ export default async function Ajustes() {
               : `${active} números activos`,
           pending > 0 ? <span className="badge warn">{pending}</span> : undefined,
         )}
+        {tenant.role === "owner"
+          ? item(
+              "/ajustes/panel",
+              <IconUser />,
+              "Acceso al panel",
+              "Quién entra a este panel con su correo",
+            )
+          : null}
         {item(
           "/ajustes/exportar",
           <IconDownload />,

@@ -161,7 +161,7 @@ export function dashboardLink(
       body: [
         `📊 Tu dashboard: ${dashboardUrl}/login`,
         "Ahí ves, corriges y exportas todos tus movimientos, y pones presupuestos por categoría.",
-        "Entra con tu correo, toca *Ya me registré con Rocco* y mándame aquí el código de 6 dígitos que te aparezca. Así queda conectado a tu número.",
+        "Entra con tu correo, toca *Ya me registré con Rocco* y mándame aquí el código de 8 dígitos que te aparezca. Así queda conectado a tu número.",
       ].join("\n"),
     };
   if (role === "employee")
@@ -1738,6 +1738,60 @@ export function budgetsSummary(list: BudgetView[], today: IsoDate): Outbound {
   };
 }
 
+/**
+ * Seguridad F1: un número que el dueño agregó como empleado no queda en el negocio hasta que esa
+ * persona acepta. Botones `emp:join:<phoneId>` / `emp:no:<phoneId>`; salir, `emp:leave:<phoneId>`.
+ * Textos pendientes de revisión de cumplimiento.
+ */
+export function employeeInvite(phoneId: string, tenantName: string): Outbound {
+  const join = `Unirme a ${tenantName}`;
+  return {
+    type: "buttons",
+    body: `¡Epa! Soy Rocco 🐾. *${tenantName}* agregó este número para que anotes gastos y ventas del negocio. El dueño verá lo que anotes. ¿Trabajas ahí?`,
+    buttons: [
+      { id: `emp:join:${phoneId}`, title: join.length <= 20 ? join : "Unirme" },
+      { id: `emp:no:${phoneId}`, title: "No soy de ahí" },
+    ],
+  };
+}
+
+/** Respuesta a «No soy de ahí»: el número quedó libre. */
+export function employeeDeclined(): Outbound {
+  return {
+    type: "text",
+    body: "Listo, no te agregué. Tu número quedó libre: si quieres tu propia cuenta, escríbeme *hola*.",
+  };
+}
+
+/** «salir del negocio»: se confirma antes. */
+export function employeeLeaveConfirm(phoneId: string, tenantName: string): Outbound {
+  return {
+    type: "buttons",
+    body: `¿Salir de *${tenantName}*? Ya no podrás anotar ahí. Lo que ya anotaste queda en el negocio.`,
+    buttons: [
+      { id: `emp:leave:${phoneId}`, title: "Sí, salir" },
+      { id: "emp:stay", title: "No" },
+    ],
+  };
+}
+
+export function employeeLeft(tenantName: string): Outbound {
+  return {
+    type: "text",
+    body: `Listo, saliste de *${tenantName}*. Tu número quedó libre: si quieres tu propia cuenta, escríbeme *hola*.`,
+  };
+}
+
+/** Aviso al dueño (solo con su ventana de 24 h abierta). `masked`: +58…1234. */
+export function employeeGoneOwner(masked: string, declined: boolean): Outbound {
+  return {
+    type: "text",
+    body: declined
+      ? `${masked} no aceptó unirse a tu negocio. Su número ya no está en tu cuenta.`
+      : `${masked} salió de tu negocio. Lo que anotó se queda en tu cuenta.`,
+  };
+}
+
 /** Seguridad F11: el saldo de los cambios USDT es del negocio; un empleado no lo ve. */
 export function exchangeOwnerOnly(): Outbound {
   return {
@@ -2942,6 +2996,35 @@ export function signupTaken(dashboardUrl: string): Outbound {
 }
 
 /** El dueño mandó el código del panel y quedó conectado. */
+/**
+ * Seguridad F3: el código del panel no da acceso hasta que el dueño confirma. Botones
+ * `dl:yes:<linkId>` / `dl:no:<linkId>`. Textos pendientes de revisión de cumplimiento.
+ */
+export function dashboardLinkConfirm(linkId: string, email: string, existing: string[]): Outbound {
+  const who = email || "esa persona";
+  return {
+    type: "buttons",
+    body: existing.length
+      ? `Tu panel ya lo ve ${existing.join(", ")}. ¿Darle acceso también a ${who}? Podrá ver y cambiar todos tus movimientos.`
+      : `¿Darle acceso a tu panel a ${who}? Podrá ver y cambiar todos tus movimientos.`,
+    buttons: [
+      { id: `dl:yes:${linkId}`, title: "Sí, darle acceso" },
+      { id: `dl:no:${linkId}`, title: "No" },
+    ],
+  };
+}
+
+export function dashboardLinkDeclined(): Outbound {
+  return { type: "text", body: "Listo, no le di acceso. Ese código ya no sirve." };
+}
+
+export function dashboardLinkExpired(): Outbound {
+  return {
+    type: "text",
+    body: "Ese código ya no sirve. Si quieres conectar tu panel, pide uno nuevo en la web.",
+  };
+}
+
 export function dashboardLinked(email: string): Outbound {
   return {
     type: "text",
