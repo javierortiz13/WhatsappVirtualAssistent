@@ -1,8 +1,9 @@
-import { eq, schema } from "@caja/db";
+import { eq, schema, withTenant } from "@caja/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { addDays, businessDateOf, caracasInstant, type IsoDate } from "../src/domain/dates";
 import { saveHabitSettings } from "../src/ledger/habits";
 import { isReminderListAsk } from "../src/reminders/chat";
+import { reminderStats } from "../src/reminders/stats";
 import { botHarness, CASHIER, idsOf } from "./bot-harness";
 
 /** Recordatorios por chat (PRD hábitos US-303, US-308): crear, preguntar, corregir, borrar, lista. */
@@ -235,5 +236,32 @@ describe("recordatorios por chat", () => {
       caracasInstant(addDays(tomorrow(), 1), 15).toISOString(),
     );
     expect(after?.status).toBe("pending");
+  });
+});
+
+describe("reminderStats (US-311)", () => {
+  let h: Awaited<ReturnType<typeof botHarness>>;
+  beforeAll(async () => {
+    h = await botHarness({ script: SCRIPT });
+    await saveHabitSettings(h.t.db, { reminders: true }, "test", new Date());
+  });
+  afterAll(() => h.t.close());
+
+  it("solo conteos: creados, rechazados por motivo y ediciones", async () => {
+    const since = new Date(Date.now() - 60_000);
+    await h.send("recuérdame pagar la luz mañana a las 3 pm");
+    await h.send("recuérdame llamar a mamá");
+    const [r] = await h.t.db.select().from(schema.reminder);
+    await h.tap(`rem:fix:${r?.id}`, "Corregir");
+    await h.send("mejor a las 4 pm");
+    const s = await withTenant(h.t.db, h.tenantId, (tx) => reminderStats(tx, h.tenantId, since));
+    expect(s).toMatchObject({
+      created: 1,
+      rejectedNonMoney: 1,
+      edits: 1,
+      done: 0,
+      repeatOwners: 0,
+    });
+    expect(JSON.stringify(s)).not.toContain("luz");
   });
 });

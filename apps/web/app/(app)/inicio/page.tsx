@@ -4,6 +4,7 @@ import {
   BUDGET_WARN_PCT,
   type BudgetStatus,
   budgetStatuses,
+  businessDateOf,
   type Decimal,
   dailyClose,
   es,
@@ -13,6 +14,7 @@ import {
   habitSettings,
   incomeByCategory,
   netWorth,
+  openReminders,
   ownerPhone,
   streakFor,
 } from "@caja/core";
@@ -76,9 +78,15 @@ export default async function Inicio({
     return r ?? { accounts: 0, expenses: 0, incomes: 0, personal: false };
   });
   // Tu racha (hábitos US-103), solo con su interruptor encendido.
-  const streak = (await habitSettings(db())).streakLine
+  const habits = await habitSettings(db());
+  const streak = habits.streakLine
     ? await withTenant(db(), tenant.id, (tx) => streakFor(tx, tenant.id, new Date()))
     : null;
+  // Próximos recordatorios (hábitos US-309): los 3 más cercanos, solo al dueño.
+  const nextReminders =
+    habits.reminders && tenant.role === "owner"
+      ? await withTenant(db(), tenant.id, (tx) => openReminders(tx, tenant.id, 3))
+      : [];
   // Cuenta personal: lo que entró en el mes, por fuente (salario, freelance…).
   const sources = progress.personal
     ? await withTenant(db(), tenant.id, (tx) =>
@@ -211,6 +219,27 @@ export default async function Inicio({
       </section>
 
       {streak ? <StreakCard streak={streak} personal={progress.personal} /> : null}
+      {nextReminders.length ? (
+        <section className="card stack-sm">
+          <div className="day">
+            <h2>{es.REMINDERS_PAGE.homeTitle}</h2>
+            <a className="sub" href="/recordatorios">
+              {es.REMINDERS_PAGE.homeLink}
+            </a>
+          </div>
+          <ul className="rem-home">
+            {nextReminders.map((r) => (
+              <li key={r.id}>
+                <span>{r.text}</span>
+                <span className="sub num">
+                  {formatShortDate(businessDateOf(r.dueAt))} · {es.hora(r.dueAt)}
+                  {r.amount ? ` · ${es.reminderAmount(r.amount, r.currency)}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {accounts.length ? <Accounts list={accounts} bcv={rate.current?.value ?? null} /> : null}
 

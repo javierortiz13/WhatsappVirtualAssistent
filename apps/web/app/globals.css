@@ -2179,3 +2179,77 @@ figure.chat-mock {
 .streak-legend .streak-day {
   flex-direction: row;
 }
+
+/* Recordatorios (hábitos US-309, H32) */
+.rem {
+  border-top: 1px solid var(--border);
+}
+.rem:first-child {
+  border-top: 0;
+}
+.rem .row {
+  border-top: 0;
+}
+.rem-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: 0 0 var(--space-3) calc(36px + var(--space-3));
+}
+.rem-more > summary {
+  list-style: none;
+}
+.rem-more > summary::-webkit-details-marker {
+  display: none;
+}
+.rem-more[open] {
+  flex-basis: 100%;
+}
+.rem-edit {
+  margin-top: var(--space-2);
+  max-width: 420px;
+}
+.rem-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-2);
+}
+.rem-confirm p {
+  margin: 0;
+  flex-basis: 100%;
+}
+.rem-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+  max-width: 220px;
+}
+.ico.lg.muted {
+  color: var(--muted);
+}
+.linkbtn.danger {
+  color: var(--danger);
+}
+.rem-home li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+.rem-home li:first-child {
+  border-top: 0;
+}
+@media (max-width: 480px) {
+  .rem-actions {
+    padding-left: 0;
+  }
+  .rem-status {
+    max-width: 140px;
+  }
+}

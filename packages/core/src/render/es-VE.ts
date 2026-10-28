@@ -3466,12 +3466,17 @@ const cap = (s: string) => {
   return s ? s.slice(0, i) + s.charAt(i).toUpperCase() + s.slice(i + 1) : s;
 };
 
-/** {monto} en la moneda que dijo, nunca convertido. */
-function reminderMoney(amount: string | null, currency: string | null): string {
+/** El monto de un recordatorio en la moneda que dijo, nunca convertido; "" sin monto. */
+export function reminderAmount(amount: string | null, currency: string | null): string {
   if (!amount) return "";
   const v = new Decimal(amount);
-  if (currency === "EUR") return ` · €${formatMoney(v, "USD").replace("$", "")}`;
-  return ` · ${formatMoney(v, currency === "VES" ? "VES" : "USD")}`;
+  if (currency === "EUR") return `€${formatMoney(v, "USD").replace("$", "")}`;
+  return formatMoney(v, currency === "VES" ? "VES" : "USD");
+}
+
+/** {monto} con su separador, para las líneas del chat. */
+function reminderMoney(amount: string | null, currency: string | null): string {
+  return amount ? ` · ${reminderAmount(amount, currency)}` : "";
 }
 
 /** «Pagar la luz · $20,00» (con mayúscula si abre la línea). */
@@ -3693,3 +3698,36 @@ export function reminderEmployee(): Outbound {
 
 /** Respuesta a «Ya lo hice» / «Recuérdame mañana» / «Borrar»: solo la reacción. */
 export const REMINDER_REACTION = { done: "✅", snooze: "⏰", del: "🗑️" } as const;
+
+/** H32: cómo llegó un recordatorio (`delivered_via`). */
+export const REMINDER_VIA_LABEL: Record<string, string> = {
+  a: "A su hora",
+  b: "Aviso adelantado",
+  c: "Al escribirle a Rocco",
+  d: "Mensaje aparte",
+};
+
+/** H32: textos de la página Recordatorios y del bloque de Inicio. */
+export const REMINDERS_PAGE = {
+  title: "Recordatorios",
+  pending: "Pendientes",
+  history: "Hechos y vencidos",
+  when: "Cuándo",
+  what: "Qué",
+  amount: "Monto",
+  done: "Marcar como hecho",
+  edit: "Editar",
+  del: "Borrar",
+  delConfirm: "¿Borrar este recordatorio?",
+  cancel: "Cancelar",
+  statusDone: "Hecho",
+  statusDoneExpense: "Hecho · ver el gasto",
+  statusDoneIncome: "Hecho · ver el ingreso",
+  statusExpired: "Venció sin aviso",
+  expiredHelp:
+    "Rocco no pudo escribirte: WhatsApp solo lo deja si le escribiste en las últimas 24 horas.",
+  empty:
+    "No tienes recordatorios. Pídeselos a Rocco por WhatsApp: recuérdame pagar la luz el viernes a las 9 am",
+  homeTitle: "Próximos recordatorios",
+  homeLink: "Ver todos ›",
+} as const;

@@ -1789,3 +1789,29 @@ Los demás issues, según Javier, también eran cortes de conexión y los marcó
 **Conteo: 0 eventos con datos del usuario.** No hay exposición pasada que registrar. No se ve proyecto del worker.
 
 **Arreglo:** el productor de pg-boss de la web (`apps/web/lib/boss.ts`) no tenía `on("error")`. Un corte de conexión salía como «Unhandled error» y podía tumbar la instancia. Ahora se registra, recortado con `errorText`, y el pool se reconecta solo. El worker ya lo tenía.
+
+### S3 · 28/10/2026 · Recordatorios (hábitos P2 + P3) construidos, apagados
+
+Todo detrás de `habits.prefs` y `habits.reminders` (apagados). Se encienden desde el 17/11, con aprobación y con la /privacidad nueva publicada (US-200, pendiente del texto del abogado).
+
+**Terminado**
+- **Base:** migración `0026` aplicada en producción el 28/10 a la 01:04 UTC; puerta de envíos (US-203); apagar y encender avisos (US-204, US-211).
+- **Crear por chat** (US-302, US-303, US-308): `create_reminder`, `update_reminder` y `cancel_reminder`; tarjeta H15 con Corregir y Borrar; pregunta H17 de am/pm; H18 para fechas; H19 si no es de plata; H28 en el tope del plan; H29 para empleados. «mis recordatorios» muestra la lista sin la IA. 22 casos de eval nuevos en `evals/cases/recordatorios.yaml`.
+- **Entrega** (US-304 a US-306): cola `reminders` de pg-boss, cada minuto. Camino a, a su hora; camino b, adelantado 23 h después del último mensaje y nunca de noche; camino c, arriba de la próxima respuesta. Más de 7 días vencido sin entregar: `expired`. Las filas cumplidas, vencidas o borradas se eliminan a los 90 días.
+- **Cumplir con un registro** (US-307): el dueño ve los recordatorios que se le entregaron en las últimas 12 h. Si el gasto o el ingreso es uno de ellos, el modelo pasa `reminder`; ese campo solo existe en el esquema cuando hay entregados. Al guardar queda cumplido y enlazado, con la línea H24. Deshacer, «bórralo» o el panel lo reabren.
+- **Panel** (US-309): página `/recordatorios` con pendientes, hechos y vencidos de 30 días (H32), y Marcar como hecho, Editar y Borrar con confirmación. Bloque «Próximos recordatorios» en Inicio. Solo el dueño. Con el interruptor apagado, solo los administradores la abren, para revisarla.
+- **Números** (US-311): `reminderStats`, solo conteos. Una sección por semana en `pnpm metrics` y una fila de 7 días en /admin. En /admin están los interruptores de Avisos y Recordatorios; Recordatorios exige Avisos encendido.
+- **P3-1:** regla 15 en `engineering-notes.md` de la agencia.
+
+**Decisiones fuera del PRD**
+- Si Meta rechaza un envío, la fila no pasa a `failed`: hacía falta otra migración. Vuelve a pendiente, el mensaje queda `failed`, la puerta no le escribe a ese teléfono en 7 días (`failed_recent`) y el camino c lo muestra cuando escriba.
+- Si el aviso adelantado cae de noche, sale a las 8 pm y no «al último momento antes de las 8:31», para tener 30 minutos de margen en el cron.
+- El camino a toma solo lo que venció hace 10 minutos o menos; lo más viejo espera al camino c.
+
+**Aprendido**
+- `pnpm -s typecheck` no imprime nada y su código de salida se perdía en mi verificación: un commit rompió el CI (`9b38446`, arreglado en `ac3cd39`). Desde entonces reviso el código de salida de lint, typecheck y test.
+
+**Pendiente**
+- Javier: correr `pnpm evals` (156 casos; 22 nuevos de recordatorios).
+- US-310, camino d con plantilla: espera la aprobación de Meta y su propio interruptor.
+- US-200, /privacidad nueva: espera el texto del abogado. Debe estar publicada antes de encender `prefs` o `reminders`.

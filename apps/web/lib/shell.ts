@@ -1,5 +1,5 @@
 import "server-only";
-import { getRateInfo, subscriptionState, tenantPhones } from "@caja/core";
+import { getRateInfo, habitSettings, subscriptionState, tenantPhones } from "@caja/core";
 import { formatMoney } from "@caja/core/domain";
 import { eq, schema, withTenant } from "@caja/db";
 import type { SidebarProps } from "@/app/(app)/sidebar";
@@ -46,5 +46,6 @@ export async function shellProps(session: Session): Promise<Omit<SidebarProps, "
     assistantUrl: wa ? `https://wa.me/${wa}` : null,
     isAdmin: adminEmails().includes(session.user.email.toLowerCase()),
     planBadge: extra?.t ? planBadge(extra.t, new Date()) : null,
+    reminders: tenant?.role === "owner" && (await habitSettings(db())).reminders,
   };
 }

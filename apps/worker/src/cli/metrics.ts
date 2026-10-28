@@ -1,4 +1,11 @@
-import { habitStats, summarizeHabits } from "@caja/core";
+import {
+  EMPTY_REMINDER_STATS,
+  habitStats,
+  type ReminderStats,
+  reminderStats,
+  summarizeHabits,
+  sumReminderStats,
+} from "@caja/core";
 import { createDb, loadNearestEnvFile, rows, sql } from "@caja/db";
 
 /**
@@ -125,6 +132,7 @@ const FREE_TIER = 1000;
       group by 1 order by 1`,
   );
   await habits();
+  await reminders();
   await close();
 })().catch(async (err) => {
   console.error(err);
@@ -224,5 +232,57 @@ async function habits() {
       from app.message
       where tool_calls @> '[{"name": "habit_streak_line"}]'::jsonb
         and created_at > now() - make_interval(days => ${days})`,
+  );
+}
+
+/**
+ * Recordatorios (PRD hábitos US-311, N-9): por semana, las últimas 4 (ventanas de 7 días hacia
+ * atrás). Solo clientes, solo conteos: nunca el texto, la contraparte ni el monto (F3-5).
+ */
+async function reminders() {
+  const now = Date.now();
+  const tenants = rows<{ id: string }>(
+    await db.execute(sql`
+      select id from app.tenant
+      where not exists (select 1 from unnest(crm_tags) g where lower(btrim(g)) = 'interna')`),
+  );
+  const upTo = async (daysBack: number): Promise<ReminderStats> => {
+    const since = new Date(now - daysBack * 86_400_000);
+    const list: ReminderStats[] = [];
+    for (const t of tenants)
+      list.push(await db.transaction((tx) => reminderStats(tx, t.id, since)));
+    return sumReminderStats(list);
+  };
+  const cumulative = [await upTo(7), await upTo(14), await upTo(21), await upTo(28)];
+  const minus = (a: ReminderStats, b: ReminderStats): ReminderStats => {
+    const out = { ...EMPTY_REMINDER_STATS };
+    for (const k of Object.keys(out) as (keyof ReminderStats)[]) out[k] = a[k] - b[k];
+    return out;
+  };
+  const weeks = cumulative.map((c, i) =>
+    i === 0 ? c : minus(c, cumulative[i - 1] as ReminderStats),
+  );
+  console.log("\n== Recordatorios por semana (US-311, solo conteos)");
+  console.table(
+    weeks.map((w, i) => ({
+      semana: i === 0 ? "últimos 7 d" : `hace ${i * 7}–${(i + 1) * 7} d`,
+      creados: w.created,
+      a: w.viaA,
+      b: w.viaB,
+      c: w.viaC,
+      d: w.viaD,
+      a_tiempo: w.onTime,
+      hechos: w.done,
+      enlazados: w.linked,
+      borrados: w.cancelled,
+      vencidos: w.expired,
+      rech_no_plata: w.rejectedNonMoney,
+      rech_tope: w.rejectedLimit,
+      rech_empleado: w.rejectedEmployee,
+      ediciones: w.edits,
+    })),
+  );
+  console.log(
+    `Dueños con 2 o más recordatorios (uso repetido): ${cumulative[0]?.repeatOwners ?? 0}`,
   );
 }

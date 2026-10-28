@@ -7,6 +7,7 @@ import {
   IconBars,
   IconCard,
   IconChat,
+  IconClock,
   IconClose,
   IconDownload,
   IconGear,
@@ -32,6 +33,8 @@ export type SidebarProps = {
   wide?: boolean;
   /** Etiqueta corta del plan ("prueba · 11 días") junto a "Mi plan"; null si no aplica. */
   planBadge?: { text: string; warn: boolean } | null;
+  /** Recordatorios (hábitos US-309): con `habits.reminders` encendido y solo para el dueño. */
+  reminders?: boolean;
 };
 
 const TITLES: [string, string][] = [
@@ -43,6 +46,7 @@ const TITLES: [string, string][] = [
   ["/movimientos/", "Movimiento"],
   ["/movimientos", "Movimientos"],
   ["/cierres", "Cierres"],
+  ["/recordatorios", "Recordatorios"],
   ["/ajustes/categorias", "Categorías"],
   ["/ajustes/numeros", "Números"],
   ["/ajustes/negocio", "Negocio"],
@@ -119,6 +123,7 @@ export function Shell({ children, ...p }: SidebarProps & { children: ReactNode }
         {item("/movimientos", "Movimientos", <IconList />)}
         {item("/ajustes/cuentas", "Cuentas", <IconWallet />)}
         {item("/cierres", "Cierres", <IconBars />)}
+        {p.reminders ? item("/recordatorios", "Recordatorios", <IconClock />) : null}
         <span className="sect">Negocio</span>
         {item("/ajustes/categorias", "Categorías", <IconTags />)}
         {item(

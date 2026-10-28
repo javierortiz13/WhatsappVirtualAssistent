@@ -160,3 +160,9 @@ export const IconWallet = (p: P) => (
     <path d="M3 7a2 2 0 0 1 2-2h12v4M3 7v10a2 2 0 0 0 2 2h14V9H5a2 2 0 0 1-2-2ZM16 14h.01" />
   </Svg>
 );
+export const IconClock = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="13" r="8" />
+    <path d="M12 9v4l2.5 2.5M5 3L2 6M19 3l3 3" />
+  </Svg>
+);

@@ -8,9 +8,12 @@ import {
   type MonthUsage,
   monthUsage,
   planById,
+  type ReminderStats,
+  reminderStats,
   type SubscriptionState,
   subscriptionState,
   summarizeHabits,
+  sumReminderStats,
   type TenantPhone,
   tenantPhones,
   trialSpend,
@@ -339,4 +342,30 @@ export async function loadHabits(tenants: TenantRow[], now: Date): Promise<Habit
     return null;
   }
   return summarizeHabits(stats);
+}
+
+/**
+ * Recordatorios de los últimos 7 días (PRD hábitos US-309, US-311): solo conteos y estados, nunca
+ * el texto, la contraparte ni el monto (F3-5). Los mismos números que `pnpm metrics`.
+ */
+export async function loadReminderStats(
+  tenants: TenantRow[],
+  now: Date,
+): Promise<ReminderStats | null> {
+  await requireAdmin();
+  const conn = db();
+  const since = new Date(now.getTime() - 7 * 86_400_000);
+  const list: ReminderStats[] = [];
+  try {
+    for (const t of tenants) {
+      if (t.internal) continue;
+      list.push(await withTenant(conn, t.id, (tx) => reminderStats(tx, t.id, since)));
+    }
+  } catch (err) {
+    console.error(
+      JSON.stringify({ level: "error", msg: "admin recordatorios", detail: errorText(err) }),
+    );
+    return null;
+  }
+  return sumReminderStats(list);
 }

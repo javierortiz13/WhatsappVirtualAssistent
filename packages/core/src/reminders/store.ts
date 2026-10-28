@@ -262,3 +262,44 @@ export async function reminderSendsThisMonth(tx: Tx, tenantId: string, now: Date
     );
   return r?.n ?? 0;
 }
+
+export type DashboardReminder = ReminderRow & { movementType: string | null };
+
+/**
+ * La página Recordatorios (US-309, H32): los pendientes (esperando su hora o avisados sin marcar)
+ * y los hechos o vencidos de los últimos 30 días. Los borrados no salen: ya no tienen texto.
+ */
+export async function dashboardReminders(
+  tx: Tx,
+  tenantId: string,
+  now: Date,
+): Promise<{ pending: DashboardReminder[]; history: DashboardReminder[] }> {
+  const rows = await tx
+    .select({ r: schema.reminder, movementType: schema.movement.type })
+    .from(schema.reminder)
+    .leftJoin(
+      schema.movement,
+      and(
+        eq(schema.movement.id, schema.reminder.linkedMovementId),
+        isNull(schema.movement.deletedAt),
+      ),
+    )
+    .where(
+      and(
+        eq(schema.reminder.tenantId, tenantId),
+        inArray(schema.reminder.status, ["pending", "delivered", "done", "expired"]),
+        gte(schema.reminder.updatedAt, new Date(now.getTime() - 400 * 86_400_000)),
+      ),
+    )
+    .orderBy(asc(schema.reminder.dueAt));
+  const all = rows.map(({ r, movementType }) => ({ ...r, movementType }));
+  const since = now.getTime() - 30 * 86_400_000;
+  return {
+    pending: all.filter((r) => (r.status === "pending" || r.status === "delivered") && !r.doneAt),
+    history: all
+      .filter(
+        (r) => (r.status === "done" || r.status === "expired") && r.updatedAt.getTime() >= since,
+      )
+      .reverse(),
+  };
+}

@@ -14,6 +14,7 @@ import {
   loadHabits,
   loadPendingPayments,
   loadRates,
+  loadReminderStats,
   loadTenants,
   requireAdmin,
   surveyTally,
@@ -83,7 +84,11 @@ export default async function AdminHome({
   const overCap = tenants.filter((t) => t.usage.inbound > t.cap);
   const premium = rates ? premiumOverUsd(rates) : null;
   const funnel = await loadFunnel(tenants, now);
-  const [habits, habitFlags] = await Promise.all([loadHabits(tenants, now), habitSettings(db())]);
+  const [habits, habitFlags, reminders] = await Promise.all([
+    loadHabits(tenants, now),
+    habitSettings(db()),
+    loadReminderStats(tenants, now),
+  ]);
   const survey = surveyTally(tenants);
   const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)} %` : "—");
   const steps: [string, number, string][] = [
@@ -98,7 +103,13 @@ export default async function AdminHome({
   return (
     <div className="stack">
       {sp.ok && OK[sp.ok] ? <div className="notice ok">{OK[sp.ok]}</div> : null}
-      {sp.error ? <div className="notice err">No se pudo guardar el cambio.</div> : null}
+      {sp.error ? (
+        <div className="notice err">
+          {sp.error === "avisos_primero"
+            ? "Recordatorios necesita Avisos encendido: enciende los dos juntos."
+            : "No se pudo guardar el cambio."}
+        </div>
+      ) : null}
 
       <section className="card hero">
         <span className="label">Ingreso mensual recurrente</span>
@@ -266,6 +277,25 @@ export default async function AdminHome({
             No se pudo calcular: falta aplicar la migración 0025 (días sin gastos) en la base.
           </p>
         )}
+        {reminders && (habitFlags.reminders || reminders.created > 0) ? (
+          <div className="row">
+            <span className="what">
+              <strong>Recordatorios (7 d)</strong>
+              <span className="sub num">
+                creados {reminders.created} · a su hora {reminders.viaA} (a tiempo{" "}
+                {reminders.onTime}) · adelantados {reminders.viaB} · al escribir {reminders.viaC} ·
+                hechos {reminders.done} (con registro {reminders.linked}) · borrados{" "}
+                {reminders.cancelled} · vencidos {reminders.expired}
+              </span>
+              <span className="sub num">
+                rechazados: no es de plata {reminders.rejectedNonMoney} · tope{" "}
+                {reminders.rejectedLimit} · empleado {reminders.rejectedEmployee} · ediciones{" "}
+                {reminders.edits} · dueños con 2+: {reminders.repeatOwners}
+              </span>
+            </span>
+            <strong className="num">{reminders.created}</strong>
+          </div>
+        ) : null}
         <form action={saveHabitsAction} className="stack-sm admin-flags">
           <span className="label">Interruptores (para todos los clientes)</span>
           {(
@@ -281,6 +311,18 @@ export default async function AdminHome({
                 habitFlags.noSpend,
                 "«Hoy no gasté nada»",
                 "El día sin gastos cuenta para la racha",
+              ],
+              [
+                "prefs",
+                habitFlags.prefs,
+                "Avisos: apagar y encender",
+                "«No me recuerdes», «no me escribas» y «mis avisos». Va primero y, una vez encendido, no se apaga",
+              ],
+              [
+                "reminders",
+                habitFlags.reminders,
+                "Recordatorios de plata",
+                "Por chat y en el panel. Necesita Avisos encendido y la /privacidad nueva publicada",
               ],
             ] as const
           ).map(([name, on, title, note]) => (
