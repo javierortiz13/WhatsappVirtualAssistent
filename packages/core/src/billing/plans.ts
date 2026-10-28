@@ -73,7 +73,7 @@ export const PLANS: Plan[] = [
 ];
 
 /**
- * Beta (07/10/2026, decisión de Javier): la web no muestra precios; dice "14 días gratis" (la
+ * Beta (07/10/2026, decisión de Javier): la web no muestra precios; dice "31 días o 100 mensajes gratis" (la
  * prueba de siempre, contada desde el registro).
  * Los precios de `PLANS` siguen definidos para el cobro y se publican al apagar esto.
  */
@@ -103,7 +103,7 @@ export function rechargeById(id: string | null | undefined): RechargePack {
 }
 
 /**
- * Prueba gratis única (07/10/2026, decisión de Javier): 14 días o 100 mensajes, lo que llegue
+ * Prueba gratis única (07/10/2026, decisión de Javier; 31 días desde el 28/10/2026): 31 días o 100 mensajes, lo que llegue
  * primero, igual para todos. El plan se elige al pagar: así nadie escoge Plus para tener más
  * prueba. Quien la agota con uso real es el mejor momento para cobrar; si vale la pena, el
  * administrador le regala mensajes desde /admin.
@@ -134,7 +134,7 @@ export function founderUntilFrom(today: string): string {
 /** Aviso único cuando el uso del mes pasa este porcentaje del tope. */
 export const CAP_WARN_PCT = 80;
 
-/** Reglas de la suscripción (decididas por Javier el 02/10/2026). */
-export const TRIAL_DAYS = 14;
+/** Reglas de la suscripción (decididas por Javier el 02/10/2026; prueba de 31 días desde el 28/10/2026). */
+export const TRIAL_DAYS = 31;
 export const GRACE_DAYS = 3;
 export const PERIOD_DAYS = 30;

@@ -1815,3 +1815,25 @@ Todo detrás de `habits.prefs` y `habits.reminders` (apagados). Se encienden des
 - Javier: correr `pnpm evals` (156 casos; 22 nuevos de recordatorios).
 - US-310, camino d con plantilla: espera la aprobación de Meta y su propio interruptor.
 - US-200, /privacidad nueva: espera el texto del abogado. Debe estar publicada antes de encender `prefs` o `reminders`.
+
+### S3 · 28/10/2026 · Prueba gratis de 31 días o 100 mensajes (jpsoftwaredev#34, #12)
+
+Decisión de Javier del 28/10 (1A, 2A, 4A) y handoff `dev-handoff-2026-10-28-trial-31.md`. Va en la rama `claude/trial-31-wijnh8` hasta que cumplimiento revise el commit (C1). Después sigue el orden C3: migración, worker, web, dry-run, apply y verificación.
+
+**Qué cambió**
+- **T1:** `TRIAL_DAYS = 31` y comentarios.
+- **T2:** migración `0028_trial_31.sql`. El fin de la prueba lo pone el default de la base (`now() + 31 days`), no el código; `billing.test.ts` compara con `TRIAL_DAYS`.
+- **T3:** el aviso de fin de la prueba sale una vez por cada fin, no una vez por cuenta. Solo cuenta un aviso enviado después del `trial_ends_at` actual; la marca guarda la hora de la vuelta.
+- **T4:** la línea 🎁 «renové tu prueba» lleva los términos («o al llegar a los N mensajes… Llevas X de N») y dice «1 día más» en singular. Nunca sale sobre una prueba agotada.
+- **T5:** el resumen «¿Seguimos juntos?» pasa al día 28 por defecto; en /admin el máximo es `TRIAL_DAYS - 1`. El resumen dice «o al llegar a los N mensajes, lo que llegue primero».
+- **T6:** textos de la landing, el login, el registro, Mi plan, /admin y el bot, letra por letra del handoff (A-0021 enmendado + 31 días). En el login, la línea 🎁 sale solo en beta.
+- **T7:** `MODELO-NEGOCIO.md` y `DISENO-MVP.md`. Las entradas viejas de esta bitácora que dicen 14 días quedan como historia.
+- **T8:** `pnpm --filter @caja/worker trial:31` solo cuenta; con `--apply` escribe. Regla a regla:
+  - extiende las pruebas en curso y en gracia, y reabre las suspendidas por vencimiento, a `created_at + 31 días`;
+  - no toca las pagadas, las borradas, las de más de 31 días, las que ya tienen 31 o más, las suspendidas a mano ni las que agotaron mensajes o la red de seguridad;
+  - deja un `audit_log` `extend` del sistema por cambio;
+  - imprime solo conteos.
+
+**Decisión propia:** una prueba agotada por mensajes que después quedó suspendida por vencimiento tampoco se reabre (A3). `trialSpend().reached` solo mira pruebas en estado `trial`, así que el script mide el tope sin mirar el estado.
+
+**Conteos:** pendientes, del dry-run y del `--apply`.

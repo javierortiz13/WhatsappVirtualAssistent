@@ -15,6 +15,7 @@ import {
   reportPayment,
   subscriptionState,
   TooManyPendingError,
+  TRIAL_DAYS,
   trialBudget,
   trialSpend,
 } from "../src/billing/index";
@@ -101,12 +102,12 @@ describe("pagos, suspensión y límite (base de prueba)", () => {
       )
     )[0];
 
-  it("un negocio nuevo arranca con 14 días de prueba", async () => {
+  it("un negocio nuevo arranca con TRIAL_DAYS (31) días de prueba", async () => {
     const row = await tenant();
     expect(row?.status).toBe("trial");
     expect(row?.plan).toBe("negocio");
     const days = ((row?.trialEndsAt?.getTime() ?? 0) - (row?.createdAt.getTime() ?? 0)) / DAY;
-    expect(Math.round(days)).toBe(14);
+    expect(Math.round(days)).toBe(TRIAL_DAYS);
   });
 
   it("la última tasa trae el último euro conocido aunque sea de un día anterior", async () => {

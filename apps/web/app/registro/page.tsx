@@ -74,7 +74,7 @@ export default async function Registro({
           suggestions={SUGGESTED_EXPENSE_CATEGORIES}
           maxCategories={MAX_ACTIVE_CATEGORIES}
           maxAccounts={ONBOARDING_MAX_ACCOUNTS}
-          pilotNote="14 días o 100 mensajes gratis, lo que llegue primero. Sin tarjeta."
+          pilotNote="31 días o 100 mensajes gratis, lo que llegue primero. Sin tarjeta."
           beta={(await launchSettings(db()).catch(() => LAUNCH_DEFAULTS)).beta}
         />
       </>

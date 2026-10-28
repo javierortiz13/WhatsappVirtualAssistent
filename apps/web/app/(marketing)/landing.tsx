@@ -1,5 +1,5 @@
 import { RoccoMarkSmall } from "@/app/rocco-mark";
-import { PILOT_NOTE, PLANS } from "@/lib/plans";
+import { PLANS } from "@/lib/plans";
 import { Effects } from "./effects";
 import { type Scene, Story } from "./story";
 
@@ -18,7 +18,7 @@ export function Landing({
 }: {
   waUrl: string | null;
   heroPhoto: string | null;
-  /** Modo beta (0021, /admin): sin precios, "Gratis: 14 días o 100 mensajes". */
+  /** Modo beta (0021, /admin): sin precios, "Gratis: 31 días o 100 mensajes". */
   beta: boolean;
 }) {
   const primary = waUrl ?? "/registro";
@@ -129,8 +129,8 @@ export function Landing({
             <h2>Un plan para tu bolsillo y otro para tu negocio.</h2>
             <p className="lead">
               {beta
-                ? "Durante la beta pruebas Rocco gratis: 14 días o 100 mensajes, lo que llegue primero, contados desde el día que empiezas. El plan lo eliges al terminar. Y los primeros 50 tendrán precio de fundador."
-                : `Empiezas con 14 días o 100 mensajes gratis. Los primeros 50 tienen precio de fundador: 40 % menos. ${PILOT_NOTE}`}
+                ? "Durante la beta pruebas Rocco gratis: 31 días o 100 mensajes, lo que llegue primero, contados desde el día que empiezas. El plan lo eliges al terminar. Y los primeros 50 tendrán precio de fundador durante 7 meses desde que se registran."
+                : `Empiezas con 31 días o 100 mensajes gratis, lo que llegue primero. Los primeros 50 tienen precio de fundador: 40 % menos durante 7 meses desde que se registran.`}
             </p>
           </div>
           <div className="plans" style={{ marginTop: 36 }}>
@@ -139,7 +139,7 @@ export function Landing({
                 <div className="name">{p.name}</div>
                 <div className="price num">
                   {beta ? (
-                    "Gratis: 14 días o 100 mensajes"
+                    "Gratis: 31 días o 100 mensajes"
                   ) : (
                     <>
                       {money(p.priceUsd)} <small>/ mes</small>
@@ -187,9 +187,11 @@ export function Landing({
         <div className="wrap">
           <div className="card reveal">
             <h2>Deja que Rocco te lleve las cuentas.</h2>
+            {/* 5 y 7: las preguntas de questionsFor() más el presupuesto opcional (packages/core/src/onboarding/chat-signup.ts). Si cambia el registro, cambia esta frase. */}
             <p className="lead" style={{ margin: "12px auto 24px" }}>
-              Escríbele <strong>hola</strong> por WhatsApp y arma tu cuenta en el mismo chat. Son
-              dos minutos y tienes 14 días o 100 mensajes gratis, lo que llegue primero.
+              Escríbele <strong>hola</strong> por WhatsApp y arma tu cuenta en el mismo chat. Son 5
+              pasos cortos (7 si es para tu negocio) y tienes 31 días o 100 mensajes gratis, lo que
+              llegue primero.
             </p>
             <div className="ctas" style={{ justifyContent: "center" }}>
               <a
@@ -228,7 +230,7 @@ function Compare() {
     <div className="hero-compare reveal d1" aria-hidden="true">
       <div className="card cmp">
         <span className="label">Sin Rocco</span>
-        <p className="big num amber">3 apps</p>
+        <p className="big num amber">4 cosas</p>
         <p className="sub">cuaderno, calculadora, Excel y la tasa en otra pestaña. Un rollo.</p>
       </div>
       <div className="card cmp hi">
@@ -369,8 +371,9 @@ function scenes(waUrl: string | null): Scene[] {
       user: "quiero empezar",
       bot: (
         <>
-          ¡Dale! Escríbeme <strong>hola</strong> desde tu WhatsApp y armamos tu cuenta aquí mismo en
-          dos minutos. Tienes 14 días o 100 mensajes gratis para probarme.
+          ¡Dale! Escríbeme <strong>hola</strong> desde tu WhatsApp y armamos tu cuenta aquí mismo
+          con unas preguntas cortas. Tienes 31 días o 100 mensajes gratis para probarme, lo que
+          llegue primero.
           <div className="btns">
             {waUrl ? <span>Escribirle a Rocco</span> : null}
             <span>Crear cuenta en la web</span>
@@ -379,7 +382,7 @@ function scenes(waUrl: string | null): Scene[] {
       ),
       caption: {
         title: "Empieza hoy, sin instalar nada.",
-        text: "Sin tarjeta: durante la beta tienes 14 días o 100 mensajes gratis, lo que llegue primero, desde el día que empiezas.",
+        text: "Sin tarjeta: tienes 31 días o 100 mensajes gratis, lo que llegue primero, desde el día que empiezas.",
       },
     },
   ];
@@ -408,7 +411,7 @@ const FAQ = [
   },
   {
     q: "¿Cuánto cuesta?",
-    a: "Durante la beta lo pruebas gratis: 14 días desde que empiezas a usarlo o 100 mensajes, lo que llegue primero. Al terminar la prueba, Rocco te dice el precio de tu plan (los primeros 50 con precio de fundador) y pagas por pago móvil, Zelle o USDT desde el mismo chat.",
+    a: "Lo pruebas gratis: 31 días desde que empiezas a usarlo o 100 mensajes, lo que llegue primero. Al terminar la prueba, Rocco te dice el precio de tu plan (los primeros 50 tienen precio de fundador durante 7 meses desde que se registran) y pagas por pago móvil, Zelle o USDT desde el mismo chat.",
   },
 ];
 

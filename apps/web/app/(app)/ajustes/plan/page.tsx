@@ -126,7 +126,7 @@ export default async function MiPlan({
           <p className="sub">
             {trial.reached
               ? `Usaste los ${trial.messageCap} mensajes de tu prueba gratis y Rocco dejó de registrar. Tus datos siguen guardados: activa tu plan para seguir.`
-              : `Prueba gratis: llevas ${Math.min(trial.messages, trial.messageCap)} de ${trial.messageCap} mensajes. Al terminarlos o al pasar los 14 días, Rocco deja de registrar hasta que actives el plan.`}
+              : `Prueba gratis: llevas ${Math.min(trial.messages, trial.messageCap)} de ${trial.messageCap} mensajes. Al terminarlos o al pasar los 31 días, Rocco deja de registrar hasta que actives el plan.`}
           </p>
         ) : null}
         {t.status === "suspended" && t.suspendedAt ? (
@@ -167,7 +167,7 @@ export default async function MiPlan({
               <p className="plan-price">
                 Gratis{" "}
                 <span className="sub">
-                  durante tu prueba de 14 días o {TRIAL_MESSAGES} mensajes, lo que llegue primero
+                  durante tu prueba de 31 días o {TRIAL_MESSAGES} mensajes, lo que llegue primero
                 </span>
               </p>
             ) : (

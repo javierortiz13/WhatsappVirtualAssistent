@@ -14,6 +14,7 @@ import {
 import { launchSettings } from "../billing/launch";
 import type { PaymentDest } from "../billing/renew";
 import { renewOfferReply } from "../billing/renew-chat";
+import { trialMessageCap } from "../billing/trial";
 import { businessDateOf } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import { type Logger, maskPhone, silentLogger } from "../log";
@@ -25,9 +26,9 @@ import { serviceWindow } from "./window";
 
 /**
  * Ciclo de la prueba gratis (0019, decisión de Javier del 07/10): para convertir sin presionar.
- * - Día 10: encuesta de precio (precio justo y precio caro, con listas): mide la disposición a
+ * - Día 10 (por defecto): encuesta de precio (precio justo y precio caro, con listas): mide la disposición a
  *   pagar antes de fijar los precios.
- * - Día 12: resumen de lo que Rocco anotó en la prueba y "¿seguimos?" (Sí / Tengo dudas).
+ * - Día 28 (por defecto; era 12 con la prueba de 14 días): resumen de lo que Rocco anotó en la prueba y "¿seguimos?" (Sí / Tengo dudas).
  * - Al terminar la prueba (07/10): "terminó tu prueba" con los precios y cómo pagar. En beta es
  *   la primera vez que Rocco habla de precios.
  * Los días de la encuesta y del resumen se cambian en /admin (`app_setting`, 0021).
@@ -141,6 +142,9 @@ async function takeLifecycle(
           eq(schema.message.tenantId, tenantId),
           eq(schema.message.direction, "out"),
           sql`${schema.message.toolCalls} @> ${JSON.stringify([{ name: TRIAL_END }])}::jsonb`,
+          // Uno por cada fin (trial-31 T3): el aviso de este fin sale después de `trial_ends_at`; uno
+          // anterior es de un fin viejo (una prueba reabierta o extendida desde /admin).
+          gte(schema.message.createdAt, t.trialEndsAt ?? new Date(0)),
         ),
       )
       .limit(1);
@@ -162,9 +166,10 @@ async function takeLifecycle(
       ...v,
       business: t.businessType !== "personal",
       trialEndsOn: t.trialEndsAt ? businessDateOf(t.trialEndsAt) : null,
+      cap: trialMessageCap(t),
       founder: Boolean(t.founderUntil),
     });
-    // La encuesta ya no hace falta si se llega al día 12 sin haberla mandado.
+    // La encuesta ya no hace falta si se llega al resumen sin haberla mandado.
     await tx
       .update(schema.tenant)
       .set({ valueSentAt: now, surveySentAt: t.surveySentAt ?? now })
@@ -236,6 +241,8 @@ export async function sendLifecycleNotices(
             body: p.out.body,
             status: "ok",
             waMessageId: r.waMessageId,
+            // La hora de la vuelta: el aviso de fin se compara con `trial_ends_at` (T3).
+            createdAt: opts.now,
             toolCalls: [
               { name: p.kind === "trialEnd" ? TRIAL_END : `lifecycle_${p.kind}`, args: {} },
             ],

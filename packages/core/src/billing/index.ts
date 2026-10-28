@@ -9,4 +9,5 @@ export * from "./renew-chat";
 export * from "./retention";
 export * from "./subscription";
 export * from "./trial";
+export * from "./trial-31";
 export * from "./usage";

@@ -2,7 +2,7 @@ import { GRACE_DAYS } from "./plans";
 
 /**
  * Estado de la suscripción de un negocio, calculado (no guardado) a partir de `tenant`:
- * - trial: dentro de los 14 días de prueba.
+ * - trial: dentro de la prueba (TRIAL_DAYS días desde el registro, o hasta sus mensajes).
  * - active: pagado hasta `paid_until` (o activo sin fecha: cortesía).
  * - grace: venció hace menos de 3 días; el bot sigue funcionando.
  * - expired: pasó la gracia; el job lo suspende en la próxima vuelta.

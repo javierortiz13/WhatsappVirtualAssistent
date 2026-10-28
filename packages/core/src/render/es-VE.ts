@@ -2653,7 +2653,7 @@ export function signupIntro(dashboardUrl: string, profile: string | null): Outbo
       "Me escribes lo que gastas, en bolívares o en dólares, y lo anoto con la tasa BCV de ese día.",
       "",
       // Verbatim de cumplimiento (jpsoftwaredev#7, qa/dev-handoff-2026-10-19-review.md).
-      `Armamos tu cuenta aquí mismo en 2 minutos y tienes *14 días o ${TRIAL_MESSAGES} mensajes gratis* para probarme, lo que llegue primero.`,
+      `Armamos tu cuenta aquí mismo y tienes *31 días o ${TRIAL_MESSAGES} mensajes gratis* para probarme, lo que llegue primero.`,
       `_Al seguir aceptas la política de privacidad: ${dashboardUrl}/privacidad_`,
       "",
       "Son unas preguntas cortas. La primera: ¿cómo te llamas?",
@@ -2863,7 +2863,7 @@ export function signupDone(v: {
   lines.push(
     "",
     // Compliance O8 (#7): los dos topes de la prueba, y que vence el que llegue primero.
-    `Tienes *14 días o ${v.trialMessages ?? TRIAL_MESSAGES} mensajes gratis* para probarme, lo que llegue primero.`,
+    `Tienes *31 días o ${v.trialMessages ?? TRIAL_MESSAGES} mensajes gratis* para probarme, lo que llegue primero.`,
   );
   if (v.founderUntil)
     lines.push(
@@ -3115,7 +3115,7 @@ export function surveyThanks(): Outbound {
   };
 }
 
-/** Día 12: lo que Rocco anotó en la prueba y "¿seguimos?". Sin precios: eso va aparte. */
+/** Día 28 por defecto (valueDay): lo que Rocco anotó en la prueba y "¿seguimos?". Sin precios: eso va aparte. */
 export function valueSummary(v: {
   movements: number;
   expensesUsd: Decimal.Value;
@@ -3123,6 +3123,7 @@ export function valueSummary(v: {
   days: number;
   business: boolean;
   trialEndsOn: IsoDate | null;
+  cap: number;
   founder: boolean;
 }): Outbound {
   const lines = [
@@ -3130,7 +3131,10 @@ export function valueSummary(v: {
       ? `En estos ${v.days} días anoté *${v.movements} ${v.movements === 1 ? "movimiento" : "movimientos"}* contigo: *${formatMoney(v.expensesUsd, "USD")}* en gastos${v.business && new Decimal(v.salesUsd).gt(0) ? ` y *${formatMoney(v.salesUsd, "USD")}* en ventas` : ""}.`
       : `Llevamos ${v.days} días juntos y todavía no me has pasado ningún gasto. ¡Pruébame con el próximo!`,
   ];
-  if (v.trialEndsOn) lines.push(`Tu prueba gratis termina el ${formatShortDate(v.trialEndsOn)}.`);
+  if (v.trialEndsOn)
+    lines.push(
+      `Tu prueba gratis termina el ${formatShortDate(v.trialEndsOn)} o al llegar a los ${v.cap} mensajes, lo que llegue primero.`,
+    );
   if (v.founder) lines.push("Como eres de los primeros, tendrás *precio de fundador*.");
   lines.push("", "¿Seguimos juntos?");
   return {
@@ -3155,9 +3159,15 @@ export function trialEndedLead(): string {
   return "Se terminó tu prueba gratis. ¡Gracias por probarme en la beta! 🐶 Tus datos siguen guardados. Si quieres seguir conmigo, este es tu plan:";
 }
 
-/** La prueba se extendió desde /admin (beta, 20/10): va una vez, encima de la respuesta siguiente. */
-export function trialExtended(v: { days: number; endsOn: IsoDate }): string {
-  return `🎁 Como parte de la beta de Rocco, renové tu prueba gratis por *${v.days} días más*: ahora termina el *${formatShortDate(v.endsOn)}*. Sigue anotando como siempre.`;
+/** La prueba se extendió (desde /admin o el ajuste a 31 días, beta): va una vez, encima de la respuesta siguiente. */
+export function trialExtended(v: {
+  days: number;
+  endsOn: IsoDate;
+  used: number;
+  cap: number;
+}): string {
+  const more = v.days === 1 ? "1 día más" : `${v.days} días más`;
+  return `🎁 Como parte de la beta de Rocco, renové tu prueba gratis por *${more}*: ahora termina el *${formatShortDate(v.endsOn)}* o al llegar a los *${v.cap} mensajes*, lo que llegue primero. Llevas *${v.used} de ${v.cap}*. Sigue anotando como siempre.`;
 }
 
 /** Escribió con la prueba terminada y nunca pagó: lo mismo, con la oferta debajo. */

@@ -17,6 +17,7 @@ import {
   saveLaunchSettings,
   setTenantBilling,
   subscriptionState,
+  TRIAL_DAYS,
 } from "@caja/core";
 import { businessDateOf } from "@caja/core/domain";
 import { errorText } from "@caja/core/log";
@@ -338,8 +339,16 @@ export async function giftRechargeAction(formData: FormData): Promise<void> {
 
 const LaunchForm = z.object({
   mode: z.enum(["beta", "live"]),
-  survey_day: z.coerce.number().int().min(1).max(13),
-  value_day: z.coerce.number().int().min(1).max(13),
+  survey_day: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(TRIAL_DAYS - 1),
+  value_day: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(TRIAL_DAYS - 1),
 });
 
 /** Modo beta/live (0021) y días de la encuesta y del resumen de la prueba. */

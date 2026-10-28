@@ -96,7 +96,7 @@ export const tenant = app.table(
     status: text("status").notNull().default("trial"),
     plan: text("plan").notNull().default("negocio"),
     trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }).default(
-      sql`now() + interval '14 days'`,
+      sql`now() + interval '31 days'`,
     ),
     paidUntil: timestamp("paid_until", { withTimezone: true }),
     capNotifiedMonth: text("cap_notified_month"),

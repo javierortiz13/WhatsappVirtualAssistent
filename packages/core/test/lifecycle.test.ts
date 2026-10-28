@@ -13,7 +13,7 @@ import { type ProcessDeps, processInbound } from "../src/inbox/process";
 import { MetaClient } from "../src/whatsapp/client";
 import * as fx from "./fixtures";
 
-/** Prueba gratis (0019): encuesta de precio el día 10 y resumen de valor el día 12. */
+/** Prueba gratis (0019): encuesta de precio el día 10 y resumen de valor el día 28 (era 12 con la prueba de 14 días). */
 describe("ciclo de la prueba gratis", () => {
   let t: Awaited<ReturnType<typeof createTestDb>>;
   let tenantId: string;
@@ -163,7 +163,7 @@ describe("ciclo de la prueba gratis", () => {
     expect((await tenant())?.survey).toMatchObject({ fair: "5-8", expensive: "12-20" });
   });
 
-  it("día 12: resumen de lo anotado con '¿seguimos?' y la respuesta en el CRM", async () => {
+  it("día 28 (por defecto): resumen de lo anotado con '¿seguimos?' y la respuesta en el CRM", async () => {
     await withTenant(t.db, tenantId, async (tx) => {
       const [rate] = await tx.select().from(schema.bcvRate).limit(1);
       const base = {
@@ -196,12 +196,13 @@ describe("ciclo de la prueba gratis", () => {
         },
       ] as (typeof schema.movement.$inferInsert)[]);
     });
-    await setTenant({ createdAt: new Date(clock.getTime() - 12 * DAY) });
+    await setTenant({ createdAt: new Date(clock.getTime() - 28 * DAY) });
     expect((await sendLifecycleNotices(t.db, client, { now: clock })).value).toBe(1);
     const body = bodyOf(sent.at(-1));
     expect(body).toContain(
       "anoté *2 movimientos* contigo: *$40,00* en gastos y *$150,00* en ventas",
     );
+    expect(body).toContain("o al llegar a los 100 mensajes, lo que llegue primero.");
     expect(body).toContain("*precio de fundador*");
     expect(idsOf(sent.at(-1))).toEqual(["survey:continue:yes", "survey:continue:doubts"]);
     await tap("survey:continue:doubts", false);
@@ -221,6 +222,28 @@ describe("ciclo de la prueba gratis", () => {
     expect(idsOf(sent.at(-1))).toEqual(["renew:zelle:negocio:1"]);
     // Una sola vez.
     expect((await sendLifecycleNotices(t.db, client, opts)).trialEnd).toBe(0);
+  });
+
+  it("trial-31 T3: si la prueba se extiende después del aviso, el nuevo fin tiene su propio aviso (uno)", async () => {
+    const later = new Date(clock.getTime() + 11 * DAY);
+    await setTenant({ trialEndsAt: new Date(clock.getTime() + 10 * DAY) });
+    // Antes del nuevo fin no sale nada.
+    expect((await sendLifecycleNotices(t.db, client, { now: clock })).trialEnd).toBe(0);
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.insert(schema.message).values({
+        tenantId,
+        phoneId,
+        direction: "in",
+        kind: "text",
+        body: "x",
+        createdAt: new Date(later.getTime() - 30 * 60_000),
+      }),
+    );
+    const opts = { now: later, dest: { zelle: "pagos@x.com" }, supportHint: null };
+    expect((await sendLifecycleNotices(t.db, client, opts)).trialEnd).toBe(1);
+    expect(bodyOf(sent.at(-1))).toContain("Se terminó tu prueba gratis.");
+    expect((await sendLifecycleNotices(t.db, client, opts)).trialEnd).toBe(0);
+    await setTenant({ trialEndsAt: new Date(clock.getTime() - 60 * 60_000) });
   });
 
   it("los días de la encuesta y del resumen se cambian en /admin", async () => {
