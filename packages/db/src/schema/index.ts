@@ -191,6 +191,14 @@ export const phoneNumber = app.table(
     status: text("status").notNull().default("pending"),
     displayName: text("display_name"),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    /** Preferencias de contacto (0026, US-201). Null = sin decidir. */
+    nudgeOptInAt: timestamp("nudge_opt_in_at", { withTimezone: true }),
+    nudgeOffAt: timestamp("nudge_off_at", { withTimezone: true }),
+    unsolicitedOffAt: timestamp("unsolicited_off_at", { withTimezone: true }),
+    nudgePausedUntil: timestamp("nudge_paused_until", { withTimezone: true }),
+    /** Apagado pendiente de confirmar (D10): ya cuenta como apagado. */
+    prefPending: text("pref_pending"),
+    prefPendingAt: timestamp("pref_pending_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [
@@ -558,6 +566,54 @@ export const noSpendDay = app.table(
     ...timestamps,
   },
   (t) => [uniqueIndex("no_spend_day_tenant_day_key").on(t.tenantId, t.day)],
+);
+
+export const REMINDER_KINDS = ["pay", "collect", "other_money"] as const;
+export const REMINDER_STATUSES = ["pending", "delivered", "done", "cancelled", "expired"] as const;
+
+/**
+ * Recordatorio de plata (0026, PRD hábitos §6.2). El texto, el monto y la contraparte se borran al
+ * tocar Borrar; nunca salen en métricas, logs ni /admin.
+ */
+export const reminder = app.table(
+  "reminder",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id, { onDelete: "cascade" }),
+    phoneId: uuid("phone_id")
+      .notNull()
+      .references(() => phoneNumber.id, { onDelete: "cascade" }),
+    text: text("text"),
+    kind: text("kind").notNull(),
+    amount: numeric("amount", { precision: 18, scale: 2 }),
+    currency: text("currency"),
+    counterparty: text("counterparty"),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    dueDate: date("due_date").notNull(),
+    timeWasDefault: boolean("time_was_default").notNull().default(false),
+    status: text("status").notNull().default("pending"),
+    deliveredVia: text("delivered_via"),
+    earlySentAt: timestamp("early_sent_at", { withTimezone: true }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    doneAt: timestamp("done_at", { withTimezone: true }),
+    linkedMovementId: uuid("linked_movement_id").references(() => movement.id, {
+      onDelete: "set null",
+    }),
+    sourceMessageId: uuid("source_message_id").references(() => message.id, {
+      onDelete: "set null",
+    }),
+    ...timestamps,
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("reminder_due_idx").on(t.status, t.dueAt),
+    index("reminder_tenant_idx").on(t.tenantId, t.status),
+    check("reminder_kind_check", inList("kind", REMINDER_KINDS)),
+    check("reminder_status_check", inList("status", REMINDER_STATUSES)),
+  ],
 );
 
 /** Cuenta donde vive el dinero (0013): banco en Bs, Binance, Zelle, efectivo. */
