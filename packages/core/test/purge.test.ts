@@ -111,7 +111,7 @@ describe("conservación de datos", () => {
 
   it("borra el texto viejo (deja los nombres de herramientas) y las fotos de más de 12 meses", async () => {
     const r = await run((tx) => purgeOldTenantData(tx, store, tenantId, now));
-    expect(r).toEqual({ texts: 2, drafts: 1, photos: 1 });
+    expect(r).toEqual({ texts: 2, drafts: 1, photos: 1, reminders: 0 });
     const msgs = await run((tx) =>
       tx.select().from(schema.message).orderBy(schema.message.createdAt),
     );
@@ -131,7 +131,39 @@ describe("conservación de datos", () => {
       texts: 0,
       drafts: 0,
       photos: 0,
+      reminders: 0,
     });
+  });
+
+  it("borra los recordatorios 90 días después de cumplidos, vencidos o borrados (P-4)", async () => {
+    const row = (status: string, updated: number) => ({
+      tenantId,
+      phoneId,
+      text: status === "cancelled" ? null : "pagar la luz",
+      kind: "pay",
+      dueAt: ago(updated + 1),
+      dueDate: ago(updated + 1)
+        .toISOString()
+        .slice(0, 10),
+      status,
+      updatedAt: ago(updated),
+    });
+    await run((tx) =>
+      tx
+        .insert(schema.reminder)
+        .values([
+          row("done", 91),
+          row("expired", 95),
+          row("cancelled", 120),
+          row("done", 10),
+          row("pending", 200),
+          row("delivered", 100),
+        ]),
+    );
+    const r = await run((tx) => purgeOldTenantData(tx, store, tenantId, now));
+    expect(r.reminders).toBe(3);
+    const left = await run((tx) => tx.select().from(schema.reminder));
+    expect(left.map((x) => x.status).sort()).toEqual(["delivered", "done", "pending"]);
   });
 
   it("vacía el mensaje crudo de eventos cerrados con más de 90 días", async () => {

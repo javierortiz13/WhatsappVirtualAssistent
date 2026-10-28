@@ -7,6 +7,7 @@ export * from "./ledger/index";
 export * from "./log";
 export * from "./onboarding/index";
 export * from "./rates/index";
+export * from "./reminders/index";
 export * from "./render/index";
 export * from "./speech/index";
 export * from "./storage/index";

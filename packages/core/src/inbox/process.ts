@@ -134,6 +134,7 @@ import {
   reminderListReply,
   reminderTap,
 } from "../reminders/chat";
+import { pendingRider } from "../reminders/rider";
 import { es, IDS, mergeOutbound, type Outbound, parseReplyId } from "../render/index";
 import type { SpeechClient } from "../speech/client";
 import type { ObjectStore } from "../storage/store";
@@ -496,6 +497,27 @@ export async function processInbound(
         ? [...mergeOutbound(first, second), ...route.outbound.slice(1)]
         : [...welcome, ...route.outbound];
 
+    // Recordatorios vencidos sin entregar (camino c, US-306): arriba de la respuesta del dueño, en
+    // el mismo mensaje. Si no caben, esperan al turno siguiente.
+    if (resolved.role === "owner" && !route.noRider) {
+      const at = outbound.findIndex((o) => o.type !== "reaction");
+      const target = outbound[at];
+      const rider = target
+        ? await pendingRider(tx, {
+            tenantId: resolved.tenantId,
+            phoneId: resolved.phoneId,
+            now: started,
+          })
+        : null;
+      if (rider && target) {
+        const body = `${rider.lines}\n\n${target.body}`;
+        if (body.length <= (target.type === "text" ? LIMITS.textBody : LIMITS.interactiveBody)) {
+          await rider.commit();
+          outbound[at] = { ...target, body } as Outbound;
+          route.toolCalls = [...rider.marks, ...route.toolCalls];
+        }
+      }
+    }
     // Prueba extendida desde /admin (beta, 20/10): el aviso va una vez, arriba de la respuesta y
     // sin mensaje aparte. Si no cabe en el cuerpo, espera al turno siguiente.
     const extension =
@@ -763,6 +785,11 @@ type RouteCtx = {
 
 type RouteResult = {
   outbound: Outbound[];
+  /**
+   * Respuesta que no lleva los recordatorios pendientes (camino c, US-306): las tarjetas de avisos
+   * y sus respuestas, la cuenta suspendida o sin mensajes, la papelera.
+   */
+  noRider?: boolean;
   toolCalls: { name: string; args: unknown }[];
   tokensIn: number;
   tokensOut: number;
@@ -1087,7 +1114,8 @@ async function routeMessage(
   msg: InboundMessage,
   ctx: RouteCtx,
 ): Promise<RouteResult> {
-  if (ctx.deleted) return routeDeleted(tx, deps, msg, ctx, ctx.deleted);
+  if (ctx.deleted)
+    return { ...(await routeDeleted(tx, deps, msg, ctx, ctx.deleted)), noRider: true };
   const erase = await routeErase(tx, deps, msg, ctx);
   if (erase) return erase;
   // Apagar y encender avisos (hábitos US-204, US-211): antes de la cuenta suspendida o sin
@@ -1107,7 +1135,7 @@ async function routeMessage(
       replyId: msg.kind === "interactive" ? msg.replyId : null,
     },
   );
-  if (prefs) return { ...none(prefs.outbound), toolCalls: prefs.toolCalls };
+  if (prefs) return { ...none(prefs.outbound), toolCalls: prefs.toolCalls, noRider: true };
   // Botones de un recordatorio (hábitos P3): también con la cuenta suspendida, para que Borrar
   // siempre funcione. Sin la IA.
   if (msg.kind === "interactive") {
@@ -1115,7 +1143,7 @@ async function routeMessage(
     if (tap) return tap;
   }
   if (ctx.suspended || ctx.trialCapped || ctx.monthCapped)
-    return routeSuspended(tx, deps, msg, ctx);
+    return { ...(await routeSuspended(tx, deps, msg, ctx)), noRider: true };
   switch (msg.kind) {
     case "interactive":
       return routeInteractive(tx, deps, msg.replyId, ctx);

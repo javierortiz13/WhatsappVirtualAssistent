@@ -14,6 +14,8 @@ export const QUEUES = {
   fetchBcvRate: "fetch-bcv-rate",
   /** Expiración de borradores y limpieza (día 3 en adelante). */
   housekeeping: "housekeeping",
+  /** Recordatorios de plata (hábitos P3, US-304/305): cada minuto, sobre `reminder.due_at`. */
+  reminders: "reminders",
 } as const;
 
 export const PGBOSS_SCHEMA = "pgboss";
@@ -81,6 +83,14 @@ export async function ensureQueues(boss: PgBoss): Promise<void> {
       retryLimit: 1,
       retryDelay: 60,
       expireInSeconds: 300,
+    },
+    {
+      // Sin reintentos: el minuto siguiente vuelve a mirar. Un envío no se repite (marca primero).
+      name: QUEUES.reminders,
+      policy: "singleton",
+      retryLimit: 0,
+      retryDelay: 30,
+      expireInSeconds: 55,
     },
   ];
   for (const { name, ...options } of defs) {

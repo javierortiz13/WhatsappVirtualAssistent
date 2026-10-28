@@ -1,6 +1,7 @@
 import {
   type AuthAdmin,
   bcvSource,
+  deliverReminders,
   dolarApiSource,
   enforceBilling,
   errorText,
@@ -42,6 +43,7 @@ export const CRON = {
   ratesAfternoon: "*/30 15-20 * * 1-5",
   ratesMorning: "0 8 * * *",
   housekeeping: "*/5 * * * *",
+  reminders: "* * * * *",
 } as const;
 
 export async function registerJobs(opts: {
@@ -121,7 +123,7 @@ export async function registerJobs(opts: {
       const now = new Date();
       let expired = 0;
       let swept = 0;
-      const purged = { texts: 0, drafts: 0, photos: 0, events: 0 };
+      const purged = { texts: 0, drafts: 0, photos: 0, reminders: 0, events: 0 };
       let tenants: string[] = [];
       try {
         tenants = await allTenantIds(db);
@@ -152,6 +154,7 @@ export async function registerJobs(opts: {
           purged.texts += p.texts;
           purged.drafts += p.drafts;
           purged.photos += p.photos;
+          purged.reminders += p.reminders;
         } catch (err) {
           log.error(
             { tenantId, err: err instanceof Error ? err.message : String(err) },
@@ -169,7 +172,7 @@ export async function registerJobs(opts: {
           "conservación: eventos del webhook",
         );
       }
-      if (purged.texts || purged.drafts || purged.photos || purged.events)
+      if (purged.texts || purged.drafts || purged.photos || purged.reminders || purged.events)
         log.info(purged, "conservación: datos viejos borrados");
       // Jobs vencidos por tiempo que quedaron en `failed`: desbloquear el teléfono.
       const stuck = await cancelFailedFifoJobs(db);
@@ -266,6 +269,18 @@ export async function registerJobs(opts: {
     }),
   );
 
+  // Recordatorios (hábitos P3): cada minuto. Sin el interruptor `habits.reminders`, no hace nada.
+  await boss.work(
+    QUEUES.reminders,
+    { batchSize: 1, pollingIntervalSeconds: 5 },
+    guarded(QUEUES.reminders, async () => {
+      const meta = opts.platformPhoneNumberId ? deps.metaFor(opts.platformPhoneNumberId) : null;
+      const r = await deliverReminders(db, meta, { now: new Date(), log });
+      // Solo cuentas: el texto de un recordatorio nunca va al log (F3-4 (5)).
+      if (r.a || r.b || r.expired || r.failed) log.info(r, "recordatorios");
+    }),
+  );
+
   await boss.schedule(QUEUES.fetchBcvRate, CRON.ratesAfternoon, null, {
     tz: "America/Caracas",
     key: "afternoon",
@@ -277,6 +292,10 @@ export async function registerJobs(opts: {
   await boss.schedule(QUEUES.housekeeping, CRON.housekeeping, null, {
     tz: "America/Caracas",
     key: "every-5-min",
+  });
+  await boss.schedule(QUEUES.reminders, CRON.reminders, null, {
+    tz: "America/Caracas",
+    key: "every-minute",
   });
   // El autoguardado de cada minuto (0022) se reemplazó por el guardado al instante (0023).
   await boss.unschedule(RETIRED_AUTO_SAVE_QUEUE, "every-minute").catch(() => {});

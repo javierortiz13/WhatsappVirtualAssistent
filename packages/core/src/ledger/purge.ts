@@ -9,6 +9,7 @@ import { discardAttachment } from "./attachments";
  *   argumentos de `tool_calls` (quedan solo los nombres, para las métricas), el contenido de los
  *   borradores ya resueltos y el mensaje crudo del webhook.
  * - Las fotos de facturas se borran a los 12 meses (del bucket y baja lógica del adjunto).
+ * - Los recordatorios se borran 90 días después de cumplidos, vencidos o borrados (hábitos P-4).
  * Los movimientos no se tocan: se conservan mientras la cuenta esté activa. Corre en el
  * housekeeping; las fotos van por tandas para no alargar la transacción.
  */
@@ -24,7 +25,7 @@ export async function purgeOldTenantData(
   tenantId: string,
   now: Date,
   log?: Logger,
-): Promise<{ texts: number; drafts: number; photos: number }> {
+): Promise<{ texts: number; drafts: number; photos: number; reminders: number }> {
   const textCutoff = new Date(now.getTime() - MESSAGE_TEXT_DAYS * DAY_MS);
   const m = schema.message;
   const texts = await tx
@@ -67,7 +68,19 @@ export async function purgeOldTenantData(
     .limit(PHOTO_BATCH);
   let photos = 0;
   for (const o of old) if (await discardAttachment(tx, store, tenantId, o.id, now, log)) photos++;
-  return { texts: texts.length, drafts: drafts.length, photos };
+  // `updated_at` es cuándo se cumplió, venció o se borró: después no cambia.
+  const r = schema.reminder;
+  const reminders = await tx
+    .delete(r)
+    .where(
+      and(
+        sql`${r.tenantId} = ${tenantId}`,
+        inArray(r.status, ["done", "expired", "cancelled"]),
+        lt(r.updatedAt, textCutoff),
+      ),
+    )
+    .returning({ id: r.id });
+  return { texts: texts.length, drafts: drafts.length, photos, reminders: reminders.length };
 }
 
 /** El mensaje crudo de Meta (webhook_event, sin RLS) de eventos ya cerrados con más de 90 días. */
