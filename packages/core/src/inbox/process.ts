@@ -191,6 +191,8 @@ export type ProcessDeps = {
     supportHint: string | null;
     /** Correo de privacidad (D11): H13d-tag lo da cuando el equipo apagó los avisos. */
     privacyContact?: string;
+    /** H53 (US-200): la línea de la política nueva sale una vez a cada dueño. Lo enciende el worker. */
+    privacyNotice?: boolean;
     unknownReplyMax: number;
     unknownReplyWindowMs: number;
     /** Conocidos: mensajes por ventana antes de avisar una vez y callar (checklist S2). */
@@ -525,6 +527,20 @@ export async function processInbound(
           await rider.commit();
           outbound[at] = { ...target, body } as Outbound;
           route.toolCalls = [...rider.marks, ...route.toolCalls];
+        }
+      }
+    }
+    // Política de privacidad nueva (US-200, H53): una vez por teléfono del dueño, arriba de todo
+    // (H53, luego H28b y H23). No en las tarjetas de avisos, eraseConfirm, la cuenta suspendida
+    // ni una respuesta que es solo reacción: espera la siguiente.
+    if (deps.config.privacyNotice && resolved.role === "owner" && !route.noRider) {
+      const at = outbound.findIndex((o) => o.type !== "reaction");
+      const target = outbound[at];
+      if (target && !(await sentPrivacyNotice(tx, resolved.phoneId))) {
+        const body = `${es.privacyNoticeLine(deps.config.dashboardUrl)}\n\n${target.body}`;
+        if (body.length <= (target.type === "text" ? LIMITS.textBody : LIMITS.interactiveBody)) {
+          outbound[at] = { ...target, body } as Outbound;
+          route.toolCalls = [{ name: PRIVACY_NOTICE, args: {} }, ...route.toolCalls];
         }
       }
     }
@@ -1127,7 +1143,8 @@ async function routeMessage(
   if (ctx.deleted)
     return { ...(await routeDeleted(tx, deps, msg, ctx, ctx.deleted)), noRider: true };
   const erase = await routeErase(tx, deps, msg, ctx);
-  if (erase) return erase;
+  // eraseConfirm no lleva líneas encima (H53, H23).
+  if (erase) return { ...erase, noRider: true };
   // Apagar y encender avisos (hábitos US-204, US-211): antes de la cuenta suspendida o sin
   // mensajes, para que un «no me escribas» siempre funcione. Sin la IA.
   const prefs = await routePrefs(
@@ -3281,4 +3298,22 @@ async function settleTurnDrafts(
     }
   }
   return out;
+}
+
+const PRIVACY_NOTICE = "privacy_notice_v2";
+
+/** ¿Este teléfono ya recibió H53? */
+async function sentPrivacyNotice(tx: Tx, phoneId: string): Promise<boolean> {
+  const [hit] = await tx
+    .select({ id: schema.message.id })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.phoneId, phoneId),
+        eq(schema.message.direction, "out"),
+        sql`${schema.message.toolCalls} @> ${JSON.stringify([{ name: PRIVACY_NOTICE }])}::jsonb`,
+      ),
+    )
+    .limit(1);
+  return Boolean(hit);
 }

@@ -4,12 +4,18 @@ import "../legal.css";
 
 export const metadata: Metadata = { title: "Política de privacidad" };
 
+/**
+ * Fecha del despliegue (US-200). P-1…P-5 de hábitos v1.2: borrador para el abogado y cumplimiento;
+ * no sale a producción hasta que los dos vean este texto exacto y se apruebe la fila (A14).
+ */
+const UPDATED = "17 de noviembre de 2026";
+
 /** Política de privacidad pública. Meta la exige para publicar la app; refleja la Fase 2 del diseño. */
 export default function Privacidad() {
   return (
     <main className="legal">
       <h1>Política de privacidad</h1>
-      <p className="updated">Rocco · última actualización: 19 de octubre de 2026</p>
+      <p className="updated">Rocco · última actualización: {UPDATED}</p>
 
       <p>
         Rocco (antes «Asistente de Caja») es un servicio para personas y dueños de negocios pequeños
@@ -39,6 +45,12 @@ export default function Privacidad() {
           monedas, fechas, descripciones) y la tasa de cambio aplicada.
         </li>
         <li>
+          <strong>Recordatorios y preferencias:</strong> lo que le pides a Rocco que te recuerde
+          (qué, cuándo y, si lo dices, un monto o el nombre de otra persona), los días que nos dices
+          que no tuviste gastos, si activaste o apagaste los avisos de Rocco, y tu racha, calculada
+          con tus registros.
+        </li>
+        <li>
           <strong>Datos técnicos:</strong> identificadores de mensajes de WhatsApp, marcas de
           tiempo, registros de errores y métricas de uso sin contenido de los mensajes.
         </li>
@@ -49,6 +61,22 @@ export default function Privacidad() {
         <li>Interpretar tus mensajes y registrar movimientos de caja que tú confirmas.</li>
         <li>Mostrarte cierres, resúmenes y el historial en el panel.</li>
         <li>Enviarte respuestas y avisos por WhatsApp relacionados con tu caja.</li>
+        <li>
+          Enviarte los recordatorios que pides y, si lo activas, el aviso de racha de las 8 pm, como
+          máximo uno al día. Si después de 3 avisos seguidos no anotas nada, lo pausamos 14 días.
+        </li>
+        <li>
+          Puedes apagar estos avisos cuando quieras. Con «no me recuerdes» apagas el aviso de racha
+          y los avisos adelantados de tus recordatorios; con «no me escribas», todo lo que Rocco te
+          manda por su cuenta, salvo los avisos sobre un pago tuyo o el borrado de tus datos. Antes
+          de apagarlos, Rocco te pide confirmar, y mientras no contestes no te los manda. También
+          puedes hacerlo en Ajustes, y volver a encenderlos con «actívame los avisos» o «ya puedes
+          escribirme».
+        </li>
+        <li>
+          Si en un recordatorio mencionas a otra persona, ese dato solo se usa para mostrártelo a
+          ti. Rocco nunca le escribe a esa persona ni usa ese dato para nada más.
+        </li>
         <li>Mantener la seguridad, prevenir abusos y corregir fallas del servicio.</li>
       </ul>
       <p>No vendemos tus datos ni los usamos para publicidad.</p>
@@ -78,6 +106,13 @@ export default function Privacidad() {
         <li>Las fotos de facturas se conservan 12 meses y luego se borran.</li>
         <li>Los movimientos de caja se conservan mientras tu cuenta esté activa.</li>
         <li>
+          Los recordatorios se borran 90 días después de cumplidos, vencidos o borrados. Si tocas
+          «Borrar», el recordatorio pierde su texto al instante; los mensajes del chat donde aparece
+          (el tuyo y los de Rocco) se borran a los 90 días, como todos los mensajes. Tus
+          preferencias de avisos y los días sin gastos se conservan mientras tengas la cuenta y se
+          borran con ella.
+        </li>
+        <li>
           Si dejas de pagar, tus datos se conservan 90 días desde la suspensión (te avisamos antes)
           y luego pasan a la papelera.
         </li>
@@ -96,9 +131,9 @@ export default function Privacidad() {
 
       <h2>Seguridad</h2>
       <p>
-        Los datos viajan cifrados, se guardan aislados por negocio y solo acceden a ellos las
-        personas que tú autorizas con su número o correo. Ninguna acción que cambie tu caja se
-        ejecuta sin tu confirmación.
+        Los datos viajan cifrados y se guardan aislados por negocio. En el chat y en el panel solo
+        acceden las personas que tú autorizas con su número o correo; el equipo de Rocco los
+        consulta solo cuando hace falta para darte soporte, verificar un pago o corregir una falla.
       </p>
 
       <h2>Cambios</h2>

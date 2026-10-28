@@ -87,6 +87,8 @@ async function main() {
       dashboardUrl: env.DASHBOARD_URL,
       supportHint: env.SUPPORT_HINT ?? null,
       privacyContact: env.PRIVACY_CONTACT,
+      // US-200: sale con la /privacidad nueva (mismo deploy).
+      privacyNotice: true,
       unknownReplyMax: 5,
       unknownReplyWindowMs: 60 * 60 * 1000,
       maxEventAgeMs: 12 * 60 * 60 * 1000,

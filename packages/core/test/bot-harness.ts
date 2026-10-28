@@ -73,6 +73,8 @@ export async function botHarness(
     businessType?: string;
     script?: Record<string, LlmResponse["toolCalls"]>;
     now?: () => Date;
+    /** H53 (US-200): el worker la enciende; los tests solo cuando la prueban. */
+    privacyNotice?: boolean;
   } = {},
 ) {
   const t = await createTestDb();
@@ -112,6 +114,7 @@ export async function botHarness(
       dashboardUrl: "https://caja.test",
       supportHint: null,
       privacyContact: "privacidad@caja.test",
+      privacyNotice: opts.privacyNotice ?? false,
       unknownReplyMax: 50,
       unknownReplyWindowMs: 3_600_000,
       maxEventAgeMs: 12 * 3_600_000,
