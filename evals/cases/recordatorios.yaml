@@ -138,3 +138,25 @@
   expect:
     tool: create_reminder
     reply_contains: ["Los recordatorios son para el dueño"]
+
+# US-307: un registro después del aviso cumple el recordatorio entregado (ref "d1").
+- name: pagué la luz después del aviso cumple el recordatorio
+  input: "listo, pagué la luz, 20$"
+  reminders: [{ text: pagar la luz, amount: "20", in_days: 0, delivered: true }]
+  expect:
+    tool: draft_expense
+    args: { amount: "20", reminder: d1 }
+
+- name: el cobro a Pedro después del aviso cumple el recordatorio
+  input: "Pedro ya me pagó los 20$ por zelle"
+  reminders: [{ text: cobrarle a Pedro, kind: collect, amount: "20", in_days: 0, delivered: true }]
+  expect:
+    tool: draft_income_single
+    args: { reminder: d1 }
+
+- name: otro gasto después del aviso no cumple el recordatorio
+  input: "pagué 15$ de gasolina"
+  reminders: [{ text: pagar la luz, amount: "20", in_days: 0, delivered: true }]
+  expect:
+    tool: draft_expense
+    args: { reminder: "" }

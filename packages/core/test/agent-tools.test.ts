@@ -121,7 +121,7 @@ describe("definiciones de herramientas", () => {
     ]);
   });
   it("quita las palabras clave que strict no admite (maxItems, maxLength) y deja la validación a Zod", () => {
-    const json = JSON.stringify(ALL_TOOLS.map(toLlmToolDef));
+    const json = JSON.stringify(ALL_TOOLS.map((t) => toLlmToolDef(t)));
     expect(json).not.toMatch(/maxItems|maxLength|minLength|minItems/);
     expect(
       AskClarificationInput.safeParse({ question: "x", options: ["a", "b", "c", "d"] }).success,
@@ -129,10 +129,10 @@ describe("definiciones de herramientas", () => {
   });
 
   it("no pasa del tope de herramientas estrictas (la API rechazó 13 por gramática muy grande)", () => {
-    const strict = ALL_TOOLS.map(toLlmToolDef).filter((d) => d.strict !== false);
+    const strict = ALL_TOOLS.map((t) => toLlmToolDef(t)).filter((d) => d.strict !== false);
     expect(strict.length).toBeLessThanOrEqual(STRICT_TOOL_LIMIT);
     expect(
-      ALL_TOOLS.map(toLlmToolDef)
+      ALL_TOOLS.map((t) => toLlmToolDef(t))
         .filter((d) => d.strict === false)
         .map((d) => d.name),
     ).toEqual([
@@ -151,8 +151,31 @@ describe("definiciones de herramientas", () => {
   });
 
   it("el conjunto de herramientas no supera el tope de uniones del modo estricto", () => {
-    const total = ALL_TOOLS.reduce((n, t) => n + countUnions(toLlmToolDef(t).inputSchema), 0);
-    expect(total).toBeLessThanOrEqual(STRICT_UNION_LIMIT);
+    for (const reminderField of [false, true]) {
+      const total = ALL_TOOLS.reduce(
+        (n, t) => n + countUnions(toLlmToolDef(t, { reminderField }).inputSchema),
+        0,
+      );
+      expect(total).toBeLessThanOrEqual(STRICT_UNION_LIMIT);
+    }
+  });
+
+  it("reminder (US-307) solo aparece con recordatorios entregados, y entonces es obligatorio", () => {
+    const expense = ALL_TOOLS.find((t) => t.name === "draft_expense");
+    const income = ALL_TOOLS.find((t) => t.name === "draft_income_single");
+    for (const t of [expense, income]) {
+      if (!t) throw new Error("falta la herramienta");
+      const off = toLlmToolDef(t).inputSchema as {
+        properties: Record<string, unknown>;
+        required: string[];
+      };
+      expect(off.properties.reminder).toBeUndefined();
+      expect(off.required).not.toContain("reminder");
+      const on = toLlmToolDef(t, { reminderField: true }).inputSchema as typeof off;
+      expect(on.properties.reminder).toBeDefined();
+      expect(on.required).toContain("reminder");
+      expect(Object.keys(on.properties).sort()).toEqual([...on.required].sort());
+    }
   });
 
   it("draft_expense exige los campos nulos explícitos (strict)", () => {

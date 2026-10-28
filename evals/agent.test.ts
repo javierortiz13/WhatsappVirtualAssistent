@@ -206,7 +206,13 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
             }
             const fixing = c.reminders.findIndex((r) => r.fixing);
             ctx.reminders = {
-              open: c.role === "owner" ? refs : [],
+              open: c.role === "owner" ? refs.filter((_, i) => !c.reminders?.[i]?.delivered) : [],
+              delivered:
+                c.role === "owner"
+                  ? refs
+                      .filter((_, i) => c.reminders?.[i]?.delivered)
+                      .map((r, i) => ({ ...r, ref: `d${i + 1}` }))
+                  : [],
               fixing: fixing >= 0 ? (refs[fixing] ?? null) : null,
               pending: refs.length,
               limit: 20,

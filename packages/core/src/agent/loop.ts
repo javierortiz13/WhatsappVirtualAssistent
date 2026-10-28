@@ -45,7 +45,9 @@ export function createAgent(opts: AgentOptions): AgentRunner {
     async run(tx: Tx, ctx: AgentContext, input: AgentInput): Promise<AgentResult> {
       const started = now();
       const tools = toolsForRole(ctx.role, Boolean(ctx.reminders));
-      const defs = tools.map(toLlmToolDef);
+      // `reminder` en gastos e ingresos solo con recordatorios entregados (US-307).
+      const reminderField = Boolean(ctx.reminders?.delivered.length);
+      const defs = tools.map((t) => toLlmToolDef(t, { reminderField }));
       const byName = new Map(tools.map((t) => [t.name, t]));
       const userText =
         input.kind === "text" || input.kind === "voice"

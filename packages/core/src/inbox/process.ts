@@ -5,6 +5,7 @@ import {
   eq,
   gt,
   gte,
+  inArray,
   isNull,
   ne,
   schema,
@@ -15,6 +16,7 @@ import {
 import type { ProcessMessageJob } from "@caja/db/queue";
 import { z } from "zod";
 import { LlmUnavailableError } from "../agent/llm";
+import { REMINDER_LINK } from "../agent/reminder-tools";
 import { deleteLastFlow, expenseDraftOutbound, expensesDraftOutbound } from "../agent/tools";
 import type { AgentInput, AgentRunner, UnclearReceipt } from "../agent/types";
 import {
@@ -135,6 +137,7 @@ import {
   reminderTap,
 } from "../reminders/chat";
 import { pendingRider } from "../reminders/rider";
+import { getReminder, markReminderDone } from "../reminders/store";
 import { es, IDS, mergeOutbound, type Outbound, parseReplyId } from "../render/index";
 import type { SpeechClient } from "../speech/client";
 import type { ObjectStore } from "../storage/store";
@@ -459,7 +462,14 @@ export async function processInbound(
     // Guardado al instante (0023): lo que el turno dejó anotado se guarda ya, y lo que una
     // corrección reemplazó se borra. Las tarjetas salen como "guardado" con Corregir y Deshacer.
     const habitMarks: { name: string; args: unknown }[] = [];
-    route.outbound = await settleTurnDrafts(tx, ctx, route.outbound, now(), habitMarks);
+    route.outbound = await settleTurnDrafts(
+      tx,
+      ctx,
+      route.outbound,
+      now(),
+      habitMarks,
+      route.toolCalls,
+    );
     // Primero: la pregunta de la leyenda lee la última marca del turno.
     if (habitMarks.length) route.toolCalls = [...habitMarks, ...route.toolCalls];
 
@@ -3150,6 +3160,25 @@ function cardPendingId(o: Outbound): string | null {
  * - cada borrador de crear que no espera una decisión se guarda ya, y queda abierto 15 minutos
  *   para corregirlo o deshacerlo; su tarjeta pasa a "guardado" con los totales del día.
  */
+/** Lo que puede cumplir un recordatorio: un gasto o un ingreso suelto (US-307). */
+const LINKABLE: readonly string[] = ["create_expense", "create_income_single"];
+
+/** Cumple el recordatorio con el movimiento guardado; su texto para H24, o null si ya no aplica. */
+async function closeReminderByRecord(
+  tx: Tx,
+  ctx: RouteCtx,
+  id: string,
+  movementId: string | undefined,
+  now: Date,
+): Promise<string | null> {
+  if (!movementId || ctx.role !== "owner") return null;
+  const row = await getReminder(tx, ctx.tenantId, id);
+  if (!row?.text || row.status === "cancelled" || row.status === "expired") return null;
+  if (row.status === "done" && row.linkedMovementId) return null;
+  await markReminderDone(tx, row, { phoneId: ctx.phoneId }, now, movementId);
+  return row.text;
+}
+
 async function settleTurnDrafts(
   tx: Tx,
   ctx: RouteCtx,
@@ -3157,6 +3186,8 @@ async function settleTurnDrafts(
   now: Date,
   /** Marcas del hábito que deja este turno (`habit_streak_line`). */
   marks: { name: string; args: unknown }[] = [],
+  /** Las marcas de la IA en este turno: `reminder_link` dice qué recordatorio cumple un borrador. */
+  turnCalls: { name: string; args: unknown }[] = [],
 ): Promise<Outbound[]> {
   const pa = schema.pendingAction;
   const replaced = await tx
@@ -3165,7 +3196,15 @@ async function settleTurnDrafts(
     .where(
       and(eq(pa.phoneId, ctx.phoneId), eq(pa.status, "cancelled"), sql`${pa.savedIds} is not null`),
     );
+  // Recordatorios que cumplía lo que esta corrección reemplaza (US-307): pasan al registro nuevo.
+  const carried: string[] = [];
   for (const r of replaced) {
+    if (r.savedIds?.length)
+      for (const rem of await tx
+        .select({ id: schema.reminder.id })
+        .from(schema.reminder)
+        .where(inArray(schema.reminder.linkedMovementId, r.savedIds)))
+        carried.push(rem.id);
     await undoSaved(tx, r, ctx, now);
     await tx.update(pa).set({ savedIds: null }).where(eq(pa.id, r.id));
   }
@@ -3211,6 +3250,22 @@ async function settleTurnDrafts(
       saved && saved.type !== "buttons" ? await accountAskFor(tx, ctx, p, savedIds) : null;
     if (saved) {
       let next = es.savedCard(out[card] as Outbound, saved, p.id, p.kind, ask);
+      // El recordatorio que este registro cumple (US-307): cumplido y enlazado, con H24.
+      const link = turnCalls.find(
+        (c) => c.name === REMINDER_LINK && (c.args as { pendingId?: string }).pendingId === p.id,
+      );
+      const reminderIds = link
+        ? [(link.args as { id: string }).id]
+        : LINKABLE.includes(p.kind)
+          ? carried.splice(0)
+          : [];
+      for (const id of reminderIds) {
+        const closed = await closeReminderByRecord(tx, ctx, id, savedIds[0], now);
+        if (closed) {
+          next = es.withStreakLine(next, es.reminderClosedLine(closed));
+          marks.push({ name: "reminder_done_by_record", args: { id } });
+        }
+      }
       if (!streakDone) {
         streakDone = true;
         const line = await streakLineFor(tx, ctx, now);

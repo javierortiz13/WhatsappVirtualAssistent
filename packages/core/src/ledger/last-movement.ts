@@ -442,6 +442,13 @@ export async function deleteMovement(
   // Un gasto que tomó de los lotes devuelve sus Bs al borrarse; una venta en Bs pierde su lote.
   await releaseAllocation(tx, input.tenantId, before.id);
   if (before.type === "income") await syncIncomeLot(tx, input.tenantId, before.id);
+  // Un recordatorio que este registro cumplía (hábitos US-307) vuelve a quedar sin cumplir.
+  await tx
+    .update(schema.reminder)
+    .set({ status: "delivered", doneAt: null, linkedMovementId: null, updatedAt: input.now })
+    .where(
+      and(eq(schema.reminder.linkedMovementId, before.id), eq(schema.reminder.status, "done")),
+    );
   await audit(tx, input.tenantId, input.actor, "delete", before, after);
   return after;
 }

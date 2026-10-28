@@ -1,6 +1,6 @@
 import { eq, schema } from "@caja/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { businessDateOf, type IsoDate } from "../src/domain/dates";
+import { addDays, businessDateOf, type IsoDate } from "../src/domain/dates";
 import { saveHabitSettings } from "../src/ledger/habits";
 import { deliverReminders, earlyAt } from "../src/reminders/deliver";
 import { botHarness, CASHIER, idsOf, OWNER, textOf } from "./bot-harness";
@@ -58,17 +58,47 @@ describe("entrega de recordatorios", () => {
       .then((r) => r[0]);
 
   beforeAll(async () => {
-    h = await botHarness();
+    h = await botHarness({
+      script: {
+        "pagué la luz": [
+          {
+            id: "e",
+            name: "draft_expense",
+            input: {
+              amount: "20",
+              currency: "USD",
+              description: "Luz",
+              category_name: "Otros",
+              when: "",
+              rate: "",
+              corrects_draft: false,
+              reminder: "d1",
+            },
+          },
+        ],
+      },
+    });
     const [p] = await h.t.db
       .select()
       .from(schema.phoneNumber)
       .where(eq(schema.phoneNumber.e164, OWNER));
     phoneId = p?.id ?? "";
+    // Tasa BCV para guardar el gasto de US-307.
+    const today = businessDateOf(new Date());
+    await h.t.db.insert(schema.bcvRate).values(
+      [0, 1, 2].map((i) => ({
+        effectiveDate: addDays(today, -i),
+        rate: "858.00000000",
+        source: "test",
+      })),
+    );
   });
   afterAll(() => h.t.close());
   beforeEach(async () => {
     await saveHabitSettings(h.t.db, { reminders: true, prefs: false }, "test", new Date());
     await h.t.db.delete(schema.reminder);
+    // Los gastos de US-307 apuntan a su mensaje: se sueltan antes de borrar los mensajes.
+    await h.t.db.update(schema.movement).set({ sourceMessageId: null });
     await h.t.db.delete(schema.message);
     h.sent.length = 0;
   });
@@ -191,5 +221,40 @@ describe("entrega de recordatorios", () => {
     expect(card).not.toContain("Tenías pendiente");
     expect((await rows())[0]?.status).toBe("pending");
     await h.t.db.update(schema.phoneNumber).set({ prefPending: null, prefPendingAt: null });
+  });
+
+  it("US-307: «pagué la luz» después del aviso guarda el gasto, cumple el recordatorio y Deshacer lo reabre", async () => {
+    const r = await reminder(new Date(Date.now() - 2 * H), {
+      status: "delivered",
+      deliveredVia: "a",
+      deliveredAt: new Date(Date.now() - H),
+    });
+    h.llm.seen.length = 0;
+    const body = await h.send("pagué la luz, 20$");
+    expect(h.llm.seen.at(-1)).toContain("Recordatorios que Rocco le entregó hace poco");
+    expect(h.llm.seen.at(-1)).toContain('"ref":"d1"');
+    expect(body).toContain("Recordatorio cumplido: pagar la luz.");
+    const [done] = await rows();
+    expect(done?.status).toBe("done");
+    expect(done?.linkedMovementId).not.toBeNull();
+    // Deshacer borra el gasto y el recordatorio vuelve a quedar sin cumplir.
+    const undo = idsOf(h.last()).find((id) => id.startsWith("cancel:"));
+    expect(undo).toBeDefined();
+    await h.tap(undo as string, "Deshacer");
+    const [back] = await rows();
+    expect(back).toMatchObject({ status: "delivered", doneAt: null, linkedMovementId: null });
+    expect(r?.id).toBe(back?.id);
+  });
+
+  it("US-307: el empleado nunca carga los recordatorios", async () => {
+    await reminder(new Date(Date.now() - 2 * H), {
+      status: "delivered",
+      deliveredVia: "a",
+      deliveredAt: new Date(Date.now() - H),
+    });
+    h.llm.seen.length = 0;
+    await h.send("pagué la luz, 20$", CASHIER);
+    expect(h.llm.seen.at(-1)).not.toContain("Recordatorios que Rocco");
+    expect((await rows())[0]?.status).toBe("delivered");
   });
 });

@@ -63,6 +63,11 @@ export type AgentReminders = {
   open: ReminderRef[];
   /** El que el dueño está corrigiendo (tocó Corregir, H15b). */
   fixing: ReminderRef | null;
+  /**
+   * Entregados a este teléfono en las últimas 12 h y sin cumplir (`ref` "d1"…): un gasto o un
+   * ingreso que los cumple los cierra (US-307). Vacío para un empleado (F3-5).
+   */
+  delivered: ReminderRef[];
   pending: number;
   limit: number;
   trial: boolean;

@@ -93,6 +93,8 @@ export const EvalCase = z.object({
         in_days: z.number().int().default(3),
         hour: z.number().int().default(9),
         fixing: z.boolean().default(false),
+        /** Ya entregado hace poco (US-307): un gasto o un ingreso puede cumplirlo (ref "d1"…). */
+        delivered: z.boolean().default(false),
       }),
     )
     .optional(),

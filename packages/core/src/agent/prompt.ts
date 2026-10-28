@@ -83,11 +83,21 @@ export function reminderContext(ctx: AgentContext, text: string): string | null 
     ...(o.amount ? { amount: o.amount, currency: o.currency } : {}),
     when: new Date(o.dueAt.getTime() - 4 * 3_600_000).toISOString().slice(0, 16).replace("T", " "),
   });
+  // Entregados hace poco (US-307): siempre que haya, son pocos y caducan a las 12 h.
+  const delivered = r.delivered.length
+    ? `Recordatorios que Rocco le entregó hace poco (hora de Caracas): ${JSON.stringify(r.delivered.map(brief))}. Si el mensaje REGISTRA el pago o el cobro de uno de ellos ("pagué la luz", "ya me pagó Pedro 20$", "listo, pagué 12 mil del alquiler"), registra el gasto o el ingreso como siempre y pasa reminder con su ref; si no es de ninguno, reminder "".`
+    : null;
+  const withDelivered = (line: string | null) =>
+    [delivered, line].filter(Boolean).join("\n") || null;
   if (r.fixing)
-    return `El usuario tocó Corregir en este recordatorio (hora de Caracas): ${JSON.stringify(brief(r.fixing))}. Su mensaje dice qué cambia (día u hora, monto o qué es): usa update_reminder con reminder "" y solo los campos que cambian.`;
+    return withDelivered(
+      `El usuario tocó Corregir en este recordatorio (hora de Caracas): ${JSON.stringify(brief(r.fixing))}. Su mensaje dice qué cambia (día u hora, monto o qué es): usa update_reminder con reminder "" y solo los campos que cambian.`,
+    );
   // La lista solo cuando el mensaje puede hablar de un recordatorio: cuesta tokens en cada turno.
-  if (!r.open.length || !REMINDER_TALK.test(text)) return null;
-  return `Recordatorios pendientes del usuario (hora de Caracas): ${JSON.stringify(r.open.map(brief))}.`;
+  if (!r.open.length || !REMINDER_TALK.test(text)) return withDelivered(null);
+  return withDelivered(
+    `Recordatorios pendientes del usuario (hora de Caracas): ${JSON.stringify(r.open.map(brief))}.`,
+  );
 }
 
 const REMINDER_TALK = /record|avis|olvid|borr|quit|elimin|cambi|muev|mueve|pas[ae]l|corrig/i;

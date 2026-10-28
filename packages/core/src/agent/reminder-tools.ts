@@ -282,3 +282,19 @@ const cancelReminderTool: ToolSpec<typeof CancelReminderInput> = {
 };
 
 export const REMINDER_TOOLS = [createReminderTool, updateReminderTool, cancelReminderTool];
+
+/** Marca del registro que cumple un recordatorio entregado (US-307): se enlaza al guardarse. */
+export const REMINDER_LINK = "reminder_link";
+
+/**
+ * El recordatorio entregado que nombra el modelo (`d1`…), si existe en el contexto del dueño. Va
+ * como marca con el borrador: el guardado al instante lo cumple y lo enlaza al movimiento.
+ */
+export function reminderLink(
+  run: ToolRunCtx,
+  ref: string | undefined,
+  pendingId: string,
+): { markers?: { name: string; args: unknown }[] } {
+  const hit = ref?.trim() ? run.ctx.reminders?.delivered.find((d) => d.ref === ref.trim()) : null;
+  return hit ? { markers: [{ name: REMINDER_LINK, args: { id: hit.id, pendingId } }] } : {};
+}

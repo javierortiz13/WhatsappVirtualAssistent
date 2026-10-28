@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, schema, sql, type Tx } from "@caja/db";
+import { and, desc, eq, gt, isNull, schema, sql, type Tx } from "@caja/db";
 import { REMINDER_DRAFT, type ReminderDraft, reminderView } from "../agent/reminder-tools";
 import type { AgentReminders, ReminderRef } from "../agent/types";
 import {
@@ -104,17 +104,12 @@ async function limitsOf(tx: Tx, tenantId: string) {
   return { ...reminderLimits({ status, plan: t?.plan ?? "personal" }), trial: status === "trial" };
 }
 
-/** Lo que el agente sabe de los recordatorios; undefined con el interruptor apagado. */
-export async function reminderAgentContext(
-  tx: Tx,
-  c: Omit<ReminderChatCtx, "inboundId">,
-): Promise<AgentReminders | undefined> {
-  if (!(await habitSettings(tx)).reminders) return undefined;
-  // Un empleado nunca carga los recordatorios (F3-5): solo la herramienta, que le responde H29.
-  if (c.role !== "owner") return { open: [], fixing: null, pending: 0, limit: 0, trial: false };
-  const rows = await openReminders(tx, c.tenantId, 10);
-  const open: ReminderRef[] = rows.map((r, i) => ({
-    ref: `r${i + 1}`,
+/** Un recordatorio entregado se puede cumplir con un registro durante 12 h (US-307). */
+const DELIVERED_WINDOW_MS = 12 * 3_600_000;
+
+function refOf(r: typeof schema.reminder.$inferSelect, ref: string): ReminderRef {
+  return {
+    ref,
     id: r.id,
     text: r.text,
     kind: r.kind as ReminderRef["kind"],
@@ -123,7 +118,37 @@ export async function reminderAgentContext(
     counterparty: r.counterparty,
     dueAt: r.dueAt,
     timeWasDefault: r.timeWasDefault,
-  }));
+  };
+}
+
+/** Lo que el agente sabe de los recordatorios; undefined con el interruptor apagado. */
+export async function reminderAgentContext(
+  tx: Tx,
+  c: Omit<ReminderChatCtx, "inboundId">,
+): Promise<AgentReminders | undefined> {
+  if (!(await habitSettings(tx)).reminders) return undefined;
+  // Un empleado nunca carga los recordatorios (F3-5): solo la herramienta, que le responde H29.
+  if (c.role !== "owner")
+    return { open: [], fixing: null, delivered: [], pending: 0, limit: 0, trial: false };
+  const rows = await openReminders(tx, c.tenantId, 10);
+  const open: ReminderRef[] = rows.map((r, i) => refOf(r, `r${i + 1}`));
+  // Entregados a este teléfono en las últimas 12 h (US-307): un registro puede cumplirlos.
+  const delivered = (
+    await tx
+      .select()
+      .from(schema.reminder)
+      .where(
+        and(
+          eq(schema.reminder.tenantId, c.tenantId),
+          eq(schema.reminder.phoneId, c.phoneId),
+          eq(schema.reminder.status, "delivered"),
+          isNull(schema.reminder.doneAt),
+          gt(schema.reminder.deliveredAt, new Date(c.now.getTime() - DELIVERED_WINDOW_MS)),
+        ),
+      )
+      .orderBy(desc(schema.reminder.deliveredAt))
+      .limit(5)
+  ).map((r, i) => refOf(r, `d${i + 1}`));
   let fixing: ReminderRef | null = null;
   const fix = await lastMarker(
     tx,
@@ -134,22 +159,13 @@ export async function reminderAgentContext(
   if (fix?.latest && typeof fix.args.id === "string") {
     const row = await getReminder(tx, c.tenantId, fix.args.id);
     if (row?.text && row.status !== "cancelled" && row.status !== "done")
-      fixing = open.find((o) => o.id === row.id) ?? {
-        ref: "r0",
-        id: row.id,
-        text: row.text,
-        kind: row.kind as ReminderRef["kind"],
-        amount: row.amount,
-        currency: row.currency as ReminderRef["currency"],
-        counterparty: row.counterparty,
-        dueAt: row.dueAt,
-        timeWasDefault: row.timeWasDefault,
-      };
+      fixing = open.find((o) => o.id === row.id) ?? refOf(row, "r0");
   }
   const limits = await limitsOf(tx, c.tenantId);
   return {
     open,
     fixing,
+    delivered,
     pending: await pendingCount(tx, c.tenantId),
     limit: limits.pending,
     trial: limits.trial,

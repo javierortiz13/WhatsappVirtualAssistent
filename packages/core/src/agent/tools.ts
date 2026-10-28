@@ -80,7 +80,7 @@ import { type TransferDraft, transferAmounts } from "../ledger/transfers";
 import { getRateInfo } from "../rates/current";
 import { es, type Outbound } from "../render/index";
 import type { LlmToolDef } from "./llm";
-import { REMINDER_TOOL_NAMES, REMINDER_TOOLS } from "./reminder-tools";
+import { REMINDER_TOOL_NAMES, REMINDER_TOOLS, reminderLink } from "./reminder-tools";
 import type { AgentContext } from "./types";
 
 /**
@@ -157,6 +157,17 @@ const CORRECTS_FIELD = z
     "true SOLO si el mensaje corrige el registro más reciente de la lista de los últimos 15 minutos ('no, eran 50', 'era en bolívares', 'es de ayer') en vez de registrar algo nuevo: lo reemplaza. false si es un registro nuevo, aunque haya otros en la lista.",
   );
 
+/**
+ * El recordatorio entregado que este registro cumple (hábitos US-307). El modelo solo lo ve cuando
+ * hay recordatorios entregados en las últimas 12 h (`toLlmToolDef` lo quita si no): opcional aquí.
+ */
+const REMINDER_FIELD = z
+  .string()
+  .optional()
+  .describe(
+    'Ref del recordatorio entregado que este registro cumple ("d1"), si el mensaje es el pago o el cobro de ese recordatorio ("pagué la luz", "ya me pagó Pedro"). "" si no.',
+  );
+
 export const DraftExpenseInput = z.object({
   amount: z
     .string()
@@ -184,6 +195,7 @@ export const DraftExpenseInput = z.object({
     ),
   rate: RATE_FIELD,
   corrects_draft: CORRECTS_FIELD,
+  reminder: REMINDER_FIELD,
 });
 
 /**
@@ -415,6 +427,7 @@ export const DraftIncomeSingleInput = z.object({
   when: z.string().describe('"hoy", "ayer", día de la semana o fecha ISO. "" si no lo dijo.'),
   rate: RATE_FIELD,
   corrects_draft: CORRECTS_FIELD,
+  reminder: REMINDER_FIELD,
 });
 
 /**
@@ -565,6 +578,7 @@ const draftExpense: ToolSpec<typeof DraftExpenseInput> = {
       return {
         kind: "terminal",
         status: "ok",
+        ...reminderLink(run, input.reminder, draft.pendingId),
         outbound: [
           expenseDraftOutbound(
             draft.pendingId,
@@ -1295,6 +1309,7 @@ const draftIncomeSingle: ToolSpec<typeof DraftIncomeSingleInput> = {
       return {
         kind: "terminal",
         status: "ok",
+        ...reminderLink(run, input.reminder, r.pendingId),
         outbound: [
           es.incomeSingleDraft({
             pendingId: r.pendingId,
@@ -2423,9 +2438,23 @@ export function countUnions(node: unknown): number {
 export const STRICT_UNION_LIMIT = 16;
 
 /** JSON Schema para el modelo, con `additionalProperties: false` (requisito de `strict`). */
-export function toLlmToolDef(t: ToolSpec<z.ZodType>): LlmToolDef {
+export function toLlmToolDef(
+  t: ToolSpec<z.ZodType>,
+  opts: { reminderField?: boolean } = {},
+): LlmToolDef {
   const json = stripUnsupportedKeywords(z.toJSONSchema(t.schema)) as Record<string, unknown>;
   delete json.$schema;
+  // `reminder` (US-307): solo con recordatorios entregados; entonces es obligatorio, como todo en
+  // modo estricto. Sin ellos, el esquema queda igual que antes.
+  const props = json.properties as Record<string, unknown> | undefined;
+  if (props && "reminder" in props) {
+    const required = ((json.required as string[] | undefined) ?? []).filter(
+      (k) => k !== "reminder",
+    );
+    if (opts.reminderField) required.push("reminder");
+    else delete props.reminder;
+    json.required = required;
+  }
   json.additionalProperties = false;
   if (!("properties" in json)) json.properties = {};
   return {
