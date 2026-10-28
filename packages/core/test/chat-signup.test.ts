@@ -11,6 +11,9 @@ import { type ProcessDeps, processInbound } from "../src/inbox/process";
 import {
   cleanProfileName,
   createDashboardLink,
+  dashboardMembers,
+  LINK_CODES_PER_HOUR,
+  LinkRateError,
   parkSignup,
   parseAccounts,
   parseBudgets,
@@ -19,6 +22,7 @@ import {
   parseKind,
   parsePersonName,
   remainingSteps,
+  removeDashboardMember,
   type SignupData,
   type SignupStep,
 } from "../src/onboarding/chat-signup";
@@ -531,35 +535,88 @@ describe("registro por WhatsApp de punta a punta", () => {
     expect(textOf(lastFor(NEW_NUMBER))).toBe("¿Cuánto fue?");
   });
 
-  it("conectar el dashboard: código de la web mandado por WhatsApp → dueño en el panel", async () => {
+  it("conectar el dashboard (F3): el código de 8 dígitos pide confirmación; solo con «Sí» queda en el panel", async () => {
     const userId = randomUUID();
     await t.db.insert(schema.userAccount).values({ id: userId, email: "javier@ejemplo.com" });
     await say(NEW_NUMBER, "link del dashboard");
-    expect(textOf(lastFor(NEW_NUMBER))).toContain("*Ya me registré con Rocco*");
-    const { code } = await createDashboardLink(t.db, userId, clock);
-    await say(NEW_NUMBER, code);
-    expect(textOf(lastFor(NEW_NUMBER))).toBe(
-      "✅ Listo, tu dashboard quedó conectado a *javier@ejemplo.com*. Ya puedes ver, corregir y exportar todo desde la web.",
-    );
+    expect(textOf(lastFor(NEW_NUMBER))).toContain("el código de 8 dígitos");
     const [phone] = await t.db
       .select({ tenantId: schema.phoneNumber.tenantId })
       .from(schema.phoneNumber)
       .where(eq(schema.phoneNumber.e164, NEW_NUMBER));
-    const members = await withTenant(t.db, phone?.tenantId as string, (tx) =>
-      tx
-        .select({ role: schema.tenantMember.role })
-        .from(schema.tenantMember)
-        .where(
-          and(
-            eq(schema.tenantMember.tenantId, phone?.tenantId as string),
-            eq(schema.tenantMember.userId, userId),
+    const tenantId = phone?.tenantId as string;
+    const membersOf = (uid: string) =>
+      withTenant(t.db, tenantId, (tx) =>
+        tx
+          .select({ role: schema.tenantMember.role })
+          .from(schema.tenantMember)
+          .where(
+            and(eq(schema.tenantMember.tenantId, tenantId), eq(schema.tenantMember.userId, uid)),
           ),
-        ),
+      );
+    const { code } = await createDashboardLink(t.db, userId, clock);
+    expect(code).toMatch(/^\d{8}$/);
+    await say(NEW_NUMBER, code);
+    const ask = lastFor(NEW_NUMBER);
+    expect(textOf(ask)).toBe(
+      "¿Darle acceso a tu panel a j***@ejemplo.com? Podrá ver y cambiar todos tus movimientos.",
     );
-    expect(members).toEqual([{ role: "owner" }]);
-    // El mismo código no sirve dos veces: el segundo va al agente como un mensaje más.
+    expect(await membersOf(userId)).toEqual([]);
+    const [yes, no] = idsOf(ask);
+    expect(no).toMatch(/^dl:no:/);
+    await tap(NEW_NUMBER, yes as string, "Sí, darle acceso");
+    expect(textOf(lastFor(NEW_NUMBER))).toBe(
+      "✅ Listo, tu dashboard quedó conectado a *javier@ejemplo.com*. Ya puedes ver, corregir y exportar todo desde la web.",
+    );
+    expect(await membersOf(userId)).toEqual([{ role: "owner" }]);
+    // Un segundo toque no hace nada más; el mismo código no sirve dos veces (va al agente).
+    await tap(NEW_NUMBER, yes as string, "Sí, darle acceso");
+    expect(textOf(lastFor(NEW_NUMBER))).toContain("Ese código ya no sirve");
     await say(NEW_NUMBER, code);
     expect(textOf(lastFor(NEW_NUMBER))).toBe("¿Cuánto fue?");
+
+    // Otra persona: el mensaje dice quién ya tiene acceso; con «No», ninguna fila y el código muere.
+    const other = randomUUID();
+    await t.db.insert(schema.userAccount).values({ id: other, email: "maria@otro.com" });
+    const second = await createDashboardLink(t.db, other, clock);
+    await say(NEW_NUMBER, second.code);
+    expect(textOf(lastFor(NEW_NUMBER))).toBe(
+      "Tu panel ya lo ve j***@ejemplo.com. ¿Darle acceso también a m***@otro.com? Podrá ver y cambiar todos tus movimientos.",
+    );
+    await tap(NEW_NUMBER, idsOf(lastFor(NEW_NUMBER))[1] as string, "No");
+    expect(textOf(lastFor(NEW_NUMBER))).toBe("Listo, no le di acceso. Ese código ya no sirve.");
+    expect(await membersOf(other)).toEqual([]);
+    await say(NEW_NUMBER, second.code);
+    expect(textOf(lastFor(NEW_NUMBER))).toBe("¿Cuánto fue?");
+
+    // «Quitar acceso»: el dueño a otro sí; a sí mismo no.
+    const third = await createDashboardLink(t.db, other, clock);
+    await say(NEW_NUMBER, third.code);
+    await tap(NEW_NUMBER, idsOf(lastFor(NEW_NUMBER))[0] as string, "Sí, darle acceso");
+    expect(await membersOf(other)).toEqual([{ role: "owner" }]);
+    const listed = await withTenant(t.db, tenantId, (tx) => dashboardMembers(tx, tenantId));
+    expect(listed.map((m) => m.email)).toEqual(["javier@ejemplo.com", "maria@otro.com"]);
+    expect(
+      await withTenant(t.db, tenantId, (tx) =>
+        removeDashboardMember(tx, { tenantId, actorUserId: userId }, userId),
+      ),
+    ).toBe(false);
+    expect(
+      await withTenant(t.db, tenantId, (tx) =>
+        removeDashboardMember(tx, { tenantId, actorUserId: userId }, other),
+      ),
+    ).toBe(true);
+    expect(await membersOf(other)).toEqual([]);
+  });
+
+  it("F3: máximo 5 códigos del panel por usuario en una hora", async () => {
+    const u = randomUUID();
+    await t.db.insert(schema.userAccount).values({ id: u, email: "rafaga@ejemplo.com" });
+    for (let i = 0; i < LINK_CODES_PER_HOUR; i++) await createDashboardLink(t.db, u, clock);
+    await expect(createDashboardLink(t.db, u, clock)).rejects.toBeInstanceOf(LinkRateError);
+    await expect(
+      createDashboardLink(t.db, u, new Date(clock.getTime() + 61 * 60_000)),
+    ).resolves.toMatchObject({ code: expect.stringMatching(/^\d{8}$/) });
   });
 
   it("personal: sin cuentas y salta el presupuesto; audio y 'empezar de nuevo' en el camino", async () => {

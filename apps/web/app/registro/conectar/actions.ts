@@ -1,6 +1,6 @@
 "use server";
 
-import { createDashboardLink } from "@caja/core";
+import { createDashboardLink, LinkRateError } from "@caja/core";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
@@ -16,7 +16,14 @@ export async function newConnectCodeAction(): Promise<void> {
   const session = await currentSession();
   if (!session) redirect("/login");
   if (session.tenant) redirect("/inicio");
-  const issued = await createDashboardLink(db(), session.user.id);
+  let issued: Awaited<ReturnType<typeof createDashboardLink>>;
+  try {
+    issued = await createDashboardLink(db(), session.user.id);
+  } catch (err) {
+    // Seguridad F3: máximo 5 códigos por hora.
+    if (err instanceof LinkRateError) redirect("/registro/conectar?error=limite");
+    throw err;
+  }
   const store = await cookies();
   store.set(CONNECT_COOKIE, `${issued.code}.${issued.expiresAt.getTime()}`, {
     httpOnly: true,

@@ -20,7 +20,7 @@ import {
   MAX_CATEGORY_NAME_LENGTH,
   OTHERS_CATEGORY,
 } from "@caja/db/seed-data";
-import { FOUNDER, founderUntilFrom, type PlanId } from "../billing/plans";
+import { FOUNDER, founderUntilFrom, type PlanId, planById } from "../billing/plans";
 import { businessDateOf } from "../domain/dates";
 import { Decimal } from "../domain/money";
 import { type AccountKind, createAccount } from "../ledger/accounts";
@@ -51,6 +51,34 @@ export class PhoneTakenError extends Error {
     super("ese número ya pertenece a otro negocio");
     this.name = "PhoneTakenError";
   }
+}
+
+/** Seguridad F1: el plan no admite más empleados (Personal 0, Negocio 1, Negocio Plus 3). */
+export class EmployeeLimitError extends Error {
+  constructor(public readonly limit: number) {
+    super("el plan no admite más empleados");
+    this.name = "EmployeeLimitError";
+  }
+}
+
+/** Empleados que cuentan para el tope: pendientes y activos (los desactivados no). */
+async function employeeRoom(tx: Tx, tenantId: string): Promise<{ used: number; limit: number }> {
+  const [t] = await tx
+    .select({ plan: schema.tenant.plan })
+    .from(schema.tenant)
+    .where(eq(schema.tenant.id, tenantId));
+  const p = schema.phoneNumber;
+  const [r] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(p)
+    .where(
+      and(
+        eq(p.tenantId, tenantId),
+        eq(p.role, "employee"),
+        sql`${p.status} in ('pending', 'active')`,
+      ),
+    );
+  return { used: r?.n ?? 0, limit: planById(t?.plan ?? "personal").employees };
 }
 
 export type RegisterInput = {
@@ -319,8 +347,9 @@ export async function ownerPhone(db: Db, tenantId: string): Promise<TenantPhone 
 }
 
 /**
- * Alta de un empleado desde el dashboard (US-A4). Queda `active` sin `verified_at`: al primer
- * mensaje recibe la bienvenida. Si el número ya estaba en este negocio, se reactiva.
+ * Alta de un empleado desde el dashboard (US-A4). Queda `pending` (seguridad F1): al primer
+ * mensaje, esa persona acepta o no unirse. Si el número ya estaba en este negocio, se reactiva
+ * (pendiente si nunca aceptó). Respeta el tope de empleados del plan.
  */
 export async function addEmployee(
   db: Db,
@@ -336,13 +365,17 @@ export async function addEmployee(
       .from(p)
       .where(and(eq(p.tenantId, ref.tenantId), eq(p.e164, input.e164)));
     if (!own && (await phoneIsTaken(tx, input.e164))) throw new PhoneTakenError(input.e164);
+    const room = await employeeRoom(tx, ref.tenantId);
+    const counted = own && (own.status === "pending" || own.status === "active");
+    if (!counted && room.used >= room.limit) throw new EmployeeLimitError(room.limit);
     if (own) {
       if (own.role === "owner") throw new PhoneTakenError(input.e164);
+      const status = own.verifiedAt ? "active" : "pending";
       await tx
         .update(p)
-        .set({ status: "active", displayName: input.displayName ?? own.displayName })
+        .set({ status, displayName: input.displayName ?? own.displayName })
         .where(eq(p.id, own.id));
-      await audit(tx, ref, own.id, "update", { status: own.status }, { status: "active" }, now);
+      await audit(tx, ref, own.id, "update", { status: own.status }, { status }, now);
       return { phoneId: own.id, created: false };
     }
     const [row] = await tx
@@ -351,7 +384,7 @@ export async function addEmployee(
         tenantId: ref.tenantId,
         e164: input.e164,
         role: "employee",
-        status: "active",
+        status: "pending",
         displayName: input.displayName,
       })
       .returning({ id: p.id });
@@ -376,11 +409,61 @@ export async function setPhoneStatus(
       .from(p)
       .where(and(eq(p.tenantId, ref.tenantId), eq(p.id, phoneId)));
     if (!own || own.role === "owner" || own.status === status) return false;
-    await tx.update(p).set({ status }).where(eq(p.id, phoneId));
-    await audit(tx, ref, phoneId, "update", { status: own.status }, { status }, now);
+    // Quien salió del negocio (F1) ya no tiene número: no se reactiva.
+    if (own.e164.startsWith(LEFT_PREFIX)) return false;
+    if (status === "active") {
+      const room = await employeeRoom(tx, ref.tenantId);
+      if (room.used >= room.limit) throw new EmployeeLimitError(room.limit);
+    }
+    // Reactivar a quien nunca aceptó lo deja pendiente: sigue teniendo que aceptar (F1).
+    const next = status === "active" && !own.verifiedAt ? "pending" : status;
+    await tx.update(p).set({ status: next }).where(eq(p.id, phoneId));
+    await audit(tx, ref, phoneId, "update", { status: own.status }, { status: next }, now);
     return true;
   });
 }
+
+/**
+ * El empleado dice «No soy de ahí» o sale del negocio (F1): su número deja de estar en el negocio
+ * y queda libre. Sin nada anotado, la fila se borra; con historial, se conserva sin el número
+ * (`salio:<id>`, desactivada) para que lo anotado siga con su nombre.
+ */
+export async function releaseEmployeePhone(
+  tx: Tx,
+  ref: { tenantId: string; phoneId: string },
+  reason: "employee_declined" | "employee_left",
+): Promise<boolean> {
+  const p = schema.phoneNumber;
+  const [row] = await tx
+    .select()
+    .from(p)
+    .where(and(eq(p.tenantId, ref.tenantId), eq(p.id, ref.phoneId)));
+  if (!row || row.role !== "employee" || row.e164.startsWith(LEFT_PREFIX)) return false;
+  await tx.insert(schema.auditLog).values({
+    tenantId: ref.tenantId,
+    actorType: "phone",
+    actorId: ref.phoneId,
+    action: reason,
+    entity: "phone_number",
+    entityId: ref.phoneId,
+    before: { status: row.status, e164: row.e164.slice(-4) },
+    after: null,
+    channel: "whatsapp",
+  });
+  try {
+    // Punto de guardado: si algo lo referencia, el borrado falla sin tumbar la transacción.
+    await tx.transaction((sp) => sp.delete(p).where(eq(p.id, ref.phoneId)));
+  } catch {
+    await tx
+      .update(p)
+      .set({ e164: `${LEFT_PREFIX}${ref.phoneId}`, waUserId: null, status: "disabled" })
+      .where(eq(p.id, ref.phoneId));
+  }
+  return true;
+}
+
+/** Prefijo del número de un empleado que salió y tenía historial. */
+export const LEFT_PREFIX = "salio:";
 
 async function audit(
   tx: Tx,

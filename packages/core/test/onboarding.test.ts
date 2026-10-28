@@ -111,6 +111,23 @@ describe("onboarding por código de vinculación", () => {
     return processInbound(deps(client), jobs[0] as ProcessMessageJob);
   }
 
+  async function tap(client: MetaClient, from: string, id: string, title: string) {
+    jobs.length = 0;
+    const p = JSON.parse(JSON.stringify(fx.buttonReply));
+    const value = p.entry[0].changes[0].value;
+    value.contacts[0] = { profile: { name: "Carlos M" }, wa_id: from };
+    value.messages[0].from = from;
+    value.messages[0].id = `wamid.OB${++seq}`;
+    value.messages[0].interactive.button_reply = { id, title };
+    await ingestWebhook({ db: t.db, now, enqueue: async (_tx, job) => void jobs.push(job) }, p);
+    return processInbound(deps(client), jobs[0] as ProcessMessageJob);
+  }
+  const idsOf = (s: Sent | undefined) =>
+    (
+      (s?.body.interactive as { action?: { buttons?: { reply: { id: string } }[] } } | undefined)
+        ?.action?.buttons ?? []
+    ).map((b) => b.reply.id);
+
   let tenantId: string;
   let phoneId: string;
   let code: string;
@@ -214,7 +231,7 @@ describe("onboarding por código de vinculación", () => {
     clock = before;
   });
 
-  it("empleado agregado desde el dashboard: su primer mensaje lo activa y recibe la bienvenida", async () => {
+  it("seguridad F1: el empleado agregado queda pendiente; su primer mensaje no se procesa y pregunta si trabaja ahí", async () => {
     const r = await addEmployee(
       t.db,
       { tenantId, userId: USER_ID },
@@ -223,17 +240,29 @@ describe("onboarding por código de vinculación", () => {
     );
     expect(r.created).toBe(true);
     const { sent, client } = fakeMeta();
-    expect(await send(client, EMPLOYEE, "hola", "Carlos M")).toBe("done");
-    // Un solo envío: bienvenida + menú con la tasa (ADR-014).
+    expect(await send(client, EMPLOYEE, "gasté 20$ en farmacia", "Carlos M")).toBe("ignored");
     expect(sent).toHaveLength(1);
-    expect(textOf(sent[0])).toContain(
-      "¡Epa, Carlos! Soy Rocco 🐾. Quedaste registrado como empleado de *Autolavado El Rápido*. Me puedes pasar gastos y ventas; los cierres los ve el dueño.\nEjemplo: _gasté 5$ en hielo_\n\nTasa BCV hoy:",
+    expect(textOf(sent[0])).toContain("*Autolavado El Rápido* agregó este número");
+    expect(idsOf(sent[0])).toEqual([`emp:join:${r.phoneId}`, `emp:no:${r.phoneId}`]);
+    const moves = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));
+    expect(moves).toEqual([]);
+    const msgs = await withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.message).where(eq(schema.message.phoneId, r.phoneId)),
     );
-    expect(textOf(sent[0])).toContain("¿Qué quieres hacer?");
-    expect(sent[0]?.body.type).toBe("interactive");
+    expect(msgs).toEqual([]);
+    // Un id de botón de otro número no lo activa.
+    const other = fakeMeta();
+    expect(await tap(other.client, EMPLOYEE, `emp:join:${phoneId}`, "Unirme")).toBe("ignored");
+    // «Unirme»: activo y con la bienvenida.
+    const join = fakeMeta();
+    expect(await tap(join.client, EMPLOYEE, `emp:join:${r.phoneId}`, "Unirme")).toBe("done");
+    expect(textOf(join.sent[0])).toContain(
+      "¡Epa, Carlos! Soy Rocco 🐾. Quedaste registrado como empleado de *Autolavado El Rápido*.",
+    );
     const again = fakeMeta();
     await send(again.client, EMPLOYEE, "hola");
     expect(again.sent).toHaveLength(1);
+    expect(textOf(again.sent[0])).toContain("¿Qué quieres hacer?");
     const list = await withTenant(t.db, tenantId, (tx) => tenantPhones(tx, tenantId));
     expect(list.map((p) => [p.role, p.status])).toEqual([
       ["owner", "active"],
