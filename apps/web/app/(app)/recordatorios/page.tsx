@@ -53,11 +53,8 @@ export default async function Recordatorios({
 }) {
   const { tenant, user } = await requireTenant();
   // Con el interruptor apagado, solo los administradores la ven (para revisarla antes de encender).
-  if (
-    !(await habitSettings(db())).reminders &&
-    !adminEmails().includes(user.email.toLowerCase())
-  )
-    notFound();
+  const on = (await habitSettings(db())).reminders;
+  if (!on && !adminEmails().includes(user.email.toLowerCase())) notFound();
   const sp = await searchParams;
   const notice = sp.ok ? MSG[sp.ok] : sp.error ? MSG[sp.error] : null;
   if (tenant.role !== "owner")
