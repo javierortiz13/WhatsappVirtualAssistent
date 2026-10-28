@@ -62,25 +62,33 @@ export const CreateReminderInput = z.object({
     .describe(
       "pay: pagar algo o a alguien (luz, alquiler, una cuota, una deuda suya). collect: cobrar o que le paguen. other_money: otra cosa de plata (cambiar dólares, depositar, renovar un plan). not_money: no es de plata (llamar a mamá, una cita, tomar una pastilla).",
     ),
-  amount: AMOUNT_FIELD,
-  currency: CURRENCY_FIELD,
-  counterparty: COUNTERPARTY_FIELD,
-  when: WHEN_FIELD,
+  amount: AMOUNT_FIELD.default(""),
+  currency: CURRENCY_FIELD.default("unknown"),
+  counterparty: COUNTERPARTY_FIELD.default(""),
+  when: WHEN_FIELD.default(""),
 });
 
+/**
+ * Sin estricto, el modelo a veces omite los campos que no cambian (evals 29/10: «cambia el
+ * recordatorio de la luz para el lunes» sin `text` ni `amount`): un campo que falta vale "".
+ */
 export const UpdateReminderInput = z.object({
-  reminder: REF_FIELD,
-  text: TEXT_FIELD.max(120).describe(
-    "El texto nuevo SOLO si lo cambia ('pagar el agua'); '' si no cambia. Neutral, sin calificativos.",
-  ),
-  amount: AMOUNT_FIELD.describe('El monto nuevo SOLO si lo cambia ("son 25$" → "25"); "" si no.'),
-  currency: CURRENCY_FIELD,
+  reminder: REF_FIELD.default(""),
+  text: TEXT_FIELD.max(120)
+    .describe(
+      "El texto nuevo SOLO si lo cambia ('pagar el agua'); '' si no cambia. Neutral, sin calificativos.",
+    )
+    .default(""),
+  amount: AMOUNT_FIELD.describe(
+    'El monto nuevo SOLO si lo cambia ("son 25$" → "25"); "" si no.',
+  ).default(""),
+  currency: CURRENCY_FIELD.default("unknown"),
   when: WHEN_FIELD.describe(
     "El día y/o la hora nuevos SOLO si los cambia, tal como los dijo ('el lunes a las 3 pm', 'a las 4 pm', 'el jueves'); '' si no cambian.",
-  ),
+  ).default(""),
 });
 
-export const CancelReminderInput = z.object({ reminder: REF_FIELD });
+export const CancelReminderInput = z.object({ reminder: REF_FIELD.default("") });
 
 function parseAmount(s: string): Decimal | null {
   const d = parseVenezuelanAmount(s) ?? (/^\d+(\.\d+)?$/.test(s) ? new Decimal(s) : null);

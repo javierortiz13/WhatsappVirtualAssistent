@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  CancelReminderInput,
+  CreateReminderInput,
+  UpdateReminderInput,
+} from "../src/agent/reminder-tools";
+import {
   ALL_TOOLS,
   AskClarificationInput,
   countUnions,
@@ -193,5 +198,24 @@ describe("definiciones de herramientas", () => {
         corrects_draft: false,
       }).success,
     ).toBe(true);
+  });
+});
+
+describe("herramientas de recordatorios: argumentos incompletos", () => {
+  it("update_reminder y cancel_reminder aceptan que falten los campos que no cambian", () => {
+    expect(UpdateReminderInput.parse({ when: "el lunes" })).toEqual({
+      reminder: "",
+      text: "",
+      amount: "",
+      currency: "unknown",
+      when: "el lunes",
+    });
+    expect(CancelReminderInput.parse({})).toEqual({ reminder: "" });
+    expect(CreateReminderInput.parse({ text: "pagar la luz", kind: "pay" })).toMatchObject({
+      amount: "",
+      currency: "unknown",
+      counterparty: "",
+      when: "",
+    });
   });
 });

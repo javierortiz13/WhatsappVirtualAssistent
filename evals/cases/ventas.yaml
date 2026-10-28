@@ -4,7 +4,7 @@
   expect:
     tool: draft_income_day_total
     args: { total_amount: "350", total_currency: USD }
-    reply_contains: ["Venta del día por confirmar", "Total: *$350,00*"]
+    reply_contains: ["Venta del día anotada", "Total: *$350,00*"]
 
 - name: solo total, sin desglose
   input: "hoy vendimos 280$"
@@ -24,7 +24,7 @@
   expect:
     tool: draft_income_single
     args: { amount: "30", currency: USD, method: zelle }
-    reply_contains: ["Ingreso por confirmar", "Zelle"]
+    reply_contains: ["Ingreso anotado", "Zelle"]
 
 - name: venta de ayer
   input: "ayer vendí 500$"

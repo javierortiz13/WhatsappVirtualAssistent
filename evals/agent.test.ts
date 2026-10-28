@@ -4,6 +4,7 @@ import {
   type AgentContext,
   type AgentInput,
   type AgentResult,
+  ALL_TOOLS,
   AnthropicLlmClient,
   addDays,
   businessDateOf,
@@ -250,7 +251,9 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
         throw err;
       }
       spent = spent.plus(result.costUsd ?? 0);
-      const last = result.toolCalls[result.toolCalls.length - 1] ?? null;
+      // La última herramienta del agente: después pueden venir marcas (`reminder_link`…).
+      const toolNames = new Set(ALL_TOOLS.map((x) => x.name));
+      const last = result.toolCalls.filter((x) => toolNames.has(x.name)).at(-1) ?? null;
       const reply = result.outbound.map((o) => ("body" in o ? o.body : "")).join("\n");
       const row: Row = {
         name: c.name,
