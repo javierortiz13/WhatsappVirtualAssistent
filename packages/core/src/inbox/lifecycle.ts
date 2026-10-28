@@ -19,6 +19,7 @@ import { Decimal } from "../domain/money";
 import { type Logger, maskPhone, silentLogger } from "../log";
 import { es, type Outbound } from "../render/index";
 import type { MetaClient } from "../whatsapp/client";
+import { prefState } from "./prefs";
 import { sendOutbound } from "./process";
 import { serviceWindow } from "./window";
 
@@ -119,10 +120,19 @@ async function takeLifecycle(
     )
     .limit(1);
   if (!owner?.e164) return null;
+  // «No me escribas», también sin confirmar, o la etiqueta `no-contactar` (hábitos US-203, D3,
+  // D10): la encuesta, el resumen y el fin de la prueba no salen y quedan marcados, para no
+  // mandarse después (ni siquiera si vuelve a encender, nota 25).
+  const prefs = await prefState(tx, owner.id, tenantId);
+  if (prefs.unsolicitedOffAt || prefs.tagged || prefs.prefPending === "all_off") {
+    await skipLifecycle(tx, tenantId, kind, now);
+    return null;
+  }
   // Ventana de servicio de Meta (US-202).
   if (!(await serviceWindow(tx, owner.id, now)).open) return null;
   let out: Outbound;
   if (kind === "trialEnd") {
+    if (await trialEndSkipped(tx, tenantId)) return null;
     const [sent] = await tx
       .select({ id: schema.message.id })
       .from(schema.message)
@@ -161,6 +171,45 @@ async function takeLifecycle(
       .where(eq(schema.tenant.id, tenantId));
   }
   return { tenantId, phoneId: owner.id, e164: owner.e164, kind, out };
+}
+
+/** Aviso del ciclo saltado por «no me escribas»: queda como hecho y no sale nunca. */
+async function skipLifecycle(
+  tx: Tx,
+  tenantId: string,
+  kind: "survey" | "value" | "trialEnd",
+  now: Date,
+): Promise<void> {
+  if (kind === "survey")
+    await tx.update(schema.tenant).set({ surveySentAt: now }).where(eq(schema.tenant.id, tenantId));
+  else if (kind === "value")
+    await tx
+      .update(schema.tenant)
+      .set({ valueSentAt: now, surveySentAt: sql`coalesce(${schema.tenant.surveySentAt}, ${now})` })
+      .where(eq(schema.tenant.id, tenantId));
+  else if (!(await trialEndSkipped(tx, tenantId)))
+    await tx.insert(schema.auditLog).values({
+      tenantId,
+      actorType: "system",
+      action: TRIAL_END_SKIPPED,
+      entity: "tenant",
+      entityId: tenantId,
+      after: { skipped: true },
+      channel: "system",
+    });
+}
+
+const TRIAL_END_SKIPPED = "lifecycle_trial_end_skipped";
+
+async function trialEndSkipped(tx: Tx, tenantId: string): Promise<boolean> {
+  const [hit] = await tx
+    .select({ id: schema.auditLog.id })
+    .from(schema.auditLog)
+    .where(
+      and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, TRIAL_END_SKIPPED)),
+    )
+    .limit(1);
+  return Boolean(hit);
 }
 
 export async function sendLifecycleNotices(

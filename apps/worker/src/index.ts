@@ -86,6 +86,7 @@ async function main() {
       assistantName: env.ASSISTANT_NAME,
       dashboardUrl: env.DASHBOARD_URL,
       supportHint: env.SUPPORT_HINT ?? null,
+      privacyContact: env.PRIVACY_CONTACT,
       unknownReplyMax: 5,
       unknownReplyWindowMs: 60 * 60 * 1000,
       maxEventAgeMs: 12 * 60 * 60 * 1000,

@@ -51,7 +51,24 @@ export const IDS = {
   paySplit: (pendingId: string) => `paysplit:${pendingId}`,
   /** Una cuenta de arranque que todavía no tiene: se crea al tocarla (US-006). */
   payNew: (pendingId: string, starterId: string) => `paynew:${pendingId}:${starterId}`,
+  /** Apagar o encender avisos (hábitos US-204, US-211): "pref:nudges_off", "pref:keep:all_off"… */
+  pref: (value: PrefValue) => `pref:${value}`,
 } as const;
+
+/**
+ * `nudges_off` / `all_off` abren la tarjeta de confirmación (botones «Apagar avisos» y «No me
+ * recuerdes»); `yes:*` es su «Sí, apágalos», que vale en cualquier momento; `keep:*`, su «No».
+ */
+export const PREF_VALUES = [
+  "nudges_off",
+  "all_off",
+  "yes:nudges_off",
+  "yes:all_off",
+  "keep:nudges_off",
+  "keep:all_off",
+  "on",
+] as const;
+export type PrefValue = (typeof PREF_VALUES)[number];
 
 export const BS_MODES = ["bcv", "usdt", "ask"] as const;
 export type BsMode = (typeof BS_MODES)[number];
@@ -81,6 +98,7 @@ export type ParsedReplyId =
   | { kind: "pay"; pendingId: string; accountId: string }
   | { kind: "pay_split"; pendingId: string }
   | { kind: "pay_new"; pendingId: string; starterId: string }
+  | { kind: "pref"; value: PrefValue }
   | { kind: "unknown"; raw: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -129,6 +147,10 @@ export function parseReplyId(raw: string): ParsedReplyId {
     }
     case "erase":
       if (value === "yes" || value === "no") return { kind: "erase", answer: value };
+      break;
+    case "pref":
+      if ((PREF_VALUES as readonly string[]).includes(value))
+        return { kind: "pref", value: value as PrefValue };
       break;
     case "signup":
       if (value) return { kind: "signup", value };

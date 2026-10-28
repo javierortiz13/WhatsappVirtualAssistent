@@ -47,10 +47,10 @@ export function rateLine(r: RateInfo): string {
   return r.stale ? `${base} ⚠️ puede estar desactualizada` : base;
 }
 
-export function menu(r: RateInfo, personal = false): Outbound {
+export function menu(r: RateInfo, personal = false, note: string | null = null): Outbound {
   return {
     type: "buttons",
-    body: `${rateLine(r)}\n¿Qué quieres hacer?`,
+    body: `${rateLine(r)}\n${note ? `${note}\n` : ""}¿Qué quieres hacer?`,
     buttons: personal ? PERSONAL_MENU_BUTTONS : MENU_BUTTONS,
   };
 }
@@ -119,6 +119,8 @@ export function help(
   personal = false,
   /** Negocio con cuenta de efectivo (cash-in-drawer C17): dice que pregunta cuando no sabe. */
   asksAccount = false,
+  /** Líneas de hábitos (H51…), después de "Corregir o borrar lo último". */
+  extra: string[] = [],
 ): Outbound {
   const lines = [
     "Soy Rocco 🐾. Esto es todo lo que puedo hacer por ti:",
@@ -138,6 +140,7 @@ export function help(
       : "• Cuentas: _crea la cuenta Banesco en bolívares con 5.000_, _mis cuentas_, _cómo va Banesco_, y al gastar _con Banesco_ o _en efectivo_",
     "• Transferencias: _pasé 100$ de Zelle a Binance_, _compré 50 usdt con 49.000 bs_",
     "• Corregir o borrar lo último: _no, eran 25_, _bórralo_",
+    ...extra,
     `Para ver, corregir o exportar todo: ${dashboardUrl}`,
   ];
   if (supportHint)
@@ -3249,3 +3252,170 @@ export function noSpendReply(v: NoSpendView): Outbound {
       : "";
   return text(`¡Tu racha sigue viva! 🔥 ${v.current} días seguidos.${extra} ${close}`);
 }
+
+// ---------------------------------------------------------------- avisos: apagar y encender (hábitos P2)
+
+/**
+ * Versión de cada texto de consentimiento (US-201, R-3 a): lo que se guarda en `audit_log` junto
+ * con el id del texto que la persona vio. Nunca un literal en el código que guarda: se lee de aquí.
+ * Copy `habits-strings-es-VE.md` v1.2.1; cuando un texto cambie, su versión cambia aquí.
+ */
+export const consentTextVersion = {
+  H7: "v1",
+  H13: "v1",
+  H13b: "v1.1",
+  H13c: "v1.1",
+  "H13c-all": "v1.1",
+  "H13d-tag": "v1.2",
+  "H14-1": "v1.2",
+  "H14-2": "v1.1",
+  "H14e-1": "v1.1",
+  "H14e-2": "v1.1",
+  H45: "v1.2",
+  "H45-n": "v1.2.1",
+  H46: "v1.2",
+  /** R-2 d: «ya puedes escribirme» desde un teléfono de empleado. */
+  "R-2d": "v1.2",
+} as const;
+export type ConsentTextId = keyof typeof consentTextVersion;
+
+/** Línea R-2 a: cuenta suspendida o sin mensajes; el cambio se guarda, pero los avisos no salen. */
+const PREFS_HELD_LINE =
+  "Mientras tu cuenta esté suspendida o sin mensajes disponibles, estos avisos no te llegan.";
+const withHeld = (body: string, held: boolean) => (held ? `${body}\n${PREFS_HELD_LINE}` : body);
+
+const prefButtons = (target: "nudges_off" | "all_off") => [
+  { id: IDS.pref(`yes:${target}`), title: "Sí, apágalos" },
+  { id: IDS.pref(`keep:${target}`), title: "No, déjalos" },
+];
+
+/**
+ * H45 (y H45-n, quien nunca aceptó el aviso de las 8 pm): «no me recuerdes». Desde que sale,
+ * no se mandan hasta que conteste (D10).
+ */
+export function prefNudgesOffCard(neverOptedIn: boolean): Outbound {
+  const tail =
+    "Hasta que me contestes, no te los mando. Los recordatorios que pidas te siguen llegando a su hora o cuando me escribas.";
+  return {
+    type: "buttons",
+    body: neverOptedIn
+      ? `¿Apago los avisos adelantados de tus recordatorios?\n${tail}`
+      : [
+          "¿Apago estos avisos?",
+          "• El aviso de racha de las 8 pm",
+          "• Los avisos adelantados de tus recordatorios",
+          tail,
+        ].join("\n"),
+    buttons: prefButtons("nudges_off"),
+  };
+}
+
+/** H46: «no me escribas», «stop», «baja»… */
+export function prefAllOffCard(): Outbound {
+  return {
+    type: "buttons",
+    body: [
+      "¿Apago los mensajes que te mando por mi cuenta?",
+      "• El aviso de racha",
+      "• Los avisos de tus recordatorios",
+      "• Los mensajes sobre tu prueba",
+      "Hasta que me contestes, no te los mando. Los avisos de un pago tuyo o del borrado de tus datos llegan igual.",
+    ].join("\n"),
+    buttons: prefButtons("all_off"),
+  };
+}
+
+/** H11 (H11-n tras H45-n): «Sí, apágalos» en H45. */
+export function prefNudgesOffDone(neverOptedIn: boolean): Outbound {
+  return {
+    type: "text",
+    body: neverOptedIn
+      ? "Listo, ya no te adelanto recordatorios. Los que me pidas te llegan a su hora o cuando me escribas. Para volver a recibir avisos: *actívame los avisos*."
+      : "Listo, ya no te aviso de la racha ni te adelanto recordatorios. Los que me pidas te llegan a su hora o cuando me escribas. Para volver: *actívame los avisos*.",
+  };
+}
+
+/** H12 (F2-2, verbatim): «Sí, apágalos» en H46. */
+export function prefAllOffDone(): Outbound {
+  return {
+    type: "text",
+    body: "Listo, ya no te escribo por mi cuenta, salvo avisos sobre un pago tuyo o el borrado de tus datos. Tus recordatorios te los muestro cuando me escribas. Para volver: *ya puedes escribirme*.",
+  };
+}
+
+/** H48: «No, déjalos». */
+export function prefKept(): Outbound {
+  return { type: "text", body: "Dale, no apago nada y todo queda como estaba." };
+}
+
+/** H49: ya estaba apagado (palabra repetida o segundo «Sí»). */
+export function prefAlreadyOff(target: "nudges_off" | "all_off"): Outbound {
+  return {
+    type: "text",
+    body:
+      target === "nudges_off"
+        ? "El aviso de racha y los avisos adelantados ya estaban apagados. Para volver: *actívame los avisos*."
+        : "Los mensajes que te mando por mi cuenta ya estaban apagados. Para volver: *ya puedes escribirme*.",
+  };
+}
+
+/** H13 / H13b / H13c / H13c-all: encender. Es el texto de consentimiento (US-201). */
+export function prefTurnedOn(id: "H13" | "H13b" | "H13c" | "H13c-all", held: boolean): Outbound {
+  const body = {
+    H13: "Dale: los días que no anotes nada te aviso a las 8 pm, si me escribiste en las últimas 24 horas. Para apagarlo: *no me recuerdes*.",
+    H13b: "Listo, vuelvo a escribirte por mi cuenta: tus recordatorios y los avisos que tenías. Para apagarlo: *no me escribas*.",
+    H13c: "Listo, encendí tus avisos de racha y de recordatorios. El de racha llega a las 8 pm si no has anotado nada y me escribiste en las últimas 24 horas. Para apagarlos: *mis avisos*.",
+    "H13c-all":
+      "Listo, vuelvo a escribirte por mi cuenta y encendí el aviso de racha: llega a las 8 pm si no has anotado nada y me escribiste en las últimas 24 horas. Para apagarlos: *mis avisos*.",
+  }[id];
+  return { type: "text", body: withHeld(body, held) };
+}
+
+/** H13d: no había nada que cambiar. */
+export function prefAlreadyOn(): Outbound {
+  return {
+    type: "text",
+    body: "Eso ya estaba encendido. Para ver tus avisos o cambiarlos: *mis avisos*.",
+  };
+}
+
+/** H13d-tag: el equipo apagó los avisos (etiqueta `no-contactar`). Sin punto final: el enlace. */
+export function prefTagged(contact: string): Outbound {
+  return {
+    type: "text",
+    body: `Tus avisos los apagó el equipo de Rocco. Para volver a recibirlos, escríbenos a ${contact}`,
+  };
+}
+
+/** R-2 d: el aviso de racha y los recordatorios son del dueño. */
+export function prefEmployee(cleared: boolean): Outbound {
+  const body = "El aviso de racha y los recordatorios son solo para el dueño de la cuenta.";
+  return { type: "text", body: cleared ? `Listo. ${body}` : body };
+}
+
+/**
+ * H50: «mis avisos». A = todo encendido; B = aviso de racha apagado o nunca aceptado; C = todo
+ * apagado. «Apagar avisos» abre H45 mientras el aviso no está apagado, si no H46.
+ */
+export function prefStatus(v: {
+  state: "A" | "B" | "C";
+  nudgeOff: boolean;
+  held: boolean;
+}): Outbound {
+  const body = {
+    A: "Tus avisos están encendidos: el de racha a las 8 pm y los avisos adelantados de tus recordatorios. Para apagar también los demás mensajes que te mando por mi cuenta: *no me escribas*.",
+    B: "El aviso de racha de las 8 pm está apagado. Tus recordatorios te llegan a su hora o cuando me escribas.",
+    C: "No te escribo por mi cuenta: ni aviso de racha ni recordatorios a su hora. Tus recordatorios te los muestro cuando me escribas. Los avisos sobre un pago tuyo o el borrado de tus datos llegan igual.",
+  }[v.state];
+  const on = { id: IDS.pref("on"), title: "Encender avisos" };
+  const off = { id: IDS.pref(v.nudgeOff ? "all_off" : "nudges_off"), title: "Apagar avisos" };
+  return {
+    type: "buttons",
+    body: v.state === "C" ? body : withHeld(body, v.held),
+    buttons: v.state === "A" ? [off] : v.state === "B" ? [on, off] : [on],
+  };
+}
+
+/** H51: línea de la ayuda. H51b: línea del menú si tiene avisos apagados. */
+export const PREFS_HELP_LINE = "• Avisos: _mis avisos_ para verlos, encenderlos o apagarlos";
+export const PREFS_MENU_LINE = "Tienes avisos apagados. Para verlos o encenderlos: *mis avisos*.";

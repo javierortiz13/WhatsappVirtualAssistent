@@ -147,6 +147,7 @@ import {
   payWithNewAccount,
 } from "./account-ask";
 import { saveSurveyAnswer } from "./lifecycle";
+import { hasPrefsOff, routePrefs } from "./prefs";
 import { SPLIT_WORDS, splitFollowUp, splitFromPhoto } from "./split";
 
 /**
@@ -176,6 +177,8 @@ export type ProcessDeps = {
     assistantName: string;
     dashboardUrl: string;
     supportHint: string | null;
+    /** Correo de privacidad (D11): H13d-tag lo da cuando el equipo apagó los avisos. */
+    privacyContact?: string;
     unknownReplyMax: number;
     unknownReplyWindowMs: number;
     /** Conocidos: mensajes por ventana antes de avisar una vez y callar (checklist S2). */
@@ -962,6 +965,8 @@ async function markSentSince(tx: Tx, phoneId: string, name: string, since: Date)
   return !!hit;
 }
 
+const DEFAULT_PRIVACY_CONTACT = "privacidad@caja.jpsoftwaredev.com";
+
 /** "eliminar mi cuenta" y parecidas, como mensaje completo (no "borrar mi cuenta Zelle"). */
 export const ERASE_WORDS =
   /^\s*(?:quiero\s+)?(?:eliminar|borrar)\s+(?:mi\s+cuenta|mis\s+datos|mi\s+negocio)\s*[.!]*\s*$/i;
@@ -1077,6 +1082,24 @@ async function routeMessage(
   if (ctx.deleted) return routeDeleted(tx, deps, msg, ctx, ctx.deleted);
   const erase = await routeErase(tx, deps, msg, ctx);
   if (erase) return erase;
+  // Apagar y encender avisos (hábitos US-204, US-211): antes de la cuenta suspendida o sin
+  // mensajes, para que un «no me escribas» siempre funcione. Sin la IA.
+  const prefs = await routePrefs(
+    tx,
+    {
+      tenantId: ctx.tenantId,
+      phoneId: ctx.phoneId,
+      role: ctx.role === "owner" ? "owner" : "employee",
+      held: Boolean(ctx.suspended || ctx.trialCapped || ctx.monthCapped),
+      privacyContact: deps.config.privacyContact ?? DEFAULT_PRIVACY_CONTACT,
+      now: (deps.now ?? (() => new Date()))(),
+    },
+    {
+      text: msg.kind === "text" ? msg.text : null,
+      replyId: msg.kind === "interactive" ? msg.replyId : null,
+    },
+  );
+  if (prefs) return { ...none(prefs.outbound), toolCalls: prefs.toolCalls };
   if (ctx.suspended || ctx.trialCapped || ctx.monthCapped)
     return routeSuspended(tx, deps, msg, ctx);
   switch (msg.kind) {
@@ -1107,8 +1130,13 @@ async function routeMessage(
             ? await renewOfferReply(tx, renewCtx(deps, ctx))
             : rechargeOfferReply(renewCtx(deps, ctx)),
         ]);
-      if (keyword === "menu")
-        return none([es.menu(await getRateInfo(tx, ctx.today), ctx.personal)]);
+      if (keyword === "menu") {
+        const flags = await habitSettings(tx);
+        const off = flags.prefs && (await hasPrefsOff(tx, ctx.phoneId));
+        return none([
+          es.menu(await getRateInfo(tx, ctx.today), ctx.personal, off ? es.PREFS_MENU_LINE : null),
+        ]);
+      }
       if (keyword === "rate") return none([es.rate(await getRateInfo(tx, ctx.today))]);
       if (keyword === "help")
         return none([
@@ -1117,6 +1145,7 @@ async function routeMessage(
             deps.config.supportHint,
             ctx.personal,
             !ctx.personal && (await listAccounts(tx, ctx.tenantId)).some((a) => a.kind === "cash"),
+            (await habitSettings(tx)).prefs ? [es.PREFS_HELP_LINE] : [],
           ),
         ]);
       if (keyword === "dashboard")

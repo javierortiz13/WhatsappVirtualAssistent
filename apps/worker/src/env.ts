@@ -9,6 +9,8 @@ const Env = z.object({
   ASSISTANT_NAME: z.string().default("Rocco"),
   DASHBOARD_URL: z.string().url().default("http://localhost:3000"),
   SUPPORT_HINT: z.string().optional(),
+  /** Correo de privacidad (D11, US-211): el de /privacidad, para H13d-tag. Mismo valor que en Vercel. */
+  PRIVACY_CONTACT: z.string().email().default("privacidad@caja.jpsoftwaredev.com"),
   /** Datos de cobro que el bot manda al renovar el plan (mismos valores que en Vercel). */
   PAYMENT_PAGO_MOVIL: z.string().optional(),
   PAYMENT_ZELLE: z.string().optional(),

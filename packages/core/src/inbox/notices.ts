@@ -56,6 +56,8 @@ export async function sendPaymentNotices(
               body: out.body,
               status: "ok",
               waMessageId: r.waMessageId,
+              // Gasta el cupo del día (hábitos US-203, E-4); su envío no cambia.
+              toolCalls: [{ name: "notice_payment", args: {} }],
             }),
           );
           sent += 1;
@@ -121,6 +123,7 @@ export async function sendRetentionNotices(
           body: inWindow ? out.body : `plantilla ${opts.template?.name}`,
           status: "ok",
           waMessageId: r.waMessageId,
+          toolCalls: [{ name: "notice_retention", args: {} }],
         }),
       );
       sent += 1;
