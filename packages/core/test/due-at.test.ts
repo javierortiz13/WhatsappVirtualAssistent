@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type DueAt, resolveDueAt } from "../src/domain/dates";
+import { caracasInstant, type DueAt, dueBaseOf, resolveDueAt } from "../src/domain/dates";
 
 /** US-302: hoy es martes 10/11/2026 a las 10:00 de Caracas (14:00 UTC). */
 const NOW = new Date("2026-11-10T14:00:00Z");
@@ -54,5 +54,21 @@ describe("resolveDueAt (tabla del PRD)", () => {
       minute: 0,
       date: "2026-11-13",
     });
+  });
+  it("al corregir, lo que la frase no dice se queda (H15b)", () => {
+    // El recordatorio era el viernes 13 a las 3 pm.
+    const base = dueBaseOf(caracasInstant("2026-11-13", 15), false);
+    expect(local(resolveDueAt("a las 4 pm", NOW, base))).toBe("2026-11-13 16:00");
+    expect(local(resolveDueAt("el lunes", NOW, base))).toBe("2026-11-16 15:00");
+    expect(local(resolveDueAt("el lunes a las 10 am", NOW, base))).toBe("2026-11-16 10:00");
+    expect(resolveDueAt("a las 9", NOW, base)).toMatchObject({
+      kind: "ambiguous_hour",
+      date: "2026-11-13",
+    });
+    // Con las 9 am por defecto, cambiar el día deja el aviso "por defecto".
+    const byDefault = dueBaseOf(caracasInstant("2026-11-13", 9), true);
+    expect(local(resolveDueAt("el lunes", NOW, byDefault))).toBe(
+      "2026-11-16 09:00 (9 am por defecto)",
+    );
   });
 });

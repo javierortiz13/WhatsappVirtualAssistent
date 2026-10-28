@@ -89,9 +89,16 @@ describe("definiciones de herramientas", () => {
       "get_accounts",
       "create_account",
       "transfer_between_accounts",
+      "create_reminder",
+      "update_reminder",
+      "cancel_reminder",
     ]);
     expect(toolsForRole("employee")).toHaveLength(15);
     expect(toolsForRole("owner")).toHaveLength(18);
+    // Recordatorios (hábitos P3): solo con el interruptor; el empleado solo ve create_reminder (H29).
+    expect(toolsForRole("employee", true).map((t) => t.name)).toContain("create_reminder");
+    expect(toolsForRole("employee", true)).toHaveLength(16);
+    expect(toolsForRole("owner", true)).toHaveLength(21);
   });
   it("el JSON Schema es estricto: sin $schema, sin propiedades extra, con properties", () => {
     for (const t of ALL_TOOLS) {
@@ -137,6 +144,9 @@ describe("definiciones de herramientas", () => {
       "get_accounts",
       "create_account",
       "transfer_between_accounts",
+      "create_reminder",
+      "update_reminder",
+      "cancel_reminder",
     ]);
   });
 

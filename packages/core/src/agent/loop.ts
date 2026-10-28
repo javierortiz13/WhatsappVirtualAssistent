@@ -9,6 +9,7 @@ import { type LlmClient, type LlmTurn, LlmUnavailableError } from "./llm";
 import {
   afterMediaContext,
   GLOBAL_SYSTEM,
+  reminderContext,
   tenantSystem,
   unclearReceiptContext,
   userTurn,
@@ -43,7 +44,7 @@ export function createAgent(opts: AgentOptions): AgentRunner {
   return {
     async run(tx: Tx, ctx: AgentContext, input: AgentInput): Promise<AgentResult> {
       const started = now();
-      const tools = toolsForRole(ctx.role);
+      const tools = toolsForRole(ctx.role, Boolean(ctx.reminders));
       const defs = tools.map(toLlmToolDef);
       const byName = new Map(tools.map((t) => [t.name, t]));
       const userText =
@@ -95,7 +96,9 @@ export function createAgent(opts: AgentOptions): AgentRunner {
             ctx.today,
             pendingDraft,
             waiting,
-            after ? unclearReceiptContext(after) : describes,
+            [after ? unclearReceiptContext(after) : describes, reminderContext(ctx, userText)]
+              .filter(Boolean)
+              .join("\n") || null,
             ctx.categoryExamples ?? [],
           ),
         },
@@ -186,6 +189,7 @@ export function createAgent(opts: AgentOptions): AgentRunner {
           drafts,
         });
         if (outcome.kind === "terminal") {
+          if (outcome.markers) toolCalls.push(...outcome.markers);
           log.info(
             {
               tool: call.name,

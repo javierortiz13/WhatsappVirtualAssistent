@@ -3419,3 +3419,277 @@ export function prefStatus(v: {
 /** H51: línea de la ayuda. H51b: línea del menú si tiene avisos apagados. */
 export const PREFS_HELP_LINE = "• Avisos: _mis avisos_ para verlos, encenderlos o apagarlos";
 export const PREFS_MENU_LINE = "Tienes avisos apagados. Para verlos o encenderlos: *mis avisos*.";
+
+// ---------------------------------------------------------------- recordatorios (hábitos P3, H15–H29)
+
+export type ReminderView = {
+  id: string;
+  text: string | null;
+  kind: "pay" | "collect" | "other_money";
+  amount: string | null;
+  currency: string | null;
+  dueAt: Date;
+};
+
+/** {hora}: «9 am», «3 pm», «9:30 am», «mediodía», «12 am». */
+export function hora(at: Date): string {
+  const local = new Date(at.getTime() - 4 * 3_600_000);
+  const h = local.getUTCHours();
+  const m = local.getUTCMinutes();
+  if (h === 12 && m === 0) return "mediodía";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}${m ? `:${String(m).padStart(2, "0")}` : ""} ${h < 12 ? "am" : "pm"}`;
+}
+
+/** «hoy», «mañana», «pasado mañana» o la fecha corta. */
+function dayWord(at: Date, now: Date): { word: string; relative: boolean } {
+  const day = businessDateOf(at);
+  const today = businessDateOf(now);
+  if (day === today) return { word: "hoy", relative: true };
+  if (day === addDays(today, 1)) return { word: "mañana", relative: true };
+  if (day === addDays(today, 2)) return { word: "pasado mañana", relative: true };
+  return { word: formatShortDate(day), relative: false };
+}
+
+/** {cuándo}: «el *vie 13/11* a las *9 am*», «*mañana* a las *9 am*», «*hoy* a *mediodía*». */
+export function cuando(at: Date, now: Date, bold = true): string {
+  const d = dayWord(at, now);
+  const b = (s: string) => (bold ? `*${s}*` : s);
+  const h = hora(at);
+  const time = h === "mediodía" ? `a ${b(h)}` : `a las ${b(h)}`;
+  return `${d.relative ? "" : "el "}${b(d.word)} ${time}`;
+}
+
+/** Mayúscula inicial, saltando el `*` de una negrita. */
+const cap = (s: string) => {
+  const i = s.startsWith("*") ? 1 : 0;
+  return s ? s.slice(0, i) + s.charAt(i).toUpperCase() + s.slice(i + 1) : s;
+};
+
+/** {monto} en la moneda que dijo, nunca convertido. */
+function reminderMoney(amount: string | null, currency: string | null): string {
+  if (!amount) return "";
+  const v = new Decimal(amount);
+  if (currency === "EUR") return ` · €${formatMoney(v, "USD").replace("$", "")}`;
+  return ` · ${formatMoney(v, currency === "VES" ? "VES" : "USD")}`;
+}
+
+/** «Pagar la luz · $20,00» (con mayúscula si abre la línea). */
+function what(r: ReminderView, lineStart = true): string {
+  const text = r.text ?? "";
+  return `${lineStart ? cap(text) : text}${reminderMoney(r.amount, r.currency)}`;
+}
+
+/** H15–H16: recordatorio guardado, con Corregir y Borrar. */
+export function reminderSaved(r: ReminderView, now: Date, timeWasDefault: boolean): Outbound {
+  const lines = [`⏰ Listo, te lo recuerdo ${cuando(r.dueAt, now)}:`, what(r)];
+  if (timeWasDefault) lines.push("Le puse las 9 am. Si es otra hora, toca *Corregir*.");
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: [
+      { id: IDS.reminder("fix", r.id), title: "Corregir" },
+      { id: IDS.reminder("del", r.id), title: "Borrar" },
+    ],
+  };
+}
+
+/** H15b: después de tocar Corregir. */
+export function reminderFixPrompt(): Outbound {
+  return {
+    type: "text",
+    body: "Dime qué cambio. Ejemplo: _el lunes a las 3 pm_, _son 25$_, _pagar el agua_.",
+  };
+}
+
+/** H17: 7 a 11 sin «am» ni «pm». */
+export function reminderAskAmPm(hour: number, minute: number): Outbound {
+  const h = `${hour}${minute ? `:${String(minute).padStart(2, "0")}` : ""}`;
+  return {
+    type: "buttons",
+    body: `¿A las ${h} de la mañana o de la noche?`,
+    buttons: [
+      { id: IDS.reminderAmPm("am"), title: `${h} de la mañana` },
+      { id: IDS.reminderAmPm("pm"), title: `${h} de la noche` },
+    ],
+  };
+}
+
+/** H18, H18b, H18c, H18d: la fecha. */
+export function reminderAskDate(
+  why: "no_date" | "past" | "hour_passed" | "too_far",
+  at?: Date,
+): Outbound {
+  const q = "¿Para qué día te lo recuerdo?";
+  const body = {
+    no_date: q,
+    past: `Esa fecha ya pasó. ${q}`,
+    hour_passed: `Las ${at ? hora(at) : ""} de hoy ya pasaron. ${q}`,
+    too_far: `Puedo recordarte algo hasta dentro de un año. ${q}`,
+  }[why];
+  return { type: "text", body };
+}
+
+/** H19 (F3-6, verbatim): no es de plata. */
+export function reminderNotMoney(): Outbound {
+  return {
+    type: "text",
+    body: "Solo te recuerdo cosas de plata: pagos y cobros. Ejemplo: _recuérdame pagar la luz el viernes a las 9 am_.",
+  };
+}
+
+const MORE = (k: number) => `y ${k} más: escribe *mis recordatorios*`;
+
+/** H20–H21 (camino a): a su hora. Uno con Ya lo hice / Recuérdame mañana; varios, la lista. */
+export function reminderDue(rs: ReminderView[]): Outbound {
+  const first = rs[0];
+  if (rs.length === 1 && first) {
+    const second =
+      first.kind === "pay"
+        ? "Si ya pagaste, dime cuánto y lo anoto."
+        : first.kind === "collect"
+          ? "Si ya cobraste, dime cuánto y lo anoto."
+          : null;
+    return {
+      type: "buttons",
+      body: [`⏰ ${what(first)}`, ...(second ? [second] : [])].join("\n"),
+      buttons: [
+        { id: IDS.reminder("done", first.id), title: "Ya lo hice" },
+        { id: IDS.reminder("snooze", first.id), title: "Recuérdame mañana" },
+      ],
+    };
+  }
+  const lines = ["⏰ Te recuerdo:", ...rs.slice(0, 3).map((r) => `• ${what(r)}`)];
+  if (rs.length > 3) lines.push(MORE(rs.length - 3));
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: [{ id: IDS.reminderList(), title: "Ver recordatorios" }],
+  };
+}
+
+/** H22 (camino b): se adelanta porque la ventana cierra antes. */
+export function reminderEarly(rs: ReminderView[], now: Date): Outbound {
+  const first = rs[0];
+  const why = (one: boolean) =>
+    `Te ${one ? "lo" : "los"} adelanto porque, si no me escribes antes, WhatsApp no me deja avisarte a esa hora.`;
+  if (rs.length === 1 && first)
+    return {
+      type: "buttons",
+      body: `⏰ ${cap(cuando(first.dueAt, now))}: ${what(first, false)}.\n${why(true)}`,
+      buttons: [
+        { id: IDS.reminder("done", first.id), title: "Ya lo hice" },
+        { id: IDS.pref("nudges_off"), title: "No me recuerdes" },
+      ],
+    };
+  const row = (r: ReminderView) => {
+    const d = dayWord(r.dueAt, now);
+    return `• *${d.word === "mañana" ? "Mañana" : d.word}, ${hora(r.dueAt)}*: ${what(r, false)}`;
+  };
+  const lines = ["⏰ Tus próximos recordatorios:", ...rs.slice(0, 3).map(row)];
+  if (rs.length > 3) lines.push(MORE(rs.length - 3));
+  lines.push(why(false));
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: [{ id: IDS.pref("nudges_off"), title: "No me recuerdes" }],
+  };
+}
+
+/** {cuándo corto} de H23: «hoy, 9 am», «ayer» o la fecha. */
+function shortWhen(at: Date, now: Date): string {
+  const day = businessDateOf(at);
+  const today = businessDateOf(now);
+  if (day === today) return `hoy, ${hora(at)}`;
+  if (day === addDays(today, -1)) return "ayer";
+  return formatShortDate(day);
+}
+
+/** H23 (camino c): arriba de la próxima respuesta. Sin botón. */
+export function reminderPendingLines(rs: ReminderView[], now: Date): string {
+  const first = rs[0];
+  if (rs.length === 1 && first)
+    return `⏰ Tenías pendiente: ${what(first, false)} (${shortWhen(first.dueAt, now)})`;
+  const lines = [
+    "⏰ Tenías pendiente:",
+    ...rs.slice(0, 3).map((r) => `• ${what(r)} (${shortWhen(r.dueAt, now)})`),
+  ];
+  if (rs.length > 3) lines.push(MORE(rs.length - 3));
+  return lines.join("\n");
+}
+
+/** H24: un registro cerró el recordatorio (línea de la tarjeta guardada). */
+export function reminderClosedLine(text: string | null): string {
+  return `Recordatorio cumplido: ${text ?? ""}.`;
+}
+
+/** H25: «mis recordatorios» (≤ 10 filas). H27 si no hay. */
+export function reminderList(rs: ReminderView[], total: number, now: Date): Outbound {
+  if (total === 0)
+    return {
+      type: "text",
+      body: "No tienes recordatorios pendientes. Pídeme uno así: _recuérdame pagar la luz el viernes a las 9 am_",
+    };
+  const body =
+    total === 1
+      ? "Tienes 1 recordatorio pendiente. Tócalo para marcarlo como hecho o borrarlo."
+      : total > 10
+        ? `Tienes ${total} recordatorios pendientes. Aquí van los 10 más próximos; todos están en el panel, en Recordatorios.`
+        : `Tienes ${total} recordatorios pendientes. Toca uno para marcarlo como hecho o borrarlo.`;
+  return {
+    type: "list",
+    body,
+    buttonLabel: "Ver recordatorios",
+    sections: [
+      {
+        rows: rs.slice(0, 10).map((r) => {
+          const t = cap(r.text ?? "");
+          const d = dayWord(r.dueAt, now);
+          return {
+            id: IDS.reminder("open", r.id),
+            title: t.length > 24 ? `${t.slice(0, 23)}…` : t,
+            description: `${d.word} · ${hora(r.dueAt)}${reminderMoney(r.amount, r.currency)}`,
+          };
+        }),
+      },
+    ],
+  };
+}
+
+/** H26: una fila tocada, con Ya lo hice y Borrar. */
+export function reminderDetail(r: ReminderView, now: Date): Outbound {
+  const d = dayWord(r.dueAt, now);
+  const h = hora(r.dueAt);
+  return {
+    type: "buttons",
+    body: `⏰ ${what(r)}\n${d.word} ${h === "mediodía" ? "a mediodía" : `a las ${h}`}`,
+    buttons: [
+      { id: IDS.reminder("done", r.id), title: "Ya lo hice" },
+      { id: IDS.reminder("del", r.id), title: "Borrar" },
+    ],
+  };
+}
+
+/** H28: límite de pendientes del plan o de la prueba. */
+export function reminderLimit(n: number, trial: boolean): Outbound {
+  return {
+    type: "text",
+    body: `Tienes ${n} recordatorios pendientes, el máximo de ${trial ? "tu prueba gratis" : "tu plan"}. Marca uno como hecho o bórralo en *mis recordatorios*, y me pides el nuevo.`,
+  };
+}
+
+/** H28b: tope de mensajes de recordatorio del mes (una vez al mes, arriba de la respuesta). */
+export function reminderSendCapLine(n: number, trial: boolean): string {
+  return `Este mes ya te mandé ${n} mensajes de recordatorios, el máximo de ${trial ? "tu prueba" : "tu plan"}. Los demás te los muestro cuando me escribas.`;
+}
+
+/** H29: empleado. */
+export function reminderEmployee(): Outbound {
+  return {
+    type: "text",
+    body: "Los recordatorios son para el dueño de la cuenta. Tú puedes registrar gastos y ventas.",
+  };
+}
+
+/** Respuesta a «Ya lo hice» / «Recuérdame mañana» / «Borrar»: solo la reacción. */
+export const REMINDER_REACTION = { done: "✅", snooze: "⏰", del: "🗑️" } as const;

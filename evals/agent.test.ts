@@ -6,8 +6,14 @@ import {
   type AgentResult,
   AnthropicLlmClient,
   addDays,
+  businessDateOf,
+  caracasInstant,
   createAgent,
   Decimal,
+  type DueAt,
+  dueBaseOf,
+  type ReminderRef,
+  resolveDueAt,
   resolveWhen,
   todayInCaracas,
 } from "@caja/core";
@@ -129,6 +135,7 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
         ...(c.accounts.some((a) => a.kind === "cash") ? { asksAccount: true } : {}),
         sourceChannel: c.receipt ? "image" : c.kind,
       };
+      const now = new Date();
       const started = Date.now();
       let result: AgentResult & { drafts: number };
       try {
@@ -164,6 +171,47 @@ describe.skipIf(!enabled)("evals v1 del agente", () => {
               expiresAt: new Date(Date.now() + 10 * 60_000),
               createdAt: new Date(Date.now() - 60_000 * (c.pending.length - i)),
             });
+          }
+          await tx.delete(schema.reminder);
+          if (c.reminders) {
+            const refs: ReminderRef[] = [];
+            for (const [i, r] of c.reminders.entries()) {
+              const dueDate = addDays(businessDateOf(now), r.in_days);
+              const [row] = await tx
+                .insert(schema.reminder)
+                .values({
+                  tenantId,
+                  phoneId: ctx.phoneId,
+                  text: r.text,
+                  kind: r.kind,
+                  amount: r.amount ?? null,
+                  currency: r.amount ? "USD" : null,
+                  dueAt: caracasInstant(dueDate, r.hour),
+                  dueDate,
+                  timeWasDefault: false,
+                })
+                .returning();
+              if (!row) throw new Error("sin recordatorio");
+              refs.push({
+                ref: `r${i + 1}`,
+                id: row.id,
+                text: row.text,
+                kind: r.kind,
+                amount: row.amount,
+                currency: row.amount ? "USD" : null,
+                counterparty: null,
+                dueAt: row.dueAt,
+                timeWasDefault: false,
+              });
+            }
+            const fixing = c.reminders.findIndex((r) => r.fixing);
+            ctx.reminders = {
+              open: c.role === "owner" ? refs : [],
+              fixing: fixing >= 0 ? (refs[fixing] ?? null) : null,
+              pending: refs.length,
+              limit: 20,
+              trial: false,
+            };
           }
           const input: AgentInput = c.receipt
             ? { kind: "receipt", extracted: c.receipt, caption: c.caption ?? null }
@@ -242,6 +290,21 @@ function check(
         const want = String(v ?? "").trim();
         if (got === "" || want === "") expect(got, `amount ${args.amount}`).toBe(want);
         else expect(new Decimal(got).eq(new Decimal(want)), `amount ${args.amount}`).toBe(true);
+      } else if (k === "when" && last?.name.endsWith("_reminder")) {
+        // Recordatorios: el instante que calcula `resolveDueAt` (con el del que se corrige de base).
+        const now = new Date();
+        const fixing = ctx.reminders?.fixing;
+        const base = fixing ? dueBaseOf(fixing.dueAt, fixing.timeWasDefault) : undefined;
+        const show = (d: DueAt) =>
+          d.kind === "ok"
+            ? d.dueAt.toISOString()
+            : d.kind === "ambiguous_hour"
+              ? `ambiguous ${d.hour}:${d.minute} ${d.date}`
+              : d.kind;
+        const said = String(args.when ?? "").trim() || c.input;
+        expect(show(resolveDueAt(said, now, base)), `when ${args.when}`).toBe(
+          show(resolveDueAt(String(v), now, base)),
+        );
       } else if (k === "when") {
         const got = resolveWhen((args.when as string | null) ?? null, ctx.today);
         const want = resolveWhen((v as string | null) ?? null, ctx.today);
@@ -259,4 +322,6 @@ function check(
     }
   }
   for (const s of c.expect.reply_contains ?? []) expect(reply).toContain(s);
+  const json = JSON.stringify(last?.args ?? {}).toLowerCase();
+  for (const s of c.expect.args_exclude ?? []) expect(json).not.toContain(s.toLowerCase());
 }

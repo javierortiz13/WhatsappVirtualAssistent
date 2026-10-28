@@ -126,6 +126,14 @@ import {
 import { requestDeletion, restoreTenant } from "../onboarding/erase";
 import { activatePhone, CODE_RE, verifyCode } from "../onboarding/register";
 import { getRateInfo } from "../rates/current";
+import {
+  isReminderListAsk,
+  type ReminderChatCtx,
+  reminderAgentContext,
+  reminderAmPm,
+  reminderListReply,
+  reminderTap,
+} from "../reminders/chat";
 import { es, IDS, mergeOutbound, type Outbound, parseReplyId } from "../render/index";
 import type { SpeechClient } from "../speech/client";
 import type { ObjectStore } from "../storage/store";
@@ -1100,6 +1108,12 @@ async function routeMessage(
     },
   );
   if (prefs) return { ...none(prefs.outbound), toolCalls: prefs.toolCalls };
+  // Botones de un recordatorio (hábitos P3): también con la cuenta suspendida, para que Borrar
+  // siempre funcione. Sin la IA.
+  if (msg.kind === "interactive") {
+    const tap = await routeReminderTap(tx, deps, msg.replyId, ctx);
+    if (tap) return tap;
+  }
   if (ctx.suspended || ctx.trialCapped || ctx.monthCapped)
     return routeSuspended(tx, deps, msg, ctx);
   switch (msg.kind) {
@@ -1158,6 +1172,11 @@ async function routeMessage(
         ]);
       if (keyword === "close") return closeToday(tx, deps, ctx);
       if (keyword === "delete") return deleteLast(tx, deps, ctx, msg);
+      // «mis recordatorios» (hábitos US-308): la lista, sin la IA.
+      if (isReminderListAsk(msg.text) && (await habitSettings(tx)).reminders) {
+        const list = await reminderListReply(tx, reminderChatCtx(deps, ctx));
+        return { ...none(list.outbound), toolCalls: list.toolCalls };
+      }
       if (msg.text.length > deps.config.maxTextLength) return none([es.tooLong()]);
       // "Hoy no gasté nada" (hábitos US-106): sin la IA, solo el dueño y con su interruptor.
       if (ctx.role === "owner" && isNoSpendPhrase(msg.text) && (await habitSettings(tx)).noSpend)
@@ -1880,6 +1899,35 @@ function sumCost(a: string | null, b: string | null): string | null {
   return new Decimal(a ?? 0).plus(b ?? 0).toFixed(6);
 }
 
+function reminderChatCtx(deps: ProcessDeps, ctx: RouteCtx): ReminderChatCtx {
+  return {
+    tenantId: ctx.tenantId,
+    phoneId: ctx.phoneId,
+    role: ctx.role,
+    inboundId: ctx.inboundId,
+    now: (deps.now ?? (() => new Date()))(),
+  };
+}
+
+async function routeReminderTap(
+  tx: Tx,
+  deps: ProcessDeps,
+  replyId: string,
+  ctx: RouteCtx,
+): Promise<RouteResult | null> {
+  const parsed = parseReplyId(replyId);
+  const c = reminderChatCtx(deps, ctx);
+  const r =
+    parsed.kind === "reminder"
+      ? await reminderTap(tx, c, parsed.action, parsed.id)
+      : parsed.kind === "reminder_ampm"
+        ? await reminderAmPm(tx, c, parsed.half)
+        : parsed.kind === "reminder_list"
+          ? await reminderListReply(tx, c)
+          : null;
+  return r ? { ...none(r.outbound), toolCalls: r.toolCalls } : null;
+}
+
 async function routeInteractive(
   tx: Tx,
   deps: ProcessDeps,
@@ -2335,10 +2383,17 @@ async function runAgent(
         categoryExamples: await categoryExamples(tx, ctx.tenantId),
         today: ctx.today,
         sourceMessageDbId: current?.id ?? null,
+        sourceWaMessageId: waMessageId,
         attachmentId,
         sourceChannel: input.kind === "text" ? "text" : input.kind === "voice" ? "voice" : "image",
         dashboardUrl: deps.config.dashboardUrl,
         billing: { dest: deps.config.paymentDest ?? {}, supportHint: deps.config.supportHint },
+        reminders: await reminderAgentContext(tx, {
+          tenantId: ctx.tenantId,
+          phoneId: ctx.phoneId,
+          role: ctx.role,
+          now: (deps.now ?? (() => new Date()))(),
+        }),
       },
       input,
     );

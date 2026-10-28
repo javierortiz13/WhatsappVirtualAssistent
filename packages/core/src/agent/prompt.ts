@@ -51,15 +51,46 @@ export function tenantSystem(ctx: AgentContext): string {
     ctx.role === "owner"
       ? "El usuario es el dueño."
       : "El usuario es un empleado: registra gastos y ventas. Si pide un cierre, un resumen o un total, usa get_summary igual (y get_budgets si pregunta por presupuestos): el sistema le responde que eso lo ve el dueño. No lo rechaces como fuera de alcance.";
+  const reminders = ctx.reminders
+    ? `\n${ctx.role === "owner" ? REMINDER_RULE : REMINDER_RULE_EMPLOYEE}`
+    : "";
   const accounts = ctx.accounts?.length
     ? `\nCuentas: ${ctx.accounts.map((a) => `${a.name} (${accountUnit(a)})`).join(", ")}.`
     : "";
   if (ctx.personal) {
     const sources = (ctx.incomeCategories ?? []).map((c) => `- ${c.name}`).join("\n");
-    return `Cuenta personal de ${ctx.tenantName}: es una persona, no un negocio.\n${currency}\n${role}\n${PERSONAL_INCOME_RULE}\nFuentes de ingreso (usa el nombre exacto):\n${sources}\nCategorías de gasto (usa el nombre exacto):\n${cats}${accounts}`;
+    return `Cuenta personal de ${ctx.tenantName}: es una persona, no un negocio.\n${currency}\n${role}\n${PERSONAL_INCOME_RULE}\nFuentes de ingreso (usa el nombre exacto):\n${sources}\nCategorías de gasto (usa el nombre exacto):\n${cats}${accounts}${reminders}`;
   }
-  return `Negocio: ${ctx.tenantName}.\n${currency}\n${role}\nCategorías de gasto (usa el nombre exacto):\n${cats}${accounts}`;
+  return `Negocio: ${ctx.tenantName}.\n${currency}\n${role}\nCategorías de gasto (usa el nombre exacto):\n${cats}${accounts}${reminders}`;
 }
+
+/**
+ * Recordatorios (hábitos P3, US-303): en el bloque del tenant, que se cachea; solo con el
+ * interruptor `habits.reminders` encendido.
+ */
+const REMINDER_RULE =
+  "RECORDATORIOS: si pide que le RECUERDES o AVISES algo más adelante ('recuérdame pagar la luz el viernes a las 9 am', 'avísame el lunes que Pedro me debe 20$', 'no me dejes olvidar el alquiler el 15'), usa create_reminder: no es un gasto ni una venta, no registres nada. Si no es de plata ('recuérdame llamar a mamá'), create_reminder igual con kind not_money. Si dice que YA pagó o cobró, es un gasto o una venta aunque mencione 'recordar'. Si el mensaje anterior de Rocco preguntó '¿Para qué día te lo recuerdo?' (o que la fecha ya pasó) y ahora dice un día, usa create_reminder con lo que pidió antes y when = lo que dice ahora. Para cambiar uno que ya existe ('cámbialo para el lunes', 'son 25$', 'mejor a las 4 pm'), update_reminder; para borrarlo ('borra el recordatorio de la luz'), cancel_reminder. 'Borra el último' sin decir recordatorio es delete_last_movement.";
+const REMINDER_RULE_EMPLOYEE =
+  "RECORDATORIOS: si pide que le recuerdes o avises algo más adelante, usa create_reminder: el sistema le responde.";
+
+/** Los recordatorios del dueño en el turno (cambian a cada rato; en el sistema romperían la caché). */
+export function reminderContext(ctx: AgentContext, text: string): string | null {
+  const r = ctx.reminders;
+  if (!r || ctx.role !== "owner") return null;
+  const brief = (o: NonNullable<typeof r.fixing>) => ({
+    ref: o.ref,
+    text: o.text,
+    ...(o.amount ? { amount: o.amount, currency: o.currency } : {}),
+    when: new Date(o.dueAt.getTime() - 4 * 3_600_000).toISOString().slice(0, 16).replace("T", " "),
+  });
+  if (r.fixing)
+    return `El usuario tocó Corregir en este recordatorio (hora de Caracas): ${JSON.stringify(brief(r.fixing))}. Su mensaje dice qué cambia (día u hora, monto o qué es): usa update_reminder con reminder "" y solo los campos que cambian.`;
+  // La lista solo cuando el mensaje puede hablar de un recordatorio: cuesta tokens en cada turno.
+  if (!r.open.length || !REMINDER_TALK.test(text)) return null;
+  return `Recordatorios pendientes del usuario (hora de Caracas): ${JSON.stringify(r.open.map(brief))}.`;
+}
+
+const REMINDER_TALK = /record|avis|olvid|borr|quit|elimin|cambi|muev|mueve|pas[ae]l|corrig/i;
 
 /**
  * Cuentas personales (19/10): lo que le entra a una persona no es una venta del día sino un

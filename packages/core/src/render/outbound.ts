@@ -53,7 +53,16 @@ export const IDS = {
   payNew: (pendingId: string, starterId: string) => `paynew:${pendingId}:${starterId}`,
   /** Apagar o encender avisos (hábitos US-204, US-211): "pref:nudges_off", "pref:keep:all_off"… */
   pref: (value: PrefValue) => `pref:${value}`,
+  /** Recordatorios (hábitos P3): "rem:done:<id>", "rem:snooze:<id>", "rem:del:<id>"… */
+  reminder: (action: ReminderAction, id: string) => `rem:${action}:${id}`,
+  /** H17: «9 de la mañana» / «9 de la noche». */
+  reminderAmPm: (half: "am" | "pm") => `rem:ampm:${half}`,
+  /** «Ver recordatorios» de un paquete (H20). */
+  reminderList: () => "rem:list",
 } as const;
+
+export const REMINDER_ACTIONS = ["done", "snooze", "del", "fix", "open"] as const;
+export type ReminderAction = (typeof REMINDER_ACTIONS)[number];
 
 /**
  * `nudges_off` / `all_off` abren la tarjeta de confirmación (botones «Apagar avisos» y «No me
@@ -99,6 +108,9 @@ export type ParsedReplyId =
   | { kind: "pay_split"; pendingId: string }
   | { kind: "pay_new"; pendingId: string; starterId: string }
   | { kind: "pref"; value: PrefValue }
+  | { kind: "reminder"; action: ReminderAction; id: string }
+  | { kind: "reminder_ampm"; half: "am" | "pm" }
+  | { kind: "reminder_list" }
   | { kind: "unknown"; raw: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -148,6 +160,15 @@ export function parseReplyId(raw: string): ParsedReplyId {
     case "erase":
       if (value === "yes" || value === "no") return { kind: "erase", answer: value };
       break;
+    case "rem": {
+      const [action, id] = rest;
+      if (action === "ampm" && (id === "am" || id === "pm"))
+        return { kind: "reminder_ampm", half: id };
+      if (action === "list" && rest.length === 1) return { kind: "reminder_list" };
+      if ((REMINDER_ACTIONS as readonly string[]).includes(action ?? "") && UUID.test(id ?? ""))
+        return { kind: "reminder", action: action as ReminderAction, id: id as string };
+      break;
+    }
     case "pref":
       if ((PREF_VALUES as readonly string[]).includes(value))
         return { kind: "pref", value: value as PrefValue };

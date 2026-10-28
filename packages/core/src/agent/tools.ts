@@ -80,6 +80,7 @@ import { type TransferDraft, transferAmounts } from "../ledger/transfers";
 import { getRateInfo } from "../rates/current";
 import { es, type Outbound } from "../render/index";
 import type { LlmToolDef } from "./llm";
+import { REMINDER_TOOL_NAMES, REMINDER_TOOLS } from "./reminder-tools";
 import type { AgentContext } from "./types";
 
 /**
@@ -110,7 +111,13 @@ export function draftTarget(run: ToolRunCtx, corrects: boolean): DraftRef | null
 }
 
 export type ToolOutcome =
-  | { kind: "terminal"; outbound: Outbound[]; status: "ok" | "rejected_out_of_scope" }
+  | {
+      kind: "terminal";
+      outbound: Outbound[];
+      status: "ok" | "rejected_out_of_scope";
+      /** Marcas para las métricas, después de la llamada (p. ej. `reminder_rejected`). */
+      markers?: { name: string; args: unknown }[];
+    }
   | { kind: "continue"; resultForModel: string };
 
 export type ToolSpec<S extends z.ZodType> = {
@@ -2362,10 +2369,14 @@ export const ALL_TOOLS: ToolSpec<z.ZodType>[] = [
   getAccounts,
   createAccountTool,
   transferBetweenAccounts,
+  ...REMINDER_TOOLS,
 ] as ToolSpec<z.ZodType>[];
 
-export function toolsForRole(role: "owner" | "employee"): ToolSpec<z.ZodType>[] {
-  return ALL_TOOLS.filter((t) => t.roles.includes(role));
+/** Las del rol; las de recordatorios solo con `habits.reminders` encendido (hábitos P3). */
+export function toolsForRole(role: "owner" | "employee", reminders = false): ToolSpec<z.ZodType>[] {
+  return ALL_TOOLS.filter(
+    (t) => t.roles.includes(role) && (reminders || !REMINDER_TOOL_NAMES.includes(t.name)),
+  );
 }
 
 /**

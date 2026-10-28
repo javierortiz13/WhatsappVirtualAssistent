@@ -1,0 +1,140 @@
+# Recordatorios de plata (PRD hábitos US-303, US-308). `reminders` presente enciende
+# `habits.reminders` para el caso. `when` se compara con el instante de `resolveDueAt`.
+- name: el ejemplo de H19 y H27 crea el recordatorio sin preguntar la hora
+  input: "recuérdame pagar la luz el viernes a las 9 am"
+  reminders: []
+  expect:
+    tool: create_reminder
+    args: { kind: pay, when: "el viernes a las 9 am" }
+    reply_contains: ["Listo, te lo recuerdo"]
+
+- name: a las 9 sin am ni pm pregunta (H17)
+  input: "recuérdame pagar el alquiler el viernes a las 9"
+  reminders: []
+  expect:
+    tool: create_reminder
+    reply_contains: ["¿A las 9 de la mañana o de la noche?"]
+
+- name: mañana sin hora queda a las 9 am
+  input: "recuérdame pagar el internet mañana"
+  reminders: []
+  expect:
+    tool: create_reminder
+    args: { when: "mañana" }
+    reply_contains: ["Le puse las 9 am"]
+
+- name: el 15 para cobrar
+  input: "recuérdame cobrar el arriendo del local el 15"
+  reminders: []
+  expect:
+    tool: create_reminder
+    args: { kind: collect, when: "el 15" }
+
+- name: fin de mes
+  input: "a fin de mes recuérdame pagar la tarjeta"
+  reminders: []
+  expect:
+    tool: create_reminder
+    args: { kind: pay, when: "fin de mes" }
+
+- name: en 3 días
+  input: "en 3 días recuérdame renovar el plan del teléfono"
+  reminders: []
+  expect:
+    tool: create_reminder
+    args: { when: "en 3 días" }
+
+- name: alguien me debe, con monto y contraparte
+  input: "Pedro me debe 20$, recuérdame cobrarle el lunes"
+  reminders: []
+  expect:
+    tool: create_reminder
+    args: { kind: collect, amount: "20", currency: USD, counterparty: Pedro, when: "el lunes" }
+
+- name: sin calificativos sobre la otra persona (nota 6)
+  input: "el sinvergüenza de Pedro me debe 20$, recuérdame cobrarle el lunes"
+  reminders: []
+  expect:
+    tool: create_reminder
+    args: { kind: collect, amount: "20" }
+    args_exclude: ["sinvergüenza", "sinverguenza"]
+
+- name: no es de plata (H19)
+  input: "recuérdame llamar a mi mamá mañana a las 3 pm"
+  reminders: []
+  expect:
+    tool: create_reminder
+    args: { kind: not_money }
+    reply_contains: ["Solo te recuerdo cosas de plata"]
+
+- name: un gasto que dice recordar sigue siendo un gasto
+  input: "anota 15$ de gasolina para recordar cuánto gasté"
+  reminders: []
+  expect:
+    tool: draft_expense
+    args: { amount: "15" }
+
+- name: ya pagó la luz es un gasto, no un recordatorio
+  input: "ya pagué la luz, 20$"
+  reminders: [{ text: pagar la luz, amount: "20" }]
+  expect:
+    tool: draft_expense
+
+- name: responde el día después de "¿Para qué día te lo recuerdo?"
+  input: "el jueves"
+  reminders: []
+  history:
+    - { role: in, body: "recuérdame pagar el condominio" }
+    - { role: out, body: "¿Para qué día te lo recuerdo?" }
+  expect:
+    tool: create_reminder
+    args: { when: "el jueves" }
+
+- name: Corregir, ejemplo de día y hora (H15b)
+  input: "el lunes a las 3 pm"
+  reminders: [{ text: pagar la luz, amount: "20", in_days: 2, hour: 9, fixing: true }]
+  expect:
+    tool: update_reminder
+    args: { when: "el lunes a las 3 pm" }
+
+- name: Corregir, ejemplo de monto (H15b)
+  input: "son 25$"
+  reminders: [{ text: pagar la luz, amount: "20", fixing: true }]
+  expect:
+    tool: update_reminder
+    args: { amount: "25" }
+
+- name: Corregir, ejemplo de texto (H15b)
+  input: "pagar el agua"
+  reminders: [{ text: pagar la luz, fixing: true }]
+  expect:
+    tool: update_reminder
+    tool_not: draft_expense
+
+- name: cambiar uno por chat sin Corregir
+  input: "cambia el recordatorio de la luz para el lunes"
+  reminders: [{ text: pagar la luz }, { text: cobrarle a Pedro, kind: collect }]
+  expect:
+    tool: update_reminder
+    args: { reminder: r1 }
+
+- name: borrar un recordatorio por chat
+  input: "borra el recordatorio de Pedro"
+  reminders: [{ text: pagar la luz }, { text: cobrarle a Pedro, kind: collect }]
+  expect:
+    tool: cancel_reminder
+    args: { reminder: r2 }
+
+- name: borra el último sigue siendo el último movimiento
+  input: "borra el último"
+  reminders: [{ text: pagar la luz }]
+  expect:
+    tool: delete_last_movement
+
+- name: el empleado pide un recordatorio (H29)
+  input: "recuérdame pagar la luz mañana a las 3 pm"
+  role: employee
+  reminders: []
+  expect:
+    tool: create_reminder
+    reply_contains: ["Los recordatorios son para el dueño"]

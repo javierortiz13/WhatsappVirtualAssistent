@@ -6,7 +6,8 @@ import { z } from "zod";
 /**
  * Formato de un caso de eval (Fase 8). Cada archivo YAML en `cases/` es una lista de casos.
  * `tool` es la herramienta esperada; `tool_not` la que NO debe elegirse. `args` compara un
- * subconjunto: `amount` como número, `when` como fecha resuelta, `item_currencies` como la lista
+ * subconjunto: `amount` como número, `when` como fecha resuelta (con `resolveDueAt` en las de
+ * recordatorios), `item_currencies` como la lista
  * de monedas de los ítems de draft_expenses, el resto exacto.
  */
 const Receipt = z.object({
@@ -78,11 +79,30 @@ export const EvalCase = z.object({
     )
     .default([]),
   default_currency: z.enum(["USD", "VES"]).nullable().default("USD"),
+  /**
+   * Recordatorios (hábitos P3): presente, aunque sea vacío, enciende `habits.reminders` para el
+   * caso. Cada uno vence en `in_days` días a `hour` (Caracas); `fixing: true` simula que el dueño
+   * tocó Corregir en él.
+   */
+  reminders: z
+    .array(
+      z.object({
+        text: z.string(),
+        kind: z.enum(["pay", "collect", "other_money"]).default("pay"),
+        amount: z.string().optional(),
+        in_days: z.number().int().default(3),
+        hour: z.number().int().default(9),
+        fixing: z.boolean().default(false),
+      }),
+    )
+    .optional(),
   expect: z.object({
     tool: z.string().optional(),
     tool_not: z.string().optional(),
     args: z.record(z.string(), z.unknown()).optional(),
     reply_contains: z.array(z.string()).optional(),
+    /** Palabras que no deben aparecer en ningún argumento (p. ej. un insulto en el texto de un recordatorio). */
+    args_exclude: z.array(z.string()).optional(),
     /** Lo que importa es el resultado: no debe quedar ningún borrador, elija lo que elija el modelo. */
     no_draft: z.boolean().optional(),
     /** Borradores pendientes que deben quedar después del turno (cola de borradores). */

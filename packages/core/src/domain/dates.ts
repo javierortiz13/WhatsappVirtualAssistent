@@ -301,24 +301,54 @@ function dueTime(t: string): { hour: number; minute: number; ambiguous: boolean 
  * en hora de Caracas. Sin hora, las 9 am (y se dice). 7 a 11 sin am/pm se pregunta. Más de un año
  * adelante no. Distinto de `resolveRelativeDate`, que mira hacia atrás.
  */
-export function resolveDueAt(phrase: string, now: Date): DueAt {
+export function resolveDueAt(phrase: string, now: Date, base?: DueBase): DueAt {
   const t = plain(phrase);
   const today = businessDateOf(now);
   const { date, past } = dueDate(t, today);
   if (past) return { kind: "past" };
   const time = dueTime(t);
   if (time?.ambiguous)
-    return { kind: "ambiguous_hour", hour: time.hour, minute: time.minute, date };
-  // Solo la hora ("a las 3 pm"): hoy.
-  const day = date ?? (time ? today : null);
+    return {
+      kind: "ambiguous_hour",
+      hour: time.hour,
+      minute: time.minute,
+      date: date ?? base?.date ?? null,
+    };
+  // Solo la hora ("a las 3 pm"): hoy, o el día que ya tenía el recordatorio que se corrige.
+  const day = date ?? base?.date ?? (time ? today : null);
   if (!day) return { kind: "no_date" };
+  if (time) return dueAtOn(day, time.hour, time.minute, now, false);
+  if (base) return dueAtOn(day, base.hour, base.minute, now, base.timeWasDefault);
+  return dueAtOn(day, DEFAULT_HOUR, 0, now, true);
+}
+
+/** Lo que ya tenía un recordatorio que se corrige: lo que la frase nueva no dice, se queda. */
+export type DueBase = { date: IsoDate; hour: number; minute: number; timeWasDefault: boolean };
+
+export function dueBaseOf(dueAt: Date, timeWasDefault: boolean): DueBase {
+  const local = new Date(dueAt.getTime() - 4 * 3_600_000);
+  return {
+    date: local.toISOString().slice(0, 10) as IsoDate,
+    hour: local.getUTCHours(),
+    minute: local.getUTCMinutes(),
+    timeWasDefault,
+  };
+}
+
+/** El instante de un día y una hora de Caracas, con los mismos rechazos que `resolveDueAt`. */
+export function dueAtOn(
+  day: IsoDate,
+  hour: number,
+  minute: number,
+  now: Date,
+  timeWasDefault: boolean,
+): DueAt {
+  const today = businessDateOf(now);
   if (daysBetween(today, day) > 366) return { kind: "too_far" };
-  const hour = time?.hour ?? DEFAULT_HOUR;
-  const minute = time?.minute ?? 0;
   const dueAt = caracasInstant(day, hour, minute);
   if (dueAt.getTime() <= now.getTime()) {
     if (day === today) return { kind: "hour_passed", hour, minute };
     return { kind: "past" };
   }
-  return { kind: "ok", dueAt, dueDate: day, timeWasDefault: !time };
+  return { kind: "ok", dueAt, dueDate: day, timeWasDefault };
 }

@@ -22,6 +22,8 @@ export type AgentContext = {
   today: IsoDate;
   /** Id de fila en `message` del mensaje entrante (para `movement.source_message_id`). */
   sourceMessageDbId: string | null;
+  /** Id de WhatsApp del mensaje entrante, para responder con una reacción (🗑️ al borrar un recordatorio). */
+  sourceWaMessageId?: string | null;
   sourceChannel: "text" | "voice" | "image";
   /** Foto de factura ya guardada (provisional) que el borrador de gasto debe llevar. */
   attachmentId: string | null;
@@ -39,6 +41,31 @@ export type AgentContext = {
   asksAccount?: boolean;
   /** Datos de cobro para renovar el plan por el bot (03/10). */
   billing?: { dest: PaymentDest; supportHint: string | null };
+  /** Recordatorios (hábitos P3): solo con `habits.reminders` encendido. Sin esto, no hay herramientas. */
+  reminders?: AgentReminders;
+};
+
+/** Un recordatorio abierto como lo ve el agente: `ref` ("r1"…) en vez del id. */
+export type ReminderRef = {
+  ref: string;
+  id: string;
+  text: string | null;
+  kind: "pay" | "collect" | "other_money";
+  amount: string | null;
+  currency: "USD" | "VES" | "EUR" | null;
+  counterparty: string | null;
+  dueAt: Date;
+  timeWasDefault: boolean;
+};
+
+export type AgentReminders = {
+  /** Los pendientes más próximos del negocio (≤ 10); vacío para un empleado. */
+  open: ReminderRef[];
+  /** El que el dueño está corrigiendo (tocó Corregir, H15b). */
+  fixing: ReminderRef | null;
+  pending: number;
+  limit: number;
+  trial: boolean;
 };
 
 /**
