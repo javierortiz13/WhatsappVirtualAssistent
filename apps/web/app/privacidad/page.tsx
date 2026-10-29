@@ -115,6 +115,12 @@ export default function Privacidad() {
         <li>Las fotos de facturas se conservan 12 meses y luego se borran.</li>
         <li>Los movimientos de caja se conservan mientras tu cuenta esté activa.</li>
         <li>
+          Si empiezas a crear tu cuenta por WhatsApp y no la terminas, 90 días después de tu último
+          mensaje borramos ese registro: tu número, tu nombre y tus respuestas. Si le pediste a
+          Rocco que no te escriba, o si ya te escribió una vez para recordártelo, guardamos solo tu
+          número y una nota de eso, con la fecha, para que no te vuelva a escribir por su cuenta.
+        </li>
+        <li>
           Los recordatorios se borran 90 días después de cumplidos, vencidos o borrados. Si tocas
           «Borrar», el recordatorio pierde su texto al instante; los mensajes del chat donde aparece
           (el tuyo y los de Rocco) se borran a los 90 días, como todos los mensajes. Tus
