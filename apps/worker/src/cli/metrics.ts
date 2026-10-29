@@ -319,7 +319,7 @@ async function signupRescue() {
   }>(
     await db.execute(sql`
       select updated_at, completed_at, rescue_via, rescue_at from app.signup
-      where coalesce(rescue_at, updated_at) > now() - interval '35 days'`),
+      where coalesce(rescue_at, updated_at) > now() - interval '35 days' and purged_at is null`),
   );
   const t = (v: string | null) => (v ? new Date(v).getTime() : null);
   const weeks = [0, 1, 2, 3].map((i) => {
