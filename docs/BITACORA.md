@@ -1815,3 +1815,25 @@ Todo detrás de `habits.prefs` y `habits.reminders` (apagados). Se encienden des
 - Javier: correr `pnpm evals` (156 casos; 22 nuevos de recordatorios).
 - US-310, camino d con plantilla: espera la aprobación de Meta y su propio interruptor.
 - US-200, /privacidad nueva: espera el texto del abogado. Debe estar publicada antes de encender `prefs` o `reminders`.
+
+### S3 · 29/10/2026 · Recordatorios del registro (A) y lote único (B) construidos, apagados
+
+Handoff `dev-handoff-signup-reminders.md` v1.2 (board #26), PRD `prd-signup-reminders.md` v1.2. Rama `claude/signup-reminders-wijnh8`, para que cumplimiento lea el commit antes del despliegue. Todo detrás de `app_setting.signup_rescue` (apagado).
+
+**Terminado**
+- **Migración 0030** (US-SR-01), solo en `app.signup`: `rescue_at`, `rescue_via`, `rescue_wa_message_id`, `contact_off_at` y `founder_contacted_at`, con un índice parcial. Va antes del despliegue.
+- **«No me escribas» dentro del registro** (US-SR-02): es lo primero que se mira, sin perder el paso ni lo respondido. «No Me Escribas» ya no se guarda como nombre. Al terminar, pasa a la cuenta como `unsolicited_off_at`, con el consentimiento en `audit_log` y la línea SR-STOP-DONE en el tour (US-SR-03).
+- **«Seguir»** (US-SR-04): devuelve solo la pregunta del paso. Si el toque de la plantilla llega con el texto del botón, también se entiende. El regreso de 6 h se mide desde el recordatorio. Un toque viejo desde una cuenta abre el menú, o la tarjeta de «no me escribas».
+- **(A)** (US-SR-05): cola `signup-reminders` cada 5 minutos. Sale 3 h después del último mensaje, con la ventana abierta y nunca de noche, y una sola vez, con una marca condicional. Grupo de control del 20 %. Textos SR-A1…A4 (US-SR-06).
+- **Plantilla con payloads** (US-SR-07) y **CLI `signup:rescue`** (US-SR-08): por defecto solo cuenta. Con `--apply` hace una sola corrida en la vida, con un tope de 30, uno cada 90 s y la regla de parada S1–S7. Runbook: `docs/runbooks/registro-plantilla.md`.
+- **/admin** (US-SR-09): chips por fila, «Le escribí yo» / «Deshacer», hasta 50 filas, dos líneas del embudo y tres interruptores. **Métricas** (US-SR-10): sección «Registro: rescate» por semana, y los envíos del registro suman al cupo de Meta (contador diario en `app_setting`, sin contenido).
+- **/privacidad** (US-SR-11): PR-1 y PR-2 van en la rama de privacidad, que espera al abogado.
+
+**Decisiones fuera del PRD**
+- La corrida única del lote queda en `app_setting.signup_rescue_batch`, y «Le escribí yo» en el log del servidor: `audit_log` exige un negocio y un registro sin terminar no lo tiene.
+- «Número que ya es cliente» se mira con `app.phone_is_taken`, que cuenta cualquier estado; es más estricto que «activo».
+- PV-3 no se publica: habla del borrado de los registros sin terminar a los 90 días, que no existe todavía, y del «origen», que es de #16.
+
+**Pendiente**
+- Javier: migración 0030 en producción, `META_SIGNUP_TEMPLATE` en Railway y la plantilla en WhatsApp Manager (A-0030).
+- Cumplimiento: leer el commit. Abogado: PR-1 y PR-2.
