@@ -3833,3 +3833,19 @@ export const PREFS_SWITCHES = {
   confirm: "Apagar",
   cancel: "Cancelar",
 } as const;
+
+/**
+ * H53 (US-200): una vez, arriba de la próxima respuesta del dueño, con la marca
+ * `privacy_notice_v2`. El enlace como en `signupIntro`.
+ */
+export function privacyNoticeLine(dashboardUrl: string): string {
+  return `_Actualizamos la política de privacidad por los recordatorios, los avisos y la racha. Léela en ${dashboardUrl}/privacidad_`;
+}
+
+/** H53b: aviso del panel hasta que el dueño lo cierre. */
+export const PRIVACY_BANNER = {
+  text: "Actualizamos la política de privacidad: ahora explica los recordatorios, los avisos de Rocco, la racha y cuándo el equipo de Rocco puede ver tus datos.",
+  link: "Leer la política",
+  dismiss: "Entendido",
+  dismissLabel: "Cerrar aviso de privacidad",
+} as const;
