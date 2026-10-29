@@ -2872,7 +2872,6 @@ export function signupDone(v: {
   return { type: "text", body: lines.join("\n") };
 }
 
-/** Recorrido corto de lo que sabe hacer, el dashboard y la invitación al primer gasto. */
 /**
  * Recordatorios del registro (PRD signup-reminders v1.2; copy `signup-reminders-strings-es-VE.md`
  * v1.1, tal cual). SR-A1…A4 según el paso, con «Seguir» / «No me escribas».
@@ -2924,6 +2923,7 @@ export function signupStopped(): Outbound {
 export const SIGNUP_STOP_DONE_LINE =
   "Como me pediste, no te escribo por mi cuenta, salvo avisos sobre un pago tuyo o el borrado de tus datos. Para volver: *ya puedes escribirme*.";
 
+/** Recorrido corto de lo que sabe hacer, el dashboard y la invitación al primer gasto. */
 export function signupTour(
   dashboardUrl: string,
   kind: "personal" | "business",

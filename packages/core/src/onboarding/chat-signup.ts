@@ -147,6 +147,8 @@ export async function handleSignup(
           step: "name",
           data: {},
           messages: 1,
+          // CC-1: el reloj del registro es el de la app (ms), no el default de la base.
+          updatedAt: now,
           ...(optOut ? { contactOffAt: now } : {}),
         })
         .onConflictDoNothing();

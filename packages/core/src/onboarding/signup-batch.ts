@@ -1,7 +1,6 @@
 import { and, type Db, eq, inArray, isNotNull, isNull, or, schema, sql } from "@caja/db";
 import { businessDateOf, weekday } from "../domain/dates";
 import { isQuietHours } from "../inbox/gate";
-import { maskPhone } from "../log";
 import type { MetaClient } from "../whatsapp/client";
 import { MetaApiError } from "../whatsapp/client";
 import { bumpSignupCounts } from "./signup-counts";
@@ -53,6 +52,14 @@ export type BatchPlan = {
 };
 
 const WINDOW_MS = 24 * 3_600_000;
+
+/** CC-3: A-0031 cubre registros de 30 días o menos; «90» o «abc» se niegan. */
+function checkMaxAgeDays(v: number | undefined): number {
+  const days = v ?? 30;
+  if (!Number.isInteger(days) || days < 1 || days > 30)
+    throw new BatchRefused("--max-age-days va de 1 a 30 (A-0031)");
+  return days;
+}
 const DAY_MS = 24 * 3_600_000;
 
 /** Quién recibiría la plantilla ahora. `parkNumbers`: los números internos de prueba. */
@@ -81,7 +88,7 @@ export async function planSignupBatch(
     })
     .from(s);
   const park = new Set((opts.parkNumbers ?? []).map((n) => n.replace(/\D/g, "")));
-  const maxAge = (opts.maxAgeDays ?? 30) * DAY_MS;
+  const maxAge = checkMaxAgeDays(opts.maxAgeDays) * DAY_MS;
   const excluded: Record<ExcludeReason, number> = {
     finished: 0,
     internal: 0,
@@ -184,6 +191,8 @@ export async function readQuality(
 
 /** S6: plantilla no aprobada o en amarillo/rojo, o número que no está en verde. */
 export function qualityStop(q: Quality): boolean {
+  // CC-4: A-0030 y A-0031 cubren la plantilla solo como MARKETING.
+  if (q.templateCategory !== null && q.templateCategory.toUpperCase() !== "MARKETING") return true;
   const bad = (v: string | null) => v !== null && /YELLOW|RED|LOW|MEDIUM/i.test(v);
   return (
     (q.templateStatus !== null && q.templateStatus.toUpperCase() !== "APPROVED") ||
@@ -275,13 +284,14 @@ export async function runSignupBatch(
   if (!cfg.template) throw new BatchRefused("signup_rescue.template está apagado");
   if (opts.includeHoldout && cfg.holdoutPct > 0)
     throw new BatchRefused("--include-holdout no vale mientras holdoutPct > 0");
-  if (intervalS < BATCH_MIN_INTERVAL_S)
+  // CC-2: «abc» da NaN, y NaN < 60 es falso: sin esto el freno no frenaría.
+  if (!Number.isFinite(intervalS) || intervalS < BATCH_MIN_INTERVAL_S)
     throw new BatchRefused(`--interval-s no puede ser menor que ${BATCH_MIN_INTERVAL_S}`);
   if (!inStartWindow(start))
     throw new BatchRefused("solo se empieza de martes a jueves, entre 10:00 y 10:45 de Caracas");
   const plan = await planSignupBatch(db, {
     now: start,
-    maxAgeDays: opts.maxAgeDays ?? 30,
+    maxAgeDays: checkMaxAgeDays(opts.maxAgeDays),
     parkNumbers: opts.parkNumbers ?? [],
     includeHoldout: opts.includeHoldout ?? false,
     rateUsd: opts.rateUsd ?? 0.074,
@@ -289,6 +299,8 @@ export async function runSignupBatch(
   if (opts.confirm === null || opts.confirm !== plan.toSend)
     throw new BatchRefused(`--confirm tiene que ser ${plan.toSend} (lo que se enviaría ahora)`);
   if (plan.toSend === 0) throw new BatchRefused("no hay nadie a quien enviar");
+  // CC-8: el tope de A-0031.
+  if (plan.costUsd > 3) throw new BatchRefused("el costo estimado pasa de $3,00 (A-0031)");
   // Una sola corrida en la vida (3B): la fila se crea una vez; un segundo --apply choca aquí.
   const claimed = await db
     .insert(schema.appSetting)
@@ -397,7 +409,8 @@ export async function runSignupBatch(
       syncFailures.push({ code });
       const k = code === null ? "otro" : String(code);
       result.failedByCode[k] = (result.failedByCode[k] ?? 0) + 1;
-      log(`envío fallido a ${maskPhone(row.e164)} (código ${k})`);
+      // CC-3: la salida va a la agencia; ni siquiera el número enmascarado.
+      log(`envío fallido (código ${k})`);
     }
   }
   // Estados `failed` que llegaron por webhook durante la corrida también se cuentan.

@@ -5,6 +5,7 @@ import {
   BATCH_KEY,
   BatchRefused,
   planSignupBatch,
+  qualityStop,
   runSignupBatch,
 } from "../src/onboarding/signup-batch";
 import { saveSignupRescueSettings } from "../src/onboarding/signup-rescue";
@@ -149,6 +150,15 @@ describe("lote único de la plantilla del registro", () => {
     await expect(run(m.client, { confirm: 2 })).rejects.toThrow("martes a jueves");
     clock = START;
     await expect(run(m.client, { confirm: 2, intervalS: 30 })).rejects.toThrow("--interval-s");
+    // CC-2 y CC-3: no numéricos y fuera de 1–30 se niegan.
+    await expect(run(m.client, { confirm: 2, intervalS: Number("abc") })).rejects.toThrow(
+      "--interval-s",
+    );
+    await expect(run(m.client, { confirm: 2, maxAgeDays: 90 })).rejects.toThrow("1 a 30");
+    await expect(run(m.client, { confirm: 2, maxAgeDays: Number("abc") })).rejects.toThrow(
+      "1 a 30",
+    );
+    await expect(planSignupBatch(t.db, { now: START, maxAgeDays: 90 })).rejects.toThrow("1 a 30");
     await expect(run(m.client, { confirm: 2, includeHoldout: true })).rejects.toThrow("holdout");
     await saveSignupRescueSettings(t.db, { template: false }, "test", START);
     await expect(run(m.client, { confirm: 2 })).rejects.toThrow("apagado");
@@ -195,10 +205,13 @@ describe("lote único de la plantilla del registro", () => {
     expect(m.sent).toHaveLength(2);
   });
 
-  it("S3: un 132015 la para; S5 no cuenta el 131049", async () => {
+  it("S3: un 132015 la para; S5 no cuenta el 131049; la salida no lleva números", async () => {
     await backlog(4);
     const m = fakeMeta((i) => (i === 0 ? { error: 132015 } : {}));
-    const r = await run(m.client, { confirm: 4 });
+    const printed: string[] = [];
+    const r = await run(m.client, { confirm: 4, log: (l) => printed.push(l) });
+    expect(printed.join("\n")).not.toMatch(/58426|\*\*\*\*/);
+    expect(printed.join("\n")).toContain("envío fallido (código 132015)");
     expect(r).toMatchObject({ stop: "S3", failedByCode: { "132015": 1 }, unsent: 3 });
     await t.db.delete(schema.signup);
     await t.db.delete(schema.appSetting).where(eq(schema.appSetting.key, BATCH_KEY));
@@ -258,5 +271,18 @@ describe("lote único de la plantilla del registro", () => {
     await backlog(3);
     const late = await run(fakeMeta().client, { confirm: 3, intervalS: 3600 });
     expect(late).toMatchObject({ stop: "S7", sent: 1 });
+  });
+
+  it("CC-4: una plantilla que no es MARKETING para la corrida (S6)", () => {
+    const q = {
+      templateStatus: "APPROVED",
+      templateCategory: "UTILITY",
+      templateQuality: "GREEN",
+      phoneQuality: "GREEN",
+      messagingLimit: null,
+    };
+    expect(qualityStop(q)).toBe(true);
+    expect(qualityStop({ ...q, templateCategory: "MARKETING" })).toBe(false);
+    expect(qualityStop({ ...q, templateCategory: null })).toBe(false);
   });
 });

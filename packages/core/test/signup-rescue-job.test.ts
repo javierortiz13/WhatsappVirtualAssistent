@@ -1,4 +1,4 @@
-import { eq, schema } from "@caja/db";
+import { eq, schema, sql } from "@caja/db";
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -93,6 +93,27 @@ describe("recordatorio del registro (A)", () => {
       "signup:stop",
     ]);
     expect(await get(r.id)).toMatchObject({ rescueVia: "window", rescueWaMessageId: "wamid.R1" });
+  });
+
+  it("CC-1: un updated_at con microsegundos (default de la base) igual se marca y sale SR-A1", async () => {
+    await on();
+    const [r] = await t.db
+      .insert(schema.signup)
+      .values({
+        e164: "584240009999",
+        step: "name",
+        data: {},
+        messages: 1,
+        updatedAt: sql`'2026-11-10 12:59:00.123456+00'::timestamptz` as unknown as Date,
+      })
+      .returning();
+    const m = fakeMeta();
+    const out = await runSignupRescue(t.db, m.client, { now: NOON });
+    expect(out.sent).toBe(1);
+    const body =
+      (m.sent[0]?.body.interactive as { body?: { text?: string } } | undefined)?.body?.text ?? "";
+    expect(body.startsWith("Hola. Quedó a medias tu cuenta de Rocco.")).toBe(true);
+    expect((await get(r?.id as string))?.rescueVia).toBe("window");
   });
 
   it("escribió hace 2 h 59: nada todavía", async () => {

@@ -136,7 +136,8 @@ async function claim(
         isNull(s.contactOffAt),
         isNull(s.founderContactedAt),
         isNull(s.completedAt),
-        eq(s.updatedAt, seen),
+        // CC-1: el primer mensaje guarda microsegundos (default now()) y `seen` es un Date (ms).
+        sql`date_trunc('milliseconds', ${s.updatedAt}) = ${seen.toISOString()}::timestamptz`,
       ),
     )
     .returning({ id: s.id });
