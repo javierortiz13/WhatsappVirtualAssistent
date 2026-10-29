@@ -172,7 +172,7 @@ describe("textos del registro", () => {
         "¡Epa! Soy *Rocco* 🐾, tu pana con las finanzas. Soy un asistente automático.",
         "Me escribes lo que gastas, en bolívares o en dólares, y lo anoto con la tasa BCV de ese día.",
         "",
-        "Armamos tu cuenta aquí mismo en 2 minutos y tienes *14 días o 100 mensajes gratis* para probarme, lo que llegue primero.",
+        "Armamos tu cuenta aquí mismo y tienes *31 días o 100 mensajes gratis* para probarme, lo que llegue primero.",
         "_Al seguir aceptas la política de privacidad: https://holarocco.test/privacidad_",
         "",
         "Son unas preguntas cortas. La primera: ¿cómo te llamas?",
@@ -443,7 +443,7 @@ describe("registro por WhatsApp de punta a punta", () => {
     const intro = lastFor(NEW_NUMBER);
     expect(textOf(intro)).toContain("Soy *Rocco* 🐾");
     expect(textOf(intro)).toContain(
-      "Armamos tu cuenta aquí mismo en 2 minutos y tienes *14 días o 100 mensajes gratis* para probarme, lo que llegue primero.",
+      "Armamos tu cuenta aquí mismo y tienes *31 días o 100 mensajes gratis* para probarme, lo que llegue primero.",
     );
     expect(textOf(intro)).toContain("https://holarocco.test/privacidad");
     expect(idsOf(intro)).toEqual(["signup:name:profile"]);

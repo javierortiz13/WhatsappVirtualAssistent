@@ -28,7 +28,7 @@ type Props = {
   maxCategories: number;
   maxAccounts: number;
   pilotNote: string;
-  /** Beta (07/10): sin precios, "14 días gratis". */
+  /** Beta (07/10): sin precios, "31 días o 100 mensajes gratis". */
   beta?: boolean;
 };
 
@@ -160,8 +160,8 @@ export function RegistroWizard(props: Props) {
           <>
             <h1>¿Cómo lo vas a usar?</h1>
             <p className="lead">
-              La prueba es igual para todos: 14 días o 100 mensajes gratis. El plan lo eliges cuando
-              termine.
+              La prueba es igual para todos: 31 días o 100 mensajes gratis, lo que llegue primero.
+              El plan lo eliges cuando termine.
             </p>
             <div className="choice-list">
               {props.plans.map((p) => (

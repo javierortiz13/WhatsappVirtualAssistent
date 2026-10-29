@@ -38,6 +38,7 @@ import {
   renewOfferReply,
   renewPayToReply,
   renewReferenceReply,
+  TRIAL_MESSAGES,
   TRIAL_WARN_PCT,
   trialSpend,
 } from "../billing/index";
@@ -538,16 +539,17 @@ export async function processInbound(
         }
       }
     }
-    // Prueba extendida desde /admin (beta, 20/10): el aviso va una vez, arriba de la respuesta y
-    // sin mensaje aparte. Si no cabe en el cuerpo, espera al turno siguiente.
+    // Prueba extendida desde /admin o por el ajuste a 31 días (beta): el aviso va una vez, arriba de
+    // la respuesta y sin mensaje aparte. Si no cabe en el cuerpo, espera al turno siguiente. Nunca
+    // sobre una prueba agotada: diría "sigue anotando" encima de "no puedo registrar" (trial-31 T4).
     const extension =
-      resolved.role === "owner" && tenant.status === "trial" && !tenant.deletedAt
+      resolved.role === "owner" && tenant.status === "trial" && !tenant.deletedAt && !trialCapped
         ? await pendingTrialExtension(tx, tenant, started)
         : null;
     const at = outbound.findIndex((o) => o.type !== "reaction");
     const target = outbound[at];
     if (extension && target) {
-      const body = `${es.trialExtended({ days: extension.days, endsOn: businessDateOf(extension.endsAt) })}\n\n${target.body}`;
+      const body = `${es.trialExtended({ days: extension.days, endsOn: businessDateOf(extension.endsAt), used: Math.min(trial?.messages ?? 0, trial?.messageCap ?? TRIAL_MESSAGES), cap: trial?.messageCap ?? TRIAL_MESSAGES })}\n\n${target.body}`;
       if (body.length <= (target.type === "text" ? LIMITS.textBody : LIMITS.interactiveBody)) {
         outbound[at] = { ...target, body } as Outbound;
         // Primero, para no tapar la última marca del turno (la leyenda la lee al final).

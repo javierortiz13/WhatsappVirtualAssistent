@@ -162,8 +162,7 @@ de fijar precios. Si el número propio por negocio resulta viable, el variable d
   sigue siendo oficial. Vigilar que la brecha no supere la prima del euro; el panel la muestra.
 - Cobro verificado a mano en el panel `/admin` los primeros meses; automatizar (Binance Pay)
   cuando pase de 20 clientes.
-- Prueba gratis: 14 días con los límites del plan. Períodos de 30 días por mes pagado, 3 días de
-  gracia y luego suspensión (los datos se conservan).
+- Prueba gratis: 31 días o 100 mensajes, lo que llegue primero (28/10/2026; antes 14 días). Períodos de 30 días por mes pagado, 3 días de gracia y luego suspensión (los datos se conservan).
 - Límite de mensajes: el bot sigue funcionando al pasarlo y el administrador recibe un aviso para
   ofrecer el plan superior.
 - Factura: recibo simple por correo; la facturación fiscal queda para cuando haya empresa.

@@ -52,7 +52,7 @@ const COUNTERPARTY_FIELD = z
 const REF_FIELD = z
   .string()
   .describe(
-    'El recordatorio, por su ref de la lista de recordatorios ("r1", "r2"…). "" si es el que el usuario está corrigiendo o si solo hay uno.',
+    'Siempre: el recordatorio, por su ref de la lista de recordatorios ("r1", "r2"…), el que coincide con lo que nombra ("el de la luz" → el ref de "pagar la luz"). "" solo si es el que está corrigiendo o si solo hay uno.',
   );
 
 export const CreateReminderInput = z.object({
@@ -71,6 +71,8 @@ export const CreateReminderInput = z.object({
 /**
  * Sin estricto, el modelo a veces omite los campos que no cambian (evals 29/10: «cambia el
  * recordatorio de la luz para el lunes» sin `text` ni `amount`): un campo que falta vale "".
+ * Si falta `reminder` con varios abiertos, `targetOf` lo busca por lo que nombró el usuario
+ * (evals 29/10: obligatorio, el modelo lo omitía dos veces y el turno se perdía).
  */
 export const UpdateReminderInput = z.object({
   reminder: REF_FIELD.default(""),
@@ -207,7 +209,43 @@ function targetOf(run: ToolRunCtx, ref: string): ReminderRef | null {
   const r = run.ctx.reminders;
   if (!r) return null;
   const byRef = nz(ref) ? r.open.find((o) => o.ref === ref.trim()) : undefined;
-  return byRef ?? r.fixing ?? (r.open.length === 1 ? (r.open[0] ?? null) : null);
+  return (
+    byRef ?? r.fixing ?? (r.open.length === 1 ? (r.open[0] ?? null) : byWords(r.open, run.userText))
+  );
+}
+
+/** Palabras que no distinguen un recordatorio de otro. */
+const GENERIC = new Set([
+  "pagar",
+  "pagarle",
+  "cobrar",
+  "cobrarle",
+  "recordar",
+  "recordatorio",
+  "para",
+  "con",
+  "del",
+  "los",
+  "las",
+]);
+const wordsOf = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .split(/[^a-z0-9ñ]+/)
+    .filter((w) => w.length >= 3 && !GENERIC.has(w));
+
+/**
+ * Sin ref y con varios abiertos: el único cuyo texto o contraparte nombra el usuario («el de la
+ * luz» → «pagar la luz»). Si coinciden varios o ninguno, null: sale la lista para tocar cuál.
+ */
+function byWords(open: ReminderRef[], userText: string): ReminderRef | null {
+  const said = new Set(wordsOf(userText));
+  const hits = open.filter((o) =>
+    wordsOf(`${o.text ?? ""} ${o.counterparty ?? ""}`).some((w) => said.has(w)),
+  );
+  return hits.length === 1 ? (hits[0] ?? null) : null;
 }
 
 /** Sin saber cuál: la lista (H25) para que lo toque. */

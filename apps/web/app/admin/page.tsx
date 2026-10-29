@@ -7,6 +7,7 @@ import {
   premiumOverUsd,
   quote,
   signupRescueSettings,
+  TRIAL_DAYS,
 } from "@caja/core";
 import { businessDateOf, formatShortDate } from "@caja/core/domain";
 import {
@@ -176,7 +177,7 @@ export default async function AdminHome({
         </form>
         <p className="sub">
           {launch.beta
-            ? 'Durante la prueba gratis Rocco no da precios: solo cuántos días y mensajes quedan. Al terminar la prueba muestra los precios y cómo pagar. La web dice "14 días o 100 mensajes gratis".'
+            ? 'Durante la prueba gratis Rocco no da precios: solo cuántos días y mensajes quedan. Al terminar la prueba muestra los precios y cómo pagar. La web dice "31 días o 100 mensajes gratis".'
             : "Rocco y la web muestran los precios siempre."}{" "}
           Toca el otro botón para cambiar; aplica desde el próximo mensaje.
         </p>
@@ -191,7 +192,7 @@ export default async function AdminHome({
                 name="survey_day"
                 type="number"
                 min={1}
-                max={13}
+                max={TRIAL_DAYS - 1}
                 defaultValue={launch.surveyDay}
               />
             </label>
@@ -202,7 +203,7 @@ export default async function AdminHome({
                 name="value_day"
                 type="number"
                 min={1}
-                max={13}
+                max={TRIAL_DAYS - 1}
                 defaultValue={launch.valueDay}
               />
             </label>

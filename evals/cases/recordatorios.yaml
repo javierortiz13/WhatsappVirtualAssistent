@@ -114,16 +114,17 @@
 - name: cambiar uno por chat sin Corregir
   input: "cambia el recordatorio de la luz para el lunes"
   reminders: [{ text: pagar la luz }, { text: cobrarle a Pedro, kind: collect }]
+  # Con o sin ref: el resultado es el de la luz cambiado, no la lista (evals 29/10).
   expect:
     tool: update_reminder
-    args: { reminder: r1 }
+    reply_contains: ["Listo, te lo recuerdo", "luz"]
 
 - name: borrar un recordatorio por chat
   input: "borra el recordatorio de Pedro"
   reminders: [{ text: pagar la luz }, { text: cobrarle a Pedro, kind: collect }]
   expect:
     tool: cancel_reminder
-    args: { reminder: r2 }
+    reply_contains: ["🗑️"]
 
 - name: borra el último sigue siendo el último movimiento
   input: "borra el último"

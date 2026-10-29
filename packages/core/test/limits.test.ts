@@ -11,10 +11,11 @@ import { withDiscount } from "../src/billing/pricing";
 import { renewOfferReply } from "../src/billing/renew-chat";
 import { trialSpend } from "../src/billing/trial";
 import { caracasMonth } from "../src/billing/usage";
-import { businessDateOf } from "../src/domain/dates";
+import { businessDateOf, type IsoDate } from "../src/domain/dates";
 import { Decimal } from "../src/domain/money";
 import { ingestWebhook } from "../src/inbox/ingest";
 import { type ProcessDeps, processInbound } from "../src/inbox/process";
+import { es } from "../src/render/index";
 import { MetaClient } from "../src/whatsapp/client";
 import * as fx from "./fixtures";
 
@@ -330,10 +331,43 @@ describe("límite del mes y recargas por WhatsApp", () => {
     expect(sent.length).toBe(sentBefore + 1);
     const text = textOf(sent.at(-1));
     expect(text).toMatch(
-      /^🎁 Como parte de la beta de Rocco, renové tu prueba gratis por \*15 días más\*: ahora termina el \*\S+ \d{2}\/\d{2}\*\. Sigue anotando como siempre\.\n\n¿Cuánto fue\?$/,
+      /^🎁 Como parte de la beta de Rocco, renové tu prueba gratis por \*15 días más\*: ahora termina el \*\S+ \d{2}\/\d{2}\* o al llegar a los \*(\d+) mensajes\*, lo que llegue primero\. Llevas \*\d+ de \1\*\. Sigue anotando como siempre\.\n\n¿Cuánto fue\?$/,
     );
     await send("gasté en café");
     expect(textOf(sent.at(-1))).toBe("¿Cuánto fue?");
+  });
+
+  it("trial-31 T4: con la prueba agotada no sale la línea 🎁 aunque haya una extensión sin ver", async () => {
+    const until = new Date(clock.getTime() + 20 * 86_400_000);
+    await withTenant(t.db, tenantId, async (tx) => {
+      // Red de seguridad en dólares casi en cero: la prueba queda agotada.
+      await tx
+        .update(schema.tenant)
+        .set({ trialEndsAt: until, trialBudgetUsd: "0.0001" })
+        .where(eq(schema.tenant.id, tenantId));
+      await tx.insert(schema.auditLog).values({
+        tenantId,
+        actorType: "system",
+        action: "extend",
+        entity: "tenant",
+        entityId: tenantId,
+        before: { status: "trial" },
+        after: { status: "trial", trialEndsAt: until.toISOString() },
+        channel: "system",
+        createdAt: new Date(clock.getTime() - 30_000),
+      });
+    });
+    await send("gasté en jugo");
+    expect(textOf(sent.at(-1))).not.toContain("🎁");
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.update(schema.tenant).set({ trialBudgetUsd: null }).where(eq(schema.tenant.id, tenantId)),
+    );
+  });
+
+  it("trial-31 T4: un día dice «1 día más», con los mensajes", () => {
+    expect(es.trialExtended({ days: 1, endsOn: "2026-11-28" as IsoDate, used: 7, cap: 100 })).toBe(
+      "🎁 Como parte de la beta de Rocco, renové tu prueba gratis por *1 día más*: ahora termina el *sáb 28/11* o al llegar a los *100 mensajes*, lo que llegue primero. Llevas *7 de 100*. Sigue anotando como siempre.",
+    );
   });
 
   it("renovar con precio fundador: 40 % menos y la línea que lo explica", async () => {

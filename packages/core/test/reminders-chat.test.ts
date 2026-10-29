@@ -45,6 +45,10 @@ const SCRIPT = {
     },
   ],
   "borra el recordatorio": [{ id: "x", name: "cancel_reminder", input: { reminder: "r1" } }],
+  // Sin ref (evals 29/10): el modelo a veces lo omite; se busca por lo que nombró el usuario.
+  "de la luz para el lunes": [{ id: "w", name: "update_reminder", input: { when: "el lunes" } }],
+  "borra el de Pedro": [{ id: "y", name: "cancel_reminder", input: {} }],
+  "borra el que sea": [{ id: "z", name: "cancel_reminder", input: {} }],
 };
 
 describe("isReminderListAsk", () => {
@@ -263,5 +267,26 @@ describe("reminderStats (US-311)", () => {
       repeatOwners: 0,
     });
     expect(JSON.stringify(s)).not.toContain("luz");
+  });
+});
+
+describe("recordatorios sin ref (evals 29/10)", () => {
+  it("con varios abiertos: el que nombró el usuario; si no se sabe, la lista", async () => {
+    const h = await botHarness({ script: SCRIPT });
+    try {
+      await saveHabitSettings(h.t.db, { reminders: true }, "test", new Date());
+      const rows = () => h.t.db.select().from(schema.reminder);
+      await h.send("recuérdame pagar la luz mañana a las 3 pm");
+      await h.send("recuérdame cobrarle a Pedro mañana");
+      expect(await h.send("cambia el recordatorio de la luz para el lunes")).toContain(
+        "Pagar la luz",
+      );
+      expect(await h.send("el que sea, borra el que sea")).toContain("Tienes 2 recordatorios");
+      await h.send("borra el de Pedro");
+      const left = (await rows()).filter((r) => r.status === "pending").map((r) => r.text);
+      expect(left).toEqual(["pagar la luz"]);
+    } finally {
+      await h.t.close();
+    }
   });
 });

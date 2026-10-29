@@ -14,7 +14,7 @@ import { trialSpend } from "./trial";
  */
 export type LaunchSettings = { beta: boolean; surveyDay: number; valueDay: number };
 
-export const LAUNCH_DEFAULTS: LaunchSettings = { beta: BETA, surveyDay: 10, valueDay: 12 };
+export const LAUNCH_DEFAULTS: LaunchSettings = { beta: BETA, surveyDay: 10, valueDay: 28 };
 const KEY = "launch";
 
 const day = (v: unknown, fallback: number) =>

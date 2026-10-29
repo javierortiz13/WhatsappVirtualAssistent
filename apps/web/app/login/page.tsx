@@ -1,5 +1,7 @@
+import { LAUNCH_DEFAULTS, launchSettings } from "@caja/core";
 import type { Metadata } from "next";
 import { RoccoMark, RoccoMarkSmall } from "@/app/rocco-mark";
+import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { sendMagicLink, signInWithGoogle } from "./actions";
 
@@ -22,6 +24,7 @@ export default async function LoginPage({
   const sp = await searchParams;
   const error = sp.error ? ERRORS[sp.error] : null;
   const google = env().GOOGLE_AUTH_ENABLED;
+  const beta = (await launchSettings(db()).catch(() => LAUNCH_DEFAULTS)).beta;
   return (
     <main className="auth">
       <section className="auth-intro">
@@ -72,7 +75,7 @@ export default async function LoginPage({
               <div>
                 <h2>Entra o crea tu cuenta</h2>
                 <p className="sub" style={{ margin: "6px 0 0" }}>
-                  En 3 minutos, sin contraseñas ni tarjeta.
+                  Sin contraseñas ni tarjeta.
                 </p>
               </div>
               {error ? <div className="notice err">{error}</div> : null}
@@ -117,13 +120,17 @@ export default async function LoginPage({
                   <span className="mini-num">1</span>Entra
                 </li>
                 <li className="mini-step">
-                  <span className="mini-num">2</span>Elige tu plan
+                  <span className="mini-num">2</span>Arma tu cuenta
                 </li>
                 <li className="mini-step">
                   <span className="mini-num">3</span>Vincula tu WhatsApp
                 </li>
               </ol>
-              <p className="pilot">🎁 Beta: 14 días o 100 mensajes gratis</p>
+              {beta ? (
+                <p className="pilot">
+                  🎁 Beta: 31 días o 100 mensajes gratis, lo que llegue primero
+                </p>
+              ) : null}
             </>
           )}
         </div>
