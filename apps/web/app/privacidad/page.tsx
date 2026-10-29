@@ -51,6 +51,10 @@ export default function Privacidad() {
           con tus registros.
         </li>
         <li>
+          <strong>Registro sin terminar:</strong> en qué paso te quedaste, cuándo escribiste por
+          última vez, si Rocco te escribió para recordártelo y si pediste que no te escriba.
+        </li>
+        <li>
           <strong>Datos técnicos:</strong> identificadores de mensajes de WhatsApp, marcas de
           tiempo, registros de errores y métricas de uso sin contenido de los mensajes.
         </li>
@@ -61,6 +65,11 @@ export default function Privacidad() {
         <li>Interpretar tus mensajes y registrar movimientos de caja que tú confirmas.</li>
         <li>Mostrarte cierres, resúmenes y el historial en el panel.</li>
         <li>Enviarte respuestas y avisos por WhatsApp relacionados con tu caja.</li>
+        <li>
+          Si empiezas a crear tu cuenta por WhatsApp y no la terminas, Rocco puede escribirte una
+          sola vez para ayudarte a terminarla. Si le escribes «no me escribas» o tocas ese botón, no
+          lo hace y no te vuelve a escribir por su cuenta.
+        </li>
         <li>
           Enviarte los recordatorios que pides y, si lo activas, el aviso de racha de las 8 pm, como
           máximo uno al día. Si después de 3 avisos seguidos no anotas nada, lo pausamos 14 días.
