@@ -60,7 +60,17 @@ export type MetaClientOptions = {
   timeoutMs?: number;
 };
 
-type SendResult = { waMessageId: string };
+/**
+ * `messageStatus`: lo que Meta devuelve junto al id (`accepted`, o `held_for_quality_assessment`
+ * cuando está «paceando» una plantilla de marketing nueva). null si no vino.
+ */
+type SendResult = { waMessageId: string; messageStatus?: string | null };
+
+export type TemplateInfo = {
+  status?: string;
+  category?: string;
+  quality_score?: { score?: string };
+};
 
 export class MetaClient {
   readonly #token: string;
@@ -99,26 +109,54 @@ export class MetaClient {
    * Plantilla aprobada en WhatsApp Manager: la única forma de escribir fuera de la ventana de 24 h
    * (0017, avisos de borrado por impago). `params` llena {{1}}, {{2}}… del cuerpo.
    */
+  /**
+   * Plantilla aprobada. `quickReplyPayloads` (US-SR-07): el payload de cada botón de respuesta
+   * rápida, en orden, para que el toque llegue con un id propio (`signup:resume`…).
+   */
   async sendTemplate(
     to: string,
     name: string,
     languageCode: string,
     params: string[],
+    opts: { quickReplyPayloads?: string[] } = {},
   ): Promise<SendResult> {
+    const components: Record<string, unknown>[] = [];
+    if (params.length)
+      components.push({
+        type: "body",
+        parameters: params.map((text) => ({ type: "text", text })),
+      });
+    (opts.quickReplyPayloads ?? []).forEach((payload, i) => {
+      components.push({
+        type: "button",
+        sub_type: "quick_reply",
+        index: String(i),
+        parameters: [{ type: "payload", payload }],
+      });
+    });
     return this.#sendMessage(to, {
       type: "template",
       template: {
         name,
         language: { code: languageCode },
-        ...(params.length
-          ? {
-              components: [
-                { type: "body", parameters: params.map((text) => ({ type: "text", text })) },
-              ],
-            }
-          : {}),
+        ...(components.length ? { components } : {}),
       },
     });
+  }
+
+  /** Campos del número de la plataforma (calidad, límite de mensajes). Lanza si Meta no deja. */
+  async phoneNumberFields(fields: string): Promise<Record<string, unknown>> {
+    return (await this.#get(
+      `/${this.#phoneNumberId}?fields=${encodeURIComponent(fields)}`,
+    )) as Record<string, unknown>;
+  }
+
+  /** Estado, categoría y calidad de una plantilla de la cuenta (WABA). null si no existe. */
+  async templateInfo(wabaId: string, name: string): Promise<TemplateInfo | null> {
+    const r = (await this.#get(
+      `/${wabaId}/message_templates?name=${encodeURIComponent(name)}&fields=name,status,category,quality_score`,
+    )) as { data?: (TemplateInfo & { name?: string })[] };
+    return (r.data ?? []).find((t) => t.name === name) ?? null;
   }
 
   async sendButtons(
@@ -263,10 +301,10 @@ export class MetaClient {
       recipient_type: "individual",
       to,
       ...message,
-    })) as { messages?: { id: string }[] };
+    })) as { messages?: { id: string; message_status?: string }[] };
     const id = r.messages?.[0]?.id;
     if (!id) throw new MetaApiError("respuesta sin id de mensaje", 502, null, r);
-    return { waMessageId: id };
+    return { waMessageId: id, messageStatus: r.messages?.[0]?.message_status ?? null };
   }
 
   async #post(path: string, body: unknown): Promise<unknown> {

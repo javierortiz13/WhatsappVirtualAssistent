@@ -1,8 +1,13 @@
 import {
   EMPTY_REMINDER_STATS,
   habitStats,
+  isQuietHours,
   type ReminderStats,
   reminderStats,
+  SIGNUP_RESCUE_AFTER_MS,
+  signupCountsByDay,
+  signupRescueSettings,
+  sumCounts,
   summarizeHabits,
   sumReminderStats,
 } from "@caja/core";
@@ -45,13 +50,22 @@ const FREE_TIER = 1000;
         select extract(day from (now() at time zone 'America/Caracas'))::int as dia_hoy,
                extract(day from (date_trunc('month', now() at time zone 'America/Caracas') + interval '1 month - 1 day'))::int as dias_mes
       ),
+      -- Los mensajes del registro por WhatsApp no van a \`message\` (P-19): contador diario desde
+      -- el despliegue de signup-reminders (app_setting signup_counts:<fecha>).
+      r as (
+        select coalesce(sum((value->>'sends')::int), 0) as registro
+        from app.app_setting
+        where key like 'signup_counts:%'
+          and key >= 'signup_counts:' || to_char(date_trunc('month', now() at time zone 'America/Caracas'), 'YYYY-MM-DD')
+      ),
       c as (
-        select count(*) filter (where direction = 'out' and kind <> 'reaction' and status in ('ok', 'sending')) as enviados,
+        select count(*) filter (where direction = 'out' and kind <> 'reaction' and status in ('ok', 'sending')) + (select registro from r) as enviados,
+               (select registro from r) as de_registro,
                count(*) filter (where direction = 'out' and kind = 'reaction' and status in ('ok', 'sending')) as reacciones,
                count(*) filter (where direction = 'in') as entrantes
         from m
       )
-      select c.enviados, c.reacciones, c.entrantes,
+      select c.enviados, c.de_registro, c.reacciones, c.entrantes,
              greatest(c.enviados - ${FREE_TIER}, 0) as sobre_cupo,
              round(greatest(c.enviados - ${FREE_TIER}, 0) * ${rate}::numeric, 2) as costo_usd_estimado,
              round(c.enviados::numeric / nullif(c.entrantes, 0), 2) as salientes_por_entrante,
@@ -133,6 +147,7 @@ const FREE_TIER = 1000;
   );
   await habits();
   await reminders();
+  await signupRescue();
   await close();
 })().catch(async (err) => {
   console.error(err);
@@ -284,5 +299,98 @@ async function reminders() {
   );
   console.log(
     `Dueños con 2 o más recordatorios (uso repetido): ${cumulative[0]?.repeatOwners ?? 0}`,
+  );
+}
+
+/**
+ * Registro: rescate (signup-reminders US-SR-10), por semana, las últimas 4. Solo conteos: nunca
+ * un número ni un nombre. Brazos: window (A), template (B) y holdout (control).
+ */
+async function signupRescue() {
+  const now = Date.now();
+  const DAY = 86_400_000;
+  const cfg = await signupRescueSettings(db);
+  const since = cfg.inWindowSince ? new Date(cfg.inWindowSince).getTime() : null;
+  const list = rows<{
+    updated_at: string;
+    completed_at: string | null;
+    rescue_via: string | null;
+    rescue_at: string | null;
+  }>(
+    await db.execute(sql`
+      select updated_at, completed_at, rescue_via, rescue_at from app.signup
+      where coalesce(rescue_at, updated_at) > now() - interval '35 days'`),
+  );
+  const t = (v: string | null) => (v ? new Date(v).getTime() : null);
+  const weeks = [0, 1, 2, 3].map((i) => {
+    const to = now - i * 7 * DAY;
+    const from = to - 7 * DAY;
+    const inWeek = (ms: number | null) => ms !== null && ms > from && ms <= to;
+    const arm = (via: string) => list.filter((r) => r.rescue_via === via && inWeek(t(r.rescue_at)));
+    const done = (rs: typeof list, within: number) =>
+      rs.filter((r) => {
+        const c = t(r.completed_at);
+        const a = t(r.rescue_at);
+        return c !== null && a !== null && c > a && c - a <= within;
+      }).length;
+    // De noche: vencía (3 h después) en horario nocturno y la ventana cerró antes de las 8:00.
+    const night = list.filter((r) => {
+      const u = t(r.updated_at) as number;
+      const due = u + SIGNUP_RESCUE_AFTER_MS;
+      if (
+        r.rescue_via ||
+        since === null ||
+        u < since ||
+        !inWeek(due) ||
+        !isQuietHours(new Date(due))
+      )
+        return false;
+      return r.completed_at === null || (t(r.completed_at) as number) > due;
+    }).length;
+    const w = arm("window");
+    const b = arm("template");
+    const h = arm("holdout");
+    return { i, from, to, w, b, h, night, done };
+  });
+  const counts = await signupCountsByDay(
+    db,
+    new Date(now - 28 * DAY - 4 * 3_600_000).toISOString().slice(0, 10),
+    new Date(now - 4 * 3_600_000).toISOString().slice(0, 10),
+  );
+  console.log("\n== Registro: rescate por semana (signup-reminders, solo conteos)");
+  console.table(
+    weeks.map(({ i, from, to, w, b, h, night, done }) => {
+      const c = sumCounts(
+        counts
+          .filter((d) => {
+            const ms = new Date(`${d.day}T16:00:00Z`).getTime();
+            return ms > from && ms <= to + DAY;
+          })
+          .map((d) => d.counts),
+      );
+      const failed = Object.entries(c)
+        .filter(([k]) => k.startsWith("failed:"))
+        .map(([k, n]) => `${k.slice(7)}×${n}`)
+        .join(" ");
+      return {
+        semana: i === 0 ? "últimos 7 d" : `hace ${i * 7}–${(i + 1) * 7} d`,
+        elegibles: w.length + h.length + night,
+        window: w.length,
+        template: b.length,
+        holdout: h.length,
+        de_noche: night,
+        fallidos: failed || "0",
+        seguir: (c["resume:window"] ?? 0) + (c["resume:template"] ?? 0),
+        no_me_escribas: Object.entries(c)
+          .filter(([k]) => k.startsWith("stop:") || k === "stop_word")
+          .reduce((a, [, n]) => a + n, 0),
+        window_24h: done(w, DAY),
+        window_7d: done(w, 7 * DAY),
+        template_24h: done(b, DAY),
+        template_7d: done(b, 7 * DAY),
+        holdout_24h: done(h, DAY),
+        holdout_7d: done(h, 7 * DAY),
+      };
+    }),
   );
 }

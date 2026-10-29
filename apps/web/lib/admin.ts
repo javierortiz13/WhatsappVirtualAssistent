@@ -11,15 +11,30 @@ import {
   type ReminderStats,
   reminderStats,
   type SubscriptionState,
+  signupCountsByDay,
   subscriptionState,
+  sumCounts,
   summarizeHabits,
   sumReminderStats,
   type TenantPhone,
   tenantPhones,
   trialSpend,
 } from "@caja/core";
+import { businessDateOf } from "@caja/core/domain";
 import { errorText } from "@caja/core/log";
-import { and, desc, eq, everyTenantId, gte, rows, schema, sql, withTenant } from "@caja/db";
+import {
+  and,
+  desc,
+  eq,
+  everyTenantId,
+  gte,
+  isNotNull,
+  isNull,
+  rows,
+  schema,
+  sql,
+  withTenant,
+} from "@caja/db";
 import { notFound, redirect } from "next/navigation";
 import { db } from "./db";
 import { env } from "./env";
@@ -173,6 +188,7 @@ export async function loadTenants(now: Date): Promise<TenantRow[]> {
 }
 
 export type AbandonedSignup = {
+  id: string;
   e164: string;
   name: string | null;
   step: string;
@@ -180,6 +196,26 @@ export type AbandonedSignup = {
   kind: "personal" | "business" | null;
   messages: number;
   updatedAt: Date;
+  /** Recordatorios del registro (signup-reminders US-SR-09). */
+  rescueVia: string | null;
+  rescueAt: Date | null;
+  contactOffAt: Date | null;
+  founderContactedAt: Date | null;
+};
+
+/** Cuentas del rescate del registro en 30 días (SR-ADM): solo números. */
+export type RescueFunnel = {
+  windowSent: number;
+  windowFinished: number;
+  holdout: number;
+  holdoutFinished: number;
+  templateSent: number;
+  templateResume: number;
+  templateStop: number;
+  templateFinished: number;
+  /** Borrado a los 90 días (US-AD-05.6): borradas en 90 días y filas que quedan solo con la marca. */
+  purgeDeleted: number;
+  purgeKept: number;
 };
 
 /**
@@ -191,30 +227,77 @@ export const INTERNAL_TAG = "interna";
 export const isInternal = (tags: string[]) =>
   tags.some((t) => t.trim().toLowerCase() === INTERNAL_TAG);
 
+/** Filas que la limpieza de 90 días dejó con solo el número y la marca. */
+async function keptMarks(): Promise<number> {
+  const [r] = await db()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.signup)
+    .where(isNotNull(schema.signup.purgedAt));
+  return r?.n ?? 0;
+}
+
 export async function loadFunnel(tenants: TenantRow[], now: Date) {
   await requireAdmin();
   const s = schema.signup;
   const all = await db()
     .select()
     .from(s)
-    .where(gte(s.createdAt, new Date(now.getTime() - 90 * 86_400_000)))
+    // Una fila vaciada a los 90 días no es un registro (US-AD-05.6): ni en la lista ni en el embudo.
+    .where(and(gte(s.createdAt, new Date(now.getTime() - 90 * 86_400_000)), isNull(s.purgedAt)))
     .orderBy(desc(s.updatedAt));
   // Solo clientes: las cuentas internas (etiqueta "interna") no cuentan.
   const live = tenants.filter((t) => !t.purgeAfter && !t.internal);
   const abandoned: AbandonedSignup[] = all
     .filter((r) => !r.completedAt && now.getTime() - r.updatedAt.getTime() > 30 * 60_000)
-    .slice(0, 20)
+    // 50 para que el fundador marque todo el pendiente antes del lote (US-SR-09).
+    .slice(0, 50)
     .map((r) => {
       const data = (r.data ?? {}) as { name?: string; kind?: "personal" | "business" };
       return {
+        id: r.id,
         e164: r.e164,
         name: data.name ?? r.profileName,
         step: r.step,
         kind: data.kind ?? null,
         messages: r.messages,
         updatedAt: r.updatedAt,
+        rescueVia: r.rescueVia,
+        rescueAt: r.rescueAt,
+        contactOffAt: r.contactOffAt,
+        founderContactedAt: r.founderContactedAt,
       };
     });
+  const since30 = now.getTime() - 30 * 86_400_000;
+  const arm = (via: string, recent: boolean) =>
+    all.filter(
+      (r) => r.rescueVia === via && r.rescueAt && (!recent || r.rescueAt.getTime() >= since30),
+    );
+  const finishedAfter = (list: typeof all) =>
+    list.filter((r) => r.completedAt && r.rescueAt && r.completedAt > r.rescueAt).length;
+  const counts = sumCounts(
+    (
+      await signupCountsByDay(
+        db(),
+        businessDateOf(new Date(now.getTime() - 90 * 86_400_000)),
+        businessDateOf(now),
+      )
+    ).map((d) => d.counts),
+  );
+  const windowRows = arm("window", true);
+  const holdoutRows = arm("holdout", true);
+  const templateRows = arm("template", false);
+  const rescue: RescueFunnel = {
+    windowSent: windowRows.length,
+    windowFinished: finishedAfter(windowRows),
+    holdout: holdoutRows.length,
+    holdoutFinished: finishedAfter(holdoutRows),
+    templateSent: templateRows.length,
+    templateResume: counts["resume:template"] ?? 0,
+    templateStop: counts["stop:template"] ?? 0,
+    templateFinished: finishedAfter(templateRows),
+    purgeDeleted: counts.purge_deleted ?? 0,
+    purgeKept: await keptMarks(),
+  };
   return {
     chatStarted: all.length,
     chatCompleted: all.filter((r) => r.completedAt).length,
@@ -226,6 +309,7 @@ export async function loadFunnel(tenants: TenantRow[], now: Date) {
     ).length,
     paying: live.filter((t) => t.revenueUsd.gt(0)).length,
     abandoned,
+    rescue,
   };
 }
 

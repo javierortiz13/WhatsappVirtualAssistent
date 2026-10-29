@@ -1,6 +1,7 @@
 import {
   type AuthAdmin,
   bcvSource,
+  bumpSignupCounts,
   cleanupErased,
   deliverReminders,
   dolarApiSource,
@@ -13,11 +14,14 @@ import {
   type OverCap,
   type ProcessDeps,
   processInbound,
+  purgeAbandonedSignups,
+  purgeOldSenderHits,
   purgeOldTenantData,
   purgeOldWebhookPayloads,
   refreshRates,
   releaseStalePending,
   retentionSweep,
+  runSignupRescue,
   sendLifecycleNotices,
   sendPaymentNotices,
   sendRetentionNotices,
@@ -46,6 +50,7 @@ export const CRON = {
   ratesMorning: "0 8 * * *",
   housekeeping: "*/5 * * * *",
   reminders: "* * * * *",
+  signupReminders: "*/5 * * * *",
 } as const;
 
 export async function registerJobs(opts: {
@@ -66,6 +71,8 @@ export async function registerJobs(opts: {
   authAdmin?: AuthAdmin | null;
   /** Plantilla para los avisos de borrado por impago fuera de las 24 h. */
   retentionTemplate?: { name: string; language: string } | null;
+  /** Plantilla del registro sin terminar, para el recordatorio (A) como plantilla. */
+  signupTemplate?: { name: string; language: string } | null;
 }) {
   const { boss, db, deps, log } = opts;
   const guarded =
@@ -125,7 +132,16 @@ export async function registerJobs(opts: {
       const now = new Date();
       let expired = 0;
       let swept = 0;
-      const purged = { texts: 0, drafts: 0, photos: 0, reminders: 0, events: 0 };
+      const purged = {
+        texts: 0,
+        drafts: 0,
+        photos: 0,
+        reminders: 0,
+        events: 0,
+        signupsDeleted: 0,
+        signupsKept: 0,
+        senderHits: 0,
+      };
       let tenants: string[] = [];
       try {
         tenants = await allTenantIds(db);
@@ -174,7 +190,29 @@ export async function registerJobs(opts: {
           "conservación: eventos del webhook",
         );
       }
-      if (purged.texts || purged.drafts || purged.photos || purged.reminders || purged.events)
+      // Registros sin terminar a los 90 días (US-AD-05, 3A): con marca queda solo el número.
+      try {
+        const sg = await purgeAbandonedSignups(db, now);
+        purged.signupsDeleted = sg.deleted;
+        purged.signupsKept = sg.kept;
+        await bumpSignupCounts(db, now, { purge_deleted: sg.deleted, purge_kept: sg.kept });
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : String(err) },
+          "conservación: registros sin terminar",
+        );
+      }
+      // F-8: contadores de mensajes por número de más de un día.
+      try {
+        purged.senderHits = await purgeOldSenderHits(db, now);
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : String(err) },
+          "conservación: contadores de desconocidos",
+        );
+      }
+      // Solo conteos: nunca un número ni un id.
+      if (Object.values(purged).some((n) => n > 0))
         log.info(purged, "conservación: datos viejos borrados");
       // Jobs vencidos por tiempo que quedaron en `failed`: desbloquear el teléfono.
       const stuck = await cancelFailedFifoJobs(db);
@@ -296,6 +334,22 @@ export async function registerJobs(opts: {
     }),
   );
 
+  // Recordatorio del registro (A): cada 5 min. Sin `signup_rescue.inWindow`, no hace nada.
+  await boss.work(
+    QUEUES.signupReminders,
+    { batchSize: 1, pollingIntervalSeconds: 10 },
+    guarded(QUEUES.signupReminders, async () => {
+      const meta = opts.platformPhoneNumberId ? deps.metaFor(opts.platformPhoneNumberId) : null;
+      const r = await runSignupRescue(db, meta, {
+        now: new Date(),
+        log,
+        template: opts.signupTemplate ?? null,
+      });
+      // Solo cuentas: ni nombres ni números.
+      if (r.sent || r.holdout || r.failed) log.info(r, "registro: recordatorios");
+    }),
+  );
+
   await boss.schedule(QUEUES.fetchBcvRate, CRON.ratesAfternoon, null, {
     tz: "America/Caracas",
     key: "afternoon",
@@ -311,6 +365,10 @@ export async function registerJobs(opts: {
   await boss.schedule(QUEUES.reminders, CRON.reminders, null, {
     tz: "America/Caracas",
     key: "every-minute",
+  });
+  await boss.schedule(QUEUES.signupReminders, CRON.signupReminders, null, {
+    tz: "America/Caracas",
+    key: "every-5-min",
   });
   // El autoguardado de cada minuto (0022) se reemplazó por el guardado al instante (0023).
   await boss.unschedule(RETIRED_AUTO_SAVE_QUEUE, "every-minute").catch(() => {});

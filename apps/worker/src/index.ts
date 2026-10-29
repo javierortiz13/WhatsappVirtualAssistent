@@ -137,6 +137,9 @@ async function main() {
     retentionTemplate: env.META_RETENTION_TEMPLATE
       ? { name: env.META_RETENTION_TEMPLATE, language: env.META_TEMPLATE_LANGUAGE }
       : null,
+    signupTemplate: env.META_SIGNUP_TEMPLATE
+      ? { name: env.META_SIGNUP_TEMPLATE, language: env.META_TEMPLATE_LANGUAGE }
+      : null,
     onError: (err, queue) => captureError(err, { queue }),
     // Aviso al administrador por Sentry (sin números ni mensajes): el bot sigue funcionando.
     onOverCap: (items) => {
