@@ -15,6 +15,7 @@ import {
   rejectPayment,
   saveHabitSettings,
   saveLaunchSettings,
+  saveSignupRescueSettings,
   setTenantBilling,
   subscriptionState,
 } from "@caja/core";
@@ -396,4 +397,56 @@ export async function saveHabitsAction(formData: FormData): Promise<void> {
   }
   revalidatePath("/", "layout");
   redirect("/admin?ok=habito");
+}
+
+const FounderMark = z.object({ id: z.string().uuid(), on: z.enum(["1", "0"]) });
+
+/**
+ * «Le escribí yo» / «Deshacer» (signup-reminders US-SR-09): el registro queda fuera del recordatorio
+ * y del lote. Sin contenido en el log: solo la acción, el admin y el id del registro.
+ */
+export async function markFounderContactedAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const parsed = FounderMark.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) redirect("/admin?error=servidor");
+  const on = parsed.data.on === "1";
+  await db()
+    .update(schema.signup)
+    .set({ founderContactedAt: on ? new Date() : null })
+    .where(eq(schema.signup.id, parsed.data.id));
+  // audit_log exige un negocio y un registro sin terminar no lo tiene: queda en el log del servidor.
+  console.info(
+    JSON.stringify({
+      level: "info",
+      msg: on ? "admin: le escribí yo" : "admin: deshacer le escribí yo",
+      admin: admin.email,
+      signupId: parsed.data.id,
+    }),
+  );
+  revalidatePath("/admin");
+  redirect("/admin?ok=registro#registros");
+}
+
+/** Interruptores del recordatorio del registro (SR-ADM). Encender (A) guarda desde cuándo. */
+export async function saveSignupRescueAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  try {
+    await saveSignupRescueSettings(
+      db(),
+      {
+        inWindow: formData.get("in_window") === "on",
+        template: formData.get("template") === "on",
+        inWindowVia: formData.get("via_template") === "on" ? "template" : "text",
+      },
+      admin.email,
+      new Date(),
+    );
+  } catch (err) {
+    console.error(
+      JSON.stringify({ level: "error", msg: "admin registro", detail: errorText(err) }),
+    );
+    redirect("/admin?error=servidor");
+  }
+  revalidatePath("/admin");
+  redirect("/admin?ok=rescate");
 }

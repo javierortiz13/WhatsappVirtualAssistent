@@ -79,6 +79,8 @@ export type SignupConfig = { dashboardUrl: string };
 export type SignupResult = {
   outbound: Outbound[];
   step: SignupStep;
+  /** Toque de «Seguir» / «No me escribas» o palabra de apagado, para los contadores (US-SR-10). */
+  rescueEvent?: { kind: "resume" | "stop_tap" | "stop_word"; via: string };
   created?: { tenantId: string; phoneId: string };
 };
 
@@ -149,7 +151,12 @@ export async function handleSignup(
         })
         .onConflictDoNothing();
     }
-    if (optOut) return { outbound: [es.signupStopped()], step: "name" };
+    if (optOut)
+      return {
+        outbound: [es.signupStopped()],
+        step: "name",
+        rescueEvent: { kind: "stop_word", via: row?.rescueVia ?? "none" },
+      };
     return { outbound: [es.signupIntro(cfg.dashboardUrl, profile)], step: "name" };
   }
 
@@ -181,17 +188,25 @@ export async function handleSignup(
   if (choice === "stop" || optOut) {
     if (!row.contactOffAt) await db.update(s).set({ contactOffAt: now }).where(eq(s.id, row.id));
     await save(step);
-    return { outbound: [es.signupStopped()], step };
+    return {
+      outbound: [es.signupStopped()],
+      step,
+      rescueEvent: {
+        kind: choice === "stop" ? "stop_tap" : "stop_word",
+        via: row.rescueVia ?? "none",
+      },
+    };
   }
   // «Seguir» (US-SR-04): solo la pregunta del paso, un mensaje. Un registro viejo en cuentas pasa
   // al presupuesto.
   if (choice === "resume") {
+    const rescueEvent = { kind: "resume" as const, via: row.rescueVia ?? "none" };
     if (step === "accounts" || step === "accounts_confirm") {
       await save("budget", { ...data, accounts: [], pendingAccounts: undefined });
-      return { outbound: [prompt("budget", data, profile)], step };
+      return { outbound: [prompt("budget", data, profile)], step, rescueEvent };
     }
     await save(step);
-    return { outbound: [prompt(step, data, profile)], step };
+    return { outbound: [prompt(step, data, profile)], step, rescueEvent };
   }
 
   // Atajos que valen en cualquier paso.

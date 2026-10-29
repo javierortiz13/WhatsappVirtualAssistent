@@ -55,7 +55,7 @@ describe("registro: «no me escribas», «Seguir» y el regreso", () => {
     expect(r.outbound.map(textOf)).toEqual([STOP]);
     const after = await row(e);
     expect(after?.step).toBe("name");
-    expect((after?.data as { name?: string }).name).toBeUndefined();
+    expect((after?.data as { name?: string } | undefined)?.name).toBeUndefined();
     expect(after?.contactOffAt).not.toBeNull();
     expect(parsePersonName("No Me Escribas")).toBeNull();
     await say(e, "Ana", at);

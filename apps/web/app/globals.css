@@ -2324,3 +2324,26 @@ figure.chat-mock {
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+
+/* /admin «Registros sin terminar» (signup-reminders US-SR-09): chips y acciones que bajan de línea
+   en el teléfono (390 px) sin scroll horizontal. */
+.admin-signup {
+  flex-wrap: wrap;
+}
+.admin-signup .what {
+  min-width: 0;
+  flex: 1 1 220px;
+}
+.admin-signup .chips {
+  gap: 6px;
+  margin-top: 6px;
+}
+.admin-signup .chips .badge {
+  white-space: normal;
+  text-align: left;
+}
+.admin-signup .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

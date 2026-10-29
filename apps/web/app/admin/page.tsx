@@ -6,6 +6,7 @@ import {
   PLANS,
   premiumOverUsd,
   quote,
+  signupRescueSettings,
 } from "@caja/core";
 import { businessDateOf, formatShortDate } from "@caja/core/domain";
 import {
@@ -23,9 +24,11 @@ import { db } from "@/lib/db";
 import { formatE164 } from "@/lib/phone";
 import {
   approvePaymentAction,
+  markFounderContactedAction,
   rejectPaymentAction,
   saveHabitsAction,
   saveLaunchAction,
+  saveSignupRescueAction,
 } from "./actions";
 import { dueClass, dueText, METHOD_LABEL, planClass, STATE, usd, ves } from "./format";
 
@@ -55,7 +58,17 @@ const OK: Record<string, string> = {
   papelera: "Negocio en la papelera: se borra solo en 15 días.",
   lanzamiento: "Modo de lanzamiento guardado. Rocco lo usa desde el próximo mensaje.",
   habito: "Interruptores del hábito guardados. Rocco los usa desde el próximo mensaje.",
+  rescate: "Interruptores del registro guardados.",
+  registro: "Listo.",
 };
+
+/** dd/mm de Caracas. */
+const ddmm = (d: Date) => {
+  const [, m, day] = businessDateOf(d).split("-");
+  return `${day}/${m}`;
+};
+/** Hasta la lectura del grupo de control (PRD signup-reminders §7): 40 filas o el 31/12/2026. */
+const HOLDOUT_UNTIL = "31/12/2026";
 
 /** Resumen de la plataforma: ingresos, costos del mes, pagos por verificar y negocios. */
 export default async function AdminHome({
@@ -84,11 +97,13 @@ export default async function AdminHome({
   const overCap = tenants.filter((t) => t.usage.inbound > t.cap);
   const premium = rates ? premiumOverUsd(rates) : null;
   const funnel = await loadFunnel(tenants, now);
-  const [habits, habitFlags, reminders] = await Promise.all([
+  const [habits, habitFlags, reminders, rescueFlags] = await Promise.all([
     loadHabits(tenants, now),
     habitSettings(db()),
     loadReminderStats(tenants, now),
+    signupRescueSettings(db()),
   ]);
+  const rescue = funnel.rescue;
   const survey = surveyTally(tenants);
   const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)} %` : "—");
   const steps: [string, number, string][] = [
@@ -344,11 +359,50 @@ export default async function AdminHome({
         </form>
       </section>
 
+      <section className="card stack-sm">
+        <span className="sect">Registro: recordatorios</span>
+        <p className="sub num" style={{ margin: 0 }}>
+          Recordatorio del registro (30 días): enviados {rescue.windowSent} · terminaron después{" "}
+          {rescue.windowFinished} · control {rescue.holdout} · terminaron {rescue.holdoutFinished}
+        </p>
+        <p className="sub num" style={{ margin: 0 }}>
+          Plantilla del registro: enviadas {rescue.templateSent} · Seguir {rescue.templateResume} ·
+          No me escribas {rescue.templateStop} · terminaron {rescue.templateFinished}
+        </p>
+        <p className="sub" style={{ margin: 0 }}>
+          Menos de 30: son números, no porcentajes.
+        </p>
+        <form action={saveSignupRescueAction} className="stack-sm admin-flags">
+          {(
+            [
+              ["in_window", rescueFlags.inWindow, "Registro: recordatorio en la ventana"],
+              ["template", rescueFlags.template, "Registro: plantilla (lote)"],
+              [
+                "via_template",
+                rescueFlags.inWindowVia === "template",
+                "Registro: recordatorio como plantilla",
+              ],
+            ] as const
+          ).map(([name, on, title]) => (
+            <label className="flag" key={name}>
+              <input type="checkbox" name={name} defaultChecked={on} />
+              <span className="what">
+                <strong>{title}</strong>
+              </span>
+              <span className={`badge ${on ? "ok" : ""}`}>{on ? "encendido" : "apagado"}</span>
+            </label>
+          ))}
+          <button className="btn small secondary" type="submit">
+            Guardar registro
+          </button>
+        </form>
+      </section>
+
       {funnel.abandoned.length ? (
-        <section className="card tight">
+        <section className="card tight" id="registros">
           <span className="sect">Registros sin terminar ({funnel.abandoned.length})</span>
           {funnel.abandoned.map((a) => (
-            <div className="row" key={a.e164}>
+            <div className="row admin-signup" key={a.e164}>
               <span className="what">
                 <strong>{a.name ?? "Sin nombre"}</strong>
                 <span className="sub num">
@@ -362,15 +416,47 @@ export default async function AdminHome({
                   {a.messages === 1 ? "mensaje" : "mensajes"} ·{" "}
                   {formatShortDate(businessDateOf(a.updatedAt))}
                 </span>
+                <span className="chips">
+                  {a.rescueVia === "window" && a.rescueAt ? (
+                    <span className="badge">
+                      Rocco le escribió · en la ventana · {ddmm(a.rescueAt)}
+                    </span>
+                  ) : null}
+                  {a.rescueVia === "template" && a.rescueAt ? (
+                    <span className="badge">
+                      Rocco le escribió · plantilla · {ddmm(a.rescueAt)}
+                    </span>
+                  ) : null}
+                  {a.rescueVia === "holdout" ? (
+                    <span className="badge warn">
+                      Grupo de control: no le escribas hasta el {HOLDOUT_UNTIL}
+                    </span>
+                  ) : null}
+                  {a.contactOffAt ? <span className="badge">No quiere mensajes</span> : null}
+                  {a.founderContactedAt ? (
+                    <span className="badge">Le escribiste tú · {ddmm(a.founderContactedAt)}</span>
+                  ) : null}
+                </span>
               </span>
-              <a
-                className="btn small secondary"
-                href={`https://wa.me/${a.e164}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Escribirle
-              </a>
+              <span className="actions">
+                {a.rescueVia === "window" || a.rescueVia === "template" || a.contactOffAt ? null : (
+                  <a
+                    className="btn small secondary"
+                    href={`https://wa.me/${a.e164}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Escribirle
+                  </a>
+                )}
+                <form action={markFounderContactedAction}>
+                  <input type="hidden" name="id" value={a.id} />
+                  <input type="hidden" name="on" value={a.founderContactedAt ? "0" : "1"} />
+                  <button className="btn small secondary" type="submit">
+                    {a.founderContactedAt ? "Deshacer" : "Le escribí yo"}
+                  </button>
+                </form>
+              </span>
             </div>
           ))}
         </section>

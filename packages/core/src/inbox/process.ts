@@ -127,6 +127,7 @@ import {
 } from "../onboarding/chat-signup";
 import { releaseStalePending, requestDeletion, restoreTenant } from "../onboarding/erase";
 import { activatePhone, CODE_RE, verifyCode } from "../onboarding/register";
+import { bumpSignupCounts } from "../onboarding/signup-counts";
 import { getRateInfo } from "../rates/current";
 import {
   isReminderListAsk,
@@ -683,12 +684,28 @@ async function handleSignupMessage(
     { dashboardUrl: deps.config.dashboardUrl },
     now(),
   );
+  let sends = 0;
   for (const out of result.outbound) {
     try {
       await sendOutbound(meta, e164, out);
+      if (out.type !== "reaction") sends += 1;
     } catch (err) {
       log.warn({ err: errMsg(err), from: maskPhone(e164) }, "registro: no se pudo responder");
     }
+  }
+  // Contadores (US-SR-10): los envíos del registro no van a `message` y sí al cupo de Meta.
+  try {
+    const ev = result.rescueEvent;
+    await bumpSignupCounts(deps.db, now(), {
+      sends,
+      ...(ev
+        ? ev.kind === "stop_word"
+          ? { stop_word: 1 }
+          : { [`${ev.kind === "resume" ? "resume" : "stop"}:${ev.via}`]: 1 }
+        : {}),
+    });
+  } catch (err) {
+    log.warn({ err: errMsg(err) }, "registro: contadores");
   }
   await markEvent(deps.db, eventId, "done", `registro: ${result.step}`);
   log.info(

@@ -224,3 +224,26 @@ describe("textos SR-A1…A4 (US-SR-06)", () => {
     );
   });
 });
+
+describe("contadores del registro (US-SR-10)", () => {
+  it("suma por día sin pisarse y se leen por rango", async () => {
+    const { createTestDb: mk } = await import("@caja/db/testing");
+    const { bumpSignupCounts, signupCountsByDay, sumCounts } = await import(
+      "../src/onboarding/signup-counts"
+    );
+    const t = await mk();
+    try {
+      await Promise.all([
+        bumpSignupCounts(t.db, NOON, { sends: 2, "resume:window": 1 }),
+        bumpSignupCounts(t.db, NOON, { sends: 3, stop_word: 1 }),
+      ]);
+      await bumpSignupCounts(t.db, new Date(NOON.getTime() + 24 * H), { sends: 1 });
+      const days = await signupCountsByDay(t.db, "2026-11-10", "2026-11-11");
+      expect(days.map((d) => d.day)).toEqual(["2026-11-10", "2026-11-11"]);
+      expect(days[0]?.counts).toEqual({ sends: 5, "resume:window": 1, stop_word: 1 });
+      expect(sumCounts(days.map((d) => d.counts)).sends).toBe(6);
+    } finally {
+      await t.close();
+    }
+  });
+});

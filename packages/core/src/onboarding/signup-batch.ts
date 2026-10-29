@@ -4,6 +4,7 @@ import { isQuietHours } from "../inbox/gate";
 import { maskPhone } from "../log";
 import type { MetaClient } from "../whatsapp/client";
 import { MetaApiError } from "../whatsapp/client";
+import { bumpSignupCounts } from "./signup-counts";
 import { SIGNUP_RESCUE_PAYLOADS, signupRescueSettings, stepOf } from "./signup-rescue";
 
 /**
@@ -386,6 +387,7 @@ export async function runSignupBatch(
       );
       runWaIds.push(sent.waMessageId);
       await db.update(s).set({ rescueWaMessageId: sent.waMessageId }).where(eq(s.id, row.id));
+      await bumpSignupCounts(db, at, { template_sends: 1 }).catch(() => {});
       if (sent.messageStatus === "held_for_quality_assessment") {
         result.held += 1;
         held = true;

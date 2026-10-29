@@ -7,6 +7,7 @@ import type { SignupRescueStep } from "../render/es-VE";
 import { es } from "../render/index";
 import { MetaApiError, type MetaClient } from "../whatsapp/client";
 import { remainingSteps, SIGNUP_STEPS, type SignupData, type SignupStep } from "./chat-signup";
+import { bumpSignupCounts } from "./signup-counts";
 
 /**
  * Recordatorios del registro por WhatsApp (PRD signup-reminders v1.2). Un mensaje automático por
@@ -211,11 +212,15 @@ export async function runSignupRescue(
             })();
       await db.update(s).set({ rescueWaMessageId: sent.waMessageId }).where(eq(s.id, r.id));
       out.sent += 1;
+      await bumpSignupCounts(db, now, {
+        [cfg.inWindowVia === "template" ? "template_sends" : "sends"]: 1,
+      }).catch(() => {});
     } catch (err) {
       const code = metaCodeOf(err);
       out.failed += 1;
       out.failedByCode[code] = (out.failedByCode[code] ?? 0) + 1;
       log.warn({ to: maskPhone(r.e164), code }, "registro: recordatorio no enviado");
+      await bumpSignupCounts(db, now, { [`failed:${code}`]: 1 }).catch(() => {});
     }
   }
   return out;
