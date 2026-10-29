@@ -11,7 +11,8 @@
     "rates:refresh": "tsx src/cli/refresh-rates.ts",
     "rates:import": "tsx src/cli/import-rates.ts",
     "metrics": "tsx src/cli/metrics.ts",
-    "signup:park": "tsx src/cli/park-signup.ts"
+    "signup:park": "tsx src/cli/park-signup.ts",
+    "signup:rescue": "tsx src/cli/signup-rescue.ts"
   },
   "dependencies": {
     "@caja/core": "workspace:*",
