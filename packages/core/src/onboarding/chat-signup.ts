@@ -1,5 +1,16 @@
 import { createHash, randomInt } from "node:crypto";
-import { and, type Db, eq, gt, isNull, schema, sql, type Tx, withTenant } from "@caja/db";
+import {
+  and,
+  type Db,
+  eq,
+  gt,
+  isNull,
+  type Queryable,
+  schema,
+  sql,
+  type Tx,
+  withTenant,
+} from "@caja/db";
 import { DEFAULT_EXPENSE_CATEGORIES } from "@caja/db/seed-data";
 import { TRIAL_MESSAGES } from "../billing/plans";
 import { Decimal, parseVenezuelanAmount } from "../domain/money";
@@ -62,6 +73,11 @@ export type SignupData = {
   pendingAccounts?: SignupAccount[] | undefined;
   accounts?: SignupAccount[] | undefined;
   budgets?: { category: string; amountUsd: string }[] | undefined;
+  /**
+   * Registro rápido (29/10): nombre del perfil, para qué, nombre del negocio (el tipo se deduce),
+   * moneda y listo; categorías sugeridas y sin presupuesto. Se fija al empezar y no cambia.
+   */
+  flow?: "fast" | undefined;
 };
 
 export type SignupInput = {
@@ -74,7 +90,45 @@ export type SignupInput = {
   replyId: string | null;
 };
 
-export type SignupConfig = { dashboardUrl: string };
+export type SignupConfig = {
+  dashboardUrl: string;
+  /** Números de prueba que ven el registro rápido con el interruptor apagado (env del worker). */
+  fastNumbers?: string[];
+};
+
+// ---------------------------------------------------------------- interruptor del registro rápido
+
+const FLOW_KEY = "signup_flow";
+
+/** Registro rápido (29/10): apagado por defecto hasta que redacción y cumplimiento aprueben. */
+export async function signupFlowSettings(db: Queryable): Promise<{ fast: boolean }> {
+  const [r] = await db
+    .select({ value: schema.appSetting.value })
+    .from(schema.appSetting)
+    .where(eq(schema.appSetting.key, FLOW_KEY));
+  return { fast: (r?.value as { fast?: unknown } | undefined)?.fast === true };
+}
+
+export async function saveSignupFlowSettings(
+  db: Queryable,
+  next: { fast: boolean },
+  actor: string,
+  now: Date,
+): Promise<void> {
+  await db
+    .insert(schema.appSetting)
+    .values({ key: FLOW_KEY, value: next, updatedAt: now, updatedBy: actor })
+    .onConflictDoUpdate({
+      target: schema.appSetting.key,
+      set: { value: next, updatedAt: now, updatedBy: actor },
+    });
+}
+
+async function useFastFlow(db: Db, e164: string, cfg: SignupConfig): Promise<boolean> {
+  const digits = e164.replace(/\D/g, "");
+  if ((cfg.fastNumbers ?? []).some((n) => n.replace(/\D/g, "") === digits)) return true;
+  return (await signupFlowSettings(db)).fast;
+}
 
 export type SignupResult = {
   outbound: Outbound[];
@@ -124,12 +178,19 @@ export async function handleSignup(
   // Primer mensaje (o un registro viejo cuyo negocio ya no existe): presentación y nombre. Las
   // marcas del rescate y el «no me escribas» se conservan al reiniciar.
   if (!row || row.completedAt) {
+    // Registro rápido: con un nombre de perfil usable, ese es el nombre y ya va a «para qué».
+    const fast = await useFastFlow(db, input.e164, cfg);
+    const first: { step: SignupStep; data: SignupData } = fast
+      ? profile
+        ? { step: "kind", data: { flow: "fast", name: profile } }
+        : { step: "name", data: { flow: "fast" } }
+      : { step: "name", data: {} };
     if (row) {
       await db
         .update(s)
         .set({
-          step: "name",
-          data: {},
+          step: first.step,
+          data: first.data,
           completedAt: null,
           tenantId: null,
           messages: 1,
@@ -144,8 +205,8 @@ export async function handleSignup(
           e164: input.e164,
           waUserId: input.waUserId,
           profileName: input.profileName,
-          step: "name",
-          data: {},
+          step: first.step,
+          data: first.data,
           messages: 1,
           ...(optOut ? { contactOffAt: now } : {}),
         })
@@ -154,8 +215,13 @@ export async function handleSignup(
     if (optOut)
       return {
         outbound: [es.signupStopped()],
-        step: "name",
+        step: first.step,
         rescueEvent: { kind: "stop_word", via: row?.rescueVia ?? "none" },
+      };
+    if (fast)
+      return {
+        outbound: [es.signupFastIntro(cfg.dashboardUrl, first.data.name ?? null)],
+        step: first.step,
       };
     return { outbound: [es.signupIntro(cfg.dashboardUrl, profile)], step: "name" };
   }
@@ -171,6 +237,80 @@ export async function handleSignup(
       .update(s)
       .set({ step: next, data: nextData, messages: row.messages + 1, updatedAt: now })
       .where(eq(s.id, row.id));
+  };
+
+  /** Crea el negocio y responde: el resumen y el tour, o un solo mensaje en el registro rápido. */
+  const complete = async (final: SignupData): Promise<SignupResult> => {
+    try {
+      const created = await registerFromChat(
+        db,
+        {
+          e164: input.e164,
+          waUserId: input.waUserId,
+          ownerName: final.name ?? profile ?? "",
+          name:
+            final.kind === "business"
+              ? (final.businessName ?? final.name ?? "Mi negocio")
+              : (final.name ?? profile ?? "Mis finanzas"),
+          businessType: final.businessType ?? "personal",
+          defaultExpenseCurrency: final.currency ?? "USD",
+          categories: final.categories,
+          accounts: final.accounts,
+          budgets: final.budgets ?? [],
+        },
+        now,
+      );
+      await db
+        .update(s)
+        .set({
+          step: "done",
+          data: final,
+          messages: row.messages + 1,
+          tenantId: created.tenantId,
+          completedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(s.id, row.id));
+      // Pidió «no me escribas» en el registro (US-SR-03): queda apagado en la cuenta.
+      if (row.contactOffAt) await carryOptOut(db, created, now);
+      if (final.flow === "fast")
+        return {
+          outbound: [
+            es.signupFastDone({
+              name: final.name ?? profile ?? "",
+              businessName: final.kind === "business" ? (final.businessName ?? null) : null,
+              founderUntil: created.founderUntil,
+              trialMessages: TRIAL_MESSAGES,
+              stopped: Boolean(row.contactOffAt),
+            }),
+          ],
+          step: "done",
+          created,
+        };
+      return {
+        outbound: [
+          es.signupDone({
+            ...doneView(final),
+            founderUntil: created.founderUntil,
+            trialMessages: TRIAL_MESSAGES,
+          }),
+          es.signupTour(
+            cfg.dashboardUrl,
+            final.kind ?? "personal",
+            Boolean(final.accounts?.length),
+            Boolean(row.contactOffAt),
+          ),
+        ],
+        step: "done",
+        created,
+      };
+    } catch (err) {
+      if (err instanceof PhoneTakenError) {
+        await save("done", final);
+        return { outbound: [es.signupTaken(cfg.dashboardUrl)], step: "done" };
+      }
+      throw err;
+    }
   };
 
   const text = input.text?.trim() ?? null;
@@ -218,7 +358,7 @@ export async function handleSignup(
     text &&
     /^(empezar de nuevo|volver a empezar|reiniciar|empezar otra vez)[.!¡]*$/i.test(text)
   ) {
-    await save("name", {});
+    await save("name", data.flow ? { flow: data.flow } : {});
     return { outbound: [es.signupAskName(profile)], step: "name" };
   }
   // Registro viejo parado en cuentas: un texto, «ayuda» o una nota de voz pasan al presupuesto, sin
@@ -299,6 +439,12 @@ export async function handleSignup(
         await save("biz_name");
         return { outbound: [prompt("biz_name", data, profile)], step };
       }
+      // Registro rápido: el tipo sale del nombre («Autolavado El Rápido»); si no se entiende, la lista.
+      const guessed = data.flow === "fast" ? parseBusinessType(name) : "other";
+      if (guessed !== "other") {
+        await save("currency", { ...data, businessName: name, businessType: guessed });
+        return { outbound: [prompt("currency", data, profile)], step };
+      }
       await save("biz_type", { ...data, businessName: name });
       return { outbound: [prompt("biz_type", data, profile)], step };
     }
@@ -330,6 +476,15 @@ export async function handleSignup(
         await save("currency");
         return { outbound: [prompt("currency", data, profile)], step };
       }
+      // Registro rápido: con la moneda ya está; categorías sugeridas, sin presupuesto.
+      if (data.flow === "fast")
+        return complete({
+          ...data,
+          currency,
+          categories: onboardingCategories(undefined, data.businessType ?? "personal"),
+          accounts: [],
+          budgets: [],
+        });
       await save("categories", { ...data, currency });
       return { outbound: [prompt("categories", data, profile)], step };
     }
@@ -400,63 +555,7 @@ export async function handleSignup(
         }
         budgets = parsed;
       }
-      const final = { ...data, budgets };
-      try {
-        const created = await registerFromChat(
-          db,
-          {
-            e164: input.e164,
-            waUserId: input.waUserId,
-            ownerName: final.name ?? profile ?? "",
-            name:
-              final.kind === "business"
-                ? (final.businessName ?? final.name ?? "Mi negocio")
-                : (final.name ?? profile ?? "Mis finanzas"),
-            businessType: final.businessType ?? "personal",
-            defaultExpenseCurrency: final.currency ?? "USD",
-            categories: final.categories,
-            accounts: final.accounts,
-            budgets,
-          },
-          now,
-        );
-        await db
-          .update(s)
-          .set({
-            step: "done",
-            data: final,
-            messages: row.messages + 1,
-            tenantId: created.tenantId,
-            completedAt: now,
-            updatedAt: now,
-          })
-          .where(eq(s.id, row.id));
-        // Pidió «no me escribas» en el registro (US-SR-03): queda apagado en la cuenta.
-        if (row.contactOffAt) await carryOptOut(db, created, now);
-        return {
-          outbound: [
-            es.signupDone({
-              ...doneView(final),
-              founderUntil: created.founderUntil,
-              trialMessages: TRIAL_MESSAGES,
-            }),
-            es.signupTour(
-              cfg.dashboardUrl,
-              final.kind ?? "personal",
-              Boolean(final.accounts?.length),
-              Boolean(row.contactOffAt),
-            ),
-          ],
-          step: "done",
-          created,
-        };
-      } catch (err) {
-        if (err instanceof PhoneTakenError) {
-          await save("done", final);
-          return { outbound: [es.signupTaken(cfg.dashboardUrl)], step: "done" };
-        }
-        throw err;
-      }
+      return complete({ ...data, budgets });
     }
     default:
       await save("name", {});
@@ -510,6 +609,11 @@ function doneView(d: SignupData): Omit<Parameters<typeof es.signupDone>[0], "fou
 
 /** La pregunta de cada paso. */
 function prompt(step: SignupStep, data: SignupData, profile: string | null): Outbound {
+  if (data.flow === "fast") {
+    if (step === "kind") return es.signupFastAskKind(data.name ?? profile ?? "");
+    if (step === "biz_name") return es.signupFastAskBusinessName();
+    if (step === "currency") return es.signupFastAskCurrency(data.kind === "business");
+  }
   switch (step) {
     case "name":
       return es.signupAskName(profile);
@@ -543,6 +647,10 @@ function prompt(step: SignupStep, data: SignupData, profile: string | null): Out
 
 /** Preguntas del registro, en orden, según sea personal o negocio (el presupuesto va aparte). */
 function questionsFor(data: SignupData): SignupStep[] {
+  if (data.flow === "fast")
+    return data.kind === "business"
+      ? ["name", "kind", "biz_name", "biz_type", "currency"]
+      : ["name", "kind", "currency"];
   return data.kind === "business"
     ? ["name", "kind", "biz_name", "biz_type", "currency", "categories"]
     : ["name", "kind", "currency", "categories"];
@@ -550,6 +658,8 @@ function questionsFor(data: SignupData): SignupStep[] {
 
 /** «*3 de 6* · » desde la tercera pregunta; nada en el nombre ni en personal/negocio. */
 function progressOf(step: SignupStep, data: SignupData): es.SignupProgress {
+  // El registro rápido son 2 o 3 preguntas: sin «3 de 6».
+  if (data.flow === "fast") return null;
   const qs = questionsFor(data);
   const i = qs.indexOf(step);
   return i >= 2 ? { n: i + 1, total: qs.length } : null;
@@ -559,7 +669,9 @@ function progressOf(step: SignupStep, data: SignupData): es.SignupProgress {
 export function remainingSteps(step: SignupStep, data: SignupData): number {
   const qs = questionsFor(data);
   const i = qs.indexOf(step);
-  return i < 0 ? 1 : qs.length - i + 1;
+  // El registro rápido no tiene presupuesto: no se suma ese paso.
+  const extra = data.flow === "fast" ? 0 : 1;
+  return i < 0 ? 1 : qs.length - i + extra;
 }
 
 /** Mensaje de regreso: después de 6 h, en los pasos donde ya se sabe si es personal o negocio. */

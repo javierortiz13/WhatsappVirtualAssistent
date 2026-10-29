@@ -15,6 +15,7 @@ import {
   rejectPayment,
   saveHabitSettings,
   saveLaunchSettings,
+  saveSignupFlowSettings,
   saveSignupRescueSettings,
   setTenantBilling,
   subscriptionState,
@@ -453,6 +454,26 @@ export async function saveSignupRescueAction(formData: FormData): Promise<void> 
   } catch (err) {
     console.error(
       JSON.stringify({ level: "error", msg: "admin registro", detail: errorText(err) }),
+    );
+    redirect("/admin?error=servidor");
+  }
+  revalidatePath("/admin");
+  redirect("/admin?ok=rescate");
+}
+
+/** Registro rápido (29/10): interruptor para todos los números nuevos. */
+export async function saveSignupFlowAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  try {
+    await saveSignupFlowSettings(
+      db(),
+      { fast: formData.get("fast") === "on" },
+      admin.email,
+      new Date(),
+    );
+  } catch (err) {
+    console.error(
+      JSON.stringify({ level: "error", msg: "admin registro rápido", detail: errorText(err) }),
     );
     redirect("/admin?error=servidor");
   }

@@ -21,6 +21,8 @@ const Env = z.object({
   /** Plantilla de WhatsApp para avisar de borrado por impago fuera de las 24 h (0017). */
   META_RETENTION_TEMPLATE: z.string().optional(),
   META_TEMPLATE_LANGUAGE: z.string().default("es"),
+  /** Números de prueba (separados por coma) que ven el registro rápido con el interruptor apagado. */
+  SIGNUP_FAST_NUMBERS: z.string().optional(),
   /** Plantilla aprobada del registro sin terminar (signup-reminders, A-0030): `rocco_registro_pendiente`. */
   META_SIGNUP_TEMPLATE: z.string().optional(),
   /** Cuenta de WhatsApp Business: solo para leer el estado y la calidad de esa plantilla (CLI). */

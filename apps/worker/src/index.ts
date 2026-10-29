@@ -98,6 +98,10 @@ async function main() {
       dashboardUrl: env.DASHBOARD_URL,
       supportHint: env.SUPPORT_HINT ?? null,
       privacyContact: env.PRIVACY_CONTACT,
+      signupFastNumbers: (env.SIGNUP_FAST_NUMBERS ?? "")
+        .split(",")
+        .map((n) => n.replace(/\D/g, ""))
+        .filter(Boolean),
       unknownReplyMax: 5,
       unknownReplyWindowMs: 60 * 60 * 1000,
       maxEventAgeMs: 12 * 60 * 60 * 1000,

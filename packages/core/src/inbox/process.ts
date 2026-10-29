@@ -207,6 +207,8 @@ export type ProcessDeps = {
      * viene la foto que describe (al reenviar, WhatsApp entrega el texto antes). 03/10.
      */
     captionWaitMs?: number;
+    /** Números de prueba con el registro rápido aunque el interruptor esté apagado (29/10). */
+    signupFastNumbers?: string[];
   };
 };
 
@@ -683,7 +685,10 @@ async function handleSignupMessage(
       text,
       replyId,
     },
-    { dashboardUrl: deps.config.dashboardUrl },
+    {
+      dashboardUrl: deps.config.dashboardUrl,
+      ...(deps.config.signupFastNumbers ? { fastNumbers: deps.config.signupFastNumbers } : {}),
+    },
     now(),
   );
   let sends = 0;

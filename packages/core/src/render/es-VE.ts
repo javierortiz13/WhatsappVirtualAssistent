@@ -1,4 +1,4 @@
-import { GRACE_DAYS, TRIAL_MESSAGES } from "../billing/plans";
+import { GRACE_DAYS, TRIAL_DAYS, TRIAL_MESSAGES } from "../billing/plans";
 import {
   addDays,
   asIsoDate,
@@ -2645,6 +2645,93 @@ function askNameOutbound(body: string, profile: string | null): Outbound {
   return buttons.length ? { type: "buttons", body, buttons } : { type: "text", body };
 }
 
+// ---------------------------------------------------------------- registro rápido (29/10)
+/*
+ * Registro en un minuto (pedido de Javier el 29/10, propuesta a la agencia). BORRADOR: estos
+ * textos no salen a clientes hasta que redacción y cumplimiento los aprueben; van detrás del
+ * interruptor `signup_flow.fast` (o de los números de prueba). Voz neutra, sin «Epa» ni «pana».
+ */
+const KIND_BUTTONS = [
+  { id: IDS.signup("kind:personal"), title: "Para mí" },
+  { id: IDS.signup("kind:business"), title: "Para mi negocio" },
+];
+
+/** Primer mensaje: qué es Rocco y la primera pregunta. Con nombre de perfil, ya pregunta para qué. */
+export function signupFastIntro(dashboardUrl: string, name: string | null): Outbound {
+  const who =
+    "Soy Rocco, un asistente automático: me escribes lo que gastas, en bolívares o en dólares, y yo lo anoto.";
+  const privacy = `_Al seguir aceptas la política de privacidad: ${dashboardUrl}/privacidad_`;
+  if (name)
+    return {
+      type: "buttons",
+      body: [
+        `Hola, ${name}. ${who}`,
+        "Creamos tu cuenta aquí mismo, en un minuto. ¿Es para ti o para tu negocio?",
+        "",
+        privacy,
+      ].join("\n"),
+      buttons: KIND_BUTTONS,
+    };
+  return {
+    type: "text",
+    body: [
+      `Hola. ${who}`,
+      "Creamos tu cuenta aquí mismo, en un minuto. Primero, ¿cómo te llamas?",
+      "",
+      privacy,
+    ].join("\n"),
+  };
+}
+
+export function signupFastAskKind(name: string): Outbound {
+  return {
+    type: "buttons",
+    body: `Mucho gusto, ${name}. ¿Es para ti o para tu negocio?`,
+    buttons: KIND_BUTTONS,
+  };
+}
+
+export function signupFastAskBusinessName(): Outbound {
+  return { type: "text", body: "¿Cómo se llama tu negocio?" };
+}
+
+export function signupFastAskCurrency(business: boolean): Outbound {
+  return {
+    type: "buttons",
+    body: business
+      ? "¿El negocio gasta más en dólares o en bolívares? Cuando no me digas la moneda, uso esa."
+      : "¿Gastas más en dólares o en bolívares? Cuando no me digas la moneda, uso esa.",
+    buttons: [
+      { id: IDS.signup("cur:USD"), title: "Dólares" },
+      { id: IDS.signup("cur:VES"), title: "Bolívares" },
+    ],
+  };
+}
+
+/** Un solo mensaje al terminar: la prueba, el fundador si le tocó, y la primera acción. */
+export function signupFastDone(v: {
+  name: string;
+  businessName: string | null;
+  founderUntil?: string | null | undefined;
+  trialMessages?: number | null | undefined;
+  /** Pidió «no me escribas» durante el registro (US-SR-03). */
+  stopped?: boolean;
+}): Outbound {
+  const lines = [
+    `✅ Listo, ${v.name}. ${v.businessName ? `La cuenta de *${v.businessName}* está creada` : "Tu cuenta está creada"} y tienes *${TRIAL_DAYS} días o ${v.trialMessages ?? TRIAL_MESSAGES} mensajes gratis* para probarme, lo que llegue primero.`,
+  ];
+  if (v.founderUntil)
+    lines.push(
+      "🎁 Y como eres de los primeros, tienes *precio de fundador*: 40 % menos cuando actives tu plan.",
+    );
+  lines.push(
+    "",
+    "Pruébame ya: escríbeme un gasto, por ejemplo _gasté 5$ en café_. Para ver todo lo que hago, escribe *ayuda*.",
+  );
+  if (v.stopped) lines.push("", SIGNUP_STOP_DONE_LINE);
+  return { type: "text", body: lines.join("\n") };
+}
+
 /** Lo primero que ve alguien sin cuenta: quién es Rocco, que es gratis, privacidad y su nombre. */
 export function signupIntro(dashboardUrl: string, profile: string | null): Outbound {
   return askNameOutbound(
@@ -2903,7 +2990,12 @@ export function signupRescue(
   if (step === "name")
     body =
       "Hola. Quedó a medias tu cuenta de Rocco. Son unas preguntas cortas, casi todas con botones, y después ya puedes anotar tus gastos.\n¿Seguimos?";
-  else if (step === "kind")
+  // SR-A3 supone N ≥ 2; en el registro rápido puede faltar uno solo: SR-A2, sin número (pendiente
+  // de redacción: una variante para un paso).
+  else if (
+    step === "kind" ||
+    (remaining < 2 && step !== "budget" && step !== "accounts" && step !== "accounts_confirm")
+  )
     body = `${hi} Quedó a medias tu cuenta de Rocco. Faltan unas preguntas cortas, casi todas con botones, y después ya puedes anotar tus gastos.\n¿Seguimos?`;
   else if (step === "budget" || step === "accounts" || step === "accounts_confirm")
     body = `${hi} Tu cuenta de Rocco está casi lista: solo falta un paso, y es opcional.\n¿La terminamos?`;

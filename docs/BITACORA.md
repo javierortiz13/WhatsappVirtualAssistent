@@ -1859,3 +1859,16 @@ Decisión de Javier del 28/10 (1A, 2A, 4A) y handoff `dev-handoff-2026-10-28-tri
 **Decisión propia:** una prueba agotada por mensajes que después quedó suspendida por vencimiento tampoco se reabre (A3). `trialSpend().reached` solo mira pruebas en estado `trial`, así que el script mide el tope sin mirar el estado.
 
 **Conteos:** pendientes, del dry-run y del `--apply`.
+
+### S3 · 29/10/2026 · Registro rápido construido, apagado
+
+Pedido de Javier: el registro por WhatsApp tiene que ser más corto y sonar más humano. Al 29/10 habían terminado 15 de 33 registros; 7 se quedaron en el nombre después de 1,3 mensajes en promedio, es decir, después del primer mensaje largo. Rama `claude/registro-rapido-wijnh8`, que sale de `claude/signup-reminders-wijnh8` con producción unida. La propuesta va a la agencia.
+
+**Qué hace** (detrás de `app_setting.signup_flow.fast`, apagado, o de `SIGNUP_FAST_NUMBERS` en el worker para probar):
+- El nombre sale del perfil de WhatsApp; solo se pregunta si el perfil no trae uno usable.
+- El primer mensaje son tres líneas: qué es Rocco, «¿es para ti o para tu negocio?» con botones, y la línea de privacidad.
+- En negocio, el tipo se deduce del nombre; la lista sale solo si no se entiende.
+- Después de la moneda, la cuenta queda creada con las categorías sugeridas y sin presupuesto. Un solo mensaje final: la prueba, la línea de fundador si le tocó y «escríbeme un gasto».
+- Queda en 2 toques en personal, y un texto más 2 toques en negocio. Un registro empezado sigue con el flujo con el que empezó.
+
+**Pendiente:** redacción y cumplimiento aprueban los textos (son un borrador). Hay que acordar con #33 (registro v2) la lista de «para qué». El recordatorio SR-A3 para «un paso» usa SR-A2 hasta que redacción haga la variante.

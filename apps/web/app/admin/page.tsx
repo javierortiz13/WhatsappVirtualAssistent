@@ -6,6 +6,7 @@ import {
   PLANS,
   premiumOverUsd,
   quote,
+  signupFlowSettings,
   signupRescueSettings,
   TRIAL_DAYS,
 } from "@caja/core";
@@ -29,6 +30,7 @@ import {
   rejectPaymentAction,
   saveHabitsAction,
   saveLaunchAction,
+  saveSignupFlowAction,
   saveSignupRescueAction,
 } from "./actions";
 import { dueClass, dueText, METHOD_LABEL, planClass, STATE, usd, ves } from "./format";
@@ -104,6 +106,7 @@ export default async function AdminHome({
     loadReminderStats(tenants, now),
     signupRescueSettings(db()),
   ]);
+  const signupFlow = await signupFlowSettings(db());
   const rescue = funnel.rescue;
   const survey = surveyTally(tenants);
   const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)} %` : "—");
@@ -395,6 +398,24 @@ export default async function AdminHome({
           ))}
           <button className="btn small secondary" type="submit">
             Guardar registro
+          </button>
+        </form>
+        <form action={saveSignupFlowAction} className="stack-sm admin-flags">
+          <label className="flag">
+            <input type="checkbox" name="fast" defaultChecked={signupFlow.fast} />
+            <span className="what">
+              <strong>Registro rápido</strong>
+              <span className="sub">
+                Nombre del perfil, para qué, negocio y moneda; sin categorías ni presupuesto. Textos
+                en borrador: solo con la aprobación de redacción y cumplimiento.
+              </span>
+            </span>
+            <span className={`badge ${signupFlow.fast ? "ok" : ""}`}>
+              {signupFlow.fast ? "encendido" : "apagado"}
+            </span>
+          </label>
+          <button className="btn small secondary" type="submit">
+            Guardar registro rápido
           </button>
         </form>
       </section>
