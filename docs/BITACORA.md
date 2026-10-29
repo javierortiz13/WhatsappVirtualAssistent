@@ -1878,3 +1878,15 @@ Revisión de cumplimiento de `3771cb4` (CC-1…CC-9) y decisión 3A de Javier (2
 
 **Pendiente:** cumplimiento lee los commits; PV-3r va a /privacidad en el mismo despliegue; el abogado confirma PV-3r.
 
+### S3 · 29/10/2026 · Registro rápido construido, apagado
+
+Pedido de Javier: el registro por WhatsApp tiene que ser más corto y sonar más humano. Al 29/10 habían terminado 15 de 33 registros; 7 se quedaron en el nombre después de 1,3 mensajes en promedio, es decir, después del primer mensaje largo. Rama `claude/registro-rapido-wijnh8`, que sale de `claude/signup-reminders-wijnh8` con producción unida. La propuesta va a la agencia.
+
+**Qué hace** (detrás de `app_setting.signup_flow.fast`, apagado, o de `SIGNUP_FAST_NUMBERS` en el worker para probar):
+- El nombre sale del perfil de WhatsApp; solo se pregunta si el perfil no trae uno usable.
+- El primer mensaje son tres líneas: qué es Rocco, «¿es para ti o para tu negocio?» con botones, y la línea de privacidad.
+- En negocio, el tipo se deduce del nombre; la lista sale solo si no se entiende.
+- Después de la moneda, la cuenta queda creada con las categorías sugeridas y sin presupuesto. Un solo mensaje final: la prueba, la línea de fundador si le tocó y «escríbeme un gasto».
+- Queda en 2 toques en personal, y un texto más 2 toques en negocio. Un registro empezado sigue con el flujo con el que empezó.
+
+**Pendiente:** redacción y cumplimiento aprueban los textos (son un borrador). Hay que acordar con #33 (registro v2) la lista de «para qué». El recordatorio SR-A3 para «un paso» usa SR-A2 hasta que redacción haga la variante.

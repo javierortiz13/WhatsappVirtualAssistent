@@ -1,5 +1,10 @@
 import type { HabitHistoryEntry } from "@caja/core";
-import { saveHabitsAction, saveRewardsAction, saveSignupRescueAction } from "../actions";
+import {
+  saveHabitsAction,
+  saveRewardsAction,
+  saveSignupFlowAction,
+  saveSignupRescueAction,
+} from "../actions";
 import { Banner, Card, Head } from "../ui/bits";
 import { FlagGroup, type FlagView } from "../ui/flag-group";
 
@@ -8,11 +13,12 @@ export type InterruptoresData = {
   habits: FlagView[];
   rewards: FlagView[];
   rescue: FlagView[];
+  signupFlow: FlagView[];
   /** El tope de regalos va igual con los interruptores de puntos (misma server action). */
   ceiling: string;
   history: HabitHistoryEntry[];
   /** Solo para las capturas: una hoja abierta. */
-  open?: { group: "habits" | "rewards" | "rescue"; field: string; code?: string };
+  open?: { group: "habits" | "rewards" | "rescue" | "signupFlow"; field: string; code?: string };
 };
 
 const FLAG_NAME: Record<string, string> = {
@@ -38,7 +44,7 @@ const when = (iso: string) => {
  * de otro quedan con 🔒; los que piden aprobación de la agencia, con su código y su estado.
  */
 export function InterruptoresView(d: InterruptoresData) {
-  const o = (g: "habits" | "rewards" | "rescue") =>
+  const o = (g: "habits" | "rewards" | "rescue" | "signupFlow") =>
     d.open?.group === g
       ? { field: d.open.field, ...(d.open.code ? { code: d.open.code } : {}) }
       : undefined;
@@ -62,6 +68,7 @@ export function InterruptoresView(d: InterruptoresData) {
       </Card>
       <Card title="Registro">
         <FlagGroup action={saveSignupRescueAction} flags={d.rescue} open={o("rescue")} />
+        <FlagGroup action={saveSignupFlowAction} flags={d.signupFlow} open={o("signupFlow")} />
       </Card>
       <p className="ad-note">
         Enciéndelos solo con su aprobación. Si algo sale mal, apágalo aquí el mismo día.

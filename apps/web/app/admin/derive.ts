@@ -27,6 +27,7 @@ export const FIELD: Record<AdminFlagKey, string> = {
   inWindow: "in_window",
   template: "template",
   viaTemplate: "via_template",
+  signupFast: "fast",
 };
 
 /** Los interruptores de un grupo como los dibuja la hoja, con las reglas de core. */

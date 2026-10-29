@@ -35,10 +35,11 @@ export type AdminFlagKey =
   | "referrals"
   | "inWindow"
   | "template"
-  | "viaTemplate";
+  | "viaTemplate"
+  | "signupFast";
 
 /** Grupo = la server action que lo guarda. */
-export type FlagGroup = "habits" | "rewards" | "rescue";
+export type FlagGroup = "habits" | "rewards" | "rescue" | "signupFlow";
 
 export type FlagRule = {
   key: AdminFlagKey;
@@ -156,6 +157,14 @@ export const FLAG_RULES: readonly FlagRule[] = [
     title: "Recordatorio como plantilla",
     desc: "El recordatorio del registro como plantilla de Meta.",
     blocked: "No aprobado",
+  },
+  {
+    key: "signupFast",
+    group: "signupFlow",
+    section: "Registro",
+    title: "Registro rápido",
+    desc: "Nombre del perfil, para qué, negocio y moneda; sin categorías ni presupuesto. Para probar sin encenderlo: SIGNUP_FAST_NUMBERS en el worker.",
+    blocked: "Textos en revisión",
   },
 ];
 

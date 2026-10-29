@@ -1,4 +1,10 @@
-import { habitHistory, habitSettings, rewardSettings, signupRescueSettings } from "@caja/core";
+import {
+  habitHistory,
+  habitSettings,
+  rewardSettings,
+  signupFlowSettings,
+  signupRescueSettings,
+} from "@caja/core";
 import type { FlagState } from "@caja/core/admin-flags";
 import { db } from "@/lib/db";
 import { getAdmin } from "../data";
@@ -14,9 +20,10 @@ export default async function AdminInterruptores({
 }) {
   await getAdmin();
   const sp = await searchParams;
-  const [h, r, rs, history] = await Promise.all([
+  const [h, r, f, rs, history] = await Promise.all([
     habitSettings(db()),
     signupRescueSettings(db()),
+    signupFlowSettings(db()),
     rewardSettings(db()),
     habitHistory(db(), 10),
   ]);
@@ -33,6 +40,7 @@ export default async function AdminInterruptores({
     inWindow: r.inWindow,
     template: r.template,
     viaTemplate: r.inWindowVia === "template",
+    signupFast: f.fast,
   };
   return (
     <InterruptoresView
@@ -40,6 +48,7 @@ export default async function AdminInterruptores({
       habits={flagViews("habits", state)}
       rewards={flagViews("rewards", state)}
       rescue={flagViews("rescue", state)}
+      signupFlow={flagViews("signupFlow", state)}
       ceiling={rs.monthlyCeilingUsd.toFixed(2)}
       history={history}
     />

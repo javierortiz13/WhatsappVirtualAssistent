@@ -23,6 +23,7 @@ const OFF: FlagState = {
   inWindow: false,
   template: false,
   viaTemplate: false,
+  signupFast: false,
 };
 /** Producción el 08/11: hábito encendido, P4 apagado. */
 const PROD: FlagState = {
@@ -156,6 +157,11 @@ describe("los que no se tocan", () => {
 
   it("«Recordatorio como plantilla» no se enciende (no aprobado)", () => {
     expect(applyFlagChange(PROD, "viaTemplate", true)).toEqual({ ok: false, error: "blocked" });
+    // Registro rápido: no se enciende hasta que la agencia apruebe los textos; apagarlo sí.
+    expect(applyFlagChange(PROD, "signupFast", true)).toEqual({ ok: false, error: "blocked" });
+    expect(applyFlagChange({ ...PROD, signupFast: true }, "signupFast", false)).toMatchObject({
+      ok: true,
+    });
     expect(validateFlagSave(PROD, { ...PROD, viaTemplate: true })).toMatchObject({
       ok: false,
       error: "blocked",

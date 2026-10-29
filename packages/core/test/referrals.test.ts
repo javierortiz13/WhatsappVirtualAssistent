@@ -462,6 +462,31 @@ describe("invitaciones (P4-B)", () => {
     expect((await referralsOf(a.id)).map((r) => r.via)).toEqual(["chat"]);
   });
 
+  it("registro rápido con código en el primer mensaje: la invitación y el +50 con la cuenta", async () => {
+    const a = await inviter();
+    const e164 = "584169990002";
+    const cfg = { dashboardUrl: "https://x.test", fastNumbers: [e164] };
+    const input = (text: string | null, replyId: string | null = null) => ({
+      e164,
+      waUserId: null,
+      profileName: "Ana",
+      text,
+      replyId,
+    });
+    await handleSignup(t.db, input(`Hola Rocco, me invitó ${a.code}`), cfg);
+    const [row] = await t.db.select().from(schema.signup).where(eq(schema.signup.e164, e164));
+    expect(row?.data).toEqual({ flow: "fast", name: "Ana", ref: a.code });
+    await handleSignup(t.db, input(null, "signup:kind:personal"), cfg);
+    const done = await handleSignup(t.db, input("en dólares"), cfg);
+    expect(String((done.outbound[0] as { body: string }).body)).toContain("150 mensajes");
+    const tenantId = done.created?.tenantId as string;
+    const [b] = await withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId)),
+    );
+    expect(b?.extraMessages).toBe(50);
+    expect((await referralsOf(a.id)).map((r) => r.via)).toEqual(["chat"]);
+  });
+
   it("primer mensaje sin código, o con un código que no existe: el registro de siempre", async () => {
     for (const text of ["hola rocco", "Hola Rocco, me invitó ZZ22ZZ", "PRUEBA"]) {
       const out = await handleSignup(

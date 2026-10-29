@@ -31,9 +31,11 @@ import {
   saveHabitSettings,
   saveLaunchSettings,
   saveRewardSettings,
+  saveSignupFlowSettings,
   saveSignupRescueSettings,
   scheduleSignupBatch,
   setTenantBilling,
+  signupFlowSettings,
   signupRescueSettings,
   subscriptionState,
   syncInvitee,
@@ -76,7 +78,11 @@ const FLAG_ERROR: Record<FlagChangeError, string> = {
 
 /** Todos los interruptores de /admin como los ve hoy la base. */
 async function currentFlags(): Promise<FlagState> {
-  const [h, r] = await Promise.all([habitSettings(db()), signupRescueSettings(db())]);
+  const [h, r, f] = await Promise.all([
+    habitSettings(db()),
+    signupRescueSettings(db()),
+    signupFlowSettings(db()),
+  ]);
   return {
     streakLine: h.streakLine,
     noSpend: h.noSpend,
@@ -90,6 +96,7 @@ async function currentFlags(): Promise<FlagState> {
     inWindow: r.inWindow,
     template: r.template,
     viaTemplate: r.inWindowVia === "template",
+    signupFast: f.fast,
   };
 }
 
@@ -860,4 +867,26 @@ export async function cancelBatchAction(): Promise<void> {
   await cancelSignupBatch(db(), admin.email, new Date());
   revalidatePath("/admin");
   redirect("/admin/registro?ok=lote_cancelado#lote");
+}
+
+/**
+ * Registro rápido (29/10): interruptor para todos los números nuevos. No se enciende hasta que la
+ * agencia apruebe los textos (`admin/flags`, «Textos en revisión»); apagarlo siempre se puede.
+ */
+export async function saveSignupFlowAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const signupFast = formData.get("fast") === "on";
+  const flagsBefore = await currentFlags();
+  const check = validateFlagSave(flagsBefore, { ...flagsBefore, signupFast });
+  if (!check.ok) redirect(`/admin/interruptores?error=${FLAG_ERROR[check.error]}`);
+  try {
+    await saveSignupFlowSettings(db(), { fast: signupFast }, admin.email, new Date());
+  } catch (err) {
+    console.error(
+      JSON.stringify({ level: "error", msg: "admin registro rápido", detail: errorText(err) }),
+    );
+    redirect("/admin/interruptores?error=servidor");
+  }
+  revalidatePath("/admin");
+  redirect("/admin/interruptores?ok=rescate");
 }
