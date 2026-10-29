@@ -52,7 +52,7 @@ const COUNTERPARTY_FIELD = z
 const REF_FIELD = z
   .string()
   .describe(
-    'El recordatorio, por su ref de la lista de recordatorios ("r1", "r2"…). "" si es el que el usuario está corrigiendo o si solo hay uno.',
+    'Siempre: el recordatorio, por su ref de la lista de recordatorios ("r1", "r2"…), el que coincide con lo que nombra ("el de la luz" → el ref de "pagar la luz"). "" solo si es el que está corrigiendo o si solo hay uno.',
   );
 
 export const CreateReminderInput = z.object({
@@ -71,9 +71,11 @@ export const CreateReminderInput = z.object({
 /**
  * Sin estricto, el modelo a veces omite los campos que no cambian (evals 29/10: «cambia el
  * recordatorio de la luz para el lunes» sin `text` ni `amount`): un campo que falta vale "".
+ * `reminder` sí es obligatorio: con un default el modelo lo omitía y no se sabía cuál (evals
+ * 29/10, 154/158); si falta, el loop le pide corregir.
  */
 export const UpdateReminderInput = z.object({
-  reminder: REF_FIELD.default(""),
+  reminder: REF_FIELD,
   text: TEXT_FIELD.max(120)
     .describe(
       "El texto nuevo SOLO si lo cambia ('pagar el agua'); '' si no cambia. Neutral, sin calificativos.",
@@ -88,7 +90,7 @@ export const UpdateReminderInput = z.object({
   ).default(""),
 });
 
-export const CancelReminderInput = z.object({ reminder: REF_FIELD.default("") });
+export const CancelReminderInput = z.object({ reminder: REF_FIELD });
 
 function parseAmount(s: string): Decimal | null {
   const d = parseVenezuelanAmount(s) ?? (/^\d+(\.\d+)?$/.test(s) ? new Decimal(s) : null);

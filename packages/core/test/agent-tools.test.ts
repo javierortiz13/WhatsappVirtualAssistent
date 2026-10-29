@@ -202,15 +202,18 @@ describe("definiciones de herramientas", () => {
 });
 
 describe("herramientas de recordatorios: argumentos incompletos", () => {
-  it("update_reminder y cancel_reminder aceptan que falten los campos que no cambian", () => {
-    expect(UpdateReminderInput.parse({ when: "el lunes" })).toEqual({
-      reminder: "",
+  it("update_reminder y cancel_reminder aceptan que falten los campos que no cambian, no el ref", () => {
+    expect(UpdateReminderInput.parse({ reminder: "r1", when: "el lunes" })).toEqual({
+      reminder: "r1",
       text: "",
       amount: "",
       currency: "unknown",
       when: "el lunes",
     });
-    expect(CancelReminderInput.parse({})).toEqual({ reminder: "" });
+    // Sin `reminder`, el loop le pide al modelo corregir (evals 29/10).
+    expect(UpdateReminderInput.safeParse({ when: "el lunes" }).success).toBe(false);
+    expect(CancelReminderInput.safeParse({}).success).toBe(false);
+    expect(CancelReminderInput.parse({ reminder: "" })).toEqual({ reminder: "" });
     expect(CreateReminderInput.parse({ text: "pagar la luz", kind: "pay" })).toMatchObject({
       amount: "",
       currency: "unknown",

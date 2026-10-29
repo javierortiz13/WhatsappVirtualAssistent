@@ -12,8 +12,9 @@
     tool: draft_expense
     tool_not: ask_clarification
 
+# Con el qué: sin él («pagué 10$ con la tarjeta») preguntar qué pagó es correcto, como «20$».
 - name: con la tarjeta no pregunta la cuenta
-  input: "pagué 10$ con la tarjeta"
+  input: "pagué 10$ de gasolina con la tarjeta"
   accounts: *ejemplo
   expect:
     tool: draft_expense
