@@ -1,6 +1,7 @@
 import {
   type AuthAdmin,
   bcvSource,
+  bumpSignupCounts,
   cleanupErased,
   deliverReminders,
   dolarApiSource,
@@ -13,6 +14,8 @@ import {
   type OverCap,
   type ProcessDeps,
   processInbound,
+  purgeAbandonedSignups,
+  purgeOldSenderHits,
   purgeOldTenantData,
   purgeOldWebhookPayloads,
   refreshRates,
@@ -129,7 +132,16 @@ export async function registerJobs(opts: {
       const now = new Date();
       let expired = 0;
       let swept = 0;
-      const purged = { texts: 0, drafts: 0, photos: 0, reminders: 0, events: 0 };
+      const purged = {
+        texts: 0,
+        drafts: 0,
+        photos: 0,
+        reminders: 0,
+        events: 0,
+        signupsDeleted: 0,
+        signupsKept: 0,
+        senderHits: 0,
+      };
       let tenants: string[] = [];
       try {
         tenants = await allTenantIds(db);
@@ -178,7 +190,29 @@ export async function registerJobs(opts: {
           "conservación: eventos del webhook",
         );
       }
-      if (purged.texts || purged.drafts || purged.photos || purged.reminders || purged.events)
+      // Registros sin terminar a los 90 días (US-AD-05, 3A): con marca queda solo el número.
+      try {
+        const sg = await purgeAbandonedSignups(db, now);
+        purged.signupsDeleted = sg.deleted;
+        purged.signupsKept = sg.kept;
+        await bumpSignupCounts(db, now, { purge_deleted: sg.deleted, purge_kept: sg.kept });
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : String(err) },
+          "conservación: registros sin terminar",
+        );
+      }
+      // F-8: contadores de mensajes por número de más de un día.
+      try {
+        purged.senderHits = await purgeOldSenderHits(db, now);
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : String(err) },
+          "conservación: contadores de desconocidos",
+        );
+      }
+      // Solo conteos: nunca un número ni un id.
+      if (Object.values(purged).some((n) => n > 0))
         log.info(purged, "conservación: datos viejos borrados");
       // Jobs vencidos por tiempo que quedaron en `failed`: desbloquear el teléfono.
       const stuck = await cancelFailedFifoJobs(db);

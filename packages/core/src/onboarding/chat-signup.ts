@@ -104,7 +104,8 @@ export async function canStartSignup(db: Db, e164: string, now: Date): Promise<b
   const [r] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(s)
-    .where(gt(s.createdAt, since));
+    // Las filas vaciadas por la limpieza de 90 días no gastan el cupo (US-AD-05.5).
+    .where(and(gt(s.createdAt, since), isNull(s.purgedAt)));
   return (r?.n ?? 0) < SIGNUPS_PER_HOUR;
 }
 
@@ -120,10 +121,17 @@ export async function handleSignup(
   const profile = cleanProfileName(input.profileName);
   // «no me escribas», «stop»… (US-SR-02): el mensaje entero, como en las cuentas (US-204).
   const optOut = input.text ? isSignupOptOut(input.text) : false;
+  // Toque viejo de «No me escribas» sobre una fila vaciada a los 90 días (US-AD-05.5): la plantilla
+  // se tocó meses después. Cuenta como el texto, también con el payload como texto del botón (P-13).
+  const tap = input.replyId ? parseReplyId(input.replyId) : null;
+  const stopTap =
+    Boolean(row?.purgedAt) &&
+    ((tap?.kind === "signup" && tap.value === "stop") ||
+      (input.replyId !== null && intentOf(input.replyId) === "no me escribas"));
 
-  // Primer mensaje (o un registro viejo cuyo negocio ya no existe): presentación y nombre. Las
-  // marcas del rescate y el «no me escribas» se conservan al reiniciar.
-  if (!row || row.completedAt) {
+  // Primer mensaje (o un registro viejo cuyo negocio ya no existe, o uno vaciado a los 90 días):
+  // presentación y nombre. Las marcas del rescate y el «no me escribas» se conservan al reiniciar.
+  if (!row || row.completedAt || row.purgedAt) {
     if (row) {
       await db
         .update(s)
@@ -134,7 +142,16 @@ export async function handleSignup(
           tenantId: null,
           messages: 1,
           updatedAt: now,
-          ...(optOut && !row.contactOffAt ? { contactOffAt: now } : {}),
+          ...((optOut || stopTap) && !row.contactOffAt ? { contactOffAt: now } : {}),
+          // Vaciada a los 90 días: vuelve como un registro nuevo para el embudo (US-AD-05.5).
+          ...(row.purgedAt
+            ? {
+                purgedAt: null,
+                createdAt: now,
+                waUserId: input.waUserId,
+                profileName: input.profileName,
+              }
+            : {}),
         })
         .where(eq(s.id, row.id));
     } else {
@@ -153,11 +170,11 @@ export async function handleSignup(
         })
         .onConflictDoNothing();
     }
-    if (optOut)
+    if (optOut || stopTap)
       return {
         outbound: [es.signupStopped()],
         step: "name",
-        rescueEvent: { kind: "stop_word", via: row?.rescueVia ?? "none" },
+        rescueEvent: { kind: stopTap ? "stop_tap" : "stop_word", via: row?.rescueVia ?? "none" },
       };
     return { outbound: [es.signupIntro(cfg.dashboardUrl, profile)], step: "name" };
   }

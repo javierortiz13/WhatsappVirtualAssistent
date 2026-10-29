@@ -22,7 +22,19 @@ import {
 } from "@caja/core";
 import { businessDateOf } from "@caja/core/domain";
 import { errorText } from "@caja/core/log";
-import { and, desc, eq, everyTenantId, gte, rows, schema, sql, withTenant } from "@caja/db";
+import {
+  and,
+  desc,
+  eq,
+  everyTenantId,
+  gte,
+  isNotNull,
+  isNull,
+  rows,
+  schema,
+  sql,
+  withTenant,
+} from "@caja/db";
 import { notFound, redirect } from "next/navigation";
 import { db } from "./db";
 import { env } from "./env";
@@ -201,6 +213,9 @@ export type RescueFunnel = {
   templateResume: number;
   templateStop: number;
   templateFinished: number;
+  /** Borrado a los 90 días (US-AD-05.6): borradas en 90 días y filas que quedan solo con la marca. */
+  purgeDeleted: number;
+  purgeKept: number;
 };
 
 /**
@@ -212,13 +227,23 @@ export const INTERNAL_TAG = "interna";
 export const isInternal = (tags: string[]) =>
   tags.some((t) => t.trim().toLowerCase() === INTERNAL_TAG);
 
+/** Filas que la limpieza de 90 días dejó con solo el número y la marca. */
+async function keptMarks(): Promise<number> {
+  const [r] = await db()
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.signup)
+    .where(isNotNull(schema.signup.purgedAt));
+  return r?.n ?? 0;
+}
+
 export async function loadFunnel(tenants: TenantRow[], now: Date) {
   await requireAdmin();
   const s = schema.signup;
   const all = await db()
     .select()
     .from(s)
-    .where(gte(s.createdAt, new Date(now.getTime() - 90 * 86_400_000)))
+    // Una fila vaciada a los 90 días no es un registro (US-AD-05.6): ni en la lista ni en el embudo.
+    .where(and(gte(s.createdAt, new Date(now.getTime() - 90 * 86_400_000)), isNull(s.purgedAt)))
     .orderBy(desc(s.updatedAt));
   // Solo clientes: las cuentas internas (etiqueta "interna") no cuentan.
   const live = tenants.filter((t) => !t.purgeAfter && !t.internal);
@@ -270,6 +295,8 @@ export async function loadFunnel(tenants: TenantRow[], now: Date) {
     templateResume: counts["resume:template"] ?? 0,
     templateStop: counts["stop:template"] ?? 0,
     templateFinished: finishedAfter(templateRows),
+    purgeDeleted: counts.purge_deleted ?? 0,
+    purgeKept: await keptMarks(),
   };
   return {
     chatStarted: all.length,

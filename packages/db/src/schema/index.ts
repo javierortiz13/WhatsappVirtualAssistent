@@ -472,6 +472,8 @@ export const signup = app.table("signup", {
   contactOffAt: timestamp("contact_off_at", { withTimezone: true }),
   /** 0030: el fundador ya le escribió a mano («Le escribí yo» en /admin). */
   founderContactedAt: timestamp("founder_contacted_at", { withTimezone: true }),
+  /** 0031: la limpieza de 90 días la vació; queda solo el número y la marca (US-AD-05). */
+  purgedAt: timestamp("purged_at", { withTimezone: true }),
   ...timestamps,
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -369,6 +369,10 @@ export default async function AdminHome({
           Plantilla del registro: enviadas {rescue.templateSent} · Seguir {rescue.templateResume} ·
           No me escribas {rescue.templateStop} · terminaron {rescue.templateFinished}
         </p>
+        <p className="sub num" style={{ margin: 0 }}>
+          Borrado a los 90 días: borrados {rescue.purgeDeleted} (últimos 90 días) · quedan solo
+          número y marca {rescue.purgeKept}
+        </p>
         <p className="sub" style={{ margin: 0 }}>
           Menos de 30: son números, no porcentajes.
         </p>

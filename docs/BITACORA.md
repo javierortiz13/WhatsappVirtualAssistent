@@ -1835,5 +1835,24 @@ Handoff `dev-handoff-signup-reminders.md` v1.2 (board #26), PRD `prd-signup-remi
 - PV-3 no se publica: habla del borrado de los registros sin terminar a los 90 días, que no existe todavía, y del «origen», que es de #16.
 
 **Pendiente**
-- Javier: migración 0030 en producción, `META_SIGNUP_TEMPLATE` en Railway y la plantilla en WhatsApp Manager (A-0030).
+- Migración 0030: aplicada en producción el 29/10, antes de la revisión del commit (CC-7: desde ahora, una migración va después de que cumplimiento confirme el commit). Javier: `META_SIGNUP_TEMPLATE` en Railway y la plantilla en WhatsApp Manager (A-0030).
 - Cumplimiento: leer el commit. Abogado: PR-1 y PR-2.
+
+### S3 · 29/10/2026 · Arreglos de cumplimiento y borrado a 90 días de los registros sin terminar
+
+Revisión de cumplimiento de `3771cb4` (CC-1…CC-9) y decisión 3A de Javier (29/10): los registros sin terminar se borran a los 90 días (US-AD-05 de anuncios, F-8). Va en la rama de los recordatorios del registro y sale en el mismo despliegue.
+
+**Arreglos**
+- **CC-1:** la marca de (A) compara `updated_at` truncado a milisegundos. Sin esto, quien se quedaba en el primer paso, donde más gente se queda, nunca recibía el recordatorio.
+- **CC-2 y CC-3:** el CLI del lote rechaza un intervalo que no sea número y una antigüedad fuera de 1 a 30 días, y su salida no lleva números.
+- **CC-4 y CC-8:** la regla de parada mira también la categoría de la plantilla, y el lote se niega si el costo estimado pasa de $3.
+
+**Borrado (migración 0031)**
+- 90 días después del último mensaje de la persona, un registro sin terminar se borra entero.
+- Si dijo «no me escribas» o Rocco ya le escribió una vez, la fila queda con solo el número y esa marca (`purged_at`). Así, si vuelve, Rocco sigue sin escribirle por su cuenta.
+- Si vuelve, empieza de nuevo con la marca intacta.
+- Los contadores de mensajes por número se borran al día (F-8).
+- En /admin, una línea con los dos conteos.
+
+**Pendiente:** cumplimiento lee los commits; PV-3r va a /privacidad en el mismo despliegue; el abogado confirma PV-3r.
+

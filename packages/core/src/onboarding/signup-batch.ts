@@ -86,7 +86,9 @@ export async function planSignupBatch(
       founderContactedAt: s.founderContactedAt,
       taken: sql<boolean>`app.phone_is_taken(${s.e164})`,
     })
-    .from(s);
+    .from(s)
+    // Una fila vaciada a los 90 días no es un registro sin terminar (US-AD-05.5).
+    .where(isNull(s.purgedAt));
   const park = new Set((opts.parkNumbers ?? []).map((n) => n.replace(/\D/g, "")));
   const maxAge = checkMaxAgeDays(opts.maxAgeDays) * DAY_MS;
   const excluded: Record<ExcludeReason, number> = {

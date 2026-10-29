@@ -1,4 +1,16 @@
-import { and, type Db, inArray, isNull, lt, ne, schema, sql, type Tx } from "@caja/db";
+import {
+  and,
+  type Db,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  or,
+  schema,
+  sql,
+  type Tx,
+} from "@caja/db";
 import type { Logger } from "../log";
 import type { ObjectStore } from "../storage/store";
 import { discardAttachment } from "./attachments";
@@ -98,5 +110,71 @@ export async function purgeOldWebhookPayloads(db: Db, now: Date): Promise<number
       ),
     )
     .returning({ id: w.id });
+  return rows.length;
+}
+
+/**
+ * Registros por WhatsApp sin terminar (US-AD-05, decisión 3A del 29/10/2026; /privacidad PV-3r):
+ * 90 días después del último mensaje de la persona se borran. Si dijo «no me escribas» o Rocco ya
+ * le escribió (`rescue_via` window o template), la fila no se borra: queda solo el número y esa
+ * marca, para que «no te vuelve a escribir por su cuenta» (PR-1) se cumpla si vuelve.
+ */
+export const SIGNUP_ABANDONED_DAYS = 90;
+
+export async function purgeAbandonedSignups(
+  db: Db,
+  now: Date,
+): Promise<{ deleted: number; kept: number }> {
+  const s = schema.signup;
+  const cutoff = new Date(now.getTime() - SIGNUP_ABANDONED_DAYS * DAY_MS);
+  const due = and(isNull(s.completedAt), isNull(s.purgedAt), lt(s.updatedAt, cutoff));
+  const marked = or(isNotNull(s.contactOffAt), inArray(s.rescueVia, ["window", "template"]));
+  return db.transaction(async (tx) => {
+    // a) Con marca: se vacía todo menos el número, el «no me escribas» y el rescate.
+    const kept = await tx
+      .update(s)
+      .set({
+        waUserId: null,
+        profileName: null,
+        tenantId: null,
+        rescueWaMessageId: null,
+        founderContactedAt: null,
+        step: "name",
+        data: {},
+        messages: 0,
+        createdAt: now,
+        updatedAt: now,
+        purgedAt: now,
+      })
+      .where(and(due, marked))
+      .returning({ id: s.id });
+    // b) Sin marca: se borra entera. Escrito a prueba de NULL: not(or(...)) con rescue_via NULL
+    // da NULL y no borraría nada.
+    const deleted = await tx
+      .delete(s)
+      .where(
+        and(
+          due,
+          isNull(s.contactOffAt),
+          sql`${s.rescueVia} is distinct from 'window'`,
+          sql`${s.rescueVia} is distinct from 'template'`,
+        ),
+      )
+      .returning({ id: s.id });
+    return { deleted: deleted.length, kept: kept.length };
+  });
+}
+
+/**
+ * F-8 (revisión de anuncios, 27/10): los contadores de mensajes por número (`<e164>`,
+ * `k:<e164>`, `sig:invalid`) se borran al día. La ventana más larga es de 60 min, así que el
+ * límite no cambia, y un número borrado por `erase_tenant` ya no sobrevive como `k:<e164>`.
+ */
+export async function purgeOldSenderHits(db: Db, now: Date): Promise<number> {
+  const h = schema.unknownSenderHit;
+  const rows = await db
+    .delete(h)
+    .where(lt(h.windowStart, new Date(now.getTime() - DAY_MS)))
+    .returning({ key: h.e164 });
   return rows.length;
 }
