@@ -2873,11 +2873,64 @@ export function signupDone(v: {
 }
 
 /** Recorrido corto de lo que sabe hacer, el dashboard y la invitación al primer gasto. */
+/**
+ * Recordatorios del registro (PRD signup-reminders v1.2; copy `signup-reminders-strings-es-VE.md`
+ * v1.1, tal cual). SR-A1…A4 según el paso, con «Seguir» / «No me escribas».
+ */
+export type SignupRescueStep =
+  | "name"
+  | "kind"
+  | "biz_name"
+  | "biz_type"
+  | "currency"
+  | "categories"
+  | "accounts"
+  | "accounts_confirm"
+  | "budget";
+
+export const SIGNUP_RESCUE_BUTTONS = [
+  { id: "signup:resume", title: "Seguir" },
+  { id: "signup:stop", title: "No me escribas" },
+];
+
+export function signupRescue(
+  step: SignupRescueStep,
+  name: string | null,
+  remaining: number,
+): Outbound {
+  const hi = name ? `Hola, ${name}.` : "Hola.";
+  let body: string;
+  if (step === "name")
+    body =
+      "Hola. Quedó a medias tu cuenta de Rocco. Son unas preguntas cortas, casi todas con botones, y después ya puedes anotar tus gastos.\n¿Seguimos?";
+  else if (step === "kind")
+    body = `${hi} Quedó a medias tu cuenta de Rocco. Faltan unas preguntas cortas, casi todas con botones, y después ya puedes anotar tus gastos.\n¿Seguimos?`;
+  else if (step === "budget" || step === "accounts" || step === "accounts_confirm")
+    body = `${hi} Tu cuenta de Rocco está casi lista: solo falta un paso, y es opcional.\n¿La terminamos?`;
+  else
+    body = `${hi} Quedó a medias tu cuenta de Rocco: te faltan ${remaining} pasos para que puedas anotar tus gastos.\n¿Seguimos donde quedamos?`;
+  return { type: "buttons", body, buttons: SIGNUP_RESCUE_BUTTONS };
+}
+
+/** SR-STOP: «No me escribas» o una palabra de apagado durante el registro. */
+export function signupStopped(): Outbound {
+  return {
+    type: "text",
+    body: "Listo, ya no te escribo por mi cuenta. Si más adelante quieres terminar tu cuenta, escríbeme y seguimos donde quedamos.",
+  };
+}
+
+/** SR-STOP-DONE: al final del tour de quien pidió no recibir mensajes durante el registro. */
+export const SIGNUP_STOP_DONE_LINE =
+  "Como me pediste, no te escribo por mi cuenta, salvo avisos sobre un pago tuyo o el borrado de tus datos. Para volver: *ya puedes escribirme*.";
+
 export function signupTour(
   dashboardUrl: string,
   kind: "personal" | "business",
   /** Un registro viejo que creó cuentas («Así está bien») ve la línea de antes. */
   hasAccounts = false,
+  /** Pidió «no me escribas» durante el registro (US-SR-03): se agrega SR-STOP-DONE. */
+  stopped = false,
 ): Outbound {
   const lines = [
     "Así me usas, como si le escribieras a un pana:",
@@ -2898,6 +2951,7 @@ export function signupTour(
     "",
     "Arranquemos: escríbeme tu primer gasto, por ejemplo _gasté 5$ en café_.",
   );
+  if (stopped) lines.push("", SIGNUP_STOP_DONE_LINE);
   return { type: "text", body: lines.join("\n") };
 }
 
@@ -3284,6 +3338,8 @@ export const consentTextVersion = {
   H46: "v1.2",
   /** R-2 d: «ya puedes escribirme» desde un teléfono de empleado. */
   "R-2d": "v1.2",
+  /** Recordatorios del registro: «no me escribas» durante el registro (signup-reminders v1.1). */
+  "SR-STOP": "v1.1",
 } as const;
 export type ConsentTextId = keyof typeof consentTextVersion;
 

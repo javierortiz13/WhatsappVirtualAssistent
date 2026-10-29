@@ -21,6 +21,12 @@ const Env = z.object({
   /** Plantilla de WhatsApp para avisar de borrado por impago fuera de las 24 h (0017). */
   META_RETENTION_TEMPLATE: z.string().optional(),
   META_TEMPLATE_LANGUAGE: z.string().default("es"),
+  /** Plantilla aprobada del registro sin terminar (signup-reminders, A-0030): `rocco_registro_pendiente`. */
+  META_SIGNUP_TEMPLATE: z.string().optional(),
+  /** Cuenta de WhatsApp Business: solo para leer el estado y la calidad de esa plantilla (CLI). */
+  META_WABA_ID: z.string().optional(),
+  /** Tarifa de marketing para el costo estimado del lote (Resto de Latinoamérica, oct 2026). */
+  META_MARKETING_RATE_USD: z.coerce.number().positive().default(0.074),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(4),
   ANTHROPIC_API_KEY: z.string().optional(),
   LLM_PRIMARY: z.string().default("anthropic:claude-sonnet-5-5"),

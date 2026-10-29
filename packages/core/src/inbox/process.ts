@@ -1150,7 +1150,13 @@ async function routeMessage(
       now: (deps.now ?? (() => new Date()))(),
     },
     {
-      text: msg.kind === "text" ? msg.text : null,
+      // Un «No me escribas» viejo del recordatorio del registro (US-SR-04) vale como la frase.
+      text:
+        msg.kind === "text"
+          ? msg.text
+          : msg.kind === "interactive" && msg.replyId === "signup:stop"
+            ? "no me escribas"
+            : null,
       replyId: msg.kind === "interactive" ? msg.replyId : null,
     },
   );
@@ -2276,6 +2282,9 @@ async function routeInteractive(
         parsed.answer === "yes" ? es.valueYes() : es.valueDoubts(deps.config.supportHint),
       ]);
     }
+    case "signup":
+      // Un toque viejo del recordatorio del registro, ya con cuenta (US-SR-04): el menú.
+      return none([es.menu(await getRateInfo(tx, ctx.today), ctx.personal)]);
     default:
       return none([es.outOfScope()]);
   }

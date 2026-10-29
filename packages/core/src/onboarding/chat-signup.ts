@@ -1,9 +1,11 @@
 import { createHash, randomInt } from "node:crypto";
-import { and, type Db, eq, gt, isNull, schema, sql, type Tx } from "@caja/db";
+import { and, type Db, eq, gt, isNull, schema, sql, type Tx, withTenant } from "@caja/db";
 import { DEFAULT_EXPENSE_CATEGORIES } from "@caja/db/seed-data";
 import { TRIAL_MESSAGES } from "../billing/plans";
 import { Decimal, parseVenezuelanAmount } from "../domain/money";
+import { classifyPref } from "../inbox/prefs";
 import type { AccountKind } from "../ledger/accounts";
+import { consentTextVersion } from "../render/es-VE";
 import { es, type Outbound, parseReplyId } from "../render/index";
 import {
   type BusinessType,
@@ -114,8 +116,11 @@ export async function handleSignup(
   const s = schema.signup;
   const [row] = await db.select().from(s).where(eq(s.e164, input.e164));
   const profile = cleanProfileName(input.profileName);
+  // «no me escribas», «stop»… (US-SR-02): el mensaje entero, como en las cuentas (US-204).
+  const optOut = input.text ? isSignupOptOut(input.text) : false;
 
-  // Primer mensaje (o un registro viejo cuyo negocio ya no existe): presentación y nombre.
+  // Primer mensaje (o un registro viejo cuyo negocio ya no existe): presentación y nombre. Las
+  // marcas del rescate y el «no me escribas» se conservan al reiniciar.
   if (!row || row.completedAt) {
     if (row) {
       await db
@@ -127,6 +132,7 @@ export async function handleSignup(
           tenantId: null,
           messages: 1,
           updatedAt: now,
+          ...(optOut && !row.contactOffAt ? { contactOffAt: now } : {}),
         })
         .where(eq(s.id, row.id));
     } else {
@@ -139,9 +145,11 @@ export async function handleSignup(
           step: "name",
           data: {},
           messages: 1,
+          ...(optOut ? { contactOffAt: now } : {}),
         })
         .onConflictDoNothing();
     }
+    if (optOut) return { outbound: [es.signupStopped()], step: "name" };
     return { outbound: [es.signupIntro(cfg.dashboardUrl, profile)], step: "name" };
   }
 
@@ -160,7 +168,31 @@ export async function handleSignup(
 
   const text = input.text?.trim() ?? null;
   const reply = input.replyId ? parseReplyId(input.replyId) : null;
-  const choice = reply?.kind === "signup" ? reply.value : null;
+  // Respaldo (P-13): el toque de la plantilla puede llegar con el texto del botón como payload.
+  const templateTap =
+    input.replyId && reply?.kind !== "signup" && row.rescueVia === "template"
+      ? ({ seguir: "resume", "no me escribas": "stop" } as Record<string, string>)[
+          intentOf(input.replyId)
+        ]
+      : undefined;
+  const choice = reply?.kind === "signup" ? reply.value : (templateTap ?? null);
+
+  // «No me escribas» (US-SR-02): antes que todo lo demás; el paso y lo respondido se conservan.
+  if (choice === "stop" || optOut) {
+    if (!row.contactOffAt) await db.update(s).set({ contactOffAt: now }).where(eq(s.id, row.id));
+    await save(step);
+    return { outbound: [es.signupStopped()], step };
+  }
+  // «Seguir» (US-SR-04): solo la pregunta del paso, un mensaje. Un registro viejo en cuentas pasa
+  // al presupuesto.
+  if (choice === "resume") {
+    if (step === "accounts" || step === "accounts_confirm") {
+      await save("budget", { ...data, accounts: [], pendingAccounts: undefined });
+      return { outbound: [prompt("budget", data, profile)], step };
+    }
+    await save(step);
+    return { outbound: [prompt(step, data, profile)], step };
+  }
 
   // Atajos que valen en cualquier paso.
   if (text && /^(prefiero )?(la |en la )?(web|p[aá]gina)$/i.test(text)) {
@@ -192,7 +224,10 @@ export async function handleSignup(
   }
   // Volvió después de 6 h o más con un texto: dónde quedamos, sin leer ese texto como respuesta (un
   // «hola» no es una categoría). Un botón del paso actual se procesa normal aunque pasen días.
-  const away = now.getTime() - row.updatedAt.getTime() >= WELCOME_BACK_MS;
+  // Desde el último mensaje o desde el recordatorio (US-SR-04): una respuesta escrita dentro de
+  // 6 h del recordatorio se lee como respuesta.
+  const lastTouch = Math.max(row.updatedAt.getTime(), row.rescueAt?.getTime() ?? 0);
+  const away = now.getTime() - lastTouch >= WELCOME_BACK_MS;
   if (text && away && WELCOME_BACK_STEPS.includes(step)) {
     await save(step);
     return {
@@ -381,6 +416,8 @@ export async function handleSignup(
             updatedAt: now,
           })
           .where(eq(s.id, row.id));
+        // Pidió «no me escribas» en el registro (US-SR-03): queda apagado en la cuenta.
+        if (row.contactOffAt) await carryOptOut(db, created, now);
         return {
           outbound: [
             es.signupDone({
@@ -392,6 +429,7 @@ export async function handleSignup(
               cfg.dashboardUrl,
               final.kind ?? "personal",
               Boolean(final.accounts?.length),
+              Boolean(row.contactOffAt),
             ),
           ],
           step: "done",
@@ -409,6 +447,39 @@ export async function handleSignup(
       await save("name", {});
       return { outbound: [es.signupAskName(profile)], step: "name" };
   }
+}
+
+/** «no me escribas», «stop», «para»… como mensaje entero (`classifyPref`, US-204). */
+export function isSignupOptOut(text: string): boolean {
+  const intent = classifyPref(text);
+  return intent === "all_off" || intent === "nudges_off";
+}
+
+/**
+ * US-SR-03: el «no me escribas» del registro pasa al teléfono del dueño (`unsolicited_off_at`),
+ * con su registro de consentimiento: qué texto vio y su versión, nunca lo que escribió.
+ */
+async function carryOptOut(
+  db: Db,
+  created: { tenantId: string; phoneId: string },
+  now: Date,
+): Promise<void> {
+  await withTenant(db, created.tenantId, async (tx) => {
+    await tx
+      .update(schema.phoneNumber)
+      .set({ unsolicitedOffAt: now })
+      .where(eq(schema.phoneNumber.id, created.phoneId));
+    await tx.insert(schema.auditLog).values({
+      tenantId: created.tenantId,
+      actorType: "phone",
+      actorId: created.phoneId,
+      action: "all_off",
+      entity: "phone_number",
+      entityId: created.phoneId,
+      after: { source: "signup", text_id: "SR-STOP", text_version: consentTextVersion["SR-STOP"] },
+      channel: "whatsapp",
+    });
+  });
 }
 
 function doneView(d: SignupData): Omit<Parameters<typeof es.signupDone>[0], "founderUntil"> {
@@ -527,6 +598,8 @@ export function parsePersonName(text: string): string | null {
     .trim();
   const intent = intentOf(t);
   if (!t || GREETING.test(t) || t.length > 40 || /\d/.test(t)) return null;
+  // «No Me Escribas» no es un nombre (US-SR-02).
+  if (classifyPref(text) || classifyPref(t)) return null;
   if (NOT_A_NAME.test(intent) || YES.test(intent) || SKIP.test(intent)) return null;
   if (!/^[\p{L}][\p{L}\s'.-]*$/u.test(t)) return null;
   if (t.split(/\s+/).length > 4) return null;

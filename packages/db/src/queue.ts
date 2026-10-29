@@ -16,6 +16,8 @@ export const QUEUES = {
   housekeeping: "housekeeping",
   /** Recordatorios de plata (hábitos P3, US-304/305): cada minuto, sobre `reminder.due_at`. */
   reminders: "reminders",
+  /** Recordatorio del registro por WhatsApp (A), cada 5 min (signup-reminders US-SR-05). */
+  signupReminders: "signup-reminders",
 } as const;
 
 export const PGBOSS_SCHEMA = "pgboss";
@@ -91,6 +93,14 @@ export async function ensureQueues(boss: PgBoss): Promise<void> {
       retryLimit: 0,
       retryDelay: 30,
       expireInSeconds: 55,
+    },
+    {
+      // Sin reintentos: marca antes de enviar; la corrida siguiente mira de nuevo.
+      name: QUEUES.signupReminders,
+      policy: "singleton",
+      retryLimit: 0,
+      retryDelay: 60,
+      expireInSeconds: 240,
     },
   ];
   for (const { name, ...options } of defs) {

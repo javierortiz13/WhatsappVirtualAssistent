@@ -18,6 +18,7 @@ import {
   refreshRates,
   releaseStalePending,
   retentionSweep,
+  runSignupRescue,
   sendLifecycleNotices,
   sendPaymentNotices,
   sendRetentionNotices,
@@ -46,6 +47,7 @@ export const CRON = {
   ratesMorning: "0 8 * * *",
   housekeeping: "*/5 * * * *",
   reminders: "* * * * *",
+  signupReminders: "*/5 * * * *",
 } as const;
 
 export async function registerJobs(opts: {
@@ -66,6 +68,8 @@ export async function registerJobs(opts: {
   authAdmin?: AuthAdmin | null;
   /** Plantilla para los avisos de borrado por impago fuera de las 24 h. */
   retentionTemplate?: { name: string; language: string } | null;
+  /** Plantilla del registro sin terminar, para el recordatorio (A) como plantilla. */
+  signupTemplate?: { name: string; language: string } | null;
 }) {
   const { boss, db, deps, log } = opts;
   const guarded =
@@ -296,6 +300,22 @@ export async function registerJobs(opts: {
     }),
   );
 
+  // Recordatorio del registro (A): cada 5 min. Sin `signup_rescue.inWindow`, no hace nada.
+  await boss.work(
+    QUEUES.signupReminders,
+    { batchSize: 1, pollingIntervalSeconds: 10 },
+    guarded(QUEUES.signupReminders, async () => {
+      const meta = opts.platformPhoneNumberId ? deps.metaFor(opts.platformPhoneNumberId) : null;
+      const r = await runSignupRescue(db, meta, {
+        now: new Date(),
+        log,
+        template: opts.signupTemplate ?? null,
+      });
+      // Solo cuentas: ni nombres ni números.
+      if (r.sent || r.holdout || r.failed) log.info(r, "registro: recordatorios");
+    }),
+  );
+
   await boss.schedule(QUEUES.fetchBcvRate, CRON.ratesAfternoon, null, {
     tz: "America/Caracas",
     key: "afternoon",
@@ -311,6 +331,10 @@ export async function registerJobs(opts: {
   await boss.schedule(QUEUES.reminders, CRON.reminders, null, {
     tz: "America/Caracas",
     key: "every-minute",
+  });
+  await boss.schedule(QUEUES.signupReminders, CRON.signupReminders, null, {
+    tz: "America/Caracas",
+    key: "every-5-min",
   });
   // El autoguardado de cada minuto (0022) se reemplazó por el guardado al instante (0023).
   await boss.unschedule(RETIRED_AUTO_SAVE_QUEUE, "every-minute").catch(() => {});
