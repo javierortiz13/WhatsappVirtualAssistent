@@ -118,8 +118,13 @@ export function Story({ scenes, children }: { scenes: Scene[]; children?: ReactN
   useEffect(() => {
     const c = chatRef.current;
     if (!c) return;
-    const toBottom = () =>
-      c.scrollTo({ top: c.scrollHeight, behavior: mode === "static" ? "auto" : "smooth" });
+    // Algunos navegadores viejos o integrados (de otras apps) no tienen Element.scrollTo: sin el
+    // respaldo, el error tumbaba la página (Sentry, 02/11).
+    const toBottom = () => {
+      if (typeof c.scrollTo === "function")
+        c.scrollTo({ top: c.scrollHeight, behavior: mode === "static" ? "auto" : "smooth" });
+      else c.scrollTop = c.scrollHeight;
+    };
     toBottom();
     // La burbuja termina de aparecer unos milisegundos después: segundo empujón.
     const t = window.setTimeout(toBottom, 380);
