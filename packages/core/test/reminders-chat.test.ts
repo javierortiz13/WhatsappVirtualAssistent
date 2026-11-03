@@ -46,7 +46,10 @@ const SCRIPT = {
   ],
   "borra el recordatorio": [{ id: "x", name: "cancel_reminder", input: { reminder: "r1" } }],
   // Sin ref (evals 29/10): el modelo a veces lo omite; se busca por lo que nombró el usuario.
-  "de la luz para el lunes": [{ id: "w", name: "update_reminder", input: { when: "el lunes" } }],
+  // «pasado mañana» y no «el lunes»: un lunes después de las 3 pm, «el lunes» ya pasó (CI 02/11).
+  "de la luz para el lunes": [
+    { id: "w", name: "update_reminder", input: { when: "pasado mañana" } },
+  ],
   "borra el de Pedro": [{ id: "y", name: "cancel_reminder", input: {} }],
   "borra el que sea": [{ id: "z", name: "cancel_reminder", input: {} }],
 };
