@@ -3,7 +3,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { addDays, businessDateOf, type IsoDate } from "../src/domain/dates";
 import { saveHabitSettings } from "../src/ledger/habits";
 import { deliverReminders, earlyAt } from "../src/reminders/deliver";
+import { MetaClient } from "../src/whatsapp/client";
 import { botHarness, CASHIER, idsOf, OWNER, textOf } from "./bot-harness";
+import * as fx from "./fixtures";
 
 /** Entrega de recordatorios (PRD hábitos US-304 a US-306): caminos a, b y c, y vencidos. */
 const H = 3_600_000;
@@ -201,6 +203,43 @@ describe("entrega de recordatorios", () => {
     await h.t.db.update(schema.tenant).set({ trialEndsAt: t?.trialEndsAt ?? null });
     expect(r.b).toBe(0);
     expect(r.denied.lifecycle_today).toBe(1);
+    expect((await rows())[0]?.earlySentAt).toBeNull();
+  });
+
+  it("S-2b: la marca del adelantado está confirmada antes de enviar; un fallo deja esa fila en failed", async () => {
+    const now = new Date(`${businessDateOf(new Date())}T16:00:00Z`);
+    const last = new Date(now.getTime() - 23 * H - 10 * MIN);
+    await inbound(last);
+    await reminder(new Date(last.getTime() + 3 * 24 * H));
+    const outs = () =>
+      h.t.db.select().from(schema.message).where(eq(schema.message.direction, "out"));
+    let seen = -1;
+    let fail = false;
+    const fetchImpl = (async () => {
+      // Lo que ve otra transacción en el momento del envío.
+      seen = (await outs()).filter(
+        (m) => m.status === "sending" && JSON.stringify(m.toolCalls).includes("reminder_b"),
+      ).length;
+      return fail
+        ? new Response(JSON.stringify({ error: { code: 131047, message: "x" } }), {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          })
+        : new Response(JSON.stringify({ messages: [{ id: "wamid.B" }] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+    }) as typeof fetch;
+    const m = new MetaClient({ accessToken: "T", phoneNumberId: fx.PHONE_NUMBER_ID, fetchImpl });
+    expect((await deliverReminders(h.t.db, m, { now })).b).toBe(1);
+    expect(seen).toBe(1);
+    expect((await outs()).map((o) => [o.status, o.waMessageId])).toEqual([["ok", "wamid.B"]]);
+    // Un fallo: la misma fila pasa a failed (no una segunda) y el recordatorio vuelve a esperar.
+    await h.t.db.delete(schema.message).where(eq(schema.message.direction, "out"));
+    await h.t.db.update(schema.reminder).set({ earlySentAt: null });
+    fail = true;
+    expect((await deliverReminders(h.t.db, m, { now })).failed).toBe(1);
+    expect((await outs()).map((o) => o.status)).toEqual(["failed"]);
     expect((await rows())[0]?.earlySentAt).toBeNull();
   });
 

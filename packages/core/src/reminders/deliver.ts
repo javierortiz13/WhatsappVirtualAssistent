@@ -54,7 +54,38 @@ type Pending = {
   kind: "reminder_a" | "reminder_b";
   rows: ReminderRow[];
   out: Outbound;
+  /** La fila del saliente, escrita con su marca antes de enviar (S-2b). */
+  messageId: string;
 };
+
+/**
+ * La marca del envío (`reminder_a` / `reminder_b`, solo los ids) en un saliente `sending`, dentro
+ * de la transacción de la puerta: otra toma del cupo del mismo teléfono (el aviso de las 8 pm, con
+ * el candado de S-2) ya la ve. Se confirma antes de enviar.
+ */
+async function markOutbound(
+  tx: Tx,
+  tenantId: string,
+  p: Omit<Pending, "messageId">,
+  now: Date,
+): Promise<Pending> {
+  const [row] = await tx
+    .insert(schema.message)
+    .values({
+      tenantId,
+      phoneId: p.phoneId,
+      direction: "out",
+      kind: p.out.type,
+      body: p.out.type === "reaction" ? null : p.out.body,
+      status: "sending",
+      createdAt: now,
+      // Solo los ids: el texto del recordatorio no va en las marcas (F3-4 (5)).
+      toolCalls: [{ name: p.kind, args: { ids: p.rows.map((r) => r.id) } }],
+    })
+    .returning({ id: schema.message.id });
+  if (!row) throw new Error("no se pudo registrar el recordatorio saliente");
+  return { ...p, messageId: row.id };
+}
 
 /** Negocio que no puede recibir nada por cuenta propia: suspendido, borrado o en su tope. */
 export async function tenantBlocked(tx: Tx, tenantId: string, now: Date): Promise<boolean> {
@@ -149,13 +180,20 @@ async function takeForTenant(
           tenantBlocked: blocked,
         });
         if (gate.allow) {
-          pending.push({
-            phoneId,
-            e164: p.e164,
-            kind: "reminder_a",
-            rows: due,
-            out: es.reminderDue(due.map(reminderView)),
-          });
+          pending.push(
+            await markOutbound(
+              tx,
+              tenantId,
+              {
+                phoneId,
+                e164: p.e164,
+                kind: "reminder_a",
+                rows: due,
+                out: es.reminderDue(due.map(reminderView)),
+              },
+              now,
+            ),
+          );
           await mark(
             tx,
             due.map((r) => r.id),
@@ -196,13 +234,20 @@ async function takeForTenant(
       denied[gate.reason] = (denied[gate.reason] ?? 0) + 1;
       continue;
     }
-    pending.push({
-      phoneId,
-      e164: p.e164,
-      kind: "reminder_b",
-      rows: later,
-      out: es.reminderEarly(later.map(reminderView), now),
-    });
+    pending.push(
+      await markOutbound(
+        tx,
+        tenantId,
+        {
+          phoneId,
+          e164: p.e164,
+          kind: "reminder_b",
+          rows: later,
+          out: es.reminderEarly(later.map(reminderView), now),
+        },
+        now,
+      ),
+    );
     await mark(
       tx,
       later.map((r) => r.id),
@@ -242,19 +287,13 @@ export async function deliverReminders(
       result.expired += expired;
       for (const p of pending) {
         const ids = p.rows.map((r) => r.id);
+        // La fila ya está, con su marca (S-2b): aquí solo se cierra su estado.
         const record = (status: "ok" | "failed", waMessageId: string | null) =>
           withTenant(db, tenantId, (tx) =>
-            tx.insert(schema.message).values({
-              tenantId,
-              phoneId: p.phoneId,
-              direction: "out",
-              kind: p.out.type,
-              body: p.out.type === "reaction" ? null : p.out.body,
-              status,
-              waMessageId,
-              // Solo los ids: el texto del recordatorio no va en las marcas (F3-4 (5)).
-              toolCalls: [{ name: p.kind, args: { ids } }],
-            }),
+            tx
+              .update(schema.message)
+              .set({ status, ...(waMessageId ? { waMessageId } : {}) })
+              .where(eq(schema.message.id, p.messageId)),
           );
         try {
           const r = await sendOutbound(meta, p.e164, p.out);
