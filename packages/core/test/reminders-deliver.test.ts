@@ -189,6 +189,21 @@ describe("entrega de recordatorios", () => {
     expect((await deliverReminders(h.t.db, meta(), { now })).b).toBe(0);
   });
 
+  it("camino b cede el día a un aviso de la prueba que sale más tarde (F-1)", async () => {
+    const day = businessDateOf(new Date());
+    const now = new Date(`${day}T20:10:00-04:00`);
+    const last = new Date(now.getTime() - 23 * H - 10 * MIN);
+    await inbound(last);
+    await reminder(new Date(last.getTime() + 3 * 24 * H));
+    const [t] = await h.t.db.select().from(schema.tenant);
+    await h.t.db.update(schema.tenant).set({ trialEndsAt: new Date(`${day}T22:00:00-04:00`) });
+    const r = await deliverReminders(h.t.db, meta(), { now });
+    await h.t.db.update(schema.tenant).set({ trialEndsAt: t?.trialEndsAt ?? null });
+    expect(r.b).toBe(0);
+    expect(r.denied.lifecycle_today).toBe(1);
+    expect((await rows())[0]?.earlySentAt).toBeNull();
+  });
+
   it("camino b: antes de las 23 h todavía no", async () => {
     const now = new Date(`${businessDateOf(new Date())}T16:00:00Z`);
     const last = new Date(now.getTime() - 20 * H);

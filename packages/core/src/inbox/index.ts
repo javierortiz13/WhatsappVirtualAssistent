@@ -2,6 +2,7 @@ export * from "./gate";
 export * from "./ingest";
 export * from "./lifecycle";
 export * from "./notices";
+export * from "./nudge";
 export * from "./prefs";
 export * from "./process";
 export * from "./split";

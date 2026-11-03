@@ -132,6 +132,9 @@ export type GateInput = {
 };
 
 export async function takeUnsolicitedSlot(tx: Tx, g: GateInput): Promise<GateResult> {
+  // S-2: un teléfono a la vez (el aviso y un adelantado del mismo minuto no pasan los dos). El
+  // candado dura lo que la transacción de quien llama, que escribe su marca antes de confirmar.
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${g.phoneId}))`);
   const deny = (reason: GateDeny): GateResult => ({ allow: false, reason });
   if (g.tenantBlocked) return deny("tenant_blocked");
   // La plantilla (camino d) es justamente para cuando la ventana está cerrada.

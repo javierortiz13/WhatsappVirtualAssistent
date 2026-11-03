@@ -119,6 +119,8 @@ export type PrefCtx = {
   held: boolean;
   privacyContact: string;
   now: Date;
+  /** El mensaje entrante (wa id), para la ✅ sobre el toque de «Avísame a las 8» (US-206). */
+  inboundId?: string;
 };
 
 export type PrefResult = { outbound: Outbound[]; toolCalls: { name: string; args: unknown }[] };
@@ -273,6 +275,33 @@ async function turnOn(
   return reply(es.prefTurnedOn(id, c.held));
 }
 
+/**
+ * H8 «Avísame a las 8» de la oferta en la tarjeta (US-206): enciende solo el aviso de racha, con
+ * H7 como texto visto, y responde con una ✅ sobre el toque (sin texto). Con todo apagado por
+ * «no me escribas», el botón no lo enciende: se explica igual que a la frase.
+ */
+async function optIn(tx: Tx, c: PrefCtx, s: PrefState): Promise<PrefResult> {
+  if (s.tagged) return reply(es.prefTagged(c.privacyContact));
+  if (s.unsolicitedOffAt) return reply(es.prefAlreadyOff("all_off"));
+  // Un «no me escribas» sin contestar sigue abierto: se vuelve a mostrar esa tarjeta.
+  if (s.prefPending === "all_off") return reply(es.prefAllOffCard());
+  const paused = s.nudgePausedUntil !== null && s.nudgePausedUntil.getTime() > c.now.getTime();
+  const on = s.nudgeOptInAt && !s.nudgeOffAt && !paused && !s.prefPending;
+  if (!on) {
+    await setPhone(tx, c.phoneId, {
+      nudgeOptInAt: c.now,
+      nudgeOffAt: null,
+      nudgePausedUntil: null,
+      ...(s.prefPending === "nudges_off" ? { prefPending: null, prefPendingAt: null } : {}),
+    });
+    await audit(tx, c, "nudge_opt_in", "H7", "button");
+  }
+  const marks = [{ name: "habit_optin", args: { source: "button" } }];
+  return c.inboundId
+    ? { outbound: [{ type: "reaction", body: "✅", waMessageId: c.inboundId }], toolCalls: marks }
+    : reply(es.prefTurnedOn("H13", c.held), marks);
+}
+
 function status(c: PrefCtx, s: PrefState): PrefResult {
   // Con una tarjeta sin contestar, se vuelve a mostrar esa tarjeta: la decisión sigue abierta.
   if (s.prefPending) return reply(card(s.prefPending, s));
@@ -298,7 +327,13 @@ export async function routePrefs(
   // El aviso de racha y los recordatorios son del dueño (R-2 d). Apagar sí funciona en cualquier
   // teléfono (inofensivo, F2-7).
   if (c.role !== "owner") {
-    if (intent === "status" || intent === "nudges_on" || intent === "both_on" || tap === "on")
+    if (
+      intent === "status" ||
+      intent === "nudges_on" ||
+      intent === "both_on" ||
+      tap === "on" ||
+      tap === "optin"
+    )
       return reply(es.prefEmployee(false));
     if (intent === "all_on") {
       if (s.unsolicitedOffAt) {
@@ -327,6 +362,8 @@ export async function routePrefs(
       return keep(tx, c, s, "all_off");
     case "on":
       return turnOn(tx, c, s, "both_on", "button");
+    case "optin":
+      return optIn(tx, c, s);
     case "nudges_on":
     case "all_on":
     case "both_on":

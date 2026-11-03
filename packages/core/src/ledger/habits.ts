@@ -92,7 +92,7 @@ export type Streak = {
 };
 
 /** Días con registro o sin gastos del negocio, de Caracas. */
-async function keptDays(tx: Tx, tenantId: string): Promise<Map<string, StreakDayState>> {
+export async function keptDays(tx: Tx, tenantId: string): Promise<Map<string, StreakDayState>> {
   const found = rows<{ d: string; recorded: boolean }>(
     await tx.execute(sql`
       with rec as (

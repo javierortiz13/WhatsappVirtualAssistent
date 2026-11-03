@@ -161,7 +161,7 @@ import {
   payWithNewAccount,
 } from "./account-ask";
 import { saveSurveyAnswer } from "./lifecycle";
-import { hasPrefsOff, routePrefs } from "./prefs";
+import { hasPrefsOff, prefState, routePrefs } from "./prefs";
 import { SPLIT_WORDS, splitFollowUp, splitFromPhoto } from "./split";
 
 /**
@@ -986,6 +986,26 @@ async function streakLineFor(
   return { text, args: { n: s.current, ...milestone, ...restart } };
 }
 
+/** Marca de la oferta del aviso de las 8 pm en la tarjeta (US-206). */
+const NUDGE_OFFER = "habit_optin_offer";
+
+/**
+ * ¿Esta tarjeta del dueño puede llevar la oferta del aviso (US-206)? La racha entre 3 y 7 días,
+ * los interruptores `nudge` y `prefs`, nada aceptado ni apagado en el teléfono y la oferta nunca
+ * vista. Devuelve la racha, o null si no toca.
+ */
+async function nudgeOfferFor(tx: Tx, ctx: RouteCtx, now: Date): Promise<number | null> {
+  const flags = await habitSettings(tx);
+  if (!flags.nudge || !flags.prefs) return null;
+  const p = await prefState(tx, ctx.phoneId, ctx.tenantId);
+  if (p.nudgeOptInAt || p.nudgeOffAt || p.unsolicitedOffAt || p.tagged || p.prefPending)
+    return null;
+  const s = await streakFor(tx, ctx.tenantId, now);
+  if (s.current < 3 || s.current > 7) return null;
+  if (await markSentSince(tx, ctx.phoneId, NUDGE_OFFER, new Date(0))) return null;
+  return s.current;
+}
+
 /** Marca del aviso "renové tu prueba" (beta, 20/10). */
 const TRIAL_EXTENDED = "trial_extended";
 
@@ -1184,6 +1204,7 @@ async function routeMessage(
       held: Boolean(ctx.suspended || ctx.trialCapped || ctx.monthCapped),
       privacyContact: deps.config.privacyContact ?? DEFAULT_PRIVACY_CONTACT,
       now: (deps.now ?? (() => new Date()))(),
+      inboundId: ctx.inboundId,
     },
     {
       // Un «No me escribas» viejo del recordatorio del registro (US-SR-04) vale como la frase.
@@ -2318,6 +2339,19 @@ async function routeInteractive(
         parsed.answer === "yes" ? es.valueYes() : es.valueDoubts(deps.config.supportHint),
       ]);
     }
+    case "habit_nospend": {
+      // «Hoy no gasté nada» del aviso de las 8 pm (hábitos US-212): las reglas de la frase, solo el
+      // dueño y con los dos interruptores. Un toque de otro día no anota nada (A21, H52e).
+      const flags = await habitSettings(tx);
+      if (ctx.role !== "owner" || !flags.noSpend || !flags.nudge) return none([es.outOfScope()]);
+      const today = businessDateOf((deps.now ?? (() => new Date()))());
+      if (parsed.date !== today)
+        return {
+          ...none([es.noSpendStale()]),
+          toolCalls: [{ name: "habit_no_spend_stale", args: {} }],
+        };
+      return noSpend(tx, deps, ctx, "button");
+    }
     case "signup":
       // Un toque viejo del recordatorio del registro, ya con cuenta (US-SR-04): el menú.
       return none([es.menu(await getRateInfo(tx, ctx.today), ctx.personal)]);
@@ -3308,6 +3342,8 @@ async function settleTurnDrafts(
   // Racha (hábitos US-102): una vez al día, en la primera tarjeta guardada del dueño; no en una
   // corrección (este turno reemplazó una tarjeta guardada).
   let streakDone = ctx.role !== "owner" || replaced.length > 0;
+  // Oferta del aviso de las 8 pm (US-206): una vez en la vida, en una tarjeta del dueño.
+  let offerDone = ctx.role !== "owner";
   for (const p of fresh) {
     // Solo el borrador cuya tarjeta sale en este turno: "Guardar mi parte" de una cuenta dividida
     // o lo que espera una decisión siguen esperando su botón.
@@ -3358,6 +3394,19 @@ async function settleTurnDrafts(
           if (withLine !== next) {
             next = withLine;
             marks.push({ name: "habit_streak_line", args: line.args });
+          }
+        }
+      }
+      if (!offerDone) {
+        const n = await nudgeOfferFor(tx, ctx, now);
+        if (n === null) offerDone = true;
+        else {
+          const offered = es.withNudgeOffer(next);
+          // Sin lugar para el botón: la próxima tarjeta (hasta el día 7 de la racha).
+          if (offered) {
+            offerDone = true;
+            next = offered;
+            marks.push({ name: NUDGE_OFFER, args: { n } });
           }
         }
       }

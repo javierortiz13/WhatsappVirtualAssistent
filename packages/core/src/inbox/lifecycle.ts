@@ -20,6 +20,7 @@ import { Decimal } from "../domain/money";
 import { type Logger, maskPhone, silentLogger } from "../log";
 import { es, type Outbound } from "../render/index";
 import type { MetaClient } from "../whatsapp/client";
+import { caracasDayStart } from "./gate";
 import { prefState } from "./prefs";
 import { sendOutbound } from "./process";
 import { serviceWindow } from "./window";
@@ -134,21 +135,7 @@ async function takeLifecycle(
   let out: Outbound;
   if (kind === "trialEnd") {
     if (await trialEndSkipped(tx, tenantId)) return null;
-    const [sent] = await tx
-      .select({ id: schema.message.id })
-      .from(schema.message)
-      .where(
-        and(
-          eq(schema.message.tenantId, tenantId),
-          eq(schema.message.direction, "out"),
-          sql`${schema.message.toolCalls} @> ${JSON.stringify([{ name: TRIAL_END }])}::jsonb`,
-          // Uno por cada fin (trial-31 T3): el aviso de este fin sale después de `trial_ends_at`; uno
-          // anterior es de un fin viejo (una prueba reabierta o extendida desde /admin).
-          gte(schema.message.createdAt, t.trialEndsAt ?? new Date(0)),
-        ),
-      )
-      .limit(1);
-    if (sent) return null;
+    if (await trialEndSent(tx, tenantId, t.trialEndsAt)) return null;
     const offer = await renewOfferReply(tx, {
       tenantId,
       phoneId: owner.id,
@@ -176,6 +163,44 @@ async function takeLifecycle(
       .where(eq(schema.tenant.id, tenantId));
   }
   return { tenantId, phoneId: owner.id, e164: owner.e164, kind, out };
+}
+
+/** ¿Ya salió el aviso de fin para este fin de la prueba? */
+async function trialEndSent(tx: Tx, tenantId: string, trialEndsAt: Date | null): Promise<boolean> {
+  const [sent] = await tx
+    .select({ id: schema.message.id })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.tenantId, tenantId),
+        eq(schema.message.direction, "out"),
+        sql`${schema.message.toolCalls} @> ${JSON.stringify([{ name: TRIAL_END }])}::jsonb`,
+        // Uno por cada fin (trial-31 T3): el aviso de este fin sale después de `trial_ends_at`; uno
+        // anterior es de un fin viejo (una prueba reabierta o extendida desde /admin).
+        gte(schema.message.createdAt, trialEndsAt ?? new Date(0)),
+      ),
+    )
+    .limit(1);
+  return Boolean(sent);
+}
+
+/**
+ * ¿Le toca hoy (día de Caracas de `now`) un aviso del ciclo de la prueba, aunque salga más tarde?
+ * El aviso de las 8 pm y el adelantado de un recordatorio le ceden el día (puerta, §5 item 1).
+ * Sin prueba o en la papelera, no. Si la prueba termina antes del fin del día: sí, salvo que ese
+ * aviso ya salió o se saltó. Si no: el resumen o la encuesta cuyo día llega hoy y no salió.
+ */
+export async function lifecycleDueToday(tx: Tx, tenantId: string, now: Date): Promise<boolean> {
+  const [t] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId));
+  if (t?.status !== "trial" || t.deletedAt) return false;
+  const end = new Date(caracasDayStart(now).getTime() + DAY_MS);
+  if (t.trialEndsAt && t.trialEndsAt.getTime() < end.getTime())
+    return (
+      !(await trialEndSkipped(tx, tenantId)) && !(await trialEndSent(tx, tenantId, t.trialEndsAt))
+    );
+  const { surveyDay, valueDay } = await launchSettings(tx);
+  const age = Math.floor((end.getTime() - 1 - t.createdAt.getTime()) / DAY_MS);
+  return (age >= valueDay && !t.valueSentAt) || (age >= surveyDay && !t.surveySentAt);
 }
 
 /** Aviso del ciclo saltado por «no me escribas»: queda como hecho y no sale nunca. */
