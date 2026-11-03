@@ -54,6 +54,18 @@ export default function Privacidad() {
         <li>Mostrarte cierres, resúmenes y el historial en el panel.</li>
         <li>Enviarte respuestas y avisos por WhatsApp relacionados con tu caja.</li>
         <li>
+          Enviarte los recordatorios que pides y, si lo activas, el aviso de racha de las 8 pm, como
+          máximo uno al día. Si después de 3 avisos seguidos no anotas nada, lo pausamos 14 días.
+        </li>
+        <li>
+          Puedes apagar estos avisos cuando quieras. Con «no me recuerdes» apagas el aviso de racha
+          y los avisos adelantados de tus recordatorios; con «no me escribas», todo lo que Rocco te
+          manda por su cuenta, salvo los avisos sobre un pago tuyo o el borrado de tus datos. Antes
+          de apagarlos, Rocco te pide confirmar, y mientras no contestes no te los manda. También
+          puedes hacerlo en Ajustes, y volver a encenderlos con «actívame los avisos» o «ya puedes
+          escribirme».
+        </li>
+        <li>
           Si empiezas a crear tu cuenta por WhatsApp y no la terminas, Rocco puede escribirte una
           sola vez para ayudarte a terminarla. Si le escribes «no me escribas» o tocas ese botón, no
           lo hace y no te vuelve a escribir por su cuenta.
