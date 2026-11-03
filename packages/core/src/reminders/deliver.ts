@@ -56,7 +56,7 @@ type Pending = {
 };
 
 /** Negocio que no puede recibir nada por cuenta propia: suspendido, borrado o en su tope. */
-async function tenantBlocked(tx: Tx, tenantId: string, now: Date): Promise<boolean> {
+export async function tenantBlocked(tx: Tx, tenantId: string, now: Date): Promise<boolean> {
   const [t] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId));
   if (!t || t.deletedAt || t.status === "suspended") return true;
   if (t.status === "trial") return (await trialSpend(tx, t)).reached;

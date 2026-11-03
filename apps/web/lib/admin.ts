@@ -7,6 +7,8 @@ import {
   latestRates,
   type MonthUsage,
   monthUsage,
+  type NudgeStats,
+  nudgeStats,
   planById,
   type ReminderStats,
   reminderStats,
@@ -15,6 +17,7 @@ import {
   subscriptionState,
   sumCounts,
   summarizeHabits,
+  sumNudgeStats,
   sumReminderStats,
   type TenantPhone,
   tenantPhones,
@@ -452,4 +455,22 @@ export async function loadReminderStats(
     return null;
   }
   return sumReminderStats(list);
+}
+
+/** Aviso de las 8 pm, últimos 7 días (hábitos US-209): solo conteos, sin teléfonos ni textos. */
+export async function loadNudgeStats(tenants: TenantRow[], now: Date): Promise<NudgeStats | null> {
+  await requireAdmin();
+  const conn = db();
+  const since = new Date(now.getTime() - 7 * 86_400_000);
+  const list: NudgeStats[] = [];
+  try {
+    for (const t of tenants) {
+      if (t.internal) continue;
+      list.push(await withTenant(conn, t.id, (tx) => nudgeStats(tx, t.id, since, now)));
+    }
+  } catch (err) {
+    console.error(JSON.stringify({ level: "error", msg: "admin aviso", detail: errorText(err) }));
+    return null;
+  }
+  return sumNudgeStats(list);
 }

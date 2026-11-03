@@ -17,7 +17,7 @@ import {
   streakFor,
   summarizeHabits,
 } from "../src/ledger/habits";
-import { es } from "../src/render/index";
+import { es, parseReplyId } from "../src/render/index";
 import { MetaClient } from "../src/whatsapp/client";
 import * as fx from "./fixtures";
 
@@ -244,6 +244,38 @@ async function harness(businessType: string) {
         "",
     );
   }
+  /** Toca un botón y devuelve el cuerpo de la última respuesta (o "✅" si fue una reacción). */
+  async function tap(id: string, phone = OWNER) {
+    const p = structuredClone(fx.buttonReply) as unknown as {
+      entry: {
+        changes: {
+          value: { messages: Record<string, unknown>[]; contacts: { wa_id: string }[] };
+        }[];
+      }[];
+    };
+    const v = p.entry[0]?.changes[0]?.value;
+    const m = v?.messages[0];
+    if (m) {
+      m.interactive = { type: "button_reply", button_reply: { id, title: "x" } };
+      m.from = phone;
+      m.id = `wamid.T${++seq}`;
+      delete m.context;
+    }
+    if (v?.contacts[0]) v.contacts[0].wa_id = phone;
+    jobs.length = 0;
+    await ingestWebhook(
+      { db: t.db, now: () => new Date(), enqueue: async (_tx, job) => void jobs.push(job) },
+      p,
+    );
+    await processInbound(deps(), jobs[0] as ProcessMessageJob);
+    const last = sent.at(-1)?.body;
+    if (last?.type === "reaction") return String((last.reaction as { emoji: string }).emoji);
+    return String(
+      (last?.text as { body?: string } | undefined)?.body ??
+        (last?.interactive as { body: { text: string } } | undefined)?.body.text ??
+        "",
+    );
+  }
   /** Un gasto creado hace `daysAgo` días (la racha mira cuándo se creó). */
   const recordDaysAgo = (daysAgo: number, deletedAfterMs?: number) =>
     withTenant(t.db, tenantId, async (tx) => {
@@ -284,7 +316,19 @@ async function harness(businessType: string) {
       await tx.delete(schema.message);
     });
   const streak = () => withTenant(t.db, tenantId, (tx) => streakFor(tx, tenantId, new Date()));
-  return { t, tenantId, llm, sent, send, recordDaysAgo, noSpendDaysAgo, reset, streak };
+  return {
+    t,
+    tenantId,
+    llm,
+    sent,
+    send,
+    tap,
+    recordDaysAgo,
+    noSpendDaysAgo,
+    reset,
+    streak,
+    ownerPhoneId: () => ownerPhoneId,
+  };
 }
 
 describe("streakFor (US-101)", () => {
@@ -450,6 +494,213 @@ describe("hoy no gasté nada y la línea de racha (US-106, US-102)", () => {
     await h.recordDaysAgo(3);
     await h.recordDaysAgo(2);
     expect(await h.send("gasté 5$ en café")).not.toMatch(/🔥/);
+  });
+});
+
+describe("aviso de las 8 pm: textos (H9, H52e, copy v1.2.2)", () => {
+  const body = (v: Parameters<typeof es.habitNudge>[0]) => es.habitNudge(v).body;
+  const base = { current: 12, best: 20, personal: true, noSpendDate: "2026-11-03" };
+  it("H9 por defecto, víspera de hito y víspera de récord (gana el hito)", () => {
+    expect(body(base)).toBe("¿Hubo algo hoy que anotar? Así sigue tu racha de 12 días 🔥");
+    expect(body({ ...base, personal: false })).toBe(
+      "¿Hubo ventas o gastos hoy? Así sigue tu racha de 12 días 🔥",
+    );
+    expect(body({ ...base, current: 29 })).toBe(
+      "¿Hubo algo hoy que anotar? Así llegas a 30 días seguidos 🔥",
+    );
+    expect(body({ ...base, current: 12, best: 12 })).toBe(
+      "¿Hubo algo hoy que anotar? Así pasas tu récord de 12 días 🔥",
+    );
+    expect(body({ ...base, current: 6, best: 6, personal: false })).toBe(
+      "¿Hubo ventas o gastos hoy? Así llegas a 7 días seguidos 🔥",
+    );
+    // Récord de 2: no es víspera de récord (best ≥ 3).
+    expect(body({ ...base, current: 2, best: 2 })).toBe(
+      "¿Hubo algo hoy que anotar? Así sigue tu racha de 2 días 🔥",
+    );
+  });
+  it("botones: sin gastos (con la fecha) y «No me recuerdes»; sin el interruptor, solo H10", () => {
+    const b = (v: Parameters<typeof es.habitNudge>[0]) => {
+      const o = es.habitNudge(v);
+      return o.type === "buttons" ? o.buttons : [];
+    };
+    expect(b(base)).toEqual([
+      { id: "habit:nospend:2026-11-03", title: "Hoy no gasté nada" },
+      { id: "pref:nudges_off", title: "No me recuerdes" },
+    ]);
+    expect(b({ ...base, personal: false })[0]?.title).toBe("Hoy no hubo nada");
+    expect(b({ ...base, noSpendDate: null })).toEqual([
+      { id: "pref:nudges_off", title: "No me recuerdes" },
+    ]);
+  });
+  it("H52e y el id del botón", () => {
+    expect(es.noSpendStale().body).toBe(
+      "Ese botón era del aviso de otro día, así que no anoté nada.",
+    );
+    expect(parseReplyId("habit:nospend:2026-11-03")).toEqual({
+      kind: "habit_nospend",
+      date: "2026-11-03",
+    });
+    expect(parseReplyId("habit:nospend:ayer").kind).toBe("unknown");
+    expect(parseReplyId("habit:nospend:2026-11-03:x").kind).toBe("unknown");
+    expect(parseReplyId("pref:optin")).toEqual({ kind: "pref", value: "optin" });
+  });
+});
+
+describe("botón «Hoy no gasté nada» del aviso (US-212) y oferta del aviso (US-206)", () => {
+  let h: Awaited<ReturnType<typeof harness>>;
+  const today = () => businessDateOf(new Date());
+  const yesterday = () => addDays(today(), -1);
+  const marks = async () =>
+    (await h.t.db.select({ tc: schema.message.toolCalls }).from(schema.message))
+      .flatMap((m) => (m.tc ?? []) as { name: string; args?: Record<string, unknown> }[])
+      .filter((c) => c.name.startsWith("habit_"));
+  const phone = async () => {
+    const [p] = await h.t.db
+      .select()
+      .from(schema.phoneNumber)
+      .where(eq(schema.phoneNumber.e164, OWNER));
+    if (!p) throw new Error("sin teléfono");
+    return p;
+  };
+  const consents = () =>
+    h.t.db
+      .select({ action: schema.auditLog.action, after: schema.auditLog.after })
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.entity, "phone_number"));
+  const lastIds = () => {
+    const i = h.sent.at(-1)?.body.interactive as
+      | { action?: { buttons?: { reply: { id: string } }[] } }
+      | undefined;
+    return i?.action?.buttons?.map((b) => b.reply.id) ?? [];
+  };
+  beforeAll(async () => {
+    h = await harness("personal");
+    await withTenant(h.t.db, h.tenantId, (tx) =>
+      tx
+        .update(schema.tenant)
+        .set({ businessType: "personal" })
+        .where(eq(schema.tenant.id, h.tenantId)),
+    );
+  });
+  afterAll(() => h.t.close());
+  beforeEach(async () => {
+    await h.reset();
+    await h.t.db.delete(schema.auditLog);
+    await h.t.db.update(schema.phoneNumber).set({
+      nudgeOptInAt: null,
+      nudgeOffAt: null,
+      unsolicitedOffAt: null,
+      nudgePausedUntil: null,
+      prefPending: null,
+      prefPendingAt: null,
+    });
+    await saveHabitSettings(
+      h.t.db,
+      { streakLine: true, noSpend: true, prefs: true, nudge: true },
+      "test",
+      new Date(),
+    );
+  });
+
+  it("toque de hoy → H52 y el día anotado, con via button; otro toque → H52d; sin tocar preferencias", async () => {
+    await h.recordDaysAgo(2);
+    await h.recordDaysAgo(1);
+    const calls = h.llm.calls;
+    expect(await h.tap(`habit:nospend:${today()}`)).toBe(
+      "¡Tu racha sigue viva! 🔥 3 días seguidos. Hoy quedó anotado sin gastos.",
+    );
+    expect(h.llm.calls).toBe(calls);
+    expect((await h.streak()).noSpendToday).toBe(true);
+    expect(await h.tap(`habit:nospend:${today()}`)).toBe(
+      "Ya lo tenía anotado. Tu racha sigue: 3 días.",
+    );
+    expect((await marks()).filter((m) => m.name === "habit_no_spend")).toEqual([
+      { name: "habit_no_spend", args: { n: 3, via: "button" } },
+      { name: "habit_no_spend", args: { n: 3, via: "button" } },
+    ]);
+    // El toque no es consentimiento de nada (compliance §6).
+    const p = await phone();
+    expect([p.nudgeOptInAt, p.nudgeOffAt, p.unsolicitedOffAt, p.prefPending]).toEqual([
+      null,
+      null,
+      null,
+      null,
+    ]);
+    expect(await consents()).toEqual([]);
+  });
+
+  it("con un registro hoy → H52c; el botón de ayer → H52e y no anota nada", async () => {
+    await h.recordDaysAgo(1);
+    expect(await h.tap(`habit:nospend:${yesterday()}`)).toBe(
+      "Ese botón era del aviso de otro día, así que no anoté nada.",
+    );
+    expect((await h.streak()).noSpendToday).toBe(false);
+    expect((await marks()).map((m) => m.name)).toEqual(["habit_no_spend_stale"]);
+    await h.recordDaysAgo(0);
+    expect(await h.tap(`habit:nospend:${today()}`)).toBe(
+      "Hoy ya hay movimientos anotados, así que el día ya cuenta para tu racha.",
+    );
+  });
+
+  it("el cajero, o con el aviso apagado, no anota nada", async () => {
+    await h.recordDaysAgo(1);
+    await h.tap(`habit:nospend:${today()}`, CASHIER);
+    expect((await h.streak()).noSpendToday).toBe(false);
+    await saveHabitSettings(h.t.db, { nudge: false }, "test", new Date());
+    await h.tap(`habit:nospend:${today()}`);
+    expect((await h.streak()).noSpendToday).toBe(false);
+  });
+
+  it("día 3 de la racha: la primera tarjeta lleva H7 y «Avísame a las 8»; una sola vez", async () => {
+    await h.recordDaysAgo(2);
+    await h.recordDaysAgo(1);
+    const card = await h.send("gasté 5$ en café");
+    expect(card).toMatch(
+      /\n\n🔥 Llevas 3 días seguidos\. Cada día que anotes algo, tu racha sigue\.\n\n¿Te aviso a las 8 pm los días que no anotes nada\? Lo apagas cuando quieras\.$/,
+    );
+    expect(lastIds()).toHaveLength(3);
+    expect(lastIds().at(-1)).toBe("pref:optin");
+    expect((await marks()).filter((m) => m.name === "habit_optin_offer")).toEqual([
+      { name: "habit_optin_offer", args: { n: 3 } },
+    ]);
+    // La tarjeta siguiente, y cualquier otro día, ya no la llevan.
+    expect(await h.send("gasté 6$ en pan")).not.toMatch(/Te aviso a las 8/);
+    expect(lastIds()).not.toContain("pref:optin");
+  });
+
+  it("tocar «Avísame a las 8» → ✅, el aviso aceptado y auditoría H7 por botón", async () => {
+    expect(await h.tap("pref:optin")).toBe("✅");
+    const p = await phone();
+    expect(p.nudgeOptInAt).not.toBeNull();
+    expect(await consents()).toEqual([
+      {
+        action: "nudge_opt_in",
+        after: { source: "button", text_id: "H7", text_version: "v1" },
+      },
+    ]);
+    // Otra vez: ✅ sin otra auditoría.
+    expect(await h.tap("pref:optin")).toBe("✅");
+    expect(await consents()).toHaveLength(1);
+  });
+
+  it("sin oferta con racha de 2, con el aviso apagado o ya aceptado, o sin el interruptor", async () => {
+    await h.recordDaysAgo(1);
+    expect(await h.send("gasté 5$ en café")).not.toMatch(/Te aviso a las 8/);
+    await h.reset();
+    await h.recordDaysAgo(2);
+    await h.recordDaysAgo(1);
+    await h.t.db.update(schema.phoneNumber).set({ nudgeOffAt: new Date() });
+    expect(await h.send("gasté 5$ en café")).not.toMatch(/Te aviso a las 8/);
+    await h.reset();
+    await h.recordDaysAgo(2);
+    await h.recordDaysAgo(1);
+    await h.t.db.update(schema.phoneNumber).set({ nudgeOffAt: null });
+    await saveHabitSettings(h.t.db, { nudge: false }, "test", new Date());
+    expect(await h.send("gasté 5$ en café")).not.toMatch(/Te aviso a las 8/);
+    expect(await marks()).not.toContainEqual(
+      expect.objectContaining({ name: "habit_optin_offer" }),
+    );
   });
 });
 

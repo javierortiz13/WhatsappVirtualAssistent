@@ -21,6 +21,7 @@ import {
   refreshRates,
   releaseStalePending,
   retentionSweep,
+  runHabitNudges,
   runSignupRescue,
   sendLifecycleNotices,
   sendPaymentNotices,
@@ -51,6 +52,7 @@ export const CRON = {
   housekeeping: "*/5 * * * *",
   reminders: "* * * * *",
   signupReminders: "*/5 * * * *",
+  habitNudges: "0 20 * * *",
 } as const;
 
 export async function registerJobs(opts: {
@@ -350,6 +352,18 @@ export async function registerJobs(opts: {
     }),
   );
 
+  // Aviso de racha (hábitos US-207): a las 8 pm. Sin `habits.nudge`, no hace nada.
+  await boss.work(
+    QUEUES.habitNudges,
+    { batchSize: 1, pollingIntervalSeconds: 10 },
+    guarded(QUEUES.habitNudges, async () => {
+      const meta = opts.platformPhoneNumberId ? deps.metaFor(opts.platformPhoneNumberId) : null;
+      const r = await runHabitNudges(db, meta, { now: new Date(), log });
+      // Solo cuentas: ni números ni textos.
+      if (r.sent || r.failed || r.paused || r.outside) log.info(r, "aviso de racha");
+    }),
+  );
+
   await boss.schedule(QUEUES.fetchBcvRate, CRON.ratesAfternoon, null, {
     tz: "America/Caracas",
     key: "afternoon",
@@ -369,6 +383,10 @@ export async function registerJobs(opts: {
   await boss.schedule(QUEUES.signupReminders, CRON.signupReminders, null, {
     tz: "America/Caracas",
     key: "every-5-min",
+  });
+  await boss.schedule(QUEUES.habitNudges, CRON.habitNudges, null, {
+    tz: "America/Caracas",
+    key: "daily-8pm",
   });
   // El autoguardado de cada minuto (0022) se reemplazó por el guardado al instante (0023).
   await boss.unschedule(RETIRED_AUTO_SAVE_QUEUE, "every-minute").catch(() => {});

@@ -14,6 +14,7 @@ import {
   type Health,
   loadFunnel,
   loadHabits,
+  loadNudgeStats,
   loadPendingPayments,
   loadRates,
   loadReminderStats,
@@ -98,11 +99,12 @@ export default async function AdminHome({
   const overCap = tenants.filter((t) => t.usage.inbound > t.cap);
   const premium = rates ? premiumOverUsd(rates) : null;
   const funnel = await loadFunnel(tenants, now);
-  const [habits, habitFlags, reminders, rescueFlags] = await Promise.all([
+  const [habits, habitFlags, reminders, rescueFlags, nudges] = await Promise.all([
     loadHabits(tenants, now),
     habitSettings(db()),
     loadReminderStats(tenants, now),
     signupRescueSettings(db()),
+    loadNudgeStats(tenants, now),
   ]);
   const rescue = funnel.rescue;
   const survey = surveyTally(tenants);
@@ -122,7 +124,7 @@ export default async function AdminHome({
       {sp.error ? (
         <div className="notice err">
           {sp.error === "avisos_primero"
-            ? "Recordatorios necesita Avisos encendido: enciende los dos juntos."
+            ? "Recordatorios y el aviso de las 8 pm necesitan Avisos encendido: enciéndelos juntos."
             : "No se pudo guardar el cambio."}
         </div>
       ) : null}
@@ -293,6 +295,24 @@ export default async function AdminHome({
             No se pudo calcular: falta aplicar la migración 0025 (días sin gastos) en la base.
           </p>
         )}
+        {nudges && (habitFlags.nudge || nudges.sent > 0 || nudges.optedIn > 0) ? (
+          <div className="row">
+            <span className="what">
+              <strong>Aviso de las 8 pm (7 d)</strong>
+              <span className="sub num">
+                ofertas {nudges.offers} · aceptaron {nudges.optInsButton} con el botón y{" "}
+                {nudges.optInsOther} por frase o panel · con el aviso {nudges.optedIn} (en pausa{" "}
+                {nudges.paused})
+              </span>
+              <span className="sub num">
+                enviados {nudges.sent} · fallidos {nudges.failed} · cumplieron el día{" "}
+                {nudges.answered} · «hoy no gasté nada» con el botón {nudges.noSpendButton} · pausas
+                automáticas {nudges.autoPauses}
+              </span>
+            </span>
+            <strong className="num">{nudges.sent}</strong>
+          </div>
+        ) : null}
         {reminders && (habitFlags.reminders || reminders.created > 0) ? (
           <div className="row">
             <span className="what">
@@ -333,6 +353,12 @@ export default async function AdminHome({
                 habitFlags.prefs,
                 "Avisos: apagar y encender",
                 "«No me recuerdes», «no me escribas» y «mis avisos». Va primero y, una vez encendido, no se apaga",
+              ],
+              [
+                "nudge",
+                habitFlags.nudge,
+                "Aviso de las 8 pm",
+                "La oferta en la tarjeta del día 3 de la racha y el aviso a quien lo acepte. Necesita Avisos encendido y su aprobación (A-next-nudge)",
               ],
               [
                 "reminders",

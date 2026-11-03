@@ -18,6 +18,8 @@ export const QUEUES = {
   reminders: "reminders",
   /** Recordatorio del registro por WhatsApp (A), cada 5 min (signup-reminders US-SR-05). */
   signupReminders: "signup-reminders",
+  /** Aviso de racha de las 8 pm (hábitos US-207): una vez al día, aparte de los recordatorios. */
+  habitNudges: "habit-nudges",
 } as const;
 
 export const PGBOSS_SCHEMA = "pgboss";
@@ -101,6 +103,14 @@ export async function ensureQueues(boss: PgBoss): Promise<void> {
       retryLimit: 0,
       retryDelay: 60,
       expireInSeconds: 240,
+    },
+    {
+      // Marca antes de enviar; un reintento solo actúa hasta las 20:29 y la puerta ve la marca.
+      name: QUEUES.habitNudges,
+      policy: "singleton",
+      retryLimit: 1,
+      retryDelay: 120,
+      expireInSeconds: 900,
     },
   ];
   for (const { name, ...options } of defs) {

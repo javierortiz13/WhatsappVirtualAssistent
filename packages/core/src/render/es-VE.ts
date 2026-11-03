@@ -3325,6 +3325,70 @@ export function noSpendReply(v: NoSpendView): Outbound {
   return text(`¡Tu racha sigue viva! 🔥 ${v.current} días seguidos.${extra} ${close}`);
 }
 
+// ---------------------------------------------------------------- hábito: aviso de las 8 pm (P2)
+
+/** H7 (US-206), tal cual copy v1.2.2: la oferta del aviso, una vez, dentro de la tarjeta. */
+export const NUDGE_OFFER_LINE =
+  "¿Te aviso a las 8 pm los días que no anotes nada? Lo apagas cuando quieras.";
+
+/**
+ * La tarjeta guardada con la oferta del aviso (H7 como último renglón y H8 «Avísame a las 8» como
+ * botón). null si no cabe: la tarjeta no tiene botones, ya tiene 3 o el cuerpo pasaría del límite.
+ */
+export function withNudgeOffer(card: Outbound): Outbound | null {
+  if (card.type !== "buttons" || card.buttons.length > 2) return null;
+  const body = `${card.body}\n\n${NUDGE_OFFER_LINE}`;
+  if (body.length > 1024) return null;
+  return {
+    ...card,
+    body,
+    buttons: [...card.buttons, { id: IDS.pref("optin"), title: "Avísame a las 8" }],
+  };
+}
+
+export type NudgeView = {
+  /** La racha hasta ayer (hoy todavía no cuenta). Siempre 2 o más. */
+  current: number;
+  /** La racha más larga de todas. */
+  best: number;
+  personal: boolean;
+  /** Fecha de Caracas del aviso para el botón sin gastos (US-212), o null sin ese interruptor. */
+  noSpendDate: string | null;
+};
+
+/**
+ * H9 (copy v1.2.2): el aviso de las 8 pm, con la víspera de un hito o del récord (gana el hito).
+ * Botones: «Hoy no gasté nada» / «Hoy no hubo nada» (US-212) y H10 «No me recuerdes» (abre H45).
+ */
+export function habitNudge(v: NudgeView): Outbound {
+  const open = v.personal ? "¿Hubo algo hoy que anotar?" : "¿Hubo ventas o gastos hoy?";
+  const goal = MILESTONES[v.current + 1]
+    ? `Así llegas a ${v.current + 1} días seguidos 🔥`
+    : v.current === v.best && v.best >= 3
+      ? `Así pasas tu récord de ${v.current} días 🔥`
+      : `Así sigue tu racha de ${v.current} días 🔥`;
+  return {
+    type: "buttons",
+    body: `${open} ${goal}`,
+    buttons: [
+      ...(v.noSpendDate
+        ? [
+            {
+              id: IDS.habitNoSpend(v.noSpendDate),
+              title: v.personal ? "Hoy no gasté nada" : "Hoy no hubo nada",
+            },
+          ]
+        : []),
+      { id: IDS.pref("nudges_off"), title: "No me recuerdes" },
+    ],
+  };
+}
+
+/** H52e (copy v1.2.2, M-2): el botón sin gastos de un aviso de otro día. No anota nada. */
+export function noSpendStale(): Outbound {
+  return { type: "text", body: "Ese botón era del aviso de otro día, así que no anoté nada." };
+}
+
 // ---------------------------------------------------------------- avisos: apagar y encender (hábitos P2)
 
 /**

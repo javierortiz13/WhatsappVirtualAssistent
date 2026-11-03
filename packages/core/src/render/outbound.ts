@@ -59,6 +59,8 @@ export const IDS = {
   reminderAmPm: (half: "am" | "pm") => `rem:ampm:${half}`,
   /** «Ver recordatorios» de un paquete (H20). */
   reminderList: () => "rem:list",
+  /** «Hoy no gasté nada» del aviso de las 8 pm (hábitos US-212), con la fecha de Caracas del aviso. */
+  habitNoSpend: (date: string) => `habit:nospend:${date}`,
 } as const;
 
 export const REMINDER_ACTIONS = ["done", "snooze", "del", "fix", "open"] as const;
@@ -76,6 +78,8 @@ export const PREF_VALUES = [
   "keep:nudges_off",
   "keep:all_off",
   "on",
+  /** H8 «Avísame a las 8» de la oferta en la tarjeta (US-206): enciende solo el aviso de racha. */
+  "optin",
 ] as const;
 export type PrefValue = (typeof PREF_VALUES)[number];
 
@@ -111,6 +115,7 @@ export type ParsedReplyId =
   | { kind: "reminder"; action: ReminderAction; id: string }
   | { kind: "reminder_ampm"; half: "am" | "pm" }
   | { kind: "reminder_list" }
+  | { kind: "habit_nospend"; date: string }
   | { kind: "unknown"; raw: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -167,6 +172,12 @@ export function parseReplyId(raw: string): ParsedReplyId {
       if (action === "list" && rest.length === 1) return { kind: "reminder_list" };
       if ((REMINDER_ACTIONS as readonly string[]).includes(action ?? "") && UUID.test(id ?? ""))
         return { kind: "reminder", action: action as ReminderAction, id: id as string };
+      break;
+    }
+    case "habit": {
+      const [what, date] = rest;
+      if (what === "nospend" && rest.length === 2 && /^\d{4}-\d{2}-\d{2}$/.test(date ?? ""))
+        return { kind: "habit_nospend", date: date as string };
       break;
     }
     case "pref":

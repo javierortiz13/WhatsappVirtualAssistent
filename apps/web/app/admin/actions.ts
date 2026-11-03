@@ -386,8 +386,9 @@ export async function saveHabitsAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const prefs = formData.get("prefs") === "on";
   const reminders = formData.get("reminders") === "on";
+  const nudge = formData.get("nudge") === "on";
   // Avisos va primero (PRD hábitos §6): sin él, «no me escribas» no tendría efecto.
-  if (reminders && !prefs) redirect("/admin?error=avisos_primero");
+  if ((reminders || nudge) && !prefs) redirect("/admin?error=avisos_primero");
   try {
     await saveHabitSettings(
       db(),
@@ -396,6 +397,7 @@ export async function saveHabitsAction(formData: FormData): Promise<void> {
         noSpend: formData.get("no_spend") === "on",
         prefs,
         reminders,
+        nudge,
       },
       admin.email,
       new Date(),
