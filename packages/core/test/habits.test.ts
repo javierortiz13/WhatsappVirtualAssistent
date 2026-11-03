@@ -684,6 +684,16 @@ describe("botón «Hoy no gasté nada» del aviso (US-212) y oferta del aviso (U
     expect(await consents()).toHaveLength(1);
   });
 
+  it("«Avísame a las 8» con un «no me escribas» sin contestar → vuelve H46 y no escribe nada", async () => {
+    await h.t.db
+      .update(schema.phoneNumber)
+      .set({ prefPending: "all_off", prefPendingAt: new Date() });
+    expect(await h.tap("pref:optin")).toBe(es.prefAllOffCard().body);
+    const p = await phone();
+    expect([p.nudgeOptInAt, p.prefPending]).toEqual([null, "all_off"]);
+    expect(await consents()).toEqual([]);
+  });
+
   it("sin oferta con racha de 2, con el aviso apagado o ya aceptado, o sin el interruptor", async () => {
     await h.recordDaysAgo(1);
     expect(await h.send("gasté 5$ en café")).not.toMatch(/Te aviso a las 8/);

@@ -283,6 +283,8 @@ async function turnOn(
 async function optIn(tx: Tx, c: PrefCtx, s: PrefState): Promise<PrefResult> {
   if (s.tagged) return reply(es.prefTagged(c.privacyContact));
   if (s.unsolicitedOffAt) return reply(es.prefAlreadyOff("all_off"));
+  // Un «no me escribas» sin contestar sigue abierto: se vuelve a mostrar esa tarjeta.
+  if (s.prefPending === "all_off") return reply(es.prefAllOffCard());
   const paused = s.nudgePausedUntil !== null && s.nudgePausedUntil.getTime() > c.now.getTime();
   const on = s.nudgeOptInAt && !s.nudgeOffAt && !paused && !s.prefPending;
   if (!on) {

@@ -13,11 +13,12 @@ import {
 } from "@caja/db";
 import { businessDateOf } from "../domain/dates";
 import { habitSettings, keptDays, streakFor } from "../ledger/habits";
-import { type Logger, maskPhone, silentLogger } from "../log";
+import { errorText, type Logger, maskPhone, silentLogger } from "../log";
 import { tenantBlocked } from "../reminders/deliver";
 import { es, type Outbound } from "../render/index";
 import { MetaApiError, type MetaClient } from "../whatsapp/client";
 import { caracasDayStart, type GateDeny, takeUnsolicitedSlot } from "./gate";
+import { lifecycleDueToday } from "./lifecycle";
 import { sendOutbound } from "./process";
 
 /**
@@ -153,6 +154,8 @@ async function takeNudge(
     kind: "nudge",
     now,
     tenantBlocked: await tenantBlocked(tx, tenantId, now),
+    // Un aviso de la prueba que sale más tarde hoy se queda con el día (F-1).
+    lifecycleDueToday: await lifecycleDueToday(tx, tenantId, now),
   });
   if (!gate.allow) return skip(gate.reason);
   const [t] = await tx
@@ -227,7 +230,7 @@ export async function runHabitNudges(
         );
       }
     } catch (err) {
-      log.error({ err: err instanceof Error ? err.message : String(err) }, "aviso de racha");
+      log.error({ err: errorText(err) }, "aviso de racha");
     }
   }
   return run;

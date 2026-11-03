@@ -1,8 +1,9 @@
-import { eq, schema, withTenant } from "@caja/db";
+import { eq, rows, schema, sql, withTenant } from "@caja/db";
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { addDays, businessDateOf } from "../src/domain/dates";
+import { takeUnsolicitedSlot } from "../src/inbox/gate";
 import { inNudgeWindow, runHabitNudges } from "../src/inbox/nudge";
 import { saveHabitSettings } from "../src/ledger/habits";
 import { MetaClient } from "../src/whatsapp/client";
@@ -128,7 +129,14 @@ describe("runHabitNudges (US-207, US-208)", () => {
       await tx.delete(schema.message);
       await tx
         .update(schema.tenant)
-        .set({ businessType: "personal" })
+        .set({
+          businessType: "personal",
+          status: "trial",
+          createdAt: new Date(now.getTime() - DAY),
+          trialEndsAt: new Date(now.getTime() + 30 * DAY),
+          surveySentAt: null,
+          valueSentAt: null,
+        })
         .where(eq(schema.tenant.id, tenantId));
     });
     await t.db.delete(schema.auditLog);
@@ -271,5 +279,93 @@ describe("runHabitNudges (US-207, US-208)", () => {
       .update(schema.phoneNumber)
       .set({ nudgeOptInAt: new Date(now.getTime() - 3 * DAY - 2 * HOUR) });
     expect((await runHabitNudges(t.db, meta, { now })).paused).toBe(0);
+  });
+
+  const setTenant = (set: Partial<typeof schema.tenant.$inferInsert>) =>
+    withTenant(t.db, tenantId, (tx) =>
+      tx.update(schema.tenant).set(set).where(eq(schema.tenant.id, tenantId)),
+    );
+
+  it("F-1: la prueba termina hoy a las 21:00 → sin aviso a las 20:00 (lifecycle_today)", async () => {
+    await record(2);
+    await record(1);
+    await wrote(3);
+    await setTenant({ trialEndsAt: at(21, 0) });
+    expect((await runHabitNudges(t.db, meta, { now })).skipped.lifecycle_today).toBe(1);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("F-1: el día de la encuesta empieza a las 22:00 → sin aviso", async () => {
+    await record(2);
+    await record(1);
+    await wrote(3);
+    await setTenant({ createdAt: new Date(at(22, 0).getTime() - 10 * DAY) });
+    expect((await runHabitNudges(t.db, meta, { now })).skipped.lifecycle_today).toBe(1);
+    // Con la encuesta ya enviada, el aviso sale.
+    await setTenant({ surveySentAt: at(9, 0) });
+    expect((await runHabitNudges(t.db, meta, { now })).sent).toBe(1);
+  });
+
+  it("F-1: el aviso de fin de este fin ya salió (ayer) → el aviso sale", async () => {
+    await record(2);
+    await record(1);
+    await wrote(3);
+    // Sin el aviso de fin, la prueba terminada se queda con el día.
+    await setTenant({ trialEndsAt: at(18, 0, -1) });
+    expect((await runHabitNudges(t.db, meta, { now })).skipped.lifecycle_today).toBe(1);
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.insert(schema.message).values({
+        tenantId,
+        phoneId,
+        direction: "out",
+        kind: "buttons",
+        body: "x",
+        createdAt: at(18, 30, -1),
+        toolCalls: [{ name: "lifecycle_trial_end", args: {} }],
+      }),
+    );
+    expect((await runHabitNudges(t.db, meta, { now })).sent).toBe(1);
+  });
+
+  it("S-2: dos tomas del cupo en paralelo para un teléfono → un solo allow", async () => {
+    await wrote(3);
+    const take = () =>
+      withTenant(t.db, tenantId, async (tx) => {
+        const g = await takeUnsolicitedSlot(tx, {
+          tenantId,
+          phoneId,
+          kind: "nudge",
+          now,
+          tenantBlocked: false,
+        });
+        if (g.allow)
+          await tx.insert(schema.message).values({
+            tenantId,
+            phoneId,
+            direction: "out",
+            kind: "text",
+            body: "x",
+            createdAt: now,
+            toolCalls: [{ name: "habit_nudge", args: { n: 2 } }],
+          });
+        return g.allow;
+      });
+    const results = await Promise.all([take(), take()]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    // PGlite corre las transacciones de a una: además se comprueba que el candado se toma y dura
+    // la transacción de quien llama (en Postgres, la segunda espera a que la primera confirme).
+    const locks = await withTenant(t.db, tenantId, async (tx) => {
+      await takeUnsolicitedSlot(tx, {
+        tenantId,
+        phoneId,
+        kind: "nudge",
+        now,
+        tenantBlocked: false,
+      });
+      return rows<{ n: number }>(
+        await tx.execute(sql`select count(*)::int as n from pg_locks where locktype = 'advisory'`),
+      )[0]?.n;
+    });
+    expect(locks).toBe(1);
   });
 });

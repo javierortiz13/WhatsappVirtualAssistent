@@ -358,7 +358,7 @@ export default async function AdminHome({
                 "nudge",
                 habitFlags.nudge,
                 "Aviso de las 8 pm",
-                "La oferta en la tarjeta del día 3 de la racha y el aviso a quien lo acepte. Necesita Avisos encendido y su aprobación (A-next-nudge)",
+                "La oferta en una tarjeta del dueño con racha de 3 a 7 días (una vez) y el aviso a quien lo acepte. Necesita Avisos encendido y su aprobación (A-0033)",
               ],
               [
                 "reminders",

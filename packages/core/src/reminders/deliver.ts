@@ -15,6 +15,7 @@ import { reminderView } from "../agent/reminder-tools";
 import { planCapStatus } from "../billing/limits";
 import { trialSpend } from "../billing/trial";
 import { type GateDeny, isQuietHours, takeUnsolicitedSlot } from "../inbox/gate";
+import { lifecycleDueToday } from "../inbox/lifecycle";
 import { sendOutbound } from "../inbox/process";
 import { serviceWindow } from "../inbox/window";
 import { habitSettings } from "../ledger/habits";
@@ -188,6 +189,8 @@ async function takeForTenant(
       kind: "reminder_b",
       now,
       tenantBlocked: blocked,
+      // El aviso adelantado cede el día a un aviso de la prueba que sale más tarde (F-1).
+      lifecycleDueToday: await lifecycleDueToday(tx, tenantId, now),
     });
     if (!gate.allow) {
       denied[gate.reason] = (denied[gate.reason] ?? 0) + 1;
