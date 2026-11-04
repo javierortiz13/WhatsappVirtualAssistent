@@ -35,8 +35,9 @@ const BCV_URL = "https://www.bcv.org.ve/";
 
 /**
  * Página principal del BCV. Estructura observada: un bloque `id="dolar"` con la tasa dentro de
- * `<strong>` y, en la misma sección, un `<span class="date-display-single" content="YYYY-MM-DD...">`
- * con la fecha valor. Si la página cambia, `parseBcvHtml` lanza y el respaldo entra.
+ * `<strong>` y, en la misma sección, «Fecha Valor:» seguido de un `<span ... content="YYYY-MM-DD...">`
+ * con la fecha valor (el orden de sus atributos cambió en 11/2026: ver `bcvEffectiveDate`). Si la
+ * página cambia, `parseBcvHtml` lanza y el respaldo entra.
  * Verificar contra la página real al desplegar (y el certificado TLS: NODE_EXTRA_CA_CERTS).
  */
 export function parseBcvHtml(html: string): {
@@ -52,7 +53,7 @@ export function parseBcvHtml(html: string): {
     );
   const rate = parseVenezuelanAmount(dolarBlock[1]);
   if (!rate || rate.lte(0)) throw new RateSourceError("bcv", `tasa ilegible: ${dolarBlock[1]}`);
-  const date = html.match(/date-display-single[^>]*content=["'](\d{4}-\d{2}-\d{2})/i)?.[1];
+  const date = bcvEffectiveDate(html);
   if (!date)
     throw new RateSourceError(
       "bcv",
@@ -66,6 +67,21 @@ export function parseBcvHtml(html: string): {
     rateEur: euro?.gt(0) ? euro.toDecimalPlaces(8) : null,
     effectiveDate: asIsoDate(date),
   };
+}
+
+/**
+ * La fecha valor: el `content` del primer `<span>` después de «Fecha Valor», con sus atributos en
+ * cualquier orden (en 11/2026 el BCV pasó `content` antes de `class`). Si no está, el patrón de
+ * antes: un `date-display-single` con `content` después.
+ */
+function bcvEffectiveDate(html: string): string | undefined {
+  const at = html.search(/fecha(?:\s|&nbsp;)+valor/i);
+  if (at >= 0) {
+    const span = html.slice(at, at + 1000).match(/<span\b[^>]*>/i)?.[0];
+    const date = span?.match(/\scontent\s*=\s*["'](\d{4}-\d{2}-\d{2})/i)?.[1];
+    if (date) return date;
+  }
+  return html.match(/date-display-single[^>]*content=["'](\d{4}-\d{2}-\d{2})/i)?.[1];
 }
 
 /**

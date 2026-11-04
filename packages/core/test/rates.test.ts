@@ -46,6 +46,37 @@ describe("fuente BCV", () => {
     );
     expect(parseBcvHtml(html).rate.toFixed(8)).toBe("858.12345678");
   });
+  it("fecha valor: el span que sigue a «Fecha Valor», con los atributos en cualquier orden", () => {
+    const span = (attrs: string) =>
+      BCV_HTML.replace(
+        /<div class="pull-right dinpro center">.*?<\/div>/s,
+        `<div class="pull-right dinpro center"> Fecha Valor:&nbsp; <span ${attrs}>Jueves, 05 Noviembre 2026</span></div>`,
+      );
+    // Noviembre 2026: `content` antes de `class`.
+    expect(
+      parseBcvHtml(
+        span(
+          'content="2026-11-05T00:00:00-04:00" class="date-display-single" property="dc:date" datatype="xsd:dateTime"',
+        ),
+      ).effectiveDate,
+    ).toBe("2026-11-05");
+    // El orden de antes, también después de «Fecha Valor».
+    expect(
+      parseBcvHtml(span("class=\"date-display-single\" content='2026-11-05T00:00:00-04:00'"))
+        .effectiveDate,
+    ).toBe("2026-11-05");
+    // Un `data-content` no es la fecha; sin `content` en ese span, el patrón viejo (que no hay).
+    expect(() => parseBcvHtml(span('data-content="2026-11-05" class="x"'))).toThrow(/fecha valor/);
+    // Sin «Fecha Valor» en la página: el patrón viejo (la página de antes).
+    expect(parseBcvHtml(BCV_HTML).effectiveDate).toBe("2026-09-30");
+  });
+  it("fecha valor: si el span de «Fecha Valor» no trae content, vale el patrón viejo", () => {
+    const html = BCV_HTML.replace(
+      '<div class="pull-right dinpro center">',
+      '<div class="pull-right dinpro center"> Fecha Valor: <span class="label">',
+    ).replace("</span></div>\n</div></body>", "</span></span></div>\n</div></body>");
+    expect(parseBcvHtml(html).effectiveDate).toBe("2026-09-30");
+  });
   it("lanza si la página cambió", () => {
     expect(() => parseBcvHtml("<html></html>")).toThrow(/bloque del dólar/);
     expect(() => parseBcvHtml('<div id="dolar"><strong> 858,1 </strong></div>')).toThrow(
