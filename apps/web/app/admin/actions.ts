@@ -3,6 +3,8 @@
 import {
   addExtraMessages,
   approvePayment,
+  BatchRefused,
+  cancelSignupBatch,
   Decimal,
   founderUntilFrom,
   latestRates,
@@ -16,6 +18,7 @@ import {
   saveHabitSettings,
   saveLaunchSettings,
   saveSignupRescueSettings,
+  scheduleSignupBatch,
   setTenantBilling,
   subscriptionState,
   TRIAL_DAYS,
@@ -464,4 +467,30 @@ export async function saveSignupRescueAction(formData: FormData): Promise<void> 
   }
   revalidatePath("/admin");
   redirect("/admin?ok=rescate");
+}
+
+/**
+ * «Programar lote» (A-0031, decisión del fundador 05/11): guarda quiénes saldrían ahora y la hora
+ * (el próximo martes a jueves a las 10:00) y enciende «Registro: plantilla (lote)». El worker lo
+ * corre solo. Sin datos en el log: solo la acción.
+ */
+export async function scheduleBatchAction(): Promise<void> {
+  const admin = await requireAdmin();
+  try {
+    await scheduleSignupBatch(db(), { actor: admin.email, now: new Date() });
+  } catch (err) {
+    if (err instanceof BatchRefused)
+      redirect(`/admin?error=lote&motivo=${encodeURIComponent(err.reason)}#lote`);
+    console.error(JSON.stringify({ level: "error", msg: "admin lote", detail: errorText(err) }));
+    redirect("/admin?error=servidor");
+  }
+  revalidatePath("/admin");
+  redirect("/admin?ok=lote_programado#lote");
+}
+
+export async function cancelBatchAction(): Promise<void> {
+  const admin = await requireAdmin();
+  await cancelSignupBatch(db(), admin.email, new Date());
+  revalidatePath("/admin");
+  redirect("/admin?ok=lote_cancelado#lote");
 }

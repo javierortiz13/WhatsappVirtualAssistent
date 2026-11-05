@@ -20,6 +20,8 @@ export const QUEUES = {
   signupReminders: "signup-reminders",
   /** Aviso de racha de las 8 pm (hábitos US-207): una vez al día, aparte de los recordatorios. */
   habitNudges: "habit-nudges",
+  /** Lote de la plantilla del registro programado desde /admin (A-0031): 10:00–10:45 mar–jue. */
+  signupBatch: "signup-batch",
 } as const;
 
 export const PGBOSS_SCHEMA = "pgboss";
@@ -111,6 +113,15 @@ export async function ensureQueues(boss: PgBoss): Promise<void> {
       retryLimit: 1,
       retryDelay: 120,
       expireInSeconds: 900,
+    },
+    {
+      // Sin reintentos: el lote se marca antes de empezar y no hay segunda corrida. Dura hasta
+      // ~45 min (30 envíos, uno cada 90 s; S7 lo para a las 11:30).
+      name: QUEUES.signupBatch,
+      policy: "singleton",
+      retryLimit: 0,
+      retryDelay: 60,
+      expireInSeconds: 6000,
     },
   ];
   for (const { name, ...options } of defs) {

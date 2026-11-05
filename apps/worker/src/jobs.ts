@@ -22,6 +22,7 @@ import {
   releaseStalePending,
   retentionSweep,
   runHabitNudges,
+  runScheduledSignupBatch,
   runSignupRescue,
   sendLifecycleNotices,
   sendPaymentNotices,
@@ -53,6 +54,7 @@ export const CRON = {
   reminders: "* * * * *",
   signupReminders: "*/5 * * * *",
   habitNudges: "0 20 * * *",
+  signupBatch: "*/5 10 * * 2-4",
 } as const;
 
 export async function registerJobs(opts: {
@@ -75,6 +77,11 @@ export async function registerJobs(opts: {
   retentionTemplate?: { name: string; language: string } | null;
   /** Plantilla del registro sin terminar, para el recordatorio (A) como plantilla. */
   signupTemplate?: { name: string; language: string } | null;
+  /** El lote programado desde /admin: la plantilla con su cuenta (para S6) y la tarifa. */
+  signupBatch?: {
+    template: { name: string; language: string; wabaId: string | null };
+    rateUsd: number;
+  } | null;
 }) {
   const { boss, db, deps, log } = opts;
   const guarded =
@@ -352,6 +359,26 @@ export async function registerJobs(opts: {
     }),
   );
 
+  // Lote de la plantilla del registro programado desde /admin (A-0031): sin uno programado, no
+  // hace nada. La corrida entera va dentro de este job.
+  await boss.work(
+    QUEUES.signupBatch,
+    { batchSize: 1, pollingIntervalSeconds: 10 },
+    guarded(QUEUES.signupBatch, async () => {
+      const meta = opts.platformPhoneNumberId ? deps.metaFor(opts.platformPhoneNumberId) : null;
+      if (!meta || !opts.signupBatch) return;
+      const r = await runScheduledSignupBatch(db, meta, {
+        template: opts.signupBatch.template,
+        rateUsd: opts.signupBatch.rateUsd,
+        now: () => new Date(),
+        sleep: (ms) => new Promise((ok) => setTimeout(ok, ms)),
+        // Solo cuentas y códigos: ni números ni nombres.
+        log: (line) => log.info({}, `registro: lote · ${line}`),
+      });
+      if (r.ran || r.why === "missed") log.info(r, "registro: lote programado");
+    }),
+  );
+
   // Aviso de racha (hábitos US-207): a las 8 pm. Sin `habits.nudge`, no hace nada.
   await boss.work(
     QUEUES.habitNudges,
@@ -383,6 +410,10 @@ export async function registerJobs(opts: {
   await boss.schedule(QUEUES.signupReminders, CRON.signupReminders, null, {
     tz: "America/Caracas",
     key: "every-5-min",
+  });
+  await boss.schedule(QUEUES.signupBatch, CRON.signupBatch, null, {
+    tz: "America/Caracas",
+    key: "tue-thu-10",
   });
   await boss.schedule(QUEUES.habitNudges, CRON.habitNudges, null, {
     tz: "America/Caracas",

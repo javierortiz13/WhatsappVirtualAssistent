@@ -140,6 +140,16 @@ async function main() {
     signupTemplate: env.META_SIGNUP_TEMPLATE
       ? { name: env.META_SIGNUP_TEMPLATE, language: env.META_TEMPLATE_LANGUAGE }
       : null,
+    signupBatch: env.META_SIGNUP_TEMPLATE
+      ? {
+          template: {
+            name: env.META_SIGNUP_TEMPLATE,
+            language: env.META_TEMPLATE_LANGUAGE,
+            wabaId: env.META_WABA_ID ?? null,
+          },
+          rateUsd: env.META_MARKETING_RATE_USD,
+        }
+      : null,
     onError: (err, queue) => captureError(err, { queue }),
     // Aviso al administrador por Sentry (sin números ni mensajes): el bot sigue funcionando.
     onOverCap: (items) => {

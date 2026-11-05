@@ -1,9 +1,13 @@
 import {
+  batchAlreadyRan,
+  batchSchedule,
   Decimal,
   es,
   habitSettings,
   launchSettings,
+  nextBatchSlot,
   PLANS,
+  planSignupBatch,
   premiumOverUsd,
   quote,
   signupRescueSettings,
@@ -27,11 +31,13 @@ import { db } from "@/lib/db";
 import { formatE164 } from "@/lib/phone";
 import {
   approvePaymentAction,
+  cancelBatchAction,
   markFounderContactedAction,
   rejectPaymentAction,
   saveHabitsAction,
   saveLaunchAction,
   saveSignupRescueAction,
+  scheduleBatchAction,
 } from "./actions";
 import { dueClass, dueText, METHOD_LABEL, planClass, STATE, usd, ves } from "./format";
 
@@ -62,6 +68,9 @@ const OK: Record<string, string> = {
   lanzamiento: "Modo de lanzamiento guardado. Rocco lo usa desde el próximo mensaje.",
   habito: "Interruptores del hábito guardados. Rocco los usa desde el próximo mensaje.",
   rescate: "Interruptores del registro guardados.",
+  lote_programado:
+    "Lote programado. «Registro: plantilla (lote)» quedó encendido; el worker lo corre solo a la hora.",
+  lote_cancelado: "Lote cancelado. «Registro: plantilla (lote)» quedó apagado.",
   registro: "Listo.",
 };
 
@@ -77,7 +86,7 @@ const HOLDOUT_UNTIL = "31/12/2026";
 export default async function AdminHome({
   searchParams,
 }: {
-  searchParams: Promise<{ ok?: string; error?: string }>;
+  searchParams: Promise<{ ok?: string; error?: string; motivo?: string }>;
 }) {
   await requireAdmin();
   const sp = await searchParams;
@@ -113,6 +122,14 @@ export default async function AdminHome({
       loadMonthOutbound(tenants, now),
     ]);
   const rescue = funnel.rescue;
+  // Lote de la plantilla del registro (A-0031): programado, ya corrido o lo que saldría ahora.
+  const [lote, loteRan] = await Promise.all([batchSchedule(db()), batchAlreadyRan(db())]);
+  const lotePlan =
+    !loteRan && lote?.status !== "scheduled" && lote?.status !== "running"
+      ? await planSignupBatch(db(), { now, maxAgeDays: 30, parkNumbers: [] }).catch(() => null)
+      : null;
+  /** «mar 10/11 10:00» de Caracas. */
+  const loteWhen = (iso: string) => `${formatShortDate(businessDateOf(new Date(iso)))} 10:00`;
   const survey = surveyTally(tenants);
   const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)} %` : "—");
   const steps: [string, number, string][] = [
@@ -133,7 +150,9 @@ export default async function AdminHome({
             ? "Recordatorios y el aviso de las 8 pm necesitan Avisos encendido: enciéndelos juntos."
             : sp.error === "aviso_primero"
               ? "«8 pm para todos» necesita el aviso de las 8 pm encendido."
-              : "No se pudo guardar el cambio."}
+              : sp.error === "lote"
+                ? `No se programó el lote: ${sp.motivo ?? "revisa el estado"}.`
+                : "No se pudo guardar el cambio."}
         </div>
       ) : null}
 
@@ -444,6 +463,62 @@ export default async function AdminHome({
         <p className="sub" style={{ margin: 0 }}>
           Menos de 30: son números, no porcentajes.
         </p>
+        <div className="stack-sm" id="lote">
+          <span className="label">Lote de la plantilla (una sola vez, A-0031)</span>
+          {lote?.status === "scheduled" ? (
+            <>
+              <p className="sub num" style={{ margin: 0 }}>
+                Programado para el <strong>{loteWhen(lote.at)}</strong>: {lote.confirm}{" "}
+                {lote.confirm === 1 ? "registro" : "registros"} · ${lote.costUsd.toFixed(2)}{" "}
+                estimado. Sale solo, uno cada 90 s; apagar «Registro: plantilla (lote)» lo frena.
+              </p>
+              <form action={cancelBatchAction}>
+                <button className="btn small secondary" type="submit">
+                  Cancelar lote
+                </button>
+              </form>
+            </>
+          ) : lote?.status === "running" ? (
+            <p className="sub" style={{ margin: 0 }}>
+              El lote está corriendo ahora. Para frenarlo, apaga «Registro: plantilla (lote)».
+            </p>
+          ) : loteRan ? (
+            <p className="sub num" style={{ margin: 0 }}>
+              {lote?.result
+                ? `El lote ya corrió: enviados ${lote.result.sent} · retenidos ${lote.result.held} · fallidos ${lote.result.failed} · «no me escribas» ${lote.result.optOuts} · sin enviar ${lote.result.unsent} · $${lote.result.costUsd.toFixed(2)}${lote.result.stop ? ` · parada ${lote.result.stop}` : ""}.`
+                : "El lote ya corrió."}{" "}
+              No hay segunda corrida.
+            </p>
+          ) : (
+            <>
+              {lote?.status === "missed" || lote?.status === "refused" ? (
+                <p className="sub" style={{ margin: 0 }}>
+                  El lote programado no salió ({lote.reason ?? "sin motivo"}). Puedes programarlo de
+                  nuevo.
+                </p>
+              ) : null}
+              <p className="sub num" style={{ margin: 0 }}>
+                {lotePlan
+                  ? `Si lo programas ahora: ${lotePlan.toSend} ${lotePlan.toSend === 1 ? "registro" : "registros"} (de ${lotePlan.eligible} elegibles) · $${lotePlan.costUsd.toFixed(2)} estimado.`
+                  : "No se pudo calcular quiénes saldrían."}
+              </p>
+              <p className="sub" style={{ margin: 0 }}>
+                Antes: marca «Le escribí yo» en los que contactaste y en tus números de prueba, y
+                revisa en WhatsApp Manager calidad en verde, límite de 250 o más, método de pago y
+                tarifa de marketing de $0,10 o menos. Ese día, ninguna otra campaña con plantilla.
+              </p>
+              <form action={scheduleBatchAction}>
+                <button
+                  className="btn small"
+                  type="submit"
+                  disabled={!lotePlan || lotePlan.toSend === 0}
+                >
+                  Programar lote para el {loteWhen(nextBatchSlot(now).toISOString())}
+                </button>
+              </form>
+            </>
+          )}
+        </div>
         <form action={saveSignupRescueAction} className="stack-sm admin-flags">
           {(
             [
@@ -452,7 +527,7 @@ export default async function AdminHome({
               [
                 "via_template",
                 rescueFlags.inWindowVia === "template",
-                "Registro: recordatorio como plantilla",
+                "Registro: recordatorio como plantilla (no aprobado: déjalo apagado)",
               ],
             ] as const
           ).map(([name, on, title]) => (

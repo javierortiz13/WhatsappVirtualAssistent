@@ -71,6 +71,8 @@ export async function planSignupBatch(
     parkNumbers?: string[];
     includeHoldout?: boolean;
     rateUsd?: number;
+    /** Lote programado: solo estos registros (los que el fundador confirmó al programar). */
+    onlyIds?: string[];
   },
 ): Promise<BatchPlan> {
   const s = schema.signup;
@@ -104,7 +106,9 @@ export async function planSignupBatch(
   };
   const eligible: BatchRow[] = [];
   let unfinished = 0;
+  const only = opts.onlyIds ? new Set(opts.onlyIds) : null;
   for (const r of all) {
+    if (only && !only.has(r.id)) continue;
     const age = opts.now.getTime() - r.updatedAt.getTime();
     const reason: ExcludeReason | null =
       r.completedAt || r.step === "done"
@@ -278,6 +282,12 @@ export async function runSignupBatch(
     now: () => Date;
     sleep: (ms: number) => Promise<void>;
     log?: (line: string) => void;
+    /**
+     * Lote programado desde /admin: solo estos registros, los que el fundador confirmó al
+     * programar. Reemplaza a `confirm` (esa lista ya es la confirmación); salen los que sigan
+     * siendo elegibles al empezar.
+     */
+    onlyIds?: string[];
   },
 ): Promise<BatchResult> {
   const intervalS = opts.intervalS ?? BATCH_DEFAULT_INTERVAL_S;
@@ -297,8 +307,9 @@ export async function runSignupBatch(
     parkNumbers: opts.parkNumbers ?? [],
     includeHoldout: opts.includeHoldout ?? false,
     rateUsd: opts.rateUsd ?? 0.074,
+    ...(opts.onlyIds ? { onlyIds: opts.onlyIds } : {}),
   });
-  if (opts.confirm === null || opts.confirm !== plan.toSend)
+  if (!opts.onlyIds && (opts.confirm === null || opts.confirm !== plan.toSend))
     throw new BatchRefused(`--confirm tiene que ser ${plan.toSend} (lo que se enviaría ahora)`);
   if (plan.toSend === 0) throw new BatchRefused("no hay nadie a quien enviar");
   // CC-8: el tope de A-0031.
@@ -310,7 +321,7 @@ export async function runSignupBatch(
       key: BATCH_KEY,
       value: { startedAt: start.toISOString(), toSend: plan.toSend },
       updatedAt: start,
-      updatedBy: "signup:rescue",
+      updatedBy: opts.onlyIds ? "lote programado" : "signup:rescue",
     })
     .onConflictDoNothing({ target: schema.appSetting.key })
     .returning({ key: schema.appSetting.key });
