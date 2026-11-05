@@ -387,8 +387,11 @@ export async function saveHabitsAction(formData: FormData): Promise<void> {
   const prefs = formData.get("prefs") === "on";
   const reminders = formData.get("reminders") === "on";
   const nudge = formData.get("nudge") === "on";
-  // Avisos va primero (PRD hábitos §6): sin él, «no me escribas» no tendría efecto.
-  if ((reminders || nudge) && !prefs) redirect("/admin?error=avisos_primero");
+  const dailyClose = formData.get("daily_close") === "on";
+  // Avisos va primero (PRD hábitos §6): sin él, «no me escribas» no tendría efecto. El mensaje
+  // para todos es el aviso de las 8 pm sin pedirlo: va con él.
+  if ((reminders || nudge || dailyClose) && !prefs) redirect("/admin?error=avisos_primero");
+  if (dailyClose && !nudge) redirect("/admin?error=aviso_primero");
   try {
     await saveHabitSettings(
       db(),
@@ -398,6 +401,7 @@ export async function saveHabitsAction(formData: FormData): Promise<void> {
         prefs,
         reminders,
         nudge,
+        dailyClose,
       },
       admin.email,
       new Date(),

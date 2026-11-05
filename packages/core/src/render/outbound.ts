@@ -61,6 +61,8 @@ export const IDS = {
   reminderList: () => "rem:list",
   /** «Hoy no gasté nada» del aviso de las 8 pm (hábitos US-212), con la fecha de Caracas del aviso. */
   habitNoSpend: (date: string) => `habit:nospend:${date}`,
+  /** Botones del cierre del día de las 8 pm: «Eso es todo» y «Anotar algo más». */
+  habitClose: (action: "done" | "more", date: string) => `habit:close:${action}:${date}`,
 } as const;
 
 export const REMINDER_ACTIONS = ["done", "snooze", "del", "fix", "open"] as const;
@@ -116,6 +118,7 @@ export type ParsedReplyId =
   | { kind: "reminder_ampm"; half: "am" | "pm" }
   | { kind: "reminder_list" }
   | { kind: "habit_nospend"; date: string }
+  | { kind: "habit_close"; action: "done" | "more"; date: string }
   | { kind: "unknown"; raw: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -178,6 +181,14 @@ export function parseReplyId(raw: string): ParsedReplyId {
       const [what, date] = rest;
       if (what === "nospend" && rest.length === 2 && /^\d{4}-\d{2}-\d{2}$/.test(date ?? ""))
         return { kind: "habit_nospend", date: date as string };
+      const [, action, day] = rest;
+      if (
+        what === "close" &&
+        rest.length === 3 &&
+        (action === "done" || action === "more") &&
+        /^\d{4}-\d{2}-\d{2}$/.test(day ?? "")
+      )
+        return { kind: "habit_close", action, date: day as string };
       break;
     }
     case "pref":

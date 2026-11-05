@@ -25,6 +25,11 @@ export const HABIT_FLAGS = [
   "nudge",
   /** P3 camino d: la plantilla de Meta (US-310). Espera la aprobación de Meta. */
   "reminderTemplate",
+  /**
+   * Decisión del fundador (05/11): el mensaje de las 8 pm sale a todos los dueños sin pedirlo
+   * (se apaga con «No me recuerdes»): el cierre del día si anotó algo, el aviso si no. Con `nudge`.
+   */
+  "dailyClose",
 ] as const;
 export type HabitFlag = (typeof HABIT_FLAGS)[number];
 export type HabitSettings = Record<HabitFlag, boolean>;
@@ -36,7 +41,11 @@ export const HABIT_DEFAULTS: HabitSettings = {
   reminders: false,
   nudge: false,
   reminderTemplate: false,
+  dailyClose: false,
 };
+
+/** ¿El mensaje de las 8 pm sale sin que el dueño lo pida (cierre del día)? */
+export const nudgeByDefault = (f: HabitSettings): boolean => f.nudge && f.prefs && f.dailyClose;
 const KEY = "habits";
 
 export async function habitSettings(db: Queryable): Promise<HabitSettings> {

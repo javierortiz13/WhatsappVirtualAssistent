@@ -694,6 +694,28 @@ describe("botón «Hoy no gasté nada» del aviso (US-212) y oferta del aviso (U
     expect(await consents()).toEqual([]);
   });
 
+  it("8 pm para todos: botones del cierre, sin oferta en la tarjeta y «No me recuerdes» muestra H45", async () => {
+    await saveHabitSettings(h.t.db, { dailyClose: true }, "test", new Date());
+    expect(await h.tap(`habit:close:done:${today()}`)).toBe("✅");
+    expect(await h.tap(`habit:close:more:${today()}`)).toBe(
+      "Dime qué fue. Ejemplo: _gasté 5$ en pan_",
+    );
+    await h.recordDaysAgo(2);
+    await h.recordDaysAgo(1);
+    expect(await h.send("gasté 5$ en café")).not.toMatch(/Te aviso a las 8/);
+    // Lo recibe sin haberlo aceptado: la tarjeta para apagarlo nombra el aviso de las 8 pm.
+    expect(await h.send("no me recuerdes")).toMatch(
+      /^¿Apago estos avisos\?\n• El aviso de racha de las 8 pm/,
+    );
+    expect(await h.tap("pref:yes:nudges_off")).toMatch(/^Listo, ya no te aviso de la racha/);
+    expect((await phone()).nudgeOffAt).not.toBeNull();
+    expect((await consents())[0]).toMatchObject({
+      action: "nudge_off",
+      after: { text_id: "H45" },
+    });
+    await saveHabitSettings(h.t.db, { dailyClose: false }, "test", new Date());
+  });
+
   it("sin oferta con racha de 2, con el aviso apagado o ya aceptado, o sin el interruptor", async () => {
     await h.recordDaysAgo(1);
     expect(await h.send("gasté 5$ en café")).not.toMatch(/Te aviso a las 8/);

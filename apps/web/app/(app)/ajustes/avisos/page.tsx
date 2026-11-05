@@ -1,4 +1,11 @@
-import { es, habitSettings, ownerPhone, prefState } from "@caja/core";
+import {
+  es,
+  habitSettings,
+  nudgeByDefault,
+  ownerPhone,
+  prefState,
+  withDefaultNudge,
+} from "@caja/core";
 import { withTenant } from "@caja/db";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -44,8 +51,12 @@ export default async function Avisos({
   const sp = await searchParams;
   const notice = sp.ok ? MSG[sp.ok] : sp.error ? MSG[sp.error] : null;
   const phone = await ownerPhone(db(), tenant.id);
+  // Con el mensaje de las 8 pm para todos (05/11), cuenta como encendido hasta que lo apague.
   const s = phone
-    ? await withTenant(db(), tenant.id, (tx) => prefState(tx, phone.id, tenant.id))
+    ? withDefaultNudge(
+        await withTenant(db(), tenant.id, (tx) => prefState(tx, phone.id, tenant.id)),
+        nudgeByDefault(flags),
+      )
     : null;
   const tagged = Boolean(s?.tagged);
   const unsolicitedOn = Boolean(s) && !s?.unsolicitedOffAt && !tagged;
@@ -85,7 +96,15 @@ export default async function Avisos({
               which="nudge"
               on={nudgeOn}
               label={S.nudge.label}
-              help={tagged ? taggedHelp : unsolicitedOn ? S.nudge.help : S.nudge.disabledHelp}
+              help={
+                tagged
+                  ? taggedHelp
+                  : !unsolicitedOn
+                    ? S.nudge.disabledHelp
+                    : nudgeByDefault(flags)
+                      ? S.nudge.helpDaily
+                      : S.nudge.help
+              }
               disabled={tagged || !unsolicitedOn}
               confirmTitle={S.nudge.confirmTitle}
               confirmBody={S.nudge.confirmBody}

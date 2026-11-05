@@ -38,6 +38,7 @@ export const SLOT_MARKS = [
   "notice_payment",
   "notice_retention",
   "habit_nudge",
+  "habit_close",
   "reminder_b",
   "reminder_d",
 ] as const;
@@ -129,6 +130,8 @@ export type GateInput = {
   tenantBlocked: boolean;
   /** Un aviso del ciclo de la prueba sale hoy (además de los ya mandados). */
   lifecycleDueToday?: boolean;
+  /** El mensaje de las 8 pm sale sin pedirlo (`habits.dailyClose`): no hace falta aceptarlo. */
+  nudgeByDefault?: boolean;
 };
 
 export async function takeUnsolicitedSlot(tx: Tx, g: GateInput): Promise<GateResult> {
@@ -150,7 +153,7 @@ export async function takeUnsolicitedSlot(tx: Tx, g: GateInput): Promise<GateRes
     if (s.prefPending) return deny("pending_opt_out");
   }
   if (g.kind === "nudge") {
-    if (!s.nudgeOptInAt) return deny("not_opted_in");
+    if (!s.nudgeOptInAt && !g.nudgeByDefault) return deny("not_opted_in");
     if (s.nudgePausedUntil && s.nudgePausedUntil.getTime() > g.now.getTime()) return deny("paused");
   }
   if (await failedRecently(tx, g.phoneId, g.now)) return deny("failed_recent");

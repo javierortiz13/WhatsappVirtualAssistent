@@ -3362,14 +3362,18 @@ export type NudgeView = {
  */
 export function habitNudge(v: NudgeView): Outbound {
   const open = v.personal ? "¿Hubo algo hoy que anotar?" : "¿Hubo ventas o gastos hoy?";
-  const goal = MILESTONES[v.current + 1]
-    ? `Así llegas a ${v.current + 1} días seguidos 🔥`
-    : v.current === v.best && v.best >= 3
-      ? `Así pasas tu récord de ${v.current} días 🔥`
-      : `Así sigue tu racha de ${v.current} días 🔥`;
+  // Sin racha (cierre del día para todos, decisión del 05/11): solo la pregunta.
+  const goal =
+    v.current < 2
+      ? ""
+      : MILESTONES[v.current + 1]
+        ? `Así llegas a ${v.current + 1} días seguidos 🔥`
+        : v.current === v.best && v.best >= 3
+          ? `Así pasas tu récord de ${v.current} días 🔥`
+          : `Así sigue tu racha de ${v.current} días 🔥`;
   return {
     type: "buttons",
-    body: `${open} ${goal}`,
+    body: goal ? `${open} ${goal}` : open,
     buttons: [
       ...(v.noSpendDate
         ? [
@@ -3381,6 +3385,62 @@ export function habitNudge(v: NudgeView): Outbound {
         : []),
       { id: IDS.pref("nudges_off"), title: "No me recuerdes" },
     ],
+  };
+}
+
+/**
+ * Primera vez que el dueño recibe el mensaje de las 8 pm sin haberlo pedido (decisión del 05/11):
+ * qué es y cómo apagarlo. Va como último renglón de ese primer mensaje.
+ */
+export const DAILY_CLOSE_INTRO =
+  "Te escribo a las 8 pm los días que me hayas escrito. Si no quieres estos mensajes, toca *No me recuerdes*.";
+
+export type EveningCloseView = {
+  personal: boolean;
+  /** Registros de hoy (gastos y ventas, sin borrar). */
+  count: number;
+  expensesUsd: Decimal;
+  salesUsd: Decimal;
+  /** Racha con hoy incluido; la línea sale con 2 o más. */
+  streak: number;
+  date: string;
+};
+
+/**
+ * Cierre del día de las 8 pm (decisión del fundador, 05/11): lo anotado hoy y «¿Falta algo?».
+ * Tocar un botón es un mensaje suyo: la ventana de 24 h sigue abierta hasta mañana a las 8 pm.
+ */
+export function eveningClose(v: EveningCloseView): Outbound {
+  const usd = (d: Decimal) => formatMoney(d, "USD");
+  const n = `${v.count} ${v.count === 1 ? "registro" : "registros"}`;
+  const what = v.personal
+    ? `Hoy anotaste *${usd(v.expensesUsd)}* en gastos (${n}).`
+    : v.salesUsd.gt(0) && v.expensesUsd.gt(0)
+      ? `Hoy anotaste *${usd(v.salesUsd)}* en ventas y *${usd(v.expensesUsd)}* en gastos (${n}).`
+      : v.salesUsd.gt(0)
+        ? `Hoy anotaste *${usd(v.salesUsd)}* en ventas (${n}).`
+        : `Hoy anotaste *${usd(v.expensesUsd)}* en gastos (${n}).`;
+  const lines = [what];
+  if (v.streak >= 2) lines.push(`🔥 Llevas ${v.streak} días seguidos.`);
+  lines.push("¿Falta algo por anotar?");
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: [
+      { id: IDS.habitClose("done", v.date), title: "Eso es todo" },
+      { id: IDS.habitClose("more", v.date), title: "Anotar algo más" },
+      { id: IDS.pref("nudges_off"), title: "No me recuerdes" },
+    ],
+  };
+}
+
+/** «Anotar algo más» del cierre del día. */
+export function eveningCloseMore(personal: boolean): Outbound {
+  return {
+    type: "text",
+    body: personal
+      ? "Dime qué fue. Ejemplo: _gasté 5$ en pan_"
+      : "Dime qué fue. Ejemplo: _gasté 5$ en hielo_ o _vendí 40$ en efectivo_",
   };
 }
 
@@ -3875,6 +3935,9 @@ export const PREFS_SWITCHES = {
   nudge: {
     label: "Aviso de racha y avisos adelantados",
     help: "Rocco te escribe a las 8 pm si ese día no anotaste nada y le escribiste en las últimas 24 horas. Tras 3 avisos seguidos sin anotar, se pausa 14 días.",
+    /** Con el mensaje de las 8 pm para todos (decisión del fundador, 05/11). */
+    helpDaily:
+      "Si le escribiste a Rocco en las últimas 24 horas, te escribe a las 8 pm: con lo que anotaste ese día o, si no anotaste nada, para mantener tu racha. Tras 3 avisos seguidos sin anotar, se pausa 14 días.",
     disabledHelp: "Para encenderlo, primero enciende «Mensajes de Rocco por su cuenta».",
     toastOn: "Aviso de racha encendido.",
     toastOff: "Aviso de racha y avisos adelantados apagados.",

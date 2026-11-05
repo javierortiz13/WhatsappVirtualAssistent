@@ -6,13 +6,15 @@ import {
   everyTenantId,
   gt,
   lt,
+  rows,
   schema,
   sql,
   type Tx,
   withTenant,
 } from "@caja/db";
 import { businessDateOf } from "../domain/dates";
-import { habitSettings, keptDays, streakFor } from "../ledger/habits";
+import { Decimal } from "../domain/money";
+import { habitSettings, keptDays, nudgeByDefault, streakFor } from "../ledger/habits";
 import { errorText, type Logger, maskPhone, silentLogger } from "../log";
 import { tenantBlocked } from "../reminders/deliver";
 import { es, type Outbound } from "../render/index";
@@ -27,6 +29,11 @@ import { sendOutbound } from "./process";
  *
  * A quién: el teléfono dueño que aceptó el aviso, con 2 días de racha o más y nada anotado hoy
  * (un día sin gastos cuenta), si la puerta (US-203, `kind = nudge`) lo deja. Un mensaje, sin la IA.
+ *
+ * Con `habits.dailyClose` (decisión del fundador, 05/11) sale a todo dueño sin que lo pida, y
+ * si apagó con «No me recuerdes», no: con registros hoy, el cierre del día («¿Falta algo?», cuyos
+ * botones mantienen abierta la ventana de 24 h hasta mañana); sin nada hoy, el aviso (con racha
+ * o solo la pregunta). La primera vez lleva cómo apagarlo.
  * La marca `habit_nudge` se escribe y se confirma antes de enviar: dos corridas el mismo día no
  * mandan dos avisos (la puerta ve la marca). Si Meta lo rechaza, la fila queda en `failed` y la
  * puerta no le vuelve a escribir en 7 días.
@@ -103,6 +110,7 @@ async function takeNudge(
   now: Date,
   noSpendButton: boolean,
   run: NudgeRun,
+  byDefault = false,
 ): Promise<Pending | null> {
   const skip = (why: keyof NudgeRun["skipped"]) => {
     run.skipped[why] = (run.skipped[why] ?? 0) + 1;
@@ -121,14 +129,12 @@ async function takeNudge(
     .where(and(eq(p.tenantId, tenantId), eq(p.role, "owner"), eq(p.status, "active")))
     .limit(1);
   if (!owner?.e164) return null;
-  // Sin aceptar no se mira más (la puerta lo negaría igual): la mayoría de los negocios.
-  if (!owner.optIn || owner.off) return skip("not_opted_in");
+  // Sin aceptar no se mira más (la puerta lo negaría igual), salvo que el mensaje de las 8 pm
+  // salga para todos (cierre del día, decisión del 05/11).
+  if (owner.off || (!owner.optIn && !byDefault)) return skip("not_opted_in");
   if (owner.pausedUntil && owner.pausedUntil.getTime() > now.getTime()) return skip("paused");
   // US-208: se cuentan los avisos desde la aceptación o desde que terminó la última pausa.
-  const since =
-    owner.pausedUntil && owner.pausedUntil.getTime() > owner.optIn.getTime()
-      ? owner.pausedUntil
-      : owner.optIn;
+  const since = new Date(Math.max(owner.optIn?.getTime() ?? 0, owner.pausedUntil?.getTime() ?? 0));
   if ((await ignoredInARow(tx, tenantId, owner.id, since, now)) >= NUDGE_IGNORED_TO_PAUSE) {
     const until = new Date(now.getTime() + NUDGE_PAUSE_DAYS * 86_400_000);
     await tx.update(p).set({ nudgePausedUntil: until }).where(eq(p.id, owner.id));
@@ -146,8 +152,10 @@ async function takeNudge(
     return null;
   }
   const streak = await streakFor(tx, tenantId, now);
-  if (streak.keptToday) return skip("kept_today");
-  if (streak.current < 2) return skip("short_streak");
+  // Cierre del día: solo con registros hoy (un día marcado «sin gastos» ya lo dijo él).
+  const close = byDefault && streak.recordedToday;
+  if (streak.keptToday && !close) return skip("kept_today");
+  if (!streak.keptToday && streak.current < 2 && !byDefault) return skip("short_streak");
   const gate = await takeUnsolicitedSlot(tx, {
     tenantId,
     phoneId: owner.id,
@@ -156,18 +164,31 @@ async function takeNudge(
     tenantBlocked: await tenantBlocked(tx, tenantId, now),
     // Un aviso de la prueba que sale más tarde hoy se queda con el día (F-1).
     lifecycleDueToday: await lifecycleDueToday(tx, tenantId, now),
+    nudgeByDefault: byDefault,
   });
   if (!gate.allow) return skip(gate.reason);
   const [t] = await tx
     .select({ businessType: schema.tenant.businessType })
     .from(schema.tenant)
     .where(eq(schema.tenant.id, tenantId));
-  const out = es.habitNudge({
-    current: streak.current,
-    best: streak.best,
-    personal: t?.businessType === "personal",
-    noSpendDate: noSpendButton ? businessDateOf(now) : null,
-  });
+  const personal = t?.businessType === "personal";
+  const today = businessDateOf(now);
+  let out: Outbound = close
+    ? es.eveningClose({
+        personal,
+        streak: streak.current,
+        date: today,
+        ...(await today_(tx, tenantId, today)),
+      })
+    : es.habitNudge({
+        current: streak.current,
+        best: streak.best,
+        personal,
+        noSpendDate: noSpendButton ? today : null,
+      });
+  // La primera vez que le llega sin haberlo pedido: qué es y cómo apagarlo.
+  if (byDefault && !owner.optIn && out.type !== "reaction" && !(await everSent(tx, owner.id)))
+    out = { ...out, body: `${out.body}\n\n${es.DAILY_CLOSE_INTRO}` };
   // La marca va antes de enviar y se confirma con esta transacción.
   const [row] = await tx
     .insert(schema.message)
@@ -176,14 +197,62 @@ async function takeNudge(
       phoneId: owner.id,
       direction: "out",
       kind: out.type,
-      body: out.body,
+      body: out.type === "reaction" ? null : out.body,
       status: "sending",
       createdAt: now,
-      toolCalls: [{ name: NUDGE_MARK, args: { n: streak.current } }],
+      toolCalls: [
+        close
+          ? { name: CLOSE_MARK, args: { n: streak.current } }
+          : { name: NUDGE_MARK, args: { n: streak.current } },
+      ],
     })
     .returning({ id: schema.message.id });
   if (!row) return null;
   return { phoneId: owner.id, e164: owner.e164, messageId: row.id, out };
+}
+
+/** Marca del cierre del día de las 8 pm (no cuenta como aviso ignorado para la pausa). */
+export const CLOSE_MARK = "habit_close";
+
+/** ¿Este teléfono ya recibió alguna vez el mensaje de las 8 pm (aviso o cierre)? */
+async function everSent(tx: Tx, phoneId: string): Promise<boolean> {
+  const m = schema.message;
+  const [hit] = await tx
+    .select({ id: m.id })
+    .from(m)
+    .where(
+      and(
+        eq(m.phoneId, phoneId),
+        eq(m.direction, "out"),
+        sql`(${m.toolCalls} @> ${JSON.stringify([{ name: NUDGE_MARK }])}::jsonb
+             or ${m.toolCalls} @> ${JSON.stringify([{ name: CLOSE_MARK }])}::jsonb)`,
+      ),
+    )
+    .limit(1);
+  return Boolean(hit);
+}
+
+/** Lo anotado hoy (día de Caracas en que se creó, sin borrar): registros, gastos y ventas en $. */
+async function today_(
+  tx: Tx,
+  tenantId: string,
+  today: string,
+): Promise<{ count: number; expensesUsd: Decimal; salesUsd: Decimal }> {
+  const [r] = rows<{ n: number | string; exp: string | null; sales: string | null }>(
+    await tx.execute(sql`
+      select count(*) as n,
+             coalesce(sum(amount_usd) filter (where type = 'expense'), 0)::text as exp,
+             coalesce(sum(amount_usd) filter (where type = 'income'), 0)::text as sales
+      from app.movement
+      where tenant_id = ${tenantId} and deleted_at is null
+        and (created_at at time zone 'America/Caracas')::date = ${today}::date
+    `),
+  );
+  return {
+    count: Number(r?.n ?? 0),
+    expensesUsd: new Decimal(r?.exp ?? 0),
+    salesUsd: new Decimal(r?.sales ?? 0),
+  };
 }
 
 /** Una corrida de la cola `habit-nudges`. Sin `habits.nudge` (y `prefs`), no hace nada. */
@@ -203,7 +272,7 @@ export async function runHabitNudges(
   for (const tenantId of await everyTenantId(db)) {
     try {
       const p = await withTenant(db, tenantId, (tx) =>
-        takeNudge(tx, tenantId, now, flags.noSpend, run),
+        takeNudge(tx, tenantId, now, flags.noSpend, run, nudgeByDefault(flags)),
       );
       if (!p) continue;
       const status = (s: "ok" | "failed" | "unknown", waMessageId: string | null = null) =>
@@ -255,6 +324,8 @@ export type NudgeStats = {
   /** Días sin gastos marcados con el botón del aviso (US-212). */
   noSpendButton: number;
   autoPauses: number;
+  /** Cierres del día enviados (8 pm para todos). */
+  closes: number;
 };
 
 export async function nudgeStats(
@@ -273,7 +344,7 @@ export async function nudgeStats(
         eq(m.tenantId, tenantId),
         eq(m.direction, "out"),
         gt(m.createdAt, since),
-        sql`(${marked(NUDGE_MARK)} or ${marked("habit_optin_offer")} or ${marked("habit_no_spend")})`,
+        sql`(${marked(NUDGE_MARK)} or ${marked(CLOSE_MARK)} or ${marked("habit_optin_offer")} or ${marked("habit_no_spend")})`,
       ),
     );
   const has = (tc: unknown, name: string, args?: Record<string, unknown>) =>
@@ -320,6 +391,7 @@ export async function nudgeStats(
     answered: nudges.filter((o) => o.status === "ok" && kept.has(businessDateOf(o.at))).length,
     noSpendButton: outs.filter((o) => has(o.toolCalls, "habit_no_spend", { via: "button" })).length,
     autoPauses: audits.filter((x) => x.action === "nudge_auto_pause").length,
+    closes: outs.filter((o) => o.status === "ok" && has(o.toolCalls, CLOSE_MARK)).length,
   };
 }
 
@@ -335,6 +407,7 @@ export function sumNudgeStats(list: NudgeStats[]): NudgeStats {
     answered: 0,
     noSpendButton: 0,
     autoPauses: 0,
+    closes: 0,
   };
   for (const s of list) for (const k of Object.keys(out) as (keyof NudgeStats)[]) out[k] += s[k];
   return out;

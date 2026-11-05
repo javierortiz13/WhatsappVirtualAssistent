@@ -1,5 +1,5 @@
 import { eq, schema, type Tx } from "@caja/db";
-import { habitSettings } from "../ledger/habits";
+import { habitSettings, nudgeByDefault } from "../ledger/habits";
 import { type ConsentTextId, consentTextVersion } from "../render/es-VE";
 import { es, type Outbound, parseReplyId } from "../render/index";
 
@@ -84,6 +84,15 @@ export type PrefState = {
   /** Etiqueta `no-contactar` del CRM: todo apagado y solo se quita en /admin. */
   tagged: boolean;
 };
+
+/**
+ * Con el mensaje de las 8 pm para todos (`habits.dailyClose`, 05/11), quien nunca lo aceptó lo
+ * recibe igual: para las tarjetas y «mis avisos» cuenta como aceptado (H45 y no H45-n, estado A).
+ * La columna no se toca; `nudge_off_at` sigue siendo lo que lo apaga.
+ */
+export function withDefaultNudge(s: PrefState, byDefault: boolean): PrefState {
+  return byDefault && !s.nudgeOptInAt ? { ...s, nudgeOptInAt: new Date(0) } : s;
+}
 
 export async function prefState(tx: Tx, phoneId: string, tenantId: string): Promise<PrefState> {
   const [p] = await tx
@@ -321,8 +330,9 @@ export async function routePrefs(
   const tap = parsed?.kind === "pref" ? parsed.value : null;
   const intent = input.text ? classifyPref(input.text) : null;
   if (!tap && !intent) return null;
-  if (!(await habitSettings(tx)).prefs) return null;
-  const s = await prefState(tx, c.phoneId, c.tenantId);
+  const flags = await habitSettings(tx);
+  if (!flags.prefs) return null;
+  const s = withDefaultNudge(await prefState(tx, c.phoneId, c.tenantId), nudgeByDefault(flags));
 
   // El aviso de racha y los recordatorios son del dueño (R-2 d). Apagar sí funciona en cualquier
   // teléfono (inofensivo, F2-7).

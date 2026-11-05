@@ -149,7 +149,7 @@ describe("runHabitNudges (US-207, US-208)", () => {
     });
     await saveHabitSettings(
       t.db,
-      { prefs: true, nudge: true, noSpend: true, streakLine: true },
+      { prefs: true, nudge: true, noSpend: true, streakLine: true, dailyClose: false },
       "test",
       now,
     );
@@ -367,5 +367,92 @@ describe("runHabitNudges (US-207, US-208)", () => {
       )[0]?.n;
     });
     expect(locks).toBe(1);
+  });
+
+  it("8 pm para todos: sin aceptarlo, con registros hoy → cierre del día; la primera vez dice cómo apagarlo", async () => {
+    await saveHabitSettings(t.db, { dailyClose: true }, "test", now);
+    await t.db.update(schema.phoneNumber).set({ nudgeOptInAt: null });
+    await record(1);
+    await record(0);
+    await record(0);
+    await wrote(3);
+    expect((await runHabitNudges(t.db, meta, { now })).sent).toBe(1);
+    const day = businessDateOf(now);
+    expect(bodyOf(sent[0])).toBe(
+      "Hoy anotaste *$2,00* en gastos (2 registros).\n🔥 Llevas 2 días seguidos.\n¿Falta algo por anotar?\n\nTe escribo a las 8 pm los días que me hayas escrito. Si no quieres estos mensajes, toca *No me recuerdes*.",
+    );
+    expect(idsOf(sent[0])).toEqual([
+      `habit:close:done:${day}`,
+      `habit:close:more:${day}`,
+      "pref:nudges_off",
+    ]);
+    expect((await nudgeRows()).length).toBe(0);
+    // Mañana, sin la explicación.
+    const tomorrow = new Date(now.getTime() + DAY);
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.insert(schema.movement).values({
+        tenantId,
+        type: "expense",
+        amount: "3.00",
+        currency: "USD",
+        amountUsd: "3.00",
+        amountVes: "600.00",
+        rateValue: "200.00000000",
+        rateSource: "manual",
+        businessDate: businessDateOf(tomorrow),
+        paymentMethod: "unspecified",
+        origin: "single",
+        sourceChannel: "text",
+        createdByPhoneId: phoneId,
+        createdAt: new Date(tomorrow.getTime() - HOUR),
+      }),
+    );
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.insert(schema.message).values({
+        tenantId,
+        phoneId,
+        direction: "in",
+        kind: "text",
+        body: "x",
+        createdAt: new Date(tomorrow.getTime() - 2 * HOUR),
+      }),
+    );
+    await runHabitNudges(t.db, meta, { now: tomorrow });
+    expect(bodyOf(sent[1])).toBe(
+      "Hoy anotaste *$3,00* en gastos (1 registro).\n🔥 Llevas 3 días seguidos.\n¿Falta algo por anotar?",
+    );
+  });
+
+  it("8 pm para todos: negocio con ventas y gastos; sin nada hoy y sin racha, solo la pregunta", async () => {
+    await saveHabitSettings(t.db, { dailyClose: true }, "test", now);
+    await t.db.update(schema.phoneNumber).set({ nudgeOptInAt: null });
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.update(schema.tenant).set({ businessType: "food" }).where(eq(schema.tenant.id, tenantId)),
+    );
+    await wrote(3);
+    expect((await runHabitNudges(t.db, meta, { now })).sent).toBe(1);
+    expect(bodyOf(sent[0])).toBe(
+      "¿Hubo ventas o gastos hoy?\n\nTe escribo a las 8 pm los días que me hayas escrito. Si no quieres estos mensajes, toca *No me recuerdes*.",
+    );
+    expect(idsOf(sent[0])).toEqual([`habit:nospend:${businessDateOf(now)}`, "pref:nudges_off"]);
+  });
+
+  it("8 pm para todos: «No me recuerdes», un día sin gastos o la ventana cerrada → nada", async () => {
+    await saveHabitSettings(t.db, { dailyClose: true }, "test", now);
+    await t.db.update(schema.phoneNumber).set({ nudgeOptInAt: null, nudgeOffAt: now });
+    await record(0);
+    await wrote(3);
+    expect((await runHabitNudges(t.db, meta, { now })).skipped.not_opted_in).toBe(1);
+    await t.db.update(schema.phoneNumber).set({ nudgeOffAt: null });
+    await withTenant(t.db, tenantId, (tx) => tx.delete(schema.movement));
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.insert(schema.noSpendDay).values({ tenantId, phoneId, day: businessDateOf(now) }),
+    );
+    expect((await runHabitNudges(t.db, meta, { now })).skipped.kept_today).toBe(1);
+    await withTenant(t.db, tenantId, (tx) => tx.delete(schema.noSpendDay));
+    await t.db.delete(schema.message);
+    await wrote(25);
+    expect((await runHabitNudges(t.db, meta, { now })).skipped.window_closed).toBe(1);
+    expect(sent).toHaveLength(0);
   });
 });

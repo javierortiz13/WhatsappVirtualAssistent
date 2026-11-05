@@ -996,7 +996,8 @@ const NUDGE_OFFER = "habit_optin_offer";
  */
 async function nudgeOfferFor(tx: Tx, ctx: RouteCtx, now: Date): Promise<number | null> {
   const flags = await habitSettings(tx);
-  if (!flags.nudge || !flags.prefs) return null;
+  // Con el mensaje de las 8 pm para todos (05/11) no hay nada que ofrecer.
+  if (!flags.nudge || !flags.prefs || flags.dailyClose) return null;
   const p = await prefState(tx, ctx.phoneId, ctx.tenantId);
   if (p.nudgeOptInAt || p.nudgeOffAt || p.unsolicitedOffAt || p.tagged || p.prefPending)
     return null;
@@ -2351,6 +2352,14 @@ async function routeInteractive(
           toolCalls: [{ name: "habit_no_spend_stale", args: {} }],
         };
       return noSpend(tx, deps, ctx, "button");
+    }
+    case "habit_close": {
+      // Cierre del día de las 8 pm: «Eso es todo» → ✅ (gratis); «Anotar algo más» → el ejemplo.
+      // Cualquier toque ya es un mensaje suyo: la ventana de 24 h sigue abierta hasta mañana.
+      if (ctx.role !== "owner") return none([es.outOfScope()]);
+      if (parsed.action === "done")
+        return none([{ type: "reaction", body: "✅", waMessageId: ctx.inboundId }]);
+      return none([es.eveningCloseMore(!!ctx.personal)]);
     }
     case "signup":
       // Un toque viejo del recordatorio del registro, ya con cuenta (US-SR-04): el menú.

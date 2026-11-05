@@ -125,7 +125,9 @@ export default async function AdminHome({
         <div className="notice err">
           {sp.error === "avisos_primero"
             ? "Recordatorios y el aviso de las 8 pm necesitan Avisos encendido: enciéndelos juntos."
-            : "No se pudo guardar el cambio."}
+            : sp.error === "aviso_primero"
+              ? "«8 pm para todos» necesita el aviso de las 8 pm encendido."
+              : "No se pudo guardar el cambio."}
         </div>
       ) : null}
 
@@ -295,7 +297,8 @@ export default async function AdminHome({
             No se pudo calcular: falta aplicar la migración 0025 (días sin gastos) en la base.
           </p>
         )}
-        {nudges && (habitFlags.nudge || nudges.sent > 0 || nudges.optedIn > 0) ? (
+        {nudges &&
+        (habitFlags.nudge || nudges.sent > 0 || nudges.closes > 0 || nudges.optedIn > 0) ? (
           <div className="row">
             <span className="what">
               <strong>Aviso de las 8 pm (7 d)</strong>
@@ -305,12 +308,12 @@ export default async function AdminHome({
                 {nudges.paused})
               </span>
               <span className="sub num">
-                enviados {nudges.sent} · fallidos {nudges.failed} · cumplieron el día{" "}
-                {nudges.answered} · «hoy no gasté nada» con el botón {nudges.noSpendButton} · pausas
-                automáticas {nudges.autoPauses}
+                cierres del día {nudges.closes} · avisos {nudges.sent} · fallidos {nudges.failed} ·
+                cumplieron el día {nudges.answered} · «hoy no gasté nada» con el botón{" "}
+                {nudges.noSpendButton} · pausas automáticas {nudges.autoPauses}
               </span>
             </span>
-            <strong className="num">{nudges.sent}</strong>
+            <strong className="num">{nudges.sent + nudges.closes}</strong>
           </div>
         ) : null}
         {reminders && (habitFlags.reminders || reminders.created > 0) ? (
@@ -359,6 +362,12 @@ export default async function AdminHome({
                 habitFlags.nudge,
                 "Aviso de las 8 pm",
                 "La oferta en una tarjeta del dueño con racha de 3 a 7 días (una vez) y el aviso a quien lo acepte. Necesita Avisos encendido y su aprobación (A-0033)",
+              ],
+              [
+                "daily_close",
+                habitFlags.dailyClose,
+                "8 pm para todos (cierre del día)",
+                "Sin que lo pidan: a quien escribió en las últimas 24 h, lo anotado hoy y «¿Falta algo?»; si no anotó nada, el aviso. Se apaga con «No me recuerdes». Necesita el aviso de las 8 pm encendido",
               ],
               [
                 "reminders",
