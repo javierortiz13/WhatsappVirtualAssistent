@@ -369,44 +369,51 @@ describe("runHabitNudges (US-207, US-208)", () => {
     expect(locks).toBe(1);
   });
 
-  it("8 pm para todos: sin aceptarlo, con registros hoy → cierre del día; la primera vez dice cómo apagarlo", async () => {
-    await saveHabitSettings(t.db, { dailyClose: true }, "test", now);
-    await t.db.update(schema.phoneNumber).set({ nudgeOptInAt: null });
-    await record(1);
-    await record(0);
-    await record(0);
-    await wrote(3);
-    expect((await runHabitNudges(t.db, meta, { now })).sent).toBe(1);
-    const day = businessDateOf(now);
-    expect(bodyOf(sent[0])).toBe(
-      "Hoy anotaste *$2,00* en gastos (2 registros).\n🔥 Llevas 2 días seguidos.\n¿Falta algo por anotar?\n\nTe escribo a las 8 pm los días que me hayas escrito. Si no quieres estos mensajes, toca *No me recuerdes*.",
-    );
-    expect(idsOf(sent[0])).toEqual([
-      `habit:close:done:${day}`,
-      `habit:close:more:${day}`,
-      "pref:nudges_off",
-    ]);
-    expect((await nudgeRows()).length).toBe(0);
-    // Mañana, sin la explicación.
-    const tomorrow = new Date(now.getTime() + DAY);
-    await withTenant(t.db, tenantId, (tx) =>
-      tx.insert(schema.movement).values({
+  /** Un movimiento de hoy (o de hace `daysAgo` días) por `usd` dólares. */
+  const move = (type: "expense" | "income", usd: string, daysAgo = 0, at = now) =>
+    withTenant(t.db, tenantId, (tx) => {
+      const created = new Date(at.getTime() - daysAgo * DAY - HOUR);
+      return tx.insert(schema.movement).values({
         tenantId,
-        type: "expense",
-        amount: "3.00",
+        type,
+        amount: usd,
         currency: "USD",
-        amountUsd: "3.00",
-        amountVes: "600.00",
+        amountUsd: usd,
+        amountVes: "200.00",
         rateValue: "200.00000000",
         rateSource: "manual",
-        businessDate: businessDateOf(tomorrow),
+        businessDate: businessDateOf(created),
         paymentMethod: "unspecified",
         origin: "single",
         sourceChannel: "text",
         createdByPhoneId: phoneId,
-        createdAt: new Date(tomorrow.getTime() - HOUR),
-      }),
+        createdAt: created,
+      });
+    });
+  const ASK =
+    "¿Te escribo así a las 8 pm, si me escribiste en las últimas 24 horas? Lo apagas cuando quieras.";
+  const optedIn = () =>
+    t.db.update(schema.phoneNumber).set({ nudgeOptInAt: new Date(now.getTime() - 30 * DAY) });
+
+  it("1B: sin aceptarlo, el primer mensaje pregunta (con lo del día); sin su «Sí», no hay otro", async () => {
+    await saveHabitSettings(t.db, { dailyClose: true }, "test", now);
+    await t.db.update(schema.phoneNumber).set({ nudgeOptInAt: null });
+    await record(1);
+    await move("expense", "2.00");
+    await wrote(3);
+    expect((await runHabitNudges(t.db, meta, { now })).sent).toBe(1);
+    expect(bodyOf(sent[0])).toBe(
+      `Hoy anotaste *$2,00* en gastos (1 registro).\n🔥 Llevas 2 días seguidos.\n¿Falta algo por anotar?\n\n${ASK}`,
     );
+    expect(idsOf(sent[0])).toEqual(["pref:optin", "pref:nudges_off"]);
+    const first = sent[0]?.interactive as
+      | { action: { buttons: { reply: { title: string } }[] } }
+      | undefined;
+    const titles = first?.action.buttons.map((b) => b.reply.title);
+    expect(titles).toEqual(["Sí, escríbeme", "No me recuerdes"]);
+    // Mañana, sin haber tocado «Sí»: nada.
+    const tomorrow = new Date(now.getTime() + DAY);
+    await move("expense", "3.00", 0, tomorrow);
     await withTenant(t.db, tenantId, (tx) =>
       tx.insert(schema.message).values({
         tenantId,
@@ -417,24 +424,105 @@ describe("runHabitNudges (US-207, US-208)", () => {
         createdAt: new Date(tomorrow.getTime() - 2 * HOUR),
       }),
     );
-    await runHabitNudges(t.db, meta, { now: tomorrow });
+    expect((await runHabitNudges(t.db, meta, { now: tomorrow })).skipped.not_opted_in).toBe(1);
+    expect(sent).toHaveLength(1);
+    // Con el «Sí» (la columna puesta): el cierre, sin la pregunta.
+    await t.db.update(schema.phoneNumber).set({ nudgeOptInAt: new Date(now.getTime() + HOUR) });
+    expect((await runHabitNudges(t.db, meta, { now: tomorrow })).sent).toBe(1);
     expect(bodyOf(sent[1])).toBe(
       "Hoy anotaste *$3,00* en gastos (1 registro).\n🔥 Llevas 3 días seguidos.\n¿Falta algo por anotar?",
     );
+    expect(idsOf(sent[1])).toEqual([
+      `habit:close:done:${businessDateOf(tomorrow)}`,
+      `habit:close:more:${businessDateOf(tomorrow)}`,
+      "pref:nudges_off",
+    ]);
   });
 
-  it("8 pm para todos: negocio con ventas y gastos; sin nada hoy y sin racha, solo la pregunta", async () => {
+  it("MF-1: si el primer mensaje falló, el siguiente vuelve a preguntar", async () => {
     await saveHabitSettings(t.db, { dailyClose: true }, "test", now);
     await t.db.update(schema.phoneNumber).set({ nudgeOptInAt: null });
+    await wrote(3);
+    failNext = true;
+    expect((await runHabitNudges(t.db, meta, { now })).failed).toBe(1);
+    const tomorrow = new Date(now.getTime() + DAY);
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.insert(schema.message).values({
+        tenantId,
+        phoneId,
+        direction: "in",
+        kind: "text",
+        body: "x",
+        createdAt: new Date(tomorrow.getTime() - 2 * HOUR),
+      }),
+    );
+    // El fallo bloquea 7 días (failed_recent); pasado eso, vuelve a preguntar.
+    await t.db
+      .update(schema.message)
+      .set({ createdAt: new Date(now.getTime() - 8 * DAY) })
+      .where(eq(schema.message.status, "failed"));
+    expect((await runHabitNudges(t.db, meta, { now: tomorrow })).sent).toBe(1);
+    expect(bodyOf(sent[0])).toMatch(new RegExp(`${ASK.replace(/[?¿]/g, ".")}$`));
+  });
+
+  it("MF-2: persona con solo ingreso; persona ingreso + gasto; negocio «se anotaron»", async () => {
+    await saveHabitSettings(t.db, { dailyClose: true }, "test", now);
+    await optedIn();
+    await move("income", "100.00");
+    await wrote(3);
+    await runHabitNudges(t.db, meta, { now });
+    expect(bodyOf(sent[0])).toBe(
+      "Hoy anotaste *$100,00* en ingresos (1 registro).\n¿Falta algo por anotar?",
+    );
+    await t.db.delete(schema.message).where(eq(schema.message.direction, "out"));
+    await move("expense", "1.00");
+    await runHabitNudges(t.db, meta, { now });
+    expect(bodyOf(sent[1])).toBe(
+      "Hoy anotaste *$100,00* en ingresos y *$1,00* en gastos (2 registros).\n¿Falta algo por anotar?",
+    );
+    await t.db.delete(schema.message).where(eq(schema.message.direction, "out"));
     await withTenant(t.db, tenantId, (tx) =>
       tx.update(schema.tenant).set({ businessType: "food" }).where(eq(schema.tenant.id, tenantId)),
     );
-    await wrote(3);
-    expect((await runHabitNudges(t.db, meta, { now })).sent).toBe(1);
-    expect(bodyOf(sent[0])).toBe(
-      "¿Hubo ventas o gastos hoy?\n\nTe escribo a las 8 pm los días que me hayas escrito. Si no quieres estos mensajes, toca *No me recuerdes*.",
+    await runHabitNudges(t.db, meta, { now });
+    expect(bodyOf(sent[2])).toBe(
+      "Hoy se anotaron *$100,00* en ventas y *$1,00* en gastos (2 registros).\n¿Falta algo por anotar?",
     );
-    expect(idsOf(sent[0])).toEqual([`habit:nospend:${businessDateOf(now)}`, "pref:nudges_off"]);
+  });
+
+  it("MF-2: un día con solo una transferencia no manda nada (kept_today)", async () => {
+    await saveHabitSettings(t.db, { dailyClose: true }, "test", now);
+    await optedIn();
+    const [a, b] = await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .insert(schema.account)
+        .values([
+          { tenantId, name: "A", currency: "USD", openingDate: businessDateOf(now) },
+          { tenantId, name: "B", currency: "USD", openingDate: businessDateOf(now) },
+        ])
+        .returning({ id: schema.account.id }),
+    );
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.insert(schema.accountTransfer).values({
+        tenantId,
+        fromAccountId: a?.id ?? "",
+        toAccountId: b?.id ?? "",
+        fromAmount: "5.00",
+        toAmount: "5.00",
+        businessDate: businessDateOf(now),
+        createdByPhoneId: phoneId,
+        createdAt: new Date(now.getTime() - HOUR),
+      }),
+    );
+    await wrote(3);
+    const r = await runHabitNudges(t.db, meta, { now });
+    expect(r.skipped.kept_today).toBe(1);
+    expect(sent).toHaveLength(0);
+    await withTenant(t.db, tenantId, async (tx) => {
+      await tx.delete(schema.accountTransfer);
+      await tx.delete(schema.account).where(eq(schema.account.name, "A"));
+      await tx.delete(schema.account).where(eq(schema.account.name, "B"));
+    });
   });
 
   it("8 pm para todos: «No me recuerdes», un día sin gastos o la ventana cerrada → nada", async () => {

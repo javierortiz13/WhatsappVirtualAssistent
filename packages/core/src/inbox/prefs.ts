@@ -1,4 +1,4 @@
-import { eq, schema, type Tx } from "@caja/db";
+import { and, eq, schema, sql, type Tx } from "@caja/db";
 import { habitSettings, nudgeByDefault } from "../ledger/habits";
 import { type ConsentTextId, consentTextVersion } from "../render/es-VE";
 import { es, type Outbound, parseReplyId } from "../render/index";
@@ -26,6 +26,18 @@ const PHRASES: Record<PrefIntent, string[]> = {
     "apaga el aviso",
     "apaga la racha",
     "apaga los avisos",
+    // G1-8 (revisión retroactiva, 05/11) y el mensaje de las 8 pm (MF-4 b).
+    "ya no me recuerdes",
+    "ya no me avises",
+    "no me mandes avisos",
+    "no quiero avisos",
+    "no me mandes recordatorios",
+    "no quiero recordatorios",
+    "no me escribas a las 8",
+    "no me escribas a las 8 pm",
+    "no me mandes el mensaje de las 8",
+    "no quiero el mensaje de las 8",
+    "no me mandes el resumen de las 8",
   ],
   all_off: [
     "no me escribas",
@@ -37,6 +49,14 @@ const PHRASES: Record<PrefIntent, string[]> = {
     "baja",
     "ya no quiero mensajes",
     "no quiero mensajes",
+    // G1-8.
+    "no me mandes mensajes",
+    "no me mandes mas mensajes",
+    "no me envies mensajes",
+    "no me envies mas mensajes",
+    "ya no me escribas",
+    "no quiero que me escribas",
+    "dejame de escribir",
   ],
   nudges_on: [
     "avisame a las 8",
@@ -70,7 +90,9 @@ const BY_PHRASE = new Map<string, PrefIntent>(
 
 /** La intención de todo el mensaje, o null. «para la luz 20$» no es «para». */
 export function classifyPref(text: string): PrefIntent | null {
-  return BY_PHRASE.get(normalize(text)) ?? null;
+  // G1-8: «no me escribas más, por favor» es lo mismo que «no me escribas más».
+  const t = normalize(text).replace(/\s+(por favor|porfa|porfavor|gracias)$/, "");
+  return BY_PHRASE.get(t) ?? null;
 }
 
 export const NO_CONTACT_TAG = "no-contactar";
@@ -86,12 +108,34 @@ export type PrefState = {
 };
 
 /**
- * Con el mensaje de las 8 pm para todos (`habits.dailyClose`, 05/11), quien nunca lo aceptó lo
- * recibe igual: para las tarjetas y «mis avisos» cuenta como aceptado (H45 y no H45-n, estado A).
- * La columna no se toca; `nudge_off_at` sigue siendo lo que lo apaga.
+ * Con el mensaje de las 8 pm para todos (`habits.dailyClose`) y 1B (05/11), quien nunca lo aceptó
+ * recibe uno, que pregunta. Mientras esa pregunta sigue abierta (todavía no salió, o salió hace
+ * menos de 24 h), las tarjetas y «mis avisos» lo cuentan como encendido (H45 y no H45-n, estado
+ * A). Después, sin su «Sí», ya no le llega: cuenta como apagado. La columna no se toca: solo
+ * la muestra. Encender («Sí, escríbeme», «avísame a las 8») usa siempre el estado real.
  */
-export function withDefaultNudge(s: PrefState, byDefault: boolean): PrefState {
-  return byDefault && !s.nudgeOptInAt ? { ...s, nudgeOptInAt: new Date(0) } : s;
+export function withDefaultNudge(s: PrefState, askOpen: boolean): PrefState {
+  return askOpen && !s.nudgeOptInAt ? { ...s, nudgeOptInAt: new Date(0) } : s;
+}
+
+/** ¿Sigue abierta la pregunta de 1B para este teléfono? (Con `dailyClose`; ver arriba.) */
+export async function eveningAskOpen(tx: Tx, phoneId: string, now: Date): Promise<boolean> {
+  const m = schema.message;
+  const [first] = await tx
+    .select({ at: m.createdAt })
+    .from(m)
+    .where(
+      and(
+        eq(m.phoneId, phoneId),
+        eq(m.direction, "out"),
+        eq(m.status, "ok"),
+        sql`(${m.toolCalls} @> '[{"name":"habit_nudge"}]'::jsonb
+             or ${m.toolCalls} @> '[{"name":"habit_close"}]'::jsonb)`,
+      ),
+    )
+    .orderBy(m.createdAt)
+    .limit(1);
+  return !first || now.getTime() - first.at.getTime() < 24 * 3_600_000;
 }
 
 export async function prefState(tx: Tx, phoneId: string, tenantId: string): Promise<PrefState> {
@@ -285,11 +329,12 @@ async function turnOn(
 }
 
 /**
- * H8 «Avísame a las 8» de la oferta en la tarjeta (US-206): enciende solo el aviso de racha, con
- * H7 como texto visto, y responde con una ✅ sobre el toque (sin texto). Con todo apagado por
- * «no me escribas», el botón no lo enciende: se explica igual que a la frase.
+ * H8 «Avísame a las 8» de la oferta en la tarjeta (US-206), o «Sí, escríbeme» del primer mensaje
+ * de las 8 pm (1B, H7d, con `dailyClose`): enciende solo el aviso, con ese texto como el visto, y
+ * responde con una ✅ sobre el toque (sin texto). Con todo apagado por «no me escribas», el botón
+ * no lo enciende: se explica igual que a la frase. `s` es el estado real (sin `withDefaultNudge`).
  */
-async function optIn(tx: Tx, c: PrefCtx, s: PrefState): Promise<PrefResult> {
+async function optIn(tx: Tx, c: PrefCtx, s: PrefState, textId: "H7" | "H7d"): Promise<PrefResult> {
   if (s.tagged) return reply(es.prefTagged(c.privacyContact));
   if (s.unsolicitedOffAt) return reply(es.prefAlreadyOff("all_off"));
   // Un «no me escribas» sin contestar sigue abierto: se vuelve a mostrar esa tarjeta.
@@ -303,7 +348,7 @@ async function optIn(tx: Tx, c: PrefCtx, s: PrefState): Promise<PrefResult> {
       nudgePausedUntil: null,
       ...(s.prefPending === "nudges_off" ? { prefPending: null, prefPendingAt: null } : {}),
     });
-    await audit(tx, c, "nudge_opt_in", "H7", "button");
+    await audit(tx, c, "nudge_opt_in", textId, "button");
   }
   const marks = [{ name: "habit_optin", args: { source: "button" } }];
   return c.inboundId
@@ -332,7 +377,13 @@ export async function routePrefs(
   if (!tap && !intent) return null;
   const flags = await habitSettings(tx);
   if (!flags.prefs) return null;
-  const s = withDefaultNudge(await prefState(tx, c.phoneId, c.tenantId), nudgeByDefault(flags));
+  const byDefault = nudgeByDefault(flags);
+  // Real para encender; mostrado (con la pregunta de 1B abierta) para tarjetas y estado.
+  const real = await prefState(tx, c.phoneId, c.tenantId);
+  const s =
+    byDefault && !real.nudgeOptInAt
+      ? withDefaultNudge(real, await eveningAskOpen(tx, c.phoneId, c.now))
+      : real;
 
   // El aviso de racha y los recordatorios son del dueño (R-2 d). Apagar sí funciona en cualquier
   // teléfono (inofensivo, F2-7).
@@ -371,13 +422,13 @@ export async function routePrefs(
     case "keep:all_off":
       return keep(tx, c, s, "all_off");
     case "on":
-      return turnOn(tx, c, s, "both_on", "button");
+      return turnOn(tx, c, real, "both_on", "button");
     case "optin":
-      return optIn(tx, c, s);
+      return optIn(tx, c, real, byDefault ? "H7d" : "H7");
     case "nudges_on":
     case "all_on":
     case "both_on":
-      return turnOn(tx, c, s, intent as "nudges_on" | "all_on" | "both_on", "word");
+      return turnOn(tx, c, real, intent as "nudges_on" | "all_on" | "both_on", "word");
     case "status":
       return status(c, s);
     default:

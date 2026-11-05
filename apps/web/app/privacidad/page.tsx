@@ -9,7 +9,7 @@ export default function Privacidad() {
   return (
     <main className="legal">
       <h1>Política de privacidad</h1>
-      <p className="updated">Rocco · última actualización: 4 de noviembre de 2026</p>
+      <p className="updated">Rocco · última actualización: 5 de noviembre de 2026</p>
 
       <p>
         Rocco (antes «Asistente de Caja») es un servicio para personas y dueños de negocios pequeños
@@ -56,8 +56,8 @@ export default function Privacidad() {
         <li>
           Enviarte los recordatorios que pides y, si le escribiste a Rocco en las últimas 24 horas,
           un mensaje a las 8 pm: lo que anotaste ese día o, si no anotaste nada, un aviso para que
-          no se corte tu racha. Como máximo uno al día. Si después de 3 avisos seguidos no anotas
-          nada, los pausamos 14 días.
+          no se te pase. Ese mensaje llega una vez al día como máximo y no llega los días que marcas
+          «sin gastos». Si después de 3 avisos seguidos no anotas nada, los pausamos 14 días.
         </li>
         <li>
           Puedes apagar estos avisos cuando quieras. Con «no me recuerdes» apagas el mensaje de las

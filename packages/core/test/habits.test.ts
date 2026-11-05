@@ -703,16 +703,36 @@ describe("botón «Hoy no gasté nada» del aviso (US-212) y oferta del aviso (U
     await h.recordDaysAgo(2);
     await h.recordDaysAgo(1);
     expect(await h.send("gasté 5$ en café")).not.toMatch(/Te aviso a las 8/);
-    // Lo recibe sin haberlo aceptado: la tarjeta para apagarlo nombra el aviso de las 8 pm.
+    // Con la pregunta de 1B abierta (todavía no le llegó), la tarjeta nombra el mensaje de las 8 pm.
     expect(await h.send("no me recuerdes")).toMatch(
-      /^¿Apago estos avisos\?\n• El aviso de racha de las 8 pm/,
+      /^¿Apago estos avisos\?\n• El mensaje de las 8 pm\n/,
     );
-    expect(await h.tap("pref:yes:nudges_off")).toMatch(/^Listo, ya no te aviso de la racha/);
+    expect(await h.tap("pref:yes:nudges_off")).toBe(
+      "Listo, ya no te escribo a las 8 pm ni te adelanto recordatorios. Los que me pidas te llegan a su hora o cuando me escribas. Para volver: *actívame los avisos*.",
+    );
     expect((await phone()).nudgeOffAt).not.toBeNull();
     expect((await consents())[0]).toMatchObject({
       action: "nudge_off",
-      after: { text_id: "H45" },
+      after: { text_id: "H45", text_version: "v1.3" },
     });
+    await saveHabitSettings(h.t.db, { dailyClose: false }, "test", new Date());
+  });
+
+  it("1B: «Sí, escríbeme» lo acepta de verdad, con H7d; «avísame a las 8» también (N-4)", async () => {
+    await saveHabitSettings(h.t.db, { dailyClose: true }, "test", new Date());
+    expect(await h.tap("pref:optin")).toBe("✅");
+    expect((await phone()).nudgeOptInAt).not.toBeNull();
+    expect(await consents()).toEqual([
+      {
+        action: "nudge_opt_in",
+        after: { source: "button", text_id: "H7d", text_version: "v1" },
+      },
+    ]);
+    // Sin aceptar y con la pregunta abierta, la frase igual guarda la aceptación (antes decía
+    // «ya estaba encendido» y no guardaba nada).
+    await h.t.db.update(schema.phoneNumber).set({ nudgeOptInAt: null });
+    expect(await h.send("avísame a las 8")).toMatch(/^Dale: /);
+    expect((await phone()).nudgeOptInAt).not.toBeNull();
     await saveHabitSettings(h.t.db, { dailyClose: false }, "test", new Date());
   });
 

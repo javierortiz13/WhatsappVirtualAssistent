@@ -1,5 +1,6 @@
 import {
   es,
+  eveningAskOpen,
   habitSettings,
   nudgeByDefault,
   ownerPhone,
@@ -51,11 +52,14 @@ export default async function Avisos({
   const sp = await searchParams;
   const notice = sp.ok ? MSG[sp.ok] : sp.error ? MSG[sp.error] : null;
   const phone = await ownerPhone(db(), tenant.id);
-  // Con el mensaje de las 8 pm para todos (05/11), cuenta como encendido hasta que lo apague.
+  // Con el mensaje de las 8 pm para todos (1B, 05/11): encendido mientras su pregunta siga
+  // abierta; después, solo si lo aceptó.
   const s = phone
-    ? withDefaultNudge(
-        await withTenant(db(), tenant.id, (tx) => prefState(tx, phone.id, tenant.id)),
-        nudgeByDefault(flags),
+    ? await withTenant(db(), tenant.id, async (tx) =>
+        withDefaultNudge(
+          await prefState(tx, phone.id, tenant.id),
+          nudgeByDefault(flags) && (await eveningAskOpen(tx, phone.id, new Date())),
+        ),
       )
     : null;
   const tagged = Boolean(s?.tagged);

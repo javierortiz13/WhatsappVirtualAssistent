@@ -26,6 +26,8 @@ export type ReminderStats = {
   edits: number;
   /** Dueños con 2 o más recordatorios en total (uso repetido). */
   repeatOwners: number;
+  /** Envíos a su hora o adelantados que Meta rechazó (G1-3). */
+  failed: number;
 };
 
 export const EMPTY_REMINDER_STATS: ReminderStats = {
@@ -44,6 +46,7 @@ export const EMPTY_REMINDER_STATS: ReminderStats = {
   rejectedEmployee: 0,
   edits: 0,
   repeatOwners: 0,
+  failed: 0,
 };
 
 /** Dentro de `withTenant` (RLS). `since` abre la ventana; todo lo de antes no cuenta. */
@@ -79,7 +82,12 @@ export async function reminderStats(tx: Tx, tenantId: string, since: Date): Prom
         (select count(*)::int from app.audit_log where tenant_id = ${tenantId}
            and action = 'reminder_update' and created_at >= ${since}) as "edits",
         (select count(*)::int from (select phone_id from rem group by phone_id having count(*) >= 2) x)
-          as "repeatOwners"
+          as "repeatOwners",
+        (select count(distinct coalesce(m.webhook_event_id, m.id))::int from app.message m
+          where m.tenant_id = ${tenantId} and m.direction = 'out' and m.status = 'failed'
+            and m.created_at >= ${since}
+            and (m.tool_calls @> '[{"name":"reminder_a"}]' or m.tool_calls @> '[{"name":"reminder_b"}]'))
+          as "failed"
     `),
   );
   return { ...EMPTY_REMINDER_STATS, ...(r ?? {}) };

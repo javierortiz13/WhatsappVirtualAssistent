@@ -6,6 +6,7 @@ import {
   habitStats,
   latestRates,
   type MonthUsage,
+  monthOutbound,
   monthUsage,
   type NudgeStats,
   nudgeStats,
@@ -438,10 +439,11 @@ export async function loadHabits(tenants: TenantRow[], now: Date): Promise<Habit
 export async function loadReminderStats(
   tenants: TenantRow[],
   now: Date,
+  days = 7,
 ): Promise<ReminderStats | null> {
   await requireAdmin();
   const conn = db();
-  const since = new Date(now.getTime() - 7 * 86_400_000);
+  const since = new Date(now.getTime() - days * 86_400_000);
   const list: ReminderStats[] = [];
   try {
     for (const t of tenants) {
@@ -458,10 +460,14 @@ export async function loadReminderStats(
 }
 
 /** Aviso de las 8 pm, últimos 7 días (hábitos US-209): solo conteos, sin teléfonos ni textos. */
-export async function loadNudgeStats(tenants: TenantRow[], now: Date): Promise<NudgeStats | null> {
+export async function loadNudgeStats(
+  tenants: TenantRow[],
+  now: Date,
+  days = 7,
+): Promise<NudgeStats | null> {
   await requireAdmin();
   const conn = db();
-  const since = new Date(now.getTime() - 7 * 86_400_000);
+  const since = new Date(now.getTime() - days * 86_400_000);
   const list: NudgeStats[] = [];
   try {
     for (const t of tenants) {
@@ -473,4 +479,29 @@ export async function loadNudgeStats(tenants: TenantRow[], now: Date): Promise<N
     return null;
   }
   return sumNudgeStats(list);
+}
+
+/**
+ * Mensajes que salieron del número este mes (3A, 05/11): los de todos los negocios, internos
+ * incluidos, más los del registro por WhatsApp (que no se guardan en `message`). Meta regala
+ * 1.000 de servicio al mes por número. Solo el total.
+ */
+export async function loadMonthOutbound(tenants: TenantRow[], now: Date): Promise<number | null> {
+  await requireAdmin();
+  const conn = db();
+  try {
+    let n = 0;
+    for (const t of tenants)
+      n += await withTenant(conn, t.id, (tx) => monthOutbound(tx, t.id, now));
+    const today = businessDateOf(now);
+    const c = sumCounts(
+      (await signupCountsByDay(conn, `${today.slice(0, 8)}01`, today)).map((d) => d.counts),
+    );
+    return n + (c.sends ?? 0) + (c.template_sends ?? 0);
+  } catch (err) {
+    console.error(
+      JSON.stringify({ level: "error", msg: "admin salientes", detail: errorText(err) }),
+    );
+    return null;
+  }
 }

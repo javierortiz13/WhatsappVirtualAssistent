@@ -14,6 +14,7 @@ import {
   type Health,
   loadFunnel,
   loadHabits,
+  loadMonthOutbound,
   loadNudgeStats,
   loadPendingPayments,
   loadRates,
@@ -99,13 +100,18 @@ export default async function AdminHome({
   const overCap = tenants.filter((t) => t.usage.inbound > t.cap);
   const premium = rates ? premiumOverUsd(rates) : null;
   const funnel = await loadFunnel(tenants, now);
-  const [habits, habitFlags, reminders, rescueFlags, nudges] = await Promise.all([
-    loadHabits(tenants, now),
-    habitSettings(db()),
-    loadReminderStats(tenants, now),
-    signupRescueSettings(db()),
-    loadNudgeStats(tenants, now),
-  ]);
+  const [habits, habitFlags, reminders, rescueFlags, nudges, offs, reminders14, monthOut] =
+    await Promise.all([
+      loadHabits(tenants, now),
+      habitSettings(db()),
+      loadReminderStats(tenants, now),
+      signupRescueSettings(db()),
+      loadNudgeStats(tenants, now),
+      // G1-3: las señales para frenar, a 14 días.
+      loadNudgeStats(tenants, now, 14),
+      loadReminderStats(tenants, now, 14),
+      loadMonthOutbound(tenants, now),
+    ]);
   const rescue = funnel.rescue;
   const survey = surveyTally(tenants);
   const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)} %` : "—");
@@ -316,6 +322,31 @@ export default async function AdminHome({
             <strong className="num">{nudges.sent + nudges.closes}</strong>
           </div>
         ) : null}
+        {offs && habitFlags.prefs ? (
+          <div className="row">
+            <span className="what">
+              <strong>Avisos apagados (14 d)</strong>
+              <span className="sub num">
+                no me recuerdes {offs.nudgeOffs} · no me escribas {offs.allOffs} · después de un
+                mensaje de Rocco (24 h) {offs.offsAfterSend} · tarjetas sin contestar{" "}
+                {offs.pendingCards}
+              </span>
+            </span>
+            <strong className="num">{offs.nudgeOffs + offs.allOffs}</strong>
+          </div>
+        ) : null}
+        {monthOut !== null ? (
+          <div className="row">
+            <span className="what">
+              <strong>Mensajes enviados este mes</strong>
+              <span className="sub">
+                Todos los del número, con el registro. Meta regala 1.000 de servicio al mes; después
+                cobra cada uno.
+              </span>
+            </span>
+            <strong className="num">{monthOut}</strong>
+          </div>
+        ) : null}
         {reminders && (habitFlags.reminders || reminders.created > 0) ? (
           <div className="row">
             <span className="what">
@@ -325,6 +356,7 @@ export default async function AdminHome({
                 {reminders.onTime}) · adelantados {reminders.viaB} · al escribir {reminders.viaC} ·
                 hechos {reminders.done} (con registro {reminders.linked}) · borrados{" "}
                 {reminders.cancelled} · vencidos {reminders.expired}
+                {reminders14 ? ` · fallidos (14 d) ${reminders14.failed}` : ""}
               </span>
               <span className="sub num">
                 rechazados: no es de plata {reminders.rejectedNonMoney} · tope{" "}

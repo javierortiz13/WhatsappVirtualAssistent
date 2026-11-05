@@ -3389,15 +3389,28 @@ export function habitNudge(v: NudgeView): Outbound {
 }
 
 /**
- * Primera vez que el dueño recibe el mensaje de las 8 pm sin haberlo pedido (decisión del 05/11):
- * qué es y cómo apagarlo. Va como último renglón de ese primer mensaje.
+ * 1B (decisión del fundador, 05/11): el primer mensaje de las 8 pm a quien nunca lo aceptó
+ * pregunta, con «Sí, escríbeme» (H7d) y «No me recuerdes». Sin el «Sí» no hay un segundo.
  */
-export const DAILY_CLOSE_INTRO =
-  "Te escribo a las 8 pm los días que me hayas escrito. Si no quieres estos mensajes, toca *No me recuerdes*.";
+export const EVENING_ASK =
+  "¿Te escribo así a las 8 pm, si me escribiste en las últimas 24 horas? Lo apagas cuando quieras.";
+
+/** El mensaje de las 8 pm convertido en la pregunta de 1B: mismo cuerpo, más H7d y sus botones. */
+export function withEveningAsk(out: Outbound): Outbound {
+  if (out.type !== "buttons") return out;
+  return {
+    ...out,
+    body: `${out.body}\n\n${EVENING_ASK}`,
+    buttons: [
+      { id: IDS.pref("optin"), title: "Sí, escríbeme" },
+      { id: IDS.pref("nudges_off"), title: "No me recuerdes" },
+    ],
+  };
+}
 
 export type EveningCloseView = {
   personal: boolean;
-  /** Registros de hoy (gastos y ventas, sin borrar). */
+  /** Registros de hoy (gastos e ingresos o ventas, sin borrar). Siempre 1 o más. */
   count: number;
   expensesUsd: Decimal;
   salesUsd: Decimal;
@@ -3409,17 +3422,19 @@ export type EveningCloseView = {
 /**
  * Cierre del día de las 8 pm (decisión del fundador, 05/11): lo anotado hoy y «¿Falta algo?».
  * Tocar un botón es un mensaje suyo: la ventana de 24 h sigue abierta hasta mañana a las 8 pm.
+ * MF-2: ingresos (persona) o ventas (negocio) y gastos, lo que haya; en un negocio lo anota
+ * también el empleado («se anotaron»).
  */
 export function eveningClose(v: EveningCloseView): Outbound {
   const usd = (d: Decimal) => formatMoney(d, "USD");
   const n = `${v.count} ${v.count === 1 ? "registro" : "registros"}`;
-  const what = v.personal
-    ? `Hoy anotaste *${usd(v.expensesUsd)}* en gastos (${n}).`
-    : v.salesUsd.gt(0) && v.expensesUsd.gt(0)
-      ? `Hoy anotaste *${usd(v.salesUsd)}* en ventas y *${usd(v.expensesUsd)}* en gastos (${n}).`
-      : v.salesUsd.gt(0)
-        ? `Hoy anotaste *${usd(v.salesUsd)}* en ventas (${n}).`
-        : `Hoy anotaste *${usd(v.expensesUsd)}* en gastos (${n}).`;
+  const label = v.personal ? "ingresos" : "ventas";
+  const verb = v.personal ? "Hoy anotaste" : "Hoy se anotaron";
+  const parts = [
+    ...(v.salesUsd.gt(0) ? [`*${usd(v.salesUsd)}* en ${label}`] : []),
+    ...(v.expensesUsd.gt(0) ? [`*${usd(v.expensesUsd)}* en gastos`] : []),
+  ];
+  const what = parts.length ? `${verb} ${parts.join(" y ")} (${n}).` : `${verb} ${n}.`;
   const lines = [what];
   if (v.streak >= 2) lines.push(`🔥 Llevas ${v.streak} días seguidos.`);
   lines.push("¿Falta algo por anotar?");
@@ -3458,18 +3473,20 @@ export function noSpendStale(): Outbound {
  */
 export const consentTextVersion = {
   H7: "v1",
+  /** 1B (05/11): «¿Te escribo así a las 8 pm…?» en el primer mensaje de las 8 pm, «Sí, escríbeme». */
+  H7d: "v1",
   H13: "v1",
   H13b: "v1.1",
-  H13c: "v1.1",
-  "H13c-all": "v1.1",
+  H13c: "v1.2",
+  "H13c-all": "v1.2",
   "H13d-tag": "v1.2",
-  "H14-1": "v1.2",
+  "H14-1": "v1.3",
   "H14-2": "v1.1",
   "H14e-1": "v1.1",
   "H14e-2": "v1.1",
-  H45: "v1.2",
+  H45: "v1.3",
   "H45-n": "v1.2.1",
-  H46: "v1.2",
+  H46: "v1.3",
   /** R-2 d: «ya puedes escribirme» desde un teléfono de empleado. */
   "R-2d": "v1.2",
   /** Recordatorios del registro: «no me escribas» durante el registro (signup-reminders v1.1). */
@@ -3500,7 +3517,7 @@ export function prefNudgesOffCard(neverOptedIn: boolean): Outbound {
       ? `¿Apago los avisos adelantados de tus recordatorios?\n${tail}`
       : [
           "¿Apago estos avisos?",
-          "• El aviso de racha de las 8 pm",
+          "• El mensaje de las 8 pm",
           "• Los avisos adelantados de tus recordatorios",
           tail,
         ].join("\n"),
@@ -3514,7 +3531,7 @@ export function prefAllOffCard(): Outbound {
     type: "buttons",
     body: [
       "¿Apago los mensajes que te mando por mi cuenta?",
-      "• El aviso de racha",
+      "• El mensaje de las 8 pm",
       "• Los avisos de tus recordatorios",
       "• Los mensajes sobre tu prueba",
       "Hasta que me contestes, no te los mando. Los avisos de un pago tuyo o del borrado de tus datos llegan igual.",
@@ -3529,7 +3546,7 @@ export function prefNudgesOffDone(neverOptedIn: boolean): Outbound {
     type: "text",
     body: neverOptedIn
       ? "Listo, ya no te adelanto recordatorios. Los que me pidas te llegan a su hora o cuando me escribas. Para volver a recibir avisos: *actívame los avisos*."
-      : "Listo, ya no te aviso de la racha ni te adelanto recordatorios. Los que me pidas te llegan a su hora o cuando me escribas. Para volver: *actívame los avisos*.",
+      : "Listo, ya no te escribo a las 8 pm ni te adelanto recordatorios. Los que me pidas te llegan a su hora o cuando me escribas. Para volver: *actívame los avisos*.",
   };
 }
 
@@ -3552,7 +3569,7 @@ export function prefAlreadyOff(target: "nudges_off" | "all_off"): Outbound {
     type: "text",
     body:
       target === "nudges_off"
-        ? "El aviso de racha y los avisos adelantados ya estaban apagados. Para volver: *actívame los avisos*."
+        ? "El mensaje de las 8 pm y los avisos adelantados ya estaban apagados. Para volver: *actívame los avisos*."
         : "Los mensajes que te mando por mi cuenta ya estaban apagados. Para volver: *ya puedes escribirme*.",
   };
 }
@@ -3562,9 +3579,9 @@ export function prefTurnedOn(id: "H13" | "H13b" | "H13c" | "H13c-all", held: boo
   const body = {
     H13: "Dale: los días que no anotes nada te aviso a las 8 pm, si me escribiste en las últimas 24 horas. Para apagarlo: *no me recuerdes*.",
     H13b: "Listo, vuelvo a escribirte por mi cuenta: tus recordatorios y los avisos que tenías. Para apagarlo: *no me escribas*.",
-    H13c: "Listo, encendí tus avisos de racha y de recordatorios. El de racha llega a las 8 pm si no has anotado nada y me escribiste en las últimas 24 horas. Para apagarlos: *mis avisos*.",
+    H13c: "Listo, encendí el mensaje de las 8 pm y los avisos adelantados de tus recordatorios. El de las 8 pm te llega si me escribiste en las últimas 24 horas. Para apagarlos: *mis avisos*.",
     "H13c-all":
-      "Listo, vuelvo a escribirte por mi cuenta y encendí el aviso de racha: llega a las 8 pm si no has anotado nada y me escribiste en las últimas 24 horas. Para apagarlos: *mis avisos*.",
+      "Listo, vuelvo a escribirte por mi cuenta y encendí el mensaje de las 8 pm: te llega si me escribiste en las últimas 24 horas. Para apagarlos: *mis avisos*.",
   }[id];
   return { type: "text", body: withHeld(body, held) };
 }
@@ -3587,7 +3604,7 @@ export function prefTagged(contact: string): Outbound {
 
 /** R-2 d: el aviso de racha y los recordatorios son del dueño. */
 export function prefEmployee(cleared: boolean): Outbound {
-  const body = "El aviso de racha y los recordatorios son solo para el dueño de la cuenta.";
+  const body = "El mensaje de las 8 pm y los recordatorios son solo para el dueño de la cuenta.";
   return { type: "text", body: cleared ? `Listo. ${body}` : body };
 }
 
@@ -3601,9 +3618,9 @@ export function prefStatus(v: {
   held: boolean;
 }): Outbound {
   const body = {
-    A: "Tus avisos están encendidos: el de racha a las 8 pm y los avisos adelantados de tus recordatorios. Para apagar también los demás mensajes que te mando por mi cuenta: *no me escribas*.",
-    B: "El aviso de racha de las 8 pm está apagado. Tus recordatorios te llegan a su hora o cuando me escribas.",
-    C: "No te escribo por mi cuenta: ni aviso de racha ni recordatorios a su hora. Tus recordatorios te los muestro cuando me escribas. Los avisos sobre un pago tuyo o el borrado de tus datos llegan igual.",
+    A: "Tus avisos están encendidos: el mensaje de las 8 pm y los avisos adelantados de tus recordatorios. Para apagar también los demás mensajes que te mando por mi cuenta: *no me escribas*.",
+    B: "El mensaje de las 8 pm está apagado. Tus recordatorios te llegan a su hora o cuando me escribas.",
+    C: "No te escribo por mi cuenta: ni el mensaje de las 8 pm ni recordatorios a su hora. Tus recordatorios te los muestro cuando me escribas. Los avisos sobre un pago tuyo o el borrado de tus datos llegan igual.",
   }[v.state];
   const on = { id: IDS.pref("on"), title: "Encender avisos" };
   const off = { id: IDS.pref(v.nudgeOff ? "all_off" : "nudges_off"), title: "Apagar avisos" };
@@ -3933,15 +3950,15 @@ export const REMINDERS_PAGE = {
 /** H14, H14c y H14e (v1.2): los dos interruptores de Ajustes (US-205). Verbatim de copy. */
 export const PREFS_SWITCHES = {
   nudge: {
-    label: "Aviso de racha y avisos adelantados",
+    label: "Mensaje de las 8 pm y avisos adelantados",
     help: "Rocco te escribe a las 8 pm si ese día no anotaste nada y le escribiste en las últimas 24 horas. Tras 3 avisos seguidos sin anotar, se pausa 14 días.",
     /** Con el mensaje de las 8 pm para todos (decisión del fundador, 05/11). */
     helpDaily:
       "Si le escribiste a Rocco en las últimas 24 horas, te escribe a las 8 pm: con lo que anotaste ese día o, si no anotaste nada, para mantener tu racha. Tras 3 avisos seguidos sin anotar, se pausa 14 días.",
     disabledHelp: "Para encenderlo, primero enciende «Mensajes de Rocco por su cuenta».",
-    toastOn: "Aviso de racha encendido.",
-    toastOff: "Aviso de racha y avisos adelantados apagados.",
-    confirmTitle: "¿Apagar el aviso de racha?",
+    toastOn: "Mensaje de las 8 pm encendido.",
+    toastOff: "Mensaje de las 8 pm y avisos adelantados apagados.",
+    confirmTitle: "¿Apagar el mensaje de las 8 pm?",
     confirmBody:
       "Rocco deja de escribirte a las 8 pm y de adelantarte avisos de tus recordatorios. Los que pidas siguen llegando a su hora o cuando le escribas.",
   },
@@ -3952,7 +3969,7 @@ export const PREFS_SWITCHES = {
     toastOff: "Rocco solo te va a responder.",
     confirmTitle: "¿Apagar los mensajes de Rocco por su cuenta?",
     confirmBody:
-      "Rocco solo te va a responder: se apagan el aviso de racha y los mensajes sobre tu prueba, y tus recordatorios salen cuando le escribas. Los avisos de pagos y de borrado de datos llegan igual.",
+      "Rocco solo te va a responder: se apagan el mensaje de las 8 pm y los mensajes sobre tu prueba, y tus recordatorios salen cuando le escribas. Los avisos de pagos y de borrado de datos llegan igual.",
   },
   /** H13d-tag en tercera persona del panel, con el contacto configurado. */
   taggedHelp: (contact: string) =>
