@@ -12,7 +12,12 @@ import { ingestWebhook } from "../src/inbox/ingest";
 import { processInbound } from "../src/inbox/process";
 import { createExpense } from "../src/ledger/expenses";
 import { releaseStalePending } from "../src/onboarding/erase";
-import { PhoneTakenError, registerBusiness } from "../src/onboarding/register";
+import {
+  addEmployee,
+  OwnerUnverifiedError,
+  PhoneTakenError,
+  registerBusiness,
+} from "../src/onboarding/register";
 import { MetaClient } from "../src/whatsapp/client";
 import * as fx from "./fixtures";
 
@@ -163,5 +168,58 @@ describe("números pendientes viejos (F2)", () => {
       .from(schema.signup)
       .where(eq(schema.signup.e164, "584121110004"));
     expect(signup?.step).toBe("name");
+  });
+
+  it("N3: con el dueño sin verificar no se agregan empleados; un empleado sin verificar no impide liberarlo", async () => {
+    const [u1, u2, u3] = [randomUUID(), randomUUID(), randomUUID()];
+    await t.db.insert(schema.userAccount).values([
+      { id: u1, email: "n3a@ejemplo.com" },
+      { id: u2, email: "n3b@ejemplo.com" },
+      { id: u3, email: "n3c@ejemplo.com" },
+    ]);
+    const squat = await register(u1, "584121110005");
+    await expect(
+      addEmployee(
+        t.db,
+        { tenantId: squat.tenantId, userId: u1 },
+        {
+          e164: "584161110005",
+          displayName: null,
+        },
+      ),
+    ).rejects.toBeInstanceOf(OwnerUnverifiedError);
+    // Un empleado pendiente que ya estaba (agregado antes de N3) no bloquea la liberación.
+    await t.db.insert(schema.phoneNumber).values({
+      tenantId: squat.tenantId,
+      e164: "584161110005",
+      role: "employee",
+      status: "pending",
+    });
+    await age("584121110005", 49);
+    const real = await register(u2, "584121110005");
+    expect(await tenantOf("584121110005")).toBe(real.tenantId);
+    expect(await tenantOf("584161110005")).toBeUndefined();
+    // Con un empleado que sí escribió (verificado), el negocio no se libera.
+    const kept = await register(u3, "584121110006");
+    await t.db.insert(schema.phoneNumber).values({
+      tenantId: kept.tenantId,
+      e164: "584161110006",
+      role: "employee",
+      status: "active",
+      verifiedAt: new Date(),
+    });
+    await age("584121110006", 49);
+    expect(await releaseStalePending(t.db)).toEqual([]);
+    expect(await tenantOf("584121110006")).toBe(kept.tenantId);
+  });
+
+  it("N3: release_stale_pending rechaza p_older de menos de 24 h", async () => {
+    const err = await t.db
+      .execute(sql`select * from app.release_stale_pending('23 hours'::interval, null)`)
+      .then(
+        () => null,
+        (e: Error & { cause?: Error }) => e.cause?.message ?? e.message,
+      );
+    expect(err).toMatch(/p_older too short/);
   });
 });

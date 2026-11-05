@@ -77,14 +77,42 @@ export function welcomeOwner(
   };
 }
 
-export function welcomeEmployee(displayName: string | null, tenantName: string): Outbound {
-  const hi = displayName ? `¡Epa, ${displayName}! Soy Rocco 🐾.` : "¡Epa! Soy Rocco 🐾.";
+/**
+ * Bienvenida del empleado (A-0032, F-3): `joined` después de tocar «Unirme»; si no, su primer
+ * mensaje sin invitación (empleado activo que nunca escribió). Sin «¡Epa…!» (voz neutra).
+ */
+export function welcomeEmployee(
+  displayName: string | null,
+  tenantName: string,
+  joined = false,
+): Outbound {
+  const name = displayName?.trim() || null;
+  const hi = joined
+    ? name
+      ? `Listo, ${name}.`
+      : "Listo."
+    : name
+      ? `Hola, ${name}. Soy Rocco 🐾, un asistente automático.`
+      : "Hola, soy Rocco 🐾, un asistente automático.";
   return {
     type: "text",
     body:
-      `${hi} Quedaste registrado como empleado de *${tenantName}*. Me puedes pasar gastos y ventas; los cierres los ve el dueño.\n` +
+      `${hi} Tu número ya está activo en *${cleanTenantName(tenantName)}*. Me puedes pasar gastos y ventas; los cierres los ve el dueño.\n` +
       "Ejemplo: _gasté 5$ en hielo_",
   };
+}
+
+/**
+ * El nombre del negocio en un mensaje a alguien que puede no conocerlo (seguridad N5): lo eligió
+ * quien agregó el número. Sin saltos de línea ni marcas de formato, y como mucho 40 caracteres.
+ */
+export function cleanTenantName(tenantName: string): string {
+  return tenantName
+    .replace(/[\r\n*_~`]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 40)
+    .trim();
 }
 
 export function rate(r: RateInfo): Outbound {
@@ -161,7 +189,7 @@ export function dashboardLink(
       body: [
         `📊 Tu dashboard: ${dashboardUrl}/login`,
         "Ahí ves, corriges y exportas todos tus movimientos, y pones presupuestos por categoría.",
-        "Entra con tu correo, toca *Ya me registré con Rocco* y mándame aquí el código de 8 dígitos que te aparezca. Así queda conectado a tu número.",
+        "Entra con tu correo, toca *Ya me registré con Rocco* y mándame aquí el código de 8 dígitos que te aparezca. Después toca *Sí, darle acceso* y queda conectado a tu número.",
       ].join("\n"),
     };
   if (role === "employee")
@@ -1741,25 +1769,26 @@ export function budgetsSummary(list: BudgetView[], today: IsoDate): Outbound {
 /**
  * Seguridad F1: un número que el dueño agregó como empleado no queda en el negocio hasta que esa
  * persona acepta. Botones `emp:join:<phoneId>` / `emp:no:<phoneId>`; salir, `emp:leave:<phoneId>`.
- * Textos pendientes de revisión de cumplimiento.
+ * Textos de A-0032 (re-revisión del 29/10, S1–S5). El nombre del negocio va limpio (N5).
  */
 export function employeeInvite(phoneId: string, tenantName: string): Outbound {
-  const join = `Unirme a ${tenantName}`;
+  const n = cleanTenantName(tenantName);
+  const join = `Unirme a ${n}`;
   return {
     type: "buttons",
-    body: `¡Epa! Soy Rocco 🐾. *${tenantName}* agregó este número para que anotes gastos y ventas del negocio. El dueño verá lo que anotes. ¿Trabajas ahí?`,
+    body: `Hola, soy Rocco 🐾, un asistente automático. *${n}* agregó este número para que anotes gastos y ventas del negocio. El dueño verá lo que anotes. ¿Trabajas ahí?`,
     buttons: [
       { id: `emp:join:${phoneId}`, title: join.length <= 20 ? join : "Unirme" },
-      { id: `emp:no:${phoneId}`, title: "No soy de ahí" },
+      { id: `emp:no:${phoneId}`, title: "No trabajo ahí" },
     ],
   };
 }
 
-/** Respuesta a «No soy de ahí»: el número quedó libre. */
+/** Respuesta a «No trabajo ahí»: el número quedó libre. */
 export function employeeDeclined(): Outbound {
   return {
     type: "text",
-    body: "Listo, no te agregué. Tu número quedó libre: si quieres tu propia cuenta, escríbeme *hola*.",
+    body: "Listo, quité tu número de ese negocio. Si quieres tu propia cuenta, escríbeme *hola*.",
   };
 }
 
@@ -1767,7 +1796,7 @@ export function employeeDeclined(): Outbound {
 export function employeeLeaveConfirm(phoneId: string, tenantName: string): Outbound {
   return {
     type: "buttons",
-    body: `¿Salir de *${tenantName}*? Ya no podrás anotar ahí. Lo que ya anotaste queda en el negocio.`,
+    body: `¿Salir de *${cleanTenantName(tenantName)}*? Ya no podrás anotar ahí. Lo que ya anotaste queda en el negocio.`,
     buttons: [
       { id: `emp:leave:${phoneId}`, title: "Sí, salir" },
       { id: "emp:stay", title: "No" },
@@ -1778,7 +1807,7 @@ export function employeeLeaveConfirm(phoneId: string, tenantName: string): Outbo
 export function employeeLeft(tenantName: string): Outbound {
   return {
     type: "text",
-    body: `Listo, saliste de *${tenantName}*. Tu número quedó libre: si quieres tu propia cuenta, escríbeme *hola*.`,
+    body: `Listo, saliste de *${cleanTenantName(tenantName)}*. Tu número quedó libre: si quieres tu propia cuenta, escríbeme *hola*.`,
   };
 }
 
@@ -3049,18 +3078,23 @@ export function signupTaken(dashboardUrl: string): Outbound {
   };
 }
 
-/** El dueño mandó el código del panel y quedó conectado. */
 /**
  * Seguridad F3: el código del panel no da acceso hasta que el dueño confirma. Botones
- * `dl:yes:<linkId>` / `dl:no:<linkId>`. Textos pendientes de revisión de cumplimiento.
+ * `dl:yes:<linkId>` / `dl:no:<linkId>`. Texto S6 de A-0032, con los correos completos (N1): una
+ * máscara como j***@gmail.com se puede imitar.
  */
 export function dashboardLinkConfirm(linkId: string, email: string, existing: string[]): Outbound {
-  const who = email || "esa persona";
+  const who = email ? `*${email}*` : "esa persona";
+  const terms =
+    "Entraría como dueño: podrá ver, cambiar, borrar y descargar todos tus movimientos. Si no conoces este correo, toca *No*.";
+  const list = existing.map((e) => `*${e}*`);
+  const seen =
+    list.length > 1 ? `${list.slice(0, -1).join(", ")} y ${list.at(-1)}` : (list[0] ?? "");
   return {
     type: "buttons",
-    body: existing.length
-      ? `Tu panel ya lo ve ${existing.join(", ")}. ¿Darle acceso también a ${who}? Podrá ver y cambiar todos tus movimientos.`
-      : `¿Darle acceso a tu panel a ${who}? Podrá ver y cambiar todos tus movimientos.`,
+    body: list.length
+      ? `Tu panel ya lo ${list.length > 1 ? "ven" : "ve"} ${seen}. ¿Le das acceso también a ${who}? ${terms}`
+      : `¿Le das acceso a tu panel a ${who}? ${terms}`,
     buttons: [
       { id: `dl:yes:${linkId}`, title: "Sí, darle acceso" },
       { id: `dl:no:${linkId}`, title: "No" },
@@ -3079,6 +3113,7 @@ export function dashboardLinkExpired(): Outbound {
   };
 }
 
+/** El dueño mandó el código del panel y quedó conectado. */
 export function dashboardLinked(email: string): Outbound {
   return {
     type: "text",

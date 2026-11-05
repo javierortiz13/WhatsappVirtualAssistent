@@ -37,7 +37,8 @@ export default async function AccesoPanel({
         <div className="notice ok">Listo. Esa persona ya no puede entrar a tu panel.</div>
       ) : null}
       <p className="sub" style={{ margin: 0 }}>
-        Estas personas entran a tu panel con su correo y pueden ver y cambiar todos tus movimientos.
+        Estas personas entran a tu panel con su correo, como dueños: pueden ver, cambiar, borrar y
+        descargar todos tus movimientos y quitar accesos.
       </p>
       <div className="card tight">
         {members.map((m) => (

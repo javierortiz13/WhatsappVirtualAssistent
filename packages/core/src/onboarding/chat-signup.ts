@@ -835,7 +835,7 @@ export class LinkRateError extends Error {
   }
 }
 
-/** j***@gmail.com: lo que Rocco muestra de un correo por WhatsApp. */
+/** j***@gmail.com: solo para los logs (por WhatsApp se muestra el correo completo, N1). */
 export function maskEmail(email: string): string {
   const [user = "", domain = ""] = email.split("@");
   return domain ? `${user.slice(0, 1)}***@${domain}` : "***";
@@ -908,8 +908,10 @@ export async function claimDashboardLink(
   const members = await dashboardMembers(tx, ref.tenantId);
   return {
     linkId: open.id,
-    email: maskEmail(u?.email ?? ""),
-    existing: members.filter((m) => m.userId !== open.userId).map((m) => maskEmail(m.email)),
+    // N1: correos completos. Es el panel del propio dueño (dashboardLinked y Ajustes ya los
+    // muestran), y una máscara como j***@gmail.com se puede imitar con otra cuenta.
+    email: u?.email ?? "",
+    existing: members.filter((m) => m.userId !== open.userId).map((m) => m.email),
   };
 }
 

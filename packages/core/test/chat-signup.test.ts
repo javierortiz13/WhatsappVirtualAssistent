@@ -559,7 +559,7 @@ describe("registro por WhatsApp de punta a punta", () => {
     await say(NEW_NUMBER, code);
     const ask = lastFor(NEW_NUMBER);
     expect(textOf(ask)).toBe(
-      "¿Darle acceso a tu panel a j***@ejemplo.com? Podrá ver y cambiar todos tus movimientos.",
+      "¿Le das acceso a tu panel a *javier@ejemplo.com*? Entraría como dueño: podrá ver, cambiar, borrar y descargar todos tus movimientos. Si no conoces este correo, toca *No*.",
     );
     expect(await membersOf(userId)).toEqual([]);
     const [yes, no] = idsOf(ask);
@@ -581,7 +581,7 @@ describe("registro por WhatsApp de punta a punta", () => {
     const second = await createDashboardLink(t.db, other, clock);
     await say(NEW_NUMBER, second.code);
     expect(textOf(lastFor(NEW_NUMBER))).toBe(
-      "Tu panel ya lo ve j***@ejemplo.com. ¿Darle acceso también a m***@otro.com? Podrá ver y cambiar todos tus movimientos.",
+      "Tu panel ya lo ve *javier@ejemplo.com*. ¿Le das acceso también a *maria@otro.com*? Entraría como dueño: podrá ver, cambiar, borrar y descargar todos tus movimientos. Si no conoces este correo, toca *No*.",
     );
     await tap(NEW_NUMBER, idsOf(lastFor(NEW_NUMBER))[1] as string, "No");
     expect(textOf(lastFor(NEW_NUMBER))).toBe("Listo, no le di acceso. Ese código ya no sirve.");

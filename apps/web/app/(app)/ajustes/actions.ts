@@ -5,6 +5,7 @@ import {
   BUSINESS_TYPE_LABELS,
   CategoryError,
   EmployeeLimitError,
+  OwnerUnverifiedError,
   PhoneTakenError,
   setPhoneStatus,
   updateTenantSettings,
@@ -43,6 +44,8 @@ export async function addEmployeeAction(formData: FormData): Promise<void> {
   } catch (err) {
     if (err instanceof PhoneTakenError) redirect("/ajustes/numeros?error=ocupado");
     if (err instanceof EmployeeLimitError) redirect("/ajustes/numeros?error=limite");
+    // N3: la página ya muestra el aviso de que el número del dueño falta vincular.
+    if (err instanceof OwnerUnverifiedError) redirect("/ajustes/numeros");
     console.error(JSON.stringify({ level: "error", msg: "alta empleado", detail: errorText(err) }));
     redirect("/ajustes/numeros?error=servidor");
   }

@@ -51,7 +51,7 @@ export default async function Numeros({
       ) : null}
       {sp.ok === "alta" ? (
         <div className="notice ok">
-          Listo. Cuando esa persona le escriba a Rocco por primera vez, le preguntaré si trabaja
+          Listo. Avísale que le escriba a Rocco: la primera vez, Rocco le preguntará si trabaja
           contigo. Si acepta, ya puede registrar gastos y ventas.
         </div>
       ) : null}
@@ -104,7 +104,8 @@ export default async function Numeros({
           );
         })}
       </div>
-      {isOwner ? (
+      {/* N3: sin el número del dueño verificado no se agregan empleados. */}
+      {isOwner && owner?.status !== "pending" ? (
         <form action={addEmployeeAction} className="card stack">
           <h2>Agregar un empleado</h2>
           <div className="phone-row">
@@ -136,7 +137,8 @@ export default async function Numeros({
           />
           <p className="sub">
             El empleado registra gastos y ventas; los cierres los ves solo tú. No necesita código:
-            con escribirle a Rocco queda activo.
+            la primera vez que escriba, Rocco le preguntará si trabaja contigo y queda activo cuando
+            acepte.
           </p>
           <div className="center">
             <button className="btn" type="submit">

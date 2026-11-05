@@ -54,6 +54,17 @@ export class PhoneTakenError extends Error {
 }
 
 /** Seguridad F1: el plan no admite más empleados (Personal 0, Negocio 1, Negocio Plus 3). */
+/**
+ * Seguridad N3: no se agregan empleados mientras el número del dueño no esté verificado. Si no,
+ * quien registró un número ajeno podía agregar uno y `release_stale_pending` no lo liberaba.
+ */
+export class OwnerUnverifiedError extends Error {
+  constructor() {
+    super("el número del dueño todavía no está verificado");
+    this.name = "OwnerUnverifiedError";
+  }
+}
+
 export class EmployeeLimitError extends Error {
   constructor(public readonly limit: number) {
     super("el plan no admite más empleados");
@@ -365,6 +376,11 @@ export async function addEmployee(
       .from(p)
       .where(and(eq(p.tenantId, ref.tenantId), eq(p.e164, input.e164)));
     if (!own && (await phoneIsTaken(tx, input.e164))) throw new PhoneTakenError(input.e164);
+    const [owner] = await tx
+      .select({ verifiedAt: p.verifiedAt })
+      .from(p)
+      .where(and(eq(p.tenantId, ref.tenantId), eq(p.role, "owner")));
+    if (!owner?.verifiedAt) throw new OwnerUnverifiedError();
     const room = await employeeRoom(tx, ref.tenantId);
     const counted = own && (own.status === "pending" || own.status === "active");
     if (!counted && room.used >= room.limit) throw new EmployeeLimitError(room.limit);
@@ -424,7 +440,7 @@ export async function setPhoneStatus(
 }
 
 /**
- * El empleado dice «No soy de ahí» o sale del negocio (F1): su número deja de estar en el negocio
+ * El empleado dice «No trabajo ahí» o sale del negocio (F1): su número deja de estar en el negocio
  * y queda libre. Sin nada anotado, la fila se borra; con historial, se conserva sin el número
  * (`salio:<id>`, desactivada) para que lo anotado siga con su nombre.
  */

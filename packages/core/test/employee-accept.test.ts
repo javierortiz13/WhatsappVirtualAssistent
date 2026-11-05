@@ -1,5 +1,6 @@
 import { eq, schema, withTenant } from "@caja/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { businessDateOf } from "../src/domain/dates";
 import {
   addEmployee,
   EmployeeLimitError,
@@ -22,7 +23,9 @@ describe("empleados: aceptar, no aceptar y salir (F1)", () => {
     h.t.db.update(schema.tenant).set({ plan }).where(eq(schema.tenant.id, h.tenantId));
 
   beforeAll(async () => {
-    h = await botHarness();
+    // Mediodía de Caracas: el aviso al dueño no sale en el horario nocturno (20:31 a 07:59).
+    const noon = new Date(`${businessDateOf(new Date())}T12:00:00-04:00`);
+    h = await botHarness({ now: () => noon });
     await h.t.db.insert(schema.userAccount).values({ id: USER, email: "ana@ejemplo.com" });
   });
   afterAll(() => h.t.close());
@@ -45,13 +48,15 @@ describe("empleados: aceptar, no aceptar y salir (F1)", () => {
     expect((await phone(NEW))?.status).toBe("pending");
   });
 
-  it("«No soy de ahí»: el número queda libre y el dueño recibe el aviso si su ventana está abierta", async () => {
+  it("«No trabajo ahí»: el número queda libre y el dueño recibe el aviso si su ventana está abierta", async () => {
     await h.send("hola"); // abre la ventana del dueño
     const p = await phone(NEW);
     await h.send("gasté 20$ en farmacia", NEW);
     expect(idsOf(h.last(NEW))).toEqual([`emp:join:${p?.id}`, `emp:no:${p?.id}`]);
-    const body = await h.tap(`emp:no:${p?.id}`, "No soy de ahí", NEW);
-    expect(body).toContain("Tu número quedó libre");
+    const body = await h.tap(`emp:no:${p?.id}`, "No trabajo ahí", NEW);
+    expect(body).toBe(
+      "Listo, quité tu número de ese negocio. Si quieres tu propia cuenta, escríbeme *hola*.",
+    );
     expect(await phone(NEW)).toBeUndefined();
     expect(await phoneIsTaken(h.t.db, NEW)).toBe(false);
     expect(textOf(h.last(OWNER))).toBe(

@@ -41,8 +41,9 @@ export default async function Conectar({
       <section className="wizard-body">
         <h1>Conecta tu cuenta de Rocco</h1>
         <p className="lead">
-          Si creaste tu cuenta chateando con Rocco, mándale este código desde tu WhatsApp y tu
-          dashboard queda conectado a <strong>{session.user.email}</strong>.
+          Si creaste tu cuenta chateando con Rocco, mándale este código desde tu WhatsApp. Rocco te
+          va a preguntar si le das acceso a <strong>{session.user.email}</strong>: toca{" "}
+          <strong>Sí, darle acceso</strong> y listo.
         </p>
         {sp.error === "limite" ? (
           <div className="notice err">
@@ -66,7 +67,7 @@ export default async function Conectar({
                 Envíalo desde el <strong>mismo número</strong> con el que te registraste.
               </li>
               <li>Sirve por {Math.round(LINK_TTL_MS / 60000)} minutos.</li>
-              <li>Esta pantalla cambia sola cuando llegue.</li>
+              <li>Esta pantalla cambia sola cuando confirmes.</li>
             </ol>
             <ConnectStatus expiresAt={expiresAt} />
           </div>

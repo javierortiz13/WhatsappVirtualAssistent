@@ -48,7 +48,51 @@ describe("plantillas es-VE", () => {
     const w = es.welcomeOwner("Autolavado El Rápido", "Asistente de Caja", rate);
     expect(w.body).toContain("*Autolavado El Rápido*");
     expect(w.body).toContain("asistente automático");
-    expect(es.welcomeEmployee("Carlos", "Autolavado").body).toContain("¡Epa, Carlos! Soy Rocco");
+    // F-3 (A-0032): sin «¡Epa…!». Primer mensaje sin invitación y después de «Unirme».
+    expect(es.welcomeEmployee("Carlos", "Autolavado").body).toBe(
+      "Hola, Carlos. Soy Rocco 🐾, un asistente automático. Tu número ya está activo en *Autolavado*. Me puedes pasar gastos y ventas; los cierres los ve el dueño.\nEjemplo: _gasté 5$ en hielo_",
+    );
+    expect(es.welcomeEmployee(null, "Autolavado").body).toBe(
+      "Hola, soy Rocco 🐾, un asistente automático. Tu número ya está activo en *Autolavado*. Me puedes pasar gastos y ventas; los cierres los ve el dueño.\nEjemplo: _gasté 5$ en hielo_",
+    );
+    expect(es.welcomeEmployee("Carlos", "Autolavado", true).body).toBe(
+      "Listo, Carlos. Tu número ya está activo en *Autolavado*. Me puedes pasar gastos y ventas; los cierres los ve el dueño.\nEjemplo: _gasté 5$ en hielo_",
+    );
+    expect(es.welcomeEmployee(null, "Autolavado", true).body).toBe(
+      "Listo. Tu número ya está activo en *Autolavado*. Me puedes pasar gastos y ventas; los cierres los ve el dueño.\nEjemplo: _gasté 5$ en hielo_",
+    );
+  });
+  it("invitación, salida y confirmación del panel (A-0032: S1, S1b, S3, S4, S6, S9; N1, N5)", () => {
+    const inv = es.employeeInvite("p1", "Ana");
+    expect(inv.body).toBe(
+      "Hola, soy Rocco 🐾, un asistente automático. *Ana* agregó este número para que anotes gastos y ventas del negocio. El dueño verá lo que anotes. ¿Trabajas ahí?",
+    );
+    expect(inv.type === "buttons" && inv.buttons.map((b) => b.title)).toEqual([
+      "Unirme a Ana",
+      "No trabajo ahí",
+    ]);
+    // N5: el nombre lo eligió quien agregó el número; sin saltos de línea ni formato, máx. 40.
+    const lure = `Soporte *Rocco*\n_toca_ ~Unirme~ \`ya\` ${"x".repeat(60)}`;
+    for (const o of [
+      es.employeeInvite("p1", lure),
+      es.employeeLeaveConfirm("p1", lure),
+      es.employeeLeft(lure),
+      es.welcomeEmployee(null, lure, true),
+    ]) {
+      const name = /\*([^*]+)\*/.exec(o.body)?.[1] ?? "";
+      expect(name).toBe(`Soporte Rocco toca Unirme ya ${"x".repeat(11)}`);
+      expect(name.length).toBeLessThanOrEqual(40);
+      expect(o.body.split("\n")[0]).not.toMatch(/[_~`]/);
+    }
+    const lv = es.employeeInvite("p1", lure);
+    expect(lv.type === "buttons" && lv.buttons[0]?.title).toBe("Unirme");
+    // S6 con 2 o más: «lo ven … y …», correos completos.
+    expect(es.dashboardLinkConfirm("l", "c@x.com", ["a@x.com", "b@x.com"]).body).toBe(
+      "Tu panel ya lo ven *a@x.com* y *b@x.com*. ¿Le das acceso también a *c@x.com*? Entraría como dueño: podrá ver, cambiar, borrar y descargar todos tus movimientos. Si no conoces este correo, toca *No*.",
+    );
+    expect(es.dashboardLink("https://caja.app", "owner", false).body).toContain(
+      "Después toca *Sí, darle acceso* y queda conectado a tu número.",
+    );
   });
   it("ayuda incluye el enlace del dashboard y el soporte si existe", () => {
     expect(es.help("https://caja.app", null).body).toContain("https://caja.app");

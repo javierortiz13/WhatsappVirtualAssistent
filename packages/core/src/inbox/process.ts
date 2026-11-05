@@ -864,7 +864,7 @@ async function notifyOwnerEmployeeGone(
 }
 
 /**
- * Empleado pendiente (F1): «Unirme» lo activa con la bienvenida; «No soy de ahí» libera el
+ * Empleado pendiente (F1): «Unirme» lo activa con la bienvenida; «No trabajo ahí» libera el
  * número y avisa al dueño. Cualquier otro mensaje recibe la invitación (con el límite de los
  * desconocidos) y no se guarda.
  */
@@ -910,7 +910,7 @@ async function handlePendingEmployee(
         },
         nowTs,
       );
-      return es.welcomeEmployee(phone?.name ?? msg.sender.displayName, name);
+      return es.welcomeEmployee(phone?.name ?? msg.sender.displayName, name, true);
     }
     if (action === "no") {
       const released = await releaseEmployeePhone(

@@ -242,7 +242,9 @@ describe("onboarding por código de vinculación", () => {
     const { sent, client } = fakeMeta();
     expect(await send(client, EMPLOYEE, "gasté 20$ en farmacia", "Carlos M")).toBe("ignored");
     expect(sent).toHaveLength(1);
-    expect(textOf(sent[0])).toContain("*Autolavado El Rápido* agregó este número");
+    expect(textOf(sent[0])).toBe(
+      "Hola, soy Rocco 🐾, un asistente automático. *Autolavado El Rápido* agregó este número para que anotes gastos y ventas del negocio. El dueño verá lo que anotes. ¿Trabajas ahí?",
+    );
     expect(idsOf(sent[0])).toEqual([`emp:join:${r.phoneId}`, `emp:no:${r.phoneId}`]);
     const moves = await withTenant(t.db, tenantId, (tx) => tx.select().from(schema.movement));
     expect(moves).toEqual([]);
@@ -256,8 +258,8 @@ describe("onboarding por código de vinculación", () => {
     // «Unirme»: activo y con la bienvenida.
     const join = fakeMeta();
     expect(await tap(join.client, EMPLOYEE, `emp:join:${r.phoneId}`, "Unirme")).toBe("done");
-    expect(textOf(join.sent[0])).toContain(
-      "¡Epa, Carlos! Soy Rocco 🐾. Quedaste registrado como empleado de *Autolavado El Rápido*.",
+    expect(textOf(join.sent[0])).toBe(
+      "Listo, Carlos. Tu número ya está activo en *Autolavado El Rápido*. Me puedes pasar gastos y ventas; los cierres los ve el dueño.\nEjemplo: _gasté 5$ en hielo_",
     );
     const again = fakeMeta();
     await send(again.client, EMPLOYEE, "hola");

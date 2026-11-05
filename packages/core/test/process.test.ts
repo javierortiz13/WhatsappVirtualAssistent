@@ -492,7 +492,9 @@ describe("processInbound", () => {
     await processInbound(deps(client), await ingest(p));
     // Primer mensaje de un empleado dado de alta sin verificar: bienvenida y respuesta en un solo envío.
     expect(sent).toHaveLength(1);
-    expect(textOf(sent[0])).toContain("Quedaste registrado como empleado");
+    expect(textOf(sent[0])).toContain(
+      "Soy Rocco 🐾, un asistente automático. Tu número ya está activo en",
+    );
     expect(textOf(sent[0])).toContain("El cierre lo ve el dueño");
   });
 
