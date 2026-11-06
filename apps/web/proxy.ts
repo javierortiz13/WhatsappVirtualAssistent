@@ -20,6 +20,22 @@ const PRIVATE_PREFIXES = [
 ];
 
 export async function proxy(request: NextRequest) {
+  // Invitaciones (P4-B, US-420, PV-7, SEC-P4-12): `?ref=` nunca se queda en la URL. 302 a la misma
+  // URL sin `ref` (del mismo sitio, desde `nextUrl.clone()`), pasando por /api/ref, que pone la
+  // cookie solo con `referrals` encendido. La portada sigue estática y sin Set-Cookie.
+  const ref = request.nextUrl.searchParams.get("ref");
+  if (ref !== null) {
+    const clean = request.nextUrl.clone();
+    clean.searchParams.delete("ref");
+    const hop = request.nextUrl.clone();
+    hop.pathname = "/api/ref";
+    hop.search = "";
+    hop.searchParams.set("code", ref.slice(0, 12));
+    hop.searchParams.set("next", `${clean.pathname}${clean.search}`);
+    const res = NextResponse.redirect(hop, 302);
+    res.headers.set("Cache-Control", "private, no-store");
+    return res;
+  }
   let response = NextResponse.next({ request });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -57,5 +73,9 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api/|_next/|monitoring|favicon.ico|icon.svg|manifest.webmanifest|.*\\..*).*)"],
+  // `/w` y `/w/CODE` (SEC-P4-10 b) no pasan por aquí: un tráfico grande ahí no se vuelve llamadas
+  // de sesión a Supabase.
+  matcher: [
+    "/((?!api/|_next/|monitoring|w/|w$|favicon.ico|icon.svg|manifest.webmanifest|.*\\..*).*)",
+  ],
 };

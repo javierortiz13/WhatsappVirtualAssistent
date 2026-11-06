@@ -1,6 +1,8 @@
 import {
   BUSINESS_TYPE_LABELS,
   CODE_TTL_MS,
+  codeCheck,
+  es,
   LAUNCH_DEFAULTS,
   launchSettings,
   ONBOARDING_MAX_ACCOUNTS,
@@ -18,6 +20,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { formatE164 } from "@/lib/phone";
+import { cleanCode, REF_COOKIE, referralsOn } from "@/lib/referral";
 import { currentSession } from "@/lib/session";
 import { newCodeAction } from "./actions";
 import { LINK_COOKIE } from "./cookie";
@@ -39,6 +42,21 @@ const ERRORS: Record<string, string> = {
  * (plan, perfil, categorías, cuentas, WhatsApp). Con la cuenta creada: el código de vinculación
  * que el dueño envía por WhatsApp; la pantalla se actualiza sola cuando llega.
  */
+/**
+ * P4-B (US-420, PV-2, SEC-P4-2): con `referrals`, el campo del código, prellenado con la cookie
+ * `rocco_ref`; RW6i arriba del campo solo si ese código es válido, calculado aquí en el servidor
+ * (sin consulta «¿existe?» desde el navegador). Una cookie que no valida se ignora.
+ */
+async function inviteField(): Promise<{ code: string; notice: string | null } | null> {
+  if (!(await referralsOn())) return null;
+  const code = cleanCode((await cookies()).get(REF_COOKIE)?.value);
+  if (!code) return { code: "", notice: null };
+  const ok = await db()
+    .transaction((tx) => codeCheck(tx, code))
+    .catch(() => "none" as const);
+  return { code, notice: ok === "ok" ? es.INVITEE_NOTICE : null };
+}
+
 export default async function Registro({
   searchParams,
 }: {
@@ -76,6 +94,7 @@ export default async function Registro({
           maxAccounts={ONBOARDING_MAX_ACCOUNTS}
           pilotNote="31 días o 100 mensajes gratis, lo que llegue primero. Sin tarjeta."
           beta={(await launchSettings(db()).catch(() => LAUNCH_DEFAULTS)).beta}
+          invite={await inviteField()}
         />
       </>
     );

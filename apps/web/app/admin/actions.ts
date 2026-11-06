@@ -3,6 +3,7 @@
 import {
   addExtraMessages,
   approvePayment,
+  approveRefMonth,
   BatchRefused,
   cancelSignupBatch,
   Decimal,
@@ -16,7 +17,9 @@ import {
   quote,
   RECHARGE,
   REMOVE_REASONS,
+  ReviewRefused,
   recordPayment,
+  refuseRefMonth,
   rejectPayment,
   removePoints,
   rewardChangesForFlags,
@@ -28,11 +31,12 @@ import {
   scheduleSignupBatch,
   setTenantBilling,
   subscriptionState,
+  syncInvitee,
   TRIAL_DAYS,
 } from "@caja/core";
 import { businessDateOf } from "@caja/core/domain";
 import { errorText } from "@caja/core/log";
-import { eq, schema, withTenant } from "@caja/db";
+import { and, eq, isNotNull, isNull, schema, withTenant } from "@caja/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -437,7 +441,7 @@ export async function saveHabitsAction(formData: FormData): Promise<void> {
 /**
  * Puntos, regalos e invitaciones (PRD hábitos v4.2.1 US-413, SEC-P4-3, SEC-P4-11): `requireAdmin`
  * dentro de la acción; `rewards` o `referrals` sin `xp` se rechazan; el tope va de 0 a 200 con dos
- * decimales. P4-A: `referrals` no se puede encender (llega con P4-B). Encender `xp` guarda el día
+ * decimales. Encender `xp` guarda el día
  * (A40). `audit_log` exige un negocio: el antes y el después quedan en el log del servidor y
  * `app_setting.updated_by` guarda el correo.
  */
@@ -447,7 +451,6 @@ export async function saveRewardsAction(formData: FormData): Promise<void> {
   const rewards = formData.get("rewards") === "on";
   const referrals = formData.get("referrals") === "on";
   if ((rewards || referrals) && !xp) redirect("/admin?error=puntos_primero#puntos");
-  if (referrals) redirect("/admin?error=invitaciones_p4b#puntos");
   const ceiling = parseCeiling(formData.get("ceiling"));
   if (ceiling === null) redirect("/admin?error=tope#puntos");
   const now = new Date();
@@ -549,6 +552,167 @@ export async function removePointsAction(formData: FormData): Promise<void> {
   }
   revalidatePath(`/admin/negocios/${f.tenant_id}`);
   redirect(`/admin/negocios/${f.tenant_id}?${outcome}#puntos`);
+}
+
+const ReversePayment = z.object({
+  tenant_id: z.string().uuid(),
+  payment_id: z.string().uuid(),
+  reason: z.enum(["devuelto", "contracargo", "error"]),
+});
+
+/**
+ * «Marcar como devuelto» (US-418, SEC-P4-3, SEC-P4-11): solo un pago aprobado, dentro de
+ * `withTenant` del negocio que pagó. No cambia `paid_until` (eso sigue a mano). Mueve el paso de la
+ * invitación de ese negocio; el lado del que invita (−100, RW8f, código pausado) lo aplica el
+ * barrido del worker. Repetirlo no hace nada.
+ */
+export async function reversePaymentAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const tenantId = String(formData.get("tenant_id") ?? "");
+  const parsed = ReversePayment.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) fail(tenantId, "datos");
+  const f = parsed.data;
+  const now = new Date();
+  let outcome = "ok=devuelto";
+  try {
+    await withTenant(db(), f.tenant_id, async (tx) => {
+      const done = await tx
+        .update(schema.payment)
+        .set({ status: "reversed", reversedAt: now, reversedBy: admin.email })
+        .where(
+          and(
+            eq(schema.payment.id, f.payment_id),
+            eq(schema.payment.tenantId, f.tenant_id),
+            eq(schema.payment.status, "approved"),
+          ),
+        )
+        .returning({ id: schema.payment.id });
+      if (!done[0]) {
+        outcome = "error=estado";
+        return;
+      }
+      await tx.insert(schema.auditLog).values({
+        tenantId: f.tenant_id,
+        actorType: "user",
+        actorId: admin.userId,
+        action: "reverse_payment",
+        entity: "payment",
+        entityId: f.payment_id,
+        before: { status: "approved" },
+        after: { status: "reversed", reason: f.reason, by: admin.email },
+        channel: "admin",
+        createdAt: now,
+      });
+      await syncInvitee(tx);
+    });
+  } catch (err) {
+    fail(f.tenant_id, "servidor", err);
+  }
+  back(f.tenant_id, outcome);
+}
+
+const CodeOp = z.object({ tenant_id: z.string().uuid(), op: z.enum(["disable", "enable"]) });
+
+/**
+ * Pausar o reactivar el código de un negocio (US-419, SEC-P4-3, SEC-P4-11): pausar solo uno
+ * activo; reactivar solo uno pausado. `audit_log` con el antes y el después (sin el código).
+ */
+export async function setReferralCodeAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const tenantId = String(formData.get("tenant_id") ?? "");
+  const parsed = CodeOp.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) fail(tenantId, "datos");
+  const f = parsed.data;
+  const now = new Date();
+  let outcome = "ok=codigo";
+  try {
+    await withTenant(db(), f.tenant_id, async (tx) => {
+      const done = await tx
+        .update(schema.referralCode)
+        .set(
+          f.op === "disable"
+            ? { disabledAt: now, disabledReason: "admin" }
+            : { disabledAt: null, disabledReason: null },
+        )
+        .where(
+          and(
+            eq(schema.referralCode.tenantId, f.tenant_id),
+            f.op === "disable"
+              ? isNull(schema.referralCode.disabledAt)
+              : isNotNull(schema.referralCode.disabledAt),
+          ),
+        )
+        .returning({ id: schema.referralCode.id });
+      if (!done[0]) {
+        outcome = "error=estado";
+        return;
+      }
+      await tx.insert(schema.auditLog).values({
+        tenantId: f.tenant_id,
+        actorType: "user",
+        actorId: admin.userId,
+        action: f.op === "disable" ? "disable_referral_code" : "enable_referral_code",
+        entity: "referral_code",
+        entityId: done[0].id,
+        before: { disabled: f.op === "enable" },
+        after: { disabled: f.op === "disable", by: admin.email },
+        channel: "admin",
+        createdAt: now,
+      });
+    });
+  } catch (err) {
+    fail(f.tenant_id, "servidor", err);
+  }
+  back(f.tenant_id, outcome);
+}
+
+const RefReview = z.object({
+  tenant_id: z.string().uuid(),
+  grant_id: z.string().uuid(),
+  op: z.enum(["approve", "refuse"]),
+});
+
+/**
+ * Revisión del mes de regalo (US-422, A36, SEC-P4-3, SEC-P4-11): aprobar o rechazar solo desde
+ * `pending_review`; aprobar solo 7 días después de aprobado el pago del invitado (lo mira la base).
+ * Dentro de `withTenant` de quien invita. `audit_log` con el correo; repetirlo no hace nada.
+ */
+export async function reviewRefMonthAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const parsed = RefReview.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) redirect("/admin?error=datos#invitaciones");
+  const f = parsed.data;
+  const now = new Date();
+  let outcome = `ok=${f.op === "approve" ? "mes_aprobado" : "mes_rechazado"}`;
+  try {
+    await withTenant(db(), f.tenant_id, async (tx) => {
+      if (f.op === "approve") await approveRefMonth(tx, f.tenant_id, f.grant_id, admin, now);
+      else await refuseRefMonth(tx, f.tenant_id, f.grant_id, now);
+      await tx.insert(schema.auditLog).values({
+        tenantId: f.tenant_id,
+        actorType: "user",
+        actorId: admin.userId,
+        action: f.op === "approve" ? "approve_ref_month" : "refuse_ref_month",
+        entity: "reward_grant",
+        entityId: f.grant_id,
+        before: { status: "pending_review" },
+        after: { op: f.op, by: admin.email },
+        channel: "admin",
+        createdAt: now,
+      });
+    });
+  } catch (err) {
+    if (err instanceof ReviewRefused)
+      outcome = `error=${err.reason === "too_soon" ? "mes_pronto" : "estado"}`;
+    else {
+      console.error(
+        JSON.stringify({ level: "error", msg: "admin mes de regalo", detail: errorText(err) }),
+      );
+      outcome = "error=servidor";
+    }
+  }
+  revalidatePath("/admin");
+  redirect(`/admin?${outcome}#invitaciones`);
 }
 
 const FounderMark = z.object({ id: z.string().uuid(), on: z.enum(["1", "0"]) });

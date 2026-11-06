@@ -5,11 +5,13 @@ import {
   caracasMonth,
   EMPTY_REMINDER_STATS,
   habitStats,
+  invitedByChat,
   isQuietHours,
   keptDays,
   type PointsStats,
   pointsStats,
   type ReminderStats,
+  referralStats,
   reminderStats,
   rewardSettings,
   SIGNUP_RESCUE_AFTER_MS,
@@ -18,6 +20,7 @@ import {
   sumCounts,
   summarizeHabits,
   summarizePoints,
+  summarizeReferrals,
   sumReminderStats,
 } from "@caja/core";
 import { createDb, loadNearestEnvFile, rows, sql } from "@caja/db";
@@ -365,6 +368,27 @@ async function points() {
   console.log(
     `3 costo del mes: $${booked.toFixed(2)} de $${settings.monthlyCeilingUsd.toFixed(2)} · esperando: tope ${s.waiting.ceiling}, pago ${s.waiting.not_paying}, apagado ${s.waiting.flag_off}, pausa ${s.waiting.paused} · topes alcanzados: mes ${s.ceilingHitsMonth}, pasado ${s.ceilingHitsLastMonth}`,
   );
+  // Filas 4–6 (P4-B): invitaciones, solo conteos.
+  try {
+    const refs = [];
+    for (const t of tenants)
+      refs.push(
+        await db.transaction(async (tx) => {
+          await tx.execute(sql`select set_config('app.tenant_id', ${t.id}, true)`);
+          return referralStats(tx, t.id, now);
+        }),
+      );
+    const r = summarizeReferrals(refs, await invitedByChat(db));
+    console.log(
+      `4 invitaciones (90 d / total): por chat sin cuenta ${r.invitedChat} · registradas ${r.signedUp90}/${r.signedUpAll} · activas ${r.active90}/${r.activeAll} · pagaron ${r.paid90}/${r.paidAll} · vencidas ${r.ended.expired}, ya usaban Rocco ${r.ended.returning}, devueltas ${r.ended.reversed}, rechazadas ${r.ended.refused}`,
+    );
+    console.log(
+      `5 meses de regalo: por revisar ${r.months.pending_review} · esperando ${r.months.waiting} · aplicados ${r.months.applied} · cancelados ${r.months.cancelled} · +50 del invitado ${r.inviteeBonus} ($${r.inviteeBonusUsd.toFixed(2)})`,
+    );
+    console.log(`6 señales de invitación ${r.flagged} · códigos pausados ${r.codesDisabled}`);
+  } catch {
+    console.log("4–6 invitaciones: sin la migración 0036");
+  }
   console.log(
     `7 señales (14 d): S2 ráfagas ${s.s2BurstTenants} negocios · S3 < $0,10 ${s.s3Tiny} de ${s.records14} · S4 ${s.s4SameAmount} · S5 ${s.s5LaterDelete}`,
   );

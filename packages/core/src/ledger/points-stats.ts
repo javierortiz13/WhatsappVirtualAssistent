@@ -188,3 +188,120 @@ export function summarizePoints(list: PointsStats[]): PointsSummary {
     s5LaterDelete: sum((s) => s.s5LaterDelete),
   };
 }
+
+// ---------------------------------------------------------------- invitaciones (§P4.9 filas 4–6)
+
+export type ReferralStats = {
+  /** Fila 4: por paso, en 90 días y en total (como quien invita). */
+  signedUp90: number;
+  active90: number;
+  paid90: number;
+  signedUpAll: number;
+  activeAll: number;
+  paidAll: number;
+  ended: { expired: number; returning: number; reversed: number; refused: number };
+  /** Fila 5: meses de regalo por estado; +50 del invitado (como invitado) y su costo. */
+  months: { pending_review: number; waiting: number; applied: number; cancelled: number };
+  inviteeBonus: number;
+  inviteeBonusUsd: number;
+  /** Fila 6: invitaciones con señales; código pausado. */
+  flagged: number;
+  codeDisabled: boolean;
+};
+
+export async function referralStats(tx: Tx, tenantId: string, now: Date): Promise<ReferralStats> {
+  const since = new Date(now.getTime() - 90 * 86_400_000);
+  const refs = rows<{
+    stage: string;
+    signed_up_at: string;
+    active_at: string | null;
+    paid_at: string | null;
+    end_reason: string | null;
+    flags: Record<string, boolean>;
+    invitee_trashed: boolean;
+  }>(await tx.execute(sql`select * from app.my_referrals()`));
+  const grants = rows<{ kind: string; status: string; cost: string }>(
+    await tx.execute(sql`
+      select kind, status, cost_usd_estimate::text as cost from app.reward_grant
+      where tenant_id = ${tenantId} and kind in ('ref_month', 'ref_invitee_msgs')`),
+  );
+  const [code] = rows<{ disabled: boolean }>(
+    await tx.execute(sql`
+      select disabled_at is not null as disabled from app.referral_code where tenant_id = ${tenantId}`),
+  );
+  const live = refs.filter((r) => !r.invitee_trashed && r.end_reason !== "returning");
+  const recent = live.filter((r) => new Date(r.signed_up_at) >= since);
+  const count = (list: typeof refs, f: (r: (typeof refs)[number]) => boolean) =>
+    list.filter(f).length;
+  const months = grants.filter((g) => g.kind === "ref_month");
+  const bonus = grants.filter((g) => g.kind === "ref_invitee_msgs" && g.status === "applied");
+  return {
+    signedUp90: recent.length,
+    active90: count(recent, (r) => Boolean(r.active_at)),
+    paid90: count(recent, (r) => Boolean(r.paid_at)),
+    signedUpAll: live.length,
+    activeAll: count(live, (r) => Boolean(r.active_at)),
+    paidAll: count(live, (r) => Boolean(r.paid_at)),
+    ended: {
+      expired: count(refs, (r) => r.end_reason === "expired"),
+      returning: count(refs, (r) => r.end_reason === "returning"),
+      reversed: count(refs, (r) => r.end_reason === "reversed"),
+      refused: months.filter((g) => g.status === "refused").length,
+    },
+    months: {
+      pending_review: months.filter((g) => g.status === "pending_review").length,
+      waiting: months.filter((g) => g.status === "waiting").length,
+      applied: months.filter((g) => g.status === "applied").length,
+      cancelled: months.filter((g) => g.status === "cancelled").length,
+    },
+    inviteeBonus: bonus.length,
+    inviteeBonusUsd: bonus.reduce((a, g) => a + Number(g.cost), 0),
+    flagged: count(refs, (r) => Object.values(r.flags ?? {}).some(Boolean)),
+    codeDisabled: code?.disabled === true,
+  };
+}
+
+export type ReferralSummary = Omit<ReferralStats, "codeDisabled"> & {
+  codesDisabled: number;
+  /** Invitados por chat (aún sin cuenta), de `signup.data.ref` (P-4). */
+  invitedChat: number;
+};
+
+export function summarizeReferrals(list: ReferralStats[], invitedChat: number): ReferralSummary {
+  const sum = (f: (s: ReferralStats) => number) => list.reduce((n, s) => n + f(s), 0);
+  return {
+    signedUp90: sum((s) => s.signedUp90),
+    active90: sum((s) => s.active90),
+    paid90: sum((s) => s.paid90),
+    signedUpAll: sum((s) => s.signedUpAll),
+    activeAll: sum((s) => s.activeAll),
+    paidAll: sum((s) => s.paidAll),
+    ended: {
+      expired: sum((s) => s.ended.expired),
+      returning: sum((s) => s.ended.returning),
+      reversed: sum((s) => s.ended.reversed),
+      refused: sum((s) => s.ended.refused),
+    },
+    months: {
+      pending_review: sum((s) => s.months.pending_review),
+      waiting: sum((s) => s.months.waiting),
+      applied: sum((s) => s.months.applied),
+      cancelled: sum((s) => s.months.cancelled),
+    },
+    inviteeBonus: sum((s) => s.inviteeBonus),
+    inviteeBonusUsd: Number(sum((s) => s.inviteeBonusUsd).toFixed(2)),
+    flagged: sum((s) => s.flagged),
+    codesDisabled: list.filter((s) => s.codeDisabled).length,
+    invitedChat,
+  };
+}
+
+/** Registros por chat que llegaron con un código válido y todavía no tienen cuenta (P-4). */
+export async function invitedByChat(db: { execute: Tx["execute"] }): Promise<number> {
+  const [r] = rows<{ n: number }>(
+    await db.execute(sql`
+      select count(*)::int as n from app.signup
+      where completed_at is null and purged_at is null and data ? 'ref'`),
+  );
+  return r?.n ?? 0;
+}

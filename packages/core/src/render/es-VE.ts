@@ -10,7 +10,7 @@ import {
 import { Decimal, formatMoney, parseVenezuelanAmount, type RateOrigin } from "../domain/money";
 import type { PagoMovilData } from "../domain/pago-movil";
 import { IDS, type Outbound, type RenewMethod } from "./outbound";
-import { leyendaQuoteLine } from "./points-es";
+import { INVITEE_NOTICE, leyendaQuoteLine } from "./points-es";
 
 /**
  * Todo texto que ve el usuario vive aquí (Fase 4). Habla Rocco, "tu amigo fiel con tus finanzas"
@@ -2650,15 +2650,21 @@ function askNameOutbound(body: string, profile: string | null): Outbound {
 }
 
 /** Lo primero que ve alguien sin cuenta: quién es Rocco, que es gratis, privacidad y su nombre. */
-export function signupIntro(dashboardUrl: string, profile: string | null): Outbound {
+export function signupIntro(
+  dashboardUrl: string,
+  profile: string | null,
+  /** P4-B (RW6i, PV-2): invitación válida; el total de la prueba ya con los +50. */
+  invite?: { trialMessages: number; invited: true },
+): Outbound {
   return askNameOutbound(
     [
       "¡Epa! Soy *Rocco* 🐾, tu pana con las finanzas. Soy un asistente automático.",
       "Me escribes lo que gastas, en bolívares o en dólares, y lo anoto con la tasa BCV de ese día.",
       "",
       // Verbatim de cumplimiento (jpsoftwaredev#7, qa/dev-handoff-2026-10-19-review.md).
-      `Armamos tu cuenta aquí mismo y tienes *31 días o ${TRIAL_MESSAGES} mensajes gratis* para probarme, lo que llegue primero.`,
+      `Armamos tu cuenta aquí mismo y tienes *31 días o ${invite?.trialMessages ?? TRIAL_MESSAGES} mensajes gratis* para probarme, lo que llegue primero.`,
       `_Al seguir aceptas la política de privacidad: ${dashboardUrl}/privacidad_`,
+      ...(invite ? [`_${INVITEE_NOTICE}_`] : []),
       "",
       "Son unas preguntas cortas. La primera: ¿cómo te llamas?",
     ].join("\n"),

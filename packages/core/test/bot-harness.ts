@@ -75,6 +75,8 @@ export async function botHarness(
     now?: () => Date;
     /** H53 (US-200): el worker la enciende; los tests solo cuando la prueban. */
     privacyNotice?: boolean;
+    /** Límite de mensajes por hora de un conocido (por defecto, el de producción). */
+    knownMax?: number;
   } = {},
 ) {
   const t = await createTestDb();
@@ -115,6 +117,7 @@ export async function botHarness(
       supportHint: null,
       privacyContact: "privacidad@caja.test",
       privacyNotice: opts.privacyNotice ?? false,
+      ...(opts.knownMax ? { knownMax: opts.knownMax } : {}),
       unknownReplyMax: 50,
       unknownReplyWindowMs: 3_600_000,
       maxEventAgeMs: 12 * 3_600_000,

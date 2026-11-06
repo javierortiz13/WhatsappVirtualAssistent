@@ -165,6 +165,7 @@ import { saveSurveyAnswer } from "./lifecycle";
 import {
   classifyPointsAsk,
   closeDayReply,
+  lateCodeRoute,
   pendingPointsLine,
   pointsReply,
   recordsTouchedSince,
@@ -205,6 +206,8 @@ export type ProcessDeps = {
     privacyNotice?: boolean;
     /** PR-R4, corte P4-A (US-428): «Actualizamos la política… por los puntos y los niveles». */
     privacyNoticeP4?: boolean;
+    /** PR-R4 completo (P4-B): «…por los puntos, los niveles y las invitaciones». Reemplaza al de P4-A. */
+    privacyNoticeP4b?: boolean;
     unknownReplyMax: number;
     unknownReplyWindowMs: number;
     /** Conocidos: mensajes por ventana antes de avisar una vez y callar (checklist S2). */
@@ -602,19 +605,29 @@ export async function processInbound(
     }
     // PR-R4, corte P4-A (US-428): una vez por teléfono del dueño, con el mismo patrón que H53 y
     // nunca en la misma respuesta que H53 (una línea de política por respuesta).
+    // Con P4-B, el PR-R4 completo (marca `privacy_notice_p4b`) reemplaza al corte de P4-A.
+    const p4Marker = deps.config.privacyNoticeP4b
+      ? PRIVACY_NOTICE_P4B
+      : deps.config.privacyNoticeP4
+        ? PRIVACY_NOTICE_P4
+        : null;
     if (
-      deps.config.privacyNoticeP4 &&
+      p4Marker &&
       resolved.role === "owner" &&
       !route.noRider &&
       !route.toolCalls.some((c) => c.name === PRIVACY_NOTICE)
     ) {
       const at = outbound.findIndex((o) => o.type !== "reaction");
       const target = outbound[at];
-      if (target && !(await sentPrivacyNotice(tx, resolved.phoneId, PRIVACY_NOTICE_P4))) {
-        const body = `${es.privacyNoticeP4(deps.config.dashboardUrl)}\n\n${target.body}`;
+      if (target && !(await sentPrivacyNotice(tx, resolved.phoneId, p4Marker))) {
+        const line =
+          p4Marker === PRIVACY_NOTICE_P4B
+            ? es.privacyNoticeP4b(deps.config.dashboardUrl)
+            : es.privacyNoticeP4(deps.config.dashboardUrl);
+        const body = `${line}\n\n${target.body}`;
         if (body.length <= (target.type === "text" ? LIMITS.textBody : LIMITS.interactiveBody)) {
           outbound[at] = { ...target, body } as Outbound;
-          route.toolCalls = [{ name: PRIVACY_NOTICE_P4, args: {} }, ...route.toolCalls];
+          route.toolCalls = [{ name: p4Marker, args: {} }, ...route.toolCalls];
         }
       }
     }
@@ -1357,6 +1370,11 @@ async function routeMessage(
       const pointsAsk = classifyPointsAsk(msg.text);
       if (pointsAsk) {
         const r = await pointsReply(tx, pointsCtx(deps, ctx), pointsAsk, "text");
+        if (r) return { ...none(r.outbound), toolCalls: r.toolCalls };
+      }
+      // «me invitó CODE» después del registro (P4-B, US-421): sin la IA, solo el dueño.
+      {
+        const r = await lateCodeRoute(tx, pointsCtx(deps, ctx), msg.text);
         if (r) return { ...none(r.outbound), toolCalls: r.toolCalls };
       }
       if (msg.text.length > deps.config.maxTextLength) return none([es.tooLong()]);
@@ -2441,8 +2459,7 @@ async function routeInteractive(
       return none([es.eveningCloseMore(!!ctx.personal)]);
     }
     case "points": {
-      // Botones de «mis puntos» (US-424). «Invitar a alguien» llega con P4-B.
-      if (parsed.action === "invite") return none([es.outOfScope()]);
+      // Botones de «mis puntos» (US-424); «Invitar a alguien» con `referrals` (P4-B).
       const r = await pointsReply(tx, pointsCtx(deps, ctx), parsed.action, "button");
       return r ? { ...none(r.outbound), toolCalls: r.toolCalls } : none([es.outOfScope()]);
     }
@@ -3512,6 +3529,7 @@ async function settleTurnDrafts(
 
 const PRIVACY_NOTICE = "privacy_notice_v2";
 const PRIVACY_NOTICE_P4 = "privacy_notice_p4";
+const PRIVACY_NOTICE_P4B = "privacy_notice_p4b";
 
 /** Las líneas de hábitos y puntos de la ayuda: H51 «Avisos», luego RW-help (dueño, con `xp`). */
 async function helpExtra(tx: Tx, ctx: RouteCtx): Promise<string[]> {

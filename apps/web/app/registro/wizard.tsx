@@ -30,6 +30,8 @@ type Props = {
   pilotNote: string;
   /** Beta (07/10): sin precios, "31 días o 100 mensajes gratis". */
   beta?: boolean;
+  /** P4-B (US-420): el campo del código (prellenado) y RW6i si el código es válido; null sin invitaciones. */
+  invite?: { code: string; notice: string | null } | null;
 };
 
 type AccountDraft = { template: string; name: string; opening: string };
@@ -57,6 +59,7 @@ const USE_TITLE: Record<PlanView["id"], string> = {
  */
 export function RegistroWizard(props: Props) {
   const [step, setStep] = useState(0);
+  const [refCode, setRefCode] = useState(props.invite?.code ?? "");
   const [plan, setPlan] = useState<PlanView["id"]>("negocio");
   const personal = plan === "personal";
   const [name, setName] = useState("");
@@ -135,6 +138,7 @@ export function RegistroWizard(props: Props) {
     country,
     phone,
     owner_name: personal ? name.trim() : ownerName.trim(),
+    ...(props.invite ? { ref_code: refCode.trim() } : {}),
   });
 
   return (
@@ -462,6 +466,23 @@ export function RegistroWizard(props: Props) {
                   placeholder="412 1234567"
                 />
               </div>
+              {props.invite ? (
+                <div className="stack-sm">
+                  {props.invite.notice ? <p className="sub">{props.invite.notice}</p> : null}
+                  <label className="stack-sm">
+                    <span className="label">¿Te invitó alguien? Código</span>
+                    <input
+                      className="input"
+                      value={refCode}
+                      onChange={(e) => setRefCode(e.target.value)}
+                      autoCapitalize="characters"
+                      autoComplete="off"
+                      maxLength={6}
+                      placeholder="RK4M7Q"
+                    />
+                  </label>
+                </div>
+              ) : null}
               <div className="recap">
                 <span className="recap-icon">{PLAN_ICON[plan]}</span>
                 <p className="recap-text">

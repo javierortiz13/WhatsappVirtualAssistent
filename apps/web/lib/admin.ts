@@ -7,6 +7,8 @@ import {
   type HabitStats,
   type HabitSummary,
   habitStats,
+  invitedByChat,
+  isPaying,
   latestRates,
   leyendaPct,
   type MonthUsage,
@@ -18,7 +20,9 @@ import {
   planById,
   pointsStats,
   pointsView,
+  type ReferralStats,
   type ReminderStats,
+  referralStats,
   reminderStats,
   rewardSettings,
   type SubscriptionState,
@@ -27,6 +31,7 @@ import {
   sumCounts,
   summarizeHabits,
   summarizePoints,
+  summarizeReferrals,
   sumNudgeStats,
   sumReminderStats,
   type TenantPhone,
@@ -400,8 +405,14 @@ export async function loadTenantDetail(tenantId: string, now: Date) {
       .limit(5);
     // P4 (US-429, US-417): nivel, total y regalos; el % de Leyenda para el monto esperado.
     const points = await pointsView(tx, tenantId, now);
+    // P4-B (SEC-P4-13): el código solo en la ficha de su propio negocio.
+    const [referralCode] = await tx
+      .select({ code: schema.referralCode.code, disabledAt: schema.referralCode.disabledAt })
+      .from(schema.referralCode)
+      .where(eq(schema.referralCode.tenantId, tenantId));
     const leyenda = points ? await leyendaPct(tx, t, now) : 0;
     return {
+      referralCode: referralCode ?? null,
       points,
       founderPct: founderDiscount(t, now),
       leyendaPct: leyenda,
@@ -548,5 +559,80 @@ export async function loadPoints(tenants: TenantRow[], now: Date) {
     // Sin la migración 0035 la tarjeta no se puede calcular; el resto sigue.
     console.error(JSON.stringify({ level: "error", msg: "admin puntos", detail: errorText(err) }));
     return { summary: null, settings, booked: 0, alert: false };
+  }
+}
+
+export type RefReviewRow = {
+  tenantId: string;
+  tenantName: string;
+  grantId: string;
+  /** Días desde que se aprobó el pago del invitado. */
+  days: number;
+  canApprove: boolean;
+  flags: Record<string, boolean>;
+  inviterPlan: string;
+  inviterPaying: boolean;
+  inviteePlan: string | null;
+  inviteeAmountUsd: string | null;
+  /** La cuenta invitada se eliminó (A50): sigue en revisión. */
+  inviteeErased: boolean;
+};
+
+/**
+ * Invitaciones (§P4.9 filas 4–6) y la lista de meses de regalo por revisar (US-422, A36). Solo
+ * clientes. Del invitado, solo su plan y el monto de su pago (regla 9); nunca su nombre.
+ */
+export async function loadReferrals(tenants: TenantRow[], now: Date) {
+  await requireAdmin();
+  const conn = db();
+  try {
+    const list: ReferralStats[] = [];
+    const review: RefReviewRow[] = [];
+    for (const t of tenants) {
+      if (t.internal) continue;
+      await withTenant(conn, t.id, async (tx) => {
+        list.push(await referralStats(tx, t.id, now));
+        const pending = await tx
+          .select()
+          .from(schema.rewardGrant)
+          .where(
+            and(
+              eq(schema.rewardGrant.tenantId, t.id),
+              eq(schema.rewardGrant.kind, "ref_month"),
+              eq(schema.rewardGrant.status, "pending_review"),
+            ),
+          );
+        const [row] = pending.length
+          ? await tx.select().from(schema.tenant).where(eq(schema.tenant.id, t.id))
+          : [];
+        for (const g of pending) {
+          const pay = g.referralId
+            ? rows<{ plan: string; amount_usd: string }>(
+                await tx.execute(sql`select * from app.referral_invitee_payment(${g.referralId})`),
+              )[0]
+            : undefined;
+          const since = g.sourceApprovedAt?.getTime() ?? now.getTime();
+          review.push({
+            tenantId: t.id,
+            tenantName: t.name,
+            grantId: g.id,
+            days: Math.floor((now.getTime() - since) / 86_400_000),
+            canApprove: now.getTime() - since >= 7 * 86_400_000,
+            flags: (g.flags ?? {}) as Record<string, boolean>,
+            inviterPlan: t.plan,
+            inviterPaying: row ? isPaying(row, now) : false,
+            inviteePlan: pay?.plan ?? null,
+            inviteeAmountUsd: pay?.amount_usd ?? null,
+            inviteeErased: g.referralId === null,
+          });
+        }
+      });
+    }
+    return { summary: summarizeReferrals(list, await invitedByChat(conn)), review };
+  } catch (err) {
+    console.error(
+      JSON.stringify({ level: "error", msg: "admin invitaciones", detail: errorText(err) }),
+    );
+    return { summary: null, review: [] as RefReviewRow[] };
   }
 }

@@ -1,4 +1,5 @@
 import { and, eq, isNull, rows, schema, sql, type Tx } from "@caja/db";
+import { isLateCodeAsk, lateCode, referralCodeFor } from "../billing/referrals";
 import { type GiftLine, type Level, leyendaEnded } from "../billing/rewards";
 import { addDays, businessDateOf, lastDayOfMonth } from "../domain/dates";
 import { habitSettings } from "../ledger/habits";
@@ -12,6 +13,8 @@ import {
 import type { Outbound } from "../render/outbound";
 import {
   closePointsLine,
+  inviteReply,
+  lateCodeReply,
   myPoints,
   myPointsEmployee,
   noticeLine,
@@ -26,7 +29,7 @@ import {
  * agente lee ni escribe puntos. Todo con `habits.xp` encendido; apagado, el chat sigue como hoy.
  */
 
-export type PointsAsk = "view" | "how" | "levels";
+export type PointsAsk = "view" | "how" | "levels" | "invite";
 
 /** Sin tildes, en minúsculas, sin puntuación y con un solo espacio (como «mis avisos»). */
 function normalize(text: string): string {
@@ -49,6 +52,9 @@ const PHRASES: Record<string, PointsAsk> = {
   "como funcionan los puntos": "how",
   "que regalos hay": "levels",
   "que premios hay": "levels",
+  // P4-B (§P4.8 «Invite reply»): solo con `referrals`.
+  invitar: "invite",
+  "mi enlace": "invite",
 };
 
 /** El mensaje entero es una de las frases de §P4.8; si no, null (sigue al agente). */
@@ -77,21 +83,33 @@ export async function pointsReply(
 ): Promise<PointsReply | null> {
   const flags = await habitSettings(tx);
   if (!flags.xp) return null;
+  // Sin `referrals`, «invitar» sigue al agente como hoy.
+  if (ask === "invite" && !flags.referrals) return null;
   const mark = { name: "points_view", args: { via, ask } };
   if (ctx.role !== "owner") return { outbound: [myPointsEmployee()], toolCalls: [mark] };
+  if (ask === "invite") {
+    const invite = await inviteState(tx, ctx.tenantId);
+    return { outbound: inviteReply(invite ?? "not_eligible"), toolCalls: [mark] };
+  }
   if (ask === "how")
     return {
       outbound: [
         pointsHow({
           business: !ctx.personal,
-          // P4-A: sin invitaciones (llegan con P4-B).
-          flags: { dailyClose: flags.dailyClose, reminders: flags.reminders, referrals: false },
+          flags: {
+            dailyClose: flags.dailyClose,
+            reminders: flags.reminders,
+            referrals: flags.referrals,
+          },
         }),
       ],
       toolCalls: [mark],
     };
   if (ask === "levels")
-    return { outbound: [pointsLevels({ trial: ctx.inTrial })], toolCalls: [mark] };
+    return {
+      outbound: [pointsLevels({ trial: ctx.inTrial, referrals: flags.referrals })],
+      toolCalls: [mark],
+    };
   await syncPoints(tx, ctx.tenantId, ctx.now, { flags });
   const v = await pointsView(tx, ctx.tenantId, ctx.now);
   const fechaTope = addDays(lastDayOfMonth(businessDateOf(ctx.now)), 1);
@@ -113,8 +131,45 @@ export async function pointsReply(
     leyendaEnded: v.level === 5 && (await leyendaEnded(tx, ctx.tenantId)),
     waiting,
     dashboardUrl: ctx.dashboardUrl,
+    invite: flags.referrals ? await inviteState(tx, ctx.tenantId) : null,
   });
   return { outbound: [out], toolCalls: [mark] };
+}
+
+/**
+ * El código para RW4 / RW4-i (P-3): el código si puede invitar, «not_eligible» si todavía no
+ * (menos de 3 días con registro), null si su código está pausado (sin línea de invitar).
+ */
+async function inviteState(
+  tx: Tx,
+  tenantId: string,
+): Promise<{ code: string } | "not_eligible" | null> {
+  const [own] = await tx
+    .select({ disabledAt: schema.referralCode.disabledAt })
+    .from(schema.referralCode)
+    .where(eq(schema.referralCode.tenantId, tenantId));
+  if (own?.disabledAt) return null;
+  const code = await referralCodeFor(tx, tenantId);
+  return code ? { code } : "not_eligible";
+}
+
+/**
+ * «me invitó CODE» después del registro (US-421, RW-late): solo el dueño, con `xp` y `referrals`,
+ * sin la IA. null: no es esa frase, o sigue como hoy (empleado, interruptores apagados).
+ */
+export async function lateCodeRoute(
+  tx: Tx,
+  ctx: { tenantId: string; role: "owner" | "employee"; now: Date },
+  text: string,
+): Promise<PointsReply | null> {
+  if (ctx.role !== "owner" || !isLateCodeAsk(text)) return null;
+  const flags = await habitSettings(tx);
+  if (!flags.xp || !flags.referrals) return null;
+  const outcome = await lateCode(tx, ctx.tenantId, text, ctx.now);
+  return {
+    outbound: [lateCodeReply(outcome)],
+    toolCalls: [{ name: "referral_late", args: { result: outcome.kind } }],
+  };
 }
 
 /**

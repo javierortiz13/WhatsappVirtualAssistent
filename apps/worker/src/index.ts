@@ -99,6 +99,7 @@ async function main() {
       supportHint: env.SUPPORT_HINT ?? null,
       privacyContact: env.PRIVACY_CONTACT,
       privacyNoticeP4: env.PRIVACY_NOTICE_P4 === "1",
+      privacyNoticeP4b: env.PRIVACY_NOTICE_P4B === "1",
       unknownReplyMax: 5,
       unknownReplyWindowMs: 60 * 60 * 1000,
       maxEventAgeMs: 12 * 60 * 60 * 1000,

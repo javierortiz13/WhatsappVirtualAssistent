@@ -63,19 +63,34 @@ export function pointsHow(v: { business: boolean; flags: PointsFlags }): Outboun
     "*Una sola vez*",
     once,
     "",
+    ...(v.flags.referrals
+      ? [
+          "*Invitando*",
+          `• Por cada persona nueva que invites: +${p.ref_active} cuando anota algo y +${p.ref_paid} cuando paga su primer mes, y a ti te toca un mes de regalo. Las reglas, en *Invitar a alguien*`,
+          "",
+        ]
+      : []),
     "*Lo que no suma*",
     "• «Hoy no gasté nada»: cuida tu racha, pero da 0 puntos",
     "• La racha da extra solo si anotaste algo en al menos la mitad de esos días",
-    "• Saludar o preguntar",
+    v.flags.referrals
+      ? "• Saludar, preguntar o invitarte a ti o a quien ya usó Rocco"
+      : "• Saludar o preguntar",
     "• Si borras lo que anotaste ese mismo día, esos puntos se quitan",
     "",
     `Los puntos no se gastan ni valen dinero: solo te suben de nivel. Reglas: ${RULES_URL}`,
   ];
-  return { type: "buttons", body: lines.join("\n"), buttons: [POINTS_BUTTONS.levels] };
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: v.flags.referrals
+      ? [POINTS_BUTTONS.levels, POINTS_BUTTONS.invite]
+      : [POINTS_BUTTONS.levels],
+  };
 }
 
 /** RW1b «Niveles y regalos». */
-export function pointsLevels(v: { trial: boolean }): Outbound {
+export function pointsLevels(v: { trial: boolean; referrals?: boolean }): Outbound {
   const lines = [
     "Estos son los niveles y el regalo de cada uno:",
     "",
@@ -87,7 +102,11 @@ export function pointsLevels(v: { trial: boolean }): Outbound {
     "",
     `Cada regalo llega una sola vez. Si este mes se agotan los regalos, el tuyo te llega el 1 del mes siguiente. Reglas: ${RULES_URL}`,
   ];
-  return { type: "buttons", body: lines.join("\n"), buttons: [POINTS_BUTTONS.how] };
+  return {
+    type: "buttons",
+    body: lines.join("\n"),
+    buttons: v.referrals ? [POINTS_BUTTONS.how, POINTS_BUTTONS.invite] : [POINTS_BUTTONS.how],
+  };
 }
 
 // ---------------------------------------------------------------- RW2, RW2-hold
@@ -188,7 +207,7 @@ export function noticeLine(
       return a.k && REMOVE_REASON_TEXT[motivo] ? pointsRemovedLine(a.k, motivo, contacto) : null;
     }
     default:
-      return null;
+      return referralLine(n, contacto);
   }
 }
 
@@ -248,6 +267,8 @@ export type MyPointsView = {
   leyendaEnded: boolean;
   waiting: WaitingGift[];
   dashboardUrl: string;
+  /** P4-B (P-3): el código si puede invitar; «not_eligible» si todavía no; null sin invitaciones. */
+  invite?: { code: string } | "not_eligible" | null;
 };
 
 function waitingLine(w: WaitingGift): string {
@@ -262,7 +283,7 @@ function waitingLine(w: WaitingGift): string {
     : `Tus *${w.level === 2 ? GIFTS.msg2 : GIFTS.msg3} mensajes* del nivel *${name(w.level)}* te llegan el ${d(w.fechaTope)}: este mes se agotaron los regalos.`;
 }
 
-/** RW4 «mis puntos» (dueño). P4-A: sin línea ni botón de invitar. */
+/** RW4 «mis puntos» (dueño). El enlace y el botón de invitar, solo a quien puede invitar (P-3). */
 export function myPoints(v: MyPointsView): Outbound {
   const today = v.today > 0 ? `Hoy llevas +${v.today}.` : "Hoy todavía no llevas puntos.";
   const head: string[] = [];
@@ -288,12 +309,25 @@ export function myPoints(v: MyPointsView): Outbound {
       `Te faltan *${pts(v.missing)}* para el nivel *${name(v.next)}*, que trae ${nextGift(v.next, v.trial)}.`,
     );
   }
+  const invite =
+    v.invite === "not_eligible"
+      ? `${NOT_ELIGIBLE_LINE}\n`
+      : v.invite
+        ? `Tu enlace para invitar: ${inviteLink(v.invite.code)}\n`
+        : "";
   const body = [
     head.join("\n"),
     ...v.waiting.map(waitingLine),
-    `Todo el detalle, en tu panel: ${v.dashboardUrl}/logros\nLas reglas: ${RULES_URL}`,
+    `${invite}Todo el detalle, en tu panel: ${v.dashboardUrl}/logros\nLas reglas: ${RULES_URL}`,
   ].join("\n\n");
-  return { type: "buttons", body, buttons: [POINTS_BUTTONS.how, POINTS_BUTTONS.levels] };
+  return {
+    type: "buttons",
+    body,
+    buttons:
+      v.invite && v.invite !== "not_eligible"
+        ? [POINTS_BUTTONS.how, POINTS_BUTTONS.levels, POINTS_BUTTONS.invite]
+        : [POINTS_BUTTONS.how, POINTS_BUTTONS.levels],
+  };
 }
 
 /** RW4 para un empleado (texto, sin botones). */
@@ -396,11 +430,38 @@ export function pointsHowRows(v: { business: boolean; flags: PointsFlags }): {
           : []),
       ],
     },
+    ...(v.flags.referrals
+      ? [
+          {
+            title: "Invitando",
+            rows: [
+              {
+                action: "Quien invites anota algo por primera vez",
+                points: `+${p.ref_active}`,
+                note: "Hasta 10 personas en 12 meses.",
+              },
+              {
+                action: "Paga su primer mes en sus primeros 90 días",
+                points: `+${p.ref_paid}`,
+                note: `Y te sumo un mes a tu plan, después de revisarlo. Máximo ${MONTHS_CAP} en 12 meses.`,
+              },
+              {
+                action: "Lo que recibe quien invites",
+                points: "—",
+                note: `Si es nueva en Rocco, ${INVITEE_MSGS} mensajes más en su prueba.`,
+              },
+            ],
+          },
+        ]
+      : []),
     {
       title: "Lo que no suma",
       rows: [
         { action: "«Hoy no gasté nada»", points: "0", note: "Cuida tu racha, pero no da puntos." },
         { action: "Saludar, preguntar, pedir la tasa", points: "0" },
+        ...(v.flags.referrals
+          ? [{ action: "Invitarte a ti o a quien ya usó Rocco", points: "0" }]
+          : []),
         {
           action: "Borrar lo anotado ese mismo día",
           points: "—",
@@ -546,19 +607,31 @@ export function reversalLine(r: { points: number; reason: string; date: string }
   return `−${pts(r.points)} · Borrar lo anotado ese mismo día · ${d(r.date)}`;
 }
 
-/** RW5-8 / RW9: las reglas, con los cortes por interruptor (sin invitaciones en P4-A). */
-export function pointsRules(flags: { dailyClose: boolean }): string[] {
+/**
+ * RW5-8 / RW9: las reglas, con los cortes por interruptor. Con `referrals` (o si ya estuvo
+ * encendido, P-16), las líneas de invitaciones 1, 8 y 9 completas.
+ */
+export function pointsRules(flags: { dailyClose: boolean; referrals?: boolean }): string[] {
+  const close = flags.dailyClose ? "cierras el día, " : "";
+  const one = flags.referrals
+    ? `Sumas puntos cuando anotas tus movimientos, ${close}mantienes tu racha, configuras Rocco por primera vez e invitas a gente nueva. No se suman por reseñas, por seguirnos en redes ni por compartir publicaciones.`
+    : `Sumas puntos cuando anotas tus movimientos, ${close}mantienes tu racha y configuras Rocco por primera vez. No se suman por reseñas, por seguirnos en redes ni por compartir publicaciones.`;
   return [
-    flags.dailyClose
-      ? "Sumas puntos cuando anotas tus movimientos, cierras el día, mantienes tu racha y configuras Rocco por primera vez. No se suman por reseñas, por seguirnos en redes ni por compartir publicaciones."
-      : "Sumas puntos cuando anotas tus movimientos, mantienes tu racha y configuras Rocco por primera vez. No se suman por reseñas, por seguirnos en redes ni por compartir publicaciones.",
+    one,
     "Los puntos son de la cuenta y los ve solo su dueño. Los empleados no suman puntos propios: lo que anotan suma para la cuenta del negocio.",
     "Los puntos, los niveles y los regalos no tienen valor en efectivo: no se cambian por dinero, no se venden y no pasan a otra cuenta.",
     "Los puntos no se gastan. Cada nivel y su regalo llegan una sola vez, y tu nivel no baja.",
     `Los regalos son solo de Rocco: mensajes extra, días de prueba, días en tu plan y descuentos en tu plan. Los mensajes extra de un plan pagado valen hasta fin de mes. Si tu plan no está activo, los 7 días del nivel Oro se suman cuando lo pagues; y si tu prueba ya llegó a su tope de mensajes, los ${GIFTS.msg3} mensajes del nivel Pana Fiel te llegan cuando actives tu plan.`,
     "Rocco tiene un tope de regalos por mes para todos. Si este mes se agotan, el tuyo te llega el 1 del mes siguiente.",
     `El ${GIFTS.pct5} % menos del nivel Leyenda se aplica sobre lo que pagas, también con precio de fundador, mientras sigas pagando. Si tu plan se suspende y no vuelves a pagar en 30 días, se termina. Un pago que reportaste antes de que venciera tu plan cuenta aunque lo aprobemos después.`,
-    "Si borras lo que anotaste un día, ese mismo día, los puntos de ese día se quitan. Si vemos movimientos falsos, podemos quitar esos puntos, y te avisamos por el chat. Los regalos que ya recibiste no se quitan.",
+    ...(flags.referrals
+      ? [
+          `Por invitar: cuando una persona nueva en Rocco llega con tu enlace o tu código y paga su primer mes en sus primeros 90 días, te sumo un mes (30 días) a tu plan. Revisamos cada invitación, y el mes se aplica al menos 7 días después de que aprobamos ese pago; si el pago se devuelve antes, no hay mes. Si estás en la prueba o tu plan no está activo, el mes se suma a tu próximo pago, si es dentro de 12 meses. Máximo ${MONTHS_CAP} meses en 12 meses. Invitarte a ti, o a alguien que ya usó Rocco, no cuenta.`,
+          "Si borras lo que anotaste un día, ese mismo día, los puntos de ese día se quitan. Si vemos movimientos falsos o invitaciones hechas solo para sumar, podemos quitar esos puntos o pausar tu código, y te avisamos por el chat. Si se devuelven dos pagos de personas que invitaste, tu código se pausa. Los regalos que ya recibiste no se quitan.",
+        ]
+      : [
+          "Si borras lo que anotaste un día, ese mismo día, los puntos de ese día se quitan. Si vemos movimientos falsos, podemos quitar esos puntos, y te avisamos por el chat. Los regalos que ya recibiste no se quitan.",
+        ]),
     "Podemos cambiar o terminar el programa avisándote en el panel y en el chat al menos 30 días antes; los regalos que ya tengas se respetan. Si hay un abuso o una falla, podemos pausar los regalos unos días; los pendientes te llegan después.",
   ];
 }
@@ -569,6 +642,8 @@ export const PUNTOS_PAGE = {
   /** Sin `referrals` (v1.2 S-3). */
   description:
     "Cómo se suman los puntos de Rocco, qué regalos trae cada nivel y cómo cambiamos el programa.",
+  descriptionReferrals:
+    "Cómo se suman los puntos de Rocco, qué regalos trae cada nivel, las reglas para invitar y cómo cambiamos el programa.",
   h1: "Reglas de los puntos",
   lead: "Estas son las reglas de los puntos, los niveles y los regalos de Rocco.",
   levelsTitle: "Niveles y regalos",
@@ -584,3 +659,129 @@ export const formatRulesDate = (iso: IsoDate) => formatShortDate(iso);
 
 /** Umbral de un nivel (para la barra y la lista). */
 export const levelMin = (l: Level) => LEVEL_MIN[l];
+
+// ---------------------------------------------------------------- P4-B: invitaciones
+
+const MONTHS_CAP = 6;
+const INVITEE_MSGS = 50;
+const TRIAL_DAYS_TEXT = 31;
+const TRIAL_MSGS_TEXT = 100;
+
+/** El enlace para invitar (sin UTM, PV-7). */
+export const inviteLink = (code: string) => `holarocco.com/?ref=${code}`;
+/** El enlace de WhatsApp con el código (RW6-wa). */
+export const inviteWaLink = (code: string) => `holarocco.com/w/${code}`;
+/** El primer mensaje que llega prellenado (R-15). */
+export const inviteFirstMessage = (code: string) => `Hola Rocco, me invitó ${code}`;
+
+/** P-3: todavía no puede invitar (RW4, RW4-i, RW5-5). */
+export const NOT_ELIGIBLE_LINE =
+  "Tu enlace para invitar aparece cuando hayas anotado algo en 3 días distintos.";
+
+/** RW6-web: el mensaje que reenvía quien invita. */
+export const inviteShareText = (code: string) =>
+  `Epa, te paso a Rocco, un asistente automático por WhatsApp: le escribes lo que gastas, en bolívares o en dólares, y lo anota con la tasa BCV de ese día. La prueba es gratis por ${TRIAL_DAYS_TEXT} días o ${TRIAL_MSGS_TEXT} mensajes, lo que llegue primero, y si es tu primera vez en Rocco y entras con mi enlace, te dan ${INVITEE_MSGS} mensajes más. Si después pagas tu primer mes, a mí me regalan un mes de Rocco. ${inviteLink(code)}`;
+
+/** RW6-wa: con el código del primer mensaje. */
+export const inviteShareTextWa = (code: string) =>
+  `Epa, te paso a Rocco, un asistente automático por WhatsApp: le escribes lo que gastas, en bolívares o en dólares, y lo anota con la tasa BCV de ese día. La prueba es gratis por ${TRIAL_DAYS_TEXT} días o ${TRIAL_MSGS_TEXT} mensajes, lo que llegue primero, y si es tu primera vez en Rocco y entras con mi enlace, te dan ${INVITEE_MSGS} mensajes más (no borres el código del primer mensaje). Si después pagas tu primer mes, a mí me regalan un mes de Rocco. ${inviteWaLink(code)}`;
+
+/** RW4-i: a «Invitar a alguien». Dos burbujas (la segunda, limpia para reenviar); o el P-3. */
+export function inviteReply(v: { code: string } | "not_eligible"): Outbound[] {
+  if (v === "not_eligible") return [{ type: "text", body: NOT_ELIGIBLE_LINE }];
+  return [
+    {
+      type: "text",
+      body: `Así funciona: quien se registre con tu enlace y sea nuevo en Rocco recibe ${INVITEE_MSGS} mensajes más en su prueba. Cuando anote algo, sumas +${POINT_RULES.ref_active} (hasta 10 personas en 12 meses). Si paga su primer mes en sus primeros 90 días, sumas +${POINT_RULES.ref_paid} y te sumo un mes a tu plan, después de revisarlo (hasta ${MONTHS_CAP} en 12 meses).\n\nAbajo va tu mensaje. Reenvíalo o cámbialo a tu manera, pero cuéntale que a ti te regalan un mes si paga, y mándalo solo a gente que conozcas, uno por uno, no en grupos ni listas de difusión.`,
+    },
+    { type: "text", body: inviteShareText(v.code) },
+  ];
+}
+
+/** RW6i (tres frases): lo que sabe quien invitó. En el chat va en cursiva; en la web, sin `_`. */
+export const INVITEE_NOTICE = `Llegaste con la invitación de alguien que usa Rocco: por eso tu prueba trae ${INVITEE_MSGS} mensajes más. Si pagas tu primer mes en los próximos 90 días, esa persona recibe un mes de regalo. Esa persona solo verá en qué paso vas (si te registraste, si ya anotaste algo y si pagaste tu primer mes), nunca tu nombre, tu número, tus montos ni tus movimientos.`;
+
+/** RW-late: la respuesta a «me invitó CODE» después del registro. */
+export function lateCodeReply(
+  o:
+    | { kind: "attached"; code: string; tope: number | null }
+    | { kind: "not_found" }
+    | { kind: "not_valid" }
+    | { kind: "too_late" }
+    | { kind: "closed" },
+): Outbound {
+  const body =
+    o.kind === "attached"
+      ? o.tope
+        ? `Listo, quedó anotado que te invitó ${o.code}. Tu prueba ahora trae ${INVITEE_MSGS} mensajes más: son ${o.tope + TRIAL_MSGS_TEXT}. Si pagas tu primer mes en los 90 días desde tu registro, esa persona recibe un mes de regalo. Y solo verá en qué paso vas, nunca tu nombre, tu número, tus montos ni tus movimientos.`
+        : `Listo, quedó anotado que te invitó ${o.code}. Si pagas tu primer mes en los 90 días desde tu registro, esa persona recibe un mes de regalo. Y solo verá en qué paso vas, nunca tu nombre, tu número, tus montos ni tus movimientos.`
+      : o.kind === "not_found"
+        ? "No encontré ese código. Revisa que esté bien escrito: son 6 letras y números."
+        : o.kind === "not_valid"
+          ? `Ese código no se puede usar en esta cuenta. Las reglas: ${RULES_URL}`
+          : o.kind === "too_late"
+            ? "Ese código ya no se puede agregar: el código de quien te invitó se agrega una sola vez, en los primeros 7 días después de registrarte."
+            : `Ya no se puede agregar un código de invitación a esta cuenta. Las reglas: ${RULES_URL}`;
+  return { type: "text", body };
+}
+
+/** Las líneas de invitaciones para la próxima respuesta del que invita (RW8a-ref, RW8c…RW8g). */
+export function referralLine(
+  n: { kind: string; args: Record<string, unknown> },
+  contacto: string,
+): string | null {
+  const a = n.args as { k?: number; fin?: string; resetOn?: string };
+  switch (n.kind) {
+    case "ref_active":
+      return `Una persona que invitaste ya anotó algo en Rocco: *+${POINT_RULES.ref_active} puntos* para ti.`;
+    case "ref_paid":
+      return `Una persona que invitaste pagó su primer mes: *+${POINT_RULES.ref_paid} puntos*, y sumé 30 días a tu plan, que ahora vence el ${d(a.fin)}.`;
+    case "ref_paid_wait":
+      return `Una persona que invitaste pagó su primer mes: *+${POINT_RULES.ref_paid} puntos*. Tu mes de regalo se suma a tu plan cuando lo pagues, si es en los próximos 12 meses.`;
+    case "ref_capped":
+      return `Una persona que invitaste pagó su primer mes. Ya tienes los ${MONTHS_CAP} meses de regalo de los últimos 12 meses, que es el máximo, así que esta vez no suma mes ni puntos. El próximo se libera el ${d(a.resetOn)}.`;
+    case "ref_refused":
+      return `Revisamos la invitación de una persona que invitaste y no cumple las reglas, así que no suma el mes de regalo. Si crees que es un error, escríbenos a ${contacto}.`;
+    case "ref_reversed":
+      return `Una de tus invitaciones dejó de contar: quitamos los +${POINT_RULES.ref_paid} puntos de esa invitación y no hay mes de regalo por ella. Si crees que es un error, escríbenos a ${contacto}.`;
+    case "code_paused":
+      return `Pausamos tu código para invitar porque dos de tus invitaciones dejaron de contar. Si crees que es un error, escríbenos a ${contacto}.`;
+    case "ref_month_paid":
+      return `Tu mes de regalo por invitar ya está aplicado: sumé 30 días a tu plan, que ahora vence el ${d(a.fin)}.`;
+    default:
+      return null;
+  }
+}
+
+/** RW5-5 «Invita a tu gente» y RW5-6 «Mi gente» (panel). */
+export const INVITE_PANEL = {
+  title: "Invita a tu gente",
+  body: `Cuando quien invites pague su primer mes en sus primeros 90 días, sumas +${POINT_RULES.ref_paid} puntos y te sumo un mes a tu plan (lo revisamos y se aplica 7 días después de su pago). Máximo ${MONTHS_CAP} meses en 12 meses. Si es nueva en Rocco, recibe ${INVITEE_MSGS} mensajes más en su prueba.`,
+  linkLabel: "Tu enlace",
+  copy: "Copiar enlace",
+  copied: "Enlace copiado",
+  share: "Compartir por WhatsApp",
+  code: (code: string) => `Tu código: ${code}`,
+  codeHelp: (code: string) =>
+    `Si la persona le escribe directo a Rocco, que mande: ${inviteFirstMessage(code)}`,
+  rule: "Cuéntale que a ti te regalan un mes si paga, y mándalo solo a gente que conozcas, uno por uno, no en grupos ni listas de difusión.",
+  counter: (k: number) => `Meses de regalo en los últimos 12 meses: ${k} de ${MONTHS_CAP}`,
+  capReached: (resetOn: string) =>
+    `Ya tienes los ${MONTHS_CAP} meses de regalo de los últimos 12 meses. El próximo se libera el ${d(resetOn)}. Quien invites te sigue sumando +${POINT_RULES.ref_active} cuando anota algo por primera vez.`,
+  rulesLink: `Las reglas completas: ${RULES_URL}`,
+  peopleTitle: "Mi gente",
+  person: (n: number) => `Persona ${n}`,
+  stage: {
+    signed_up: "Se registró",
+    active: "Ya anotó algo",
+    paid: "Pagó su primer mes",
+  } as Record<"signed_up" | "active" | "paid", string>,
+  peopleNote:
+    "Aquí ves solo en qué paso va cada persona que invitaste: nunca su nombre, su número, sus montos ni sus movimientos.",
+  peopleEmpty:
+    "Todavía no has invitado a nadie. Cuando alguien cree su cuenta con tu enlace, aparece aquí, sin su nombre.",
+} as const;
+
+/** PR-R4 completo (P4-B): una vez, después del despliegue de P4-B. */
+export const privacyNoticeP4b = (dashboardUrl: string) =>
+  `_Actualizamos la política de privacidad por los puntos, los niveles y las invitaciones. Léela en ${dashboardUrl}/privacidad_`;

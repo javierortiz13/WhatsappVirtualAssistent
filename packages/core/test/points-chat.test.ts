@@ -71,6 +71,7 @@ describe("puntos en el chat", () => {
 
   beforeAll(async () => {
     h = await botHarness({
+      knownMax: 1000,
       script: { "gasté 5$ en café": expense("5", "café"), "gasté 6$ en pan": expense("6", "pan") },
     });
     await h.t.db
@@ -86,6 +87,8 @@ describe("puntos en el chat", () => {
       await tx.delete(schema.pointsEvent);
       await tx.delete(schema.pendingAction);
       await tx.delete(schema.movement);
+      // El límite de mensajes por hora (S2) cuenta los mensajes: cada prueba empieza de cero.
+      await tx.delete(schema.message);
       await tx
         .update(schema.tenant)
         .set({ pointsLevel: 1, extraMessages: 0 })
@@ -225,6 +228,30 @@ describe("puntos en el chat", () => {
     expect(r).toContain(
       "Quitamos 30 puntos de tu cuenta porque te los sumamos por un error nuestro. Si crees que es un error, escríbenos a privacidad@caja.test.",
     );
+  });
+  it("P4-B: con `referrals`, sin 3 días con registro → la línea P-3 y sin botón de invitar", async () => {
+    await saveHabitSettings(h.t.db, { referrals: true }, "test", new Date());
+    const body = await h.send("mis puntos");
+    expect(body).toContain(
+      "Tu enlace para invitar aparece cuando hayas anotado algo en 3 días distintos.",
+    );
+    expect(idsOf(h.last())).toEqual(["pts:how", "pts:levels"]);
+    expect(await h.tap("pts:invite")).toBe(
+      "Tu enlace para invitar aparece cuando hayas anotado algo en 3 días distintos.",
+    );
+    const how = await h.tap("pts:how");
+    expect(how).toContain("*Invitando*");
+    expect(idsOf(h.last())).toEqual(["pts:levels", "pts:invite"]);
+    // «me invitó CODE» de un empleado: lo de siempre (la IA), nada se une.
+    const before = h.llm.calls;
+    await h.send("me invitó RK4M7Q", CASHIER);
+    expect(h.llm.calls).toBe(before + 1);
+    // Del dueño: RW-late, sin la IA.
+    expect(await h.send("me invitó RK4M7Q")).toBe(
+      "No encontré ese código. Revisa que esté bien escrito: son 6 letras y números.",
+    );
+    expect(h.llm.calls).toBe(before + 1);
+    await saveHabitSettings(h.t.db, { referrals: false }, "test", new Date());
   });
 });
 

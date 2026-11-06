@@ -38,10 +38,12 @@ export default function Privacidad() {
           <strong>Datos del negocio:</strong> nombre, tipo, categorías, movimientos de caja (montos,
           monedas, fechas, descripciones) y la tasa de cambio aplicada.
         </li>
-        {/* PR-R1, corte P4-A (strings de puntos v1.2): la mitad de invitaciones llega con P4-B. */}
+        {/* PR-R1 (strings de puntos v1.2, con P4-B). */}
         <li>
-          <strong>Puntos y niveles:</strong> tus puntos y de qué acción vino cada uno, tu nivel y
-          los regalos que recibiste o tienes pendientes.
+          <strong>Puntos, niveles e invitaciones:</strong> tus puntos y de qué acción vino cada uno,
+          tu nivel, los regalos que recibiste o tienes pendientes, tu código para invitar y, si
+          invitas a alguien o llegaste con el código de alguien, quién invitó a quién y en qué paso
+          va esa persona (si se registró, si ya anotó algo y si pagó su primer mes).
         </li>
         <li>
           <strong>Registro sin terminar:</strong> en qué paso te quedaste, cuándo escribiste por
@@ -49,7 +51,9 @@ export default function Privacidad() {
         </li>
         <li>
           <strong>Datos técnicos:</strong> identificadores de mensajes de WhatsApp, marcas de
-          tiempo, registros de errores y métricas de uso sin contenido de los mensajes.
+          tiempo, registros de errores y métricas de uso sin contenido de los mensajes. Si abres un
+          enlace de invitación, guardamos una cookie con solo el código de invitación durante 30
+          días, para no perderlo mientras te registras.
         </li>
       </ul>
 
@@ -64,11 +68,20 @@ export default function Privacidad() {
           no se te pase. Ese mensaje llega una vez al día como máximo y no llega los días que marcas
           «sin gastos». Si después de 3 avisos seguidos no anotas nada, los pausamos 14 días.
         </li>
-        {/* PR-R2, corte P4-A. */}
+        {/* PR-R2 y PR-R5 (con P4-B). */}
         <li>
-          Calcular tus puntos y tu nivel con lo que anotas y darte los regalos del programa
-          (mensajes extra, días de prueba, días en tu plan y descuentos en tu plan de Rocco). No
-          mostramos tus puntos a otros usuarios.
+          Calcular tus puntos y tu nivel con lo que anotas, darte los regalos del programa (mensajes
+          extra, días de prueba, días en tu plan y descuentos en tu plan de Rocco) y, si invitas a
+          alguien, darte lo que te toca. A quien te invitó solo le mostramos en qué paso vas, nunca
+          tu nombre, tu número, tus montos ni tus movimientos. No mostramos tus puntos a otros
+          usuarios.
+        </li>
+        <li>
+          Para evitar abusos de las invitaciones, revisamos si el número de quien llega invitado ya
+          está en Rocco (también el número que guardamos de un registro sin terminar) y comparamos
+          el correo del panel y los datos de pago que reportas con los de quien invitó. Eso solo lo
+          ve el equipo de Rocco para revisar la invitación. No recogemos datos de tu teléfono ni de
+          tu dispositivo.
         </li>
         <li>
           Puedes apagar estos avisos cuando quieras. Con «no me recuerdes» apagas el mensaje de las
@@ -111,10 +124,13 @@ export default function Privacidad() {
         </li>
         <li>Las fotos de facturas se conservan 12 meses y luego se borran.</li>
         <li>Los movimientos de caja se conservan mientras tu cuenta esté activa.</li>
-        {/* PR-R3, corte P4-A. */}
+        {/* PR-R3 (con P4-B). */}
         <li>
           Tus puntos, tu nivel y tus regalos se conservan mientras tengas la cuenta y se borran con
-          ella.
+          ella. Quién te invitó, o a quién invitaste, se guarda hasta 30 días después del último
+          paso y nunca más de 12 meses desde que esa persona creó su cuenta; después borramos ese
+          vínculo. Si una de las dos cuentas se elimina, el vínculo se borra con ella. Lo que ya
+          recibiste por invitar queda en tu cuenta.
         </li>
         <li>
           Si empiezas a crear tu cuenta por WhatsApp y no la terminas, 90 días después de tu último

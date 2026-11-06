@@ -22,12 +22,16 @@ import {
   rejectPaymentAction,
   removePointsAction,
   restoreTenantAction,
+  reversePaymentAction,
   saveCrmAction,
   setFounderAction,
+  setReferralCodeAction,
 } from "../../actions";
 import { dueClass, dueText, METHOD_LABEL, planClass, STATE, usd, ves } from "../../format";
 
 const OK: Record<string, string> = {
+  devuelto: "Pago marcado como devuelto. La vigencia no cambió: ajústala a mano si hace falta.",
+  codigo: "Código actualizado.",
   pago_aprobado: "Pago aprobado. El negocio quedó activo con la nueva fecha.",
   pago_registrado: "Pago registrado. Queda por verificar.",
   pago_rechazado: "Pago rechazado.",
@@ -39,6 +43,7 @@ const OK: Record<string, string> = {
 const bucket = (id: string | undefined) =>
   id ? (es.PRICE_BUCKETS.find((b) => b.id === id)?.title ?? id) : "sin respuesta";
 const ERR: Record<string, string> = {
+  estado: "Ese cambio ya no se puede hacer (cambió el estado). Recarga la página.",
   datos: "Revisa los datos del formulario.",
   monto: "El monto no se entiende. Escríbelo como 19,99 o 19.527,03.",
   sin_vigencia: "No queda vigencia: primero registra un pago o extiende la fecha.",
@@ -83,6 +88,7 @@ const PAY_STATUS: Record<string, { label: string; cls: string }> = {
   pending: { label: "por verificar", cls: "warn" },
   approved: { label: "aprobado", cls: "ok" },
   rejected: { label: "rechazado", cls: "" },
+  reversed: { label: "devuelto", cls: "late" },
 };
 
 const PHONE_STATUS: Record<string, string> = {
@@ -426,6 +432,20 @@ export default async function AdminTenant({
                   </form>
                 </>
               ) : null}
+              {p.status === "approved" && p.kind === "plan" ? (
+                <form action={reversePaymentAction} className="admin-inline">
+                  <input type="hidden" name="tenant_id" value={t.id} />
+                  <input type="hidden" name="payment_id" value={p.id} />
+                  <select className="input" name="reason" aria-label="Motivo de la devolución">
+                    <option value="devuelto">Devuelto</option>
+                    <option value="contracargo">Contracargo</option>
+                    <option value="error">Error al aprobar</option>
+                  </select>
+                  <button className="linkbtn" type="submit">
+                    Marcar como devuelto
+                  </button>
+                </form>
+              ) : null}
             </span>
           </div>
         ))}
@@ -444,6 +464,25 @@ export default async function AdminTenant({
               value={`${GRANT_STATUS[g.status] ?? g.status}${g.waitReason ? ` · ${WAIT_REASON[g.waitReason] ?? g.waitReason}` : ""}${g.appliedAs ? ` · ${g.appliedAs}` : ""}`}
             />
           ))}
+          {d.referralCode ? (
+            <div className="admin-inline">
+              <Line
+                label="Código para invitar"
+                value={`${d.referralCode.code}${d.referralCode.disabledAt ? " · pausado" : ""}`}
+              />
+              <form action={setReferralCodeAction}>
+                <input type="hidden" name="tenant_id" value={t.id} />
+                <input
+                  type="hidden"
+                  name="op"
+                  value={d.referralCode.disabledAt ? "enable" : "disable"}
+                />
+                <button className="btn secondary small" type="submit">
+                  {d.referralCode.disabledAt ? "Reactivar código" : "Pausar código"}
+                </button>
+              </form>
+            </div>
+          ) : null}
           {d.points.total > 0 ? (
             <form action={removePointsAction} className="admin-inline">
               <input type="hidden" name="tenant_id" value={t.id} />

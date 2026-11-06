@@ -2,6 +2,7 @@
 
 import {
   AccountError,
+  attachAtSignup,
   BUSINESS_TYPE_LABELS,
   Decimal,
   issueCode,
@@ -18,6 +19,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { toE164 } from "@/lib/phone";
+import { cleanCode, REF_COOKIE, referralsOn } from "@/lib/referral";
 import { currentSession } from "@/lib/session";
 import { LINK_COOKIE } from "./cookie";
 
@@ -41,6 +43,8 @@ const WizardForm = z.object({
   country: z.string().min(1).max(4),
   phone: z.string().min(6).max(24),
   owner_name: z.string().trim().max(60).optional(),
+  /** P4-B (US-420): el código de quien invitó, opcional. Uno inválido se ignora sin error. */
+  ref_code: z.string().trim().max(12).optional(),
 });
 
 /** Saldo como lo escribe una persona en Venezuela ("12.500,50"); vacío o ilegible es cero. */
@@ -95,6 +99,18 @@ export async function registerWizardAction(
       })),
     });
     await setLinkCookie(r.code, r.expiresAt);
+    // P4-B (US-420, US-423, SEC-P4-12): la invitación se crea con la cuenta, y nunca antes; la
+    // cookie `rocco_ref` se borra al crearla. Un código inválido no deja rastro ni mensaje.
+    const ref = cleanCode(f.ref_code);
+    if (ref && (await referralsOn()))
+      await withTenant(db(), r.tenantId, (tx) =>
+        attachAtSignup(tx, r.tenantId, ref, "web", new Date()),
+      ).catch((err) =>
+        console.error(
+          JSON.stringify({ level: "error", msg: "registro: invitación", detail: errorText(err) }),
+        ),
+      );
+    (await cookies()).delete(REF_COOKIE);
   } catch (err) {
     if (err instanceof PhoneTakenError)
       return {

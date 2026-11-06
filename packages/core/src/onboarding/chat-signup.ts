@@ -2,9 +2,11 @@ import { createHash, randomInt } from "node:crypto";
 import { and, type Db, eq, gt, isNull, schema, sql, type Tx, withTenant } from "@caja/db";
 import { DEFAULT_EXPENSE_CATEGORIES } from "@caja/db/seed-data";
 import { TRIAL_MESSAGES } from "../billing/plans";
+import { attachAtSignup, codeCheck, parseInviteCode, REFERRAL } from "../billing/referrals";
 import { Decimal, parseVenezuelanAmount } from "../domain/money";
 import { classifyPref } from "../inbox/prefs";
 import type { AccountKind } from "../ledger/accounts";
+import { habitSettings } from "../ledger/habits";
 import { consentTextVersion } from "../render/es-VE";
 import { es, type Outbound, parseReplyId } from "../render/index";
 import {
@@ -12,6 +14,7 @@ import {
   CHAT_SIGNUP_MAX_ACCOUNTS,
   onboardingCategories,
   PhoneTakenError,
+  phoneIsTaken,
   plainName,
   registerFromChat,
 } from "./register";
@@ -52,6 +55,8 @@ export type SignupAccount = {
 };
 
 export type SignupData = {
+  /** P4-B (US-421): el código válido del primer mensaje; la invitación se crea con la cuenta. */
+  ref?: string | undefined;
   name?: string | undefined;
   kind?: "personal" | "business" | undefined;
   businessName?: string | undefined;
@@ -132,6 +137,9 @@ export async function handleSignup(
   // Primer mensaje (o un registro viejo cuyo negocio ya no existe, o uno vaciado a los 90 días):
   // presentación y nombre. Las marcas del rescate y el «no me escribas» se conservan al reiniciar.
   if (!row || row.completedAt || row.purgedAt) {
+    // P4-B (US-421, §P4.7): el código del primer mensaje de un número nuevo en Rocco, solo si es
+    // válido; si no, el registro sigue igual, sin error ni pregunta.
+    const ref = !row && !optOut ? await firstMessageRef(db, input) : null;
     if (row) {
       await db
         .update(s)
@@ -162,7 +170,7 @@ export async function handleSignup(
           waUserId: input.waUserId,
           profileName: input.profileName,
           step: "name",
-          data: {},
+          data: ref ? { ref } : {},
           messages: 1,
           // CC-1: el reloj del registro es el de la app (ms), no el default de la base.
           updatedAt: now,
@@ -176,7 +184,16 @@ export async function handleSignup(
         step: "name",
         rescueEvent: { kind: stopTap ? "stop_tap" : "stop_word", via: row?.rescueVia ?? "none" },
       };
-    return { outbound: [es.signupIntro(cfg.dashboardUrl, profile)], step: "name" };
+    return {
+      outbound: [
+        es.signupIntro(
+          cfg.dashboardUrl,
+          profile,
+          ref ? { trialMessages: TRIAL_MESSAGES + REFERRAL.inviteeMsgs, invited: true } : undefined,
+        ),
+      ],
+      step: "name",
+    };
   }
 
   let step = (SIGNUP_STEPS as readonly string[]).includes(row.step)
@@ -452,12 +469,14 @@ export async function handleSignup(
           .where(eq(s.id, row.id));
         // Pidió «no me escribas» en el registro (US-SR-03): queda apagado en la cuenta.
         if (row.contactOffAt) await carryOptOut(db, created, now);
+        // P4-B (US-421, US-423): la invitación se crea con la cuenta, y el +50 antes de «Listo».
+        const extra = final.ref ? await signupReferral(db, created.tenantId, final.ref, now) : null;
         return {
           outbound: [
             es.signupDone({
               ...doneView(final),
               founderUntil: created.founderUntil,
-              trialMessages: TRIAL_MESSAGES,
+              trialMessages: TRIAL_MESSAGES + (extra ?? 0),
             }),
             es.signupTour(
               cfg.dashboardUrl,
@@ -481,6 +500,33 @@ export async function handleSignup(
       await save("name", {});
       return { outbound: [es.signupAskName(profile)], step: "name" };
   }
+}
+
+/**
+ * El código válido del primer mensaje (§P4.7): con `xp` y `referrals`, un código de quien puede
+ * invitar, y un número que no está en ningún negocio (la fila del registro es nueva).
+ */
+async function firstMessageRef(db: Db, input: SignupInput): Promise<string | null> {
+  if (!input.text) return null;
+  const code = parseInviteCode(input.text, { alone: true });
+  if (!code) return null;
+  const flags = await habitSettings(db);
+  if (!flags.xp || !flags.referrals) return null;
+  if ((await db.transaction((tx) => codeCheck(tx, code))) !== "ok") return null;
+  if (await phoneIsTaken(db, input.e164)) return null;
+  return code;
+}
+
+/** Une la cuenta nueva con el código del registro y da el +50; devuelve los mensajes extra. */
+async function signupReferral(
+  db: Db,
+  tenantId: string,
+  code: string,
+  now: Date,
+): Promise<number | null> {
+  const flags = await habitSettings(db);
+  if (!flags.xp || !flags.referrals) return null;
+  return withTenant(db, tenantId, (tx) => attachAtSignup(tx, tenantId, code, "chat", now));
 }
 
 /** «no me escribas», «stop», «para»… como mensaje entero (`classifyPref`, US-204). */

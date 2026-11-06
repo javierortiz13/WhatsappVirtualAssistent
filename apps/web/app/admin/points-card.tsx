@@ -1,5 +1,12 @@
-import type { HabitSettings, PointsSummary, RewardSettings } from "@caja/core";
-import { dismissRewardsAlertAction, saveRewardsAction } from "./actions";
+import type { HabitSettings, PointsSummary, ReferralSummary, RewardSettings } from "@caja/core";
+import type { RefReviewRow } from "@/lib/admin";
+import { dismissRewardsAlertAction, reviewRefMonthAction, saveRewardsAction } from "./actions";
+
+const FLAG_LABEL: Record<string, string> = {
+  same_email: "mismo correo",
+  same_payer: "mismos datos de pago",
+  velocity: "más de 3 registros en 24 h",
+};
 
 /**
  * «Puntos y premios» (PRD hábitos v4.2.1 §P4.9, US-413, US-429): filas 1–3 y 7, solo clientes y
@@ -12,13 +19,18 @@ export function PointsCard({
   summary,
   booked,
   alert,
+  referrals,
+  review,
 }: {
   flags: HabitSettings;
   settings: RewardSettings;
   summary: PointsSummary | null;
   booked: number;
   alert: boolean;
+  referrals: ReferralSummary | null;
+  review: RefReviewRow[];
 }) {
+  const r = referrals;
   const s = summary;
   const typed = s ? s.bookedByType.messages + s.bookedByType.trial_days + s.bookedByType.week : 0;
   const byType = s
@@ -41,7 +53,7 @@ export function PointsCard({
       "referrals",
       flags.referrals,
       "Invitaciones",
-      "Llega con la P4-B: todavía no se puede encender",
+      "Códigos, enlaces y el mes de regalo por invitar. Necesita Puntos, la regla del firewall de Vercel en /w/* y ?ref=, y su aprobación (A-0039)",
     ],
   ] as const;
   return (
@@ -91,16 +103,67 @@ export function PointsCard({
           Sin datos todavía (¿falta la migración 0035?).
         </p>
       )}
+      {r ? (
+        <>
+          <p className="sub num" style={{ margin: 0 }}>
+            4 · Invitaciones (90 d / total): invitados por chat sin cuenta {r.invitedChat} · se
+            registraron {r.signedUp90}/{r.signedUpAll} · activos {r.active90}/{r.activeAll} ·
+            pagaron {r.paid90}/{r.paidAll} · terminadas: vencidas {r.ended.expired}, ya usaban Rocco{" "}
+            {r.ended.returning}, devueltas {r.ended.reversed}, rechazadas {r.ended.refused}
+          </p>
+          <p className="sub num" style={{ margin: 0 }}>
+            5 · Meses de regalo: por revisar {r.months.pending_review} · esperando pago{" "}
+            {r.months.waiting} · aplicados {r.months.applied} · cancelados {r.months.cancelled} ·
+            +50 del invitado {r.inviteeBonus} (${r.inviteeBonusUsd.toFixed(2)}, fuera del tope)
+          </p>
+          <p className="sub num" style={{ margin: 0 }}>
+            6 · Para revisar: invitaciones con señales {r.flagged} · códigos pausados{" "}
+            {r.codesDisabled}
+          </p>
+        </>
+      ) : null}
+      {review.length ? (
+        <div className="stack-sm" id="invitaciones">
+          <span className="label">Meses de regalo por revisar</span>
+          {review.map((g) => (
+            <div className="admin-inline" key={g.grantId}>
+              <span className="sub num">
+                <a href={`/admin/negocios/${g.tenantId}`}>{g.tenantName}</a> ({g.inviterPlan}
+                {g.inviterPaying ? "" : ", no paga hoy"}) · invitado:{" "}
+                {g.inviteeErased
+                  ? "cuenta invitada eliminada"
+                  : `${g.inviteePlan ?? "—"} $${g.inviteeAmountUsd ?? "—"}`}{" "}
+                · hace {g.days} días
+                {Object.entries(g.flags)
+                  .filter(([, v]) => v)
+                  .map(([k]) => ` · ⚠ ${FLAG_LABEL[k] ?? k}`)
+                  .join("")}
+              </span>
+              <form action={reviewRefMonthAction}>
+                <input type="hidden" name="tenant_id" value={g.tenantId} />
+                <input type="hidden" name="grant_id" value={g.grantId} />
+                <input type="hidden" name="op" value="approve" />
+                <button className="btn small" type="submit" disabled={!g.canApprove}>
+                  {g.canApprove ? "Aprobar" : "Aprobar (a los 7 días)"}
+                </button>
+              </form>
+              <form action={reviewRefMonthAction}>
+                <input type="hidden" name="tenant_id" value={g.tenantId} />
+                <input type="hidden" name="grant_id" value={g.grantId} />
+                <input type="hidden" name="op" value="refuse" />
+                <button className="linkbtn" type="submit">
+                  Rechazar
+                </button>
+              </form>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <form action={saveRewardsAction} className="stack-sm admin-flags">
         <span className="label">Interruptores (para todos los clientes)</span>
         {switches.map(([name, on, title, note]) => (
           <label className="flag" key={name}>
-            <input
-              type="checkbox"
-              name={name}
-              defaultChecked={on}
-              disabled={name === "referrals"}
-            />
+            <input type="checkbox" name={name} defaultChecked={on} />
             <span className="what">
               <strong>{title}</strong>
               <span className="sub">{note}</span>

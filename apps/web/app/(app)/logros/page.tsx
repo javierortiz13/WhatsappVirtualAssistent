@@ -6,7 +6,10 @@ import {
   type Level,
   lastDayOfMonth,
   leyendaEnded,
+  monthsInLast12,
+  myPeople,
   pointsView,
+  referralCodeFor,
   syncPoints,
 } from "@caja/core";
 import { eq, schema, withTenant } from "@caja/db";
@@ -14,6 +17,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireTenant } from "@/lib/session";
+import { CopyLink } from "./copy-link";
 
 export const metadata: Metadata = { title: "Mis logros" };
 export const dynamic = "force-dynamic";
@@ -25,7 +29,7 @@ const LEVELS: Level[] = [1, 2, 3, 4, 5];
  * «Mis logros» (PRD hábitos v4.2.1 US-427, textos RW5 v1.2): nivel, barra, «Cómo sumar puntos»,
  * «Niveles y regalos» con su estado, las reversas y las reglas. Solo el dueño, solo con `habits.xp`
  * (si no, 404). Privada (SEC-P4-4: `PRIVATE_PREFIXES` y la sesión del dueño en el servidor).
- * P4-A: sin «Invita a tu gente» ni «Mi gente» (llegan con P4-B).
+ * P4-B: «Invita a tu gente» y «Mi gente» con `referrals` (A43: «Persona N», solo el paso).
  */
 export default async function Logros() {
   const { tenant } = await requireTenant();
@@ -42,14 +46,31 @@ export default async function Logros() {
     await syncPoints(tx, tenant.id, now, { flags });
     const [row] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenant.id));
     const v = await pointsView(tx, tenant.id, now);
+    // P4-B (RW5-5, RW5-6): con `referrals`, el código (solo si puede invitar) y «Mi gente».
+    const [own] = flags.referrals
+      ? await tx
+          .select({ disabledAt: schema.referralCode.disabledAt })
+          .from(schema.referralCode)
+          .where(eq(schema.referralCode.tenantId, tenant.id))
+      : [];
+    const code = flags.referrals && !own?.disabledAt ? await referralCodeFor(tx, tenant.id) : null;
     return {
+      invite: flags.referrals
+        ? {
+            code,
+            paused: Boolean(own?.disabledAt),
+            people: await myPeople(tx, tenant.id),
+            months: await monthsInLast12(tx, tenant.id, now),
+          }
+        : null,
       v,
       trial: row?.status === "trial",
       business: row?.businessType !== "personal",
       ended: v.level === 5 && (await leyendaEnded(tx, tenant.id)),
     };
   });
-  const { v, trial, business, ended } = data;
+  const { v, trial, business, ended, invite } = data;
+  const I = es.INVITE_PANEL;
   const today = businessDateOf(now);
   const bar = es.logrosBar({
     total: v.total,
@@ -63,9 +84,13 @@ export default async function Logros() {
   const pct = v.next ? Math.min(100, Math.round(((v.total - floor) / (ceil - floor)) * 100)) : 100;
   const groups = es.pointsHowRows({
     business,
-    flags: { dailyClose: flags.dailyClose, reminders: flags.reminders, referrals: false },
+    flags: {
+      dailyClose: flags.dailyClose,
+      reminders: flags.reminders,
+      referrals: flags.referrals,
+    },
   });
-  const rules = es.pointsRules({ dailyClose: flags.dailyClose });
+  const rules = es.pointsRules({ dailyClose: flags.dailyClose, referrals: flags.referrals });
   const updated = es.rulesUpdatedOn([]);
   const todayChip = es.logrosToday(v.today);
   return (
@@ -165,6 +190,72 @@ export default async function Logros() {
           })}
         </ul>
       </section>
+
+      {invite ? (
+        <section className="card stack-sm" aria-labelledby="invita">
+          <h2 id="invita">{I.title}</h2>
+          {invite.code ? (
+            <>
+              <p style={{ margin: 0 }}>{I.body}</p>
+              <label className="stack-sm">
+                <span className="label">{I.linkLabel}</span>
+                <input className="input" readOnly value={es.inviteLink(invite.code)} />
+              </label>
+              <div className="admin-inline">
+                <CopyLink value={es.inviteLink(invite.code)} label={I.copy} done={I.copied} />
+                <a
+                  className="btn small"
+                  href={`https://wa.me/?text=${encodeURIComponent(es.inviteShareText(invite.code))}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {I.share}
+                </a>
+              </div>
+              <p className="sub" style={{ margin: 0 }}>
+                {I.code(invite.code)}
+              </p>
+              <p className="sub" style={{ margin: 0 }}>
+                {I.codeHelp(invite.code)}
+              </p>
+              <p className="sub" style={{ margin: 0 }}>
+                {I.rule}
+              </p>
+              <p className="sub num" style={{ margin: 0 }}>
+                {invite.months.resetOn
+                  ? I.capReached(invite.months.resetOn)
+                  : I.counter(invite.months.k)}
+              </p>
+            </>
+          ) : invite.paused ? null : (
+            <p style={{ margin: 0 }}>{es.NOT_ELIGIBLE_LINE}</p>
+          )}
+          <p className="sub" style={{ margin: 0 }}>
+            {I.rulesLink}
+          </p>
+        </section>
+      ) : null}
+
+      {invite ? (
+        <section className="card stack-sm" aria-labelledby="gente">
+          <h2 id="gente">{I.peopleTitle}</h2>
+          {invite.people.length ? (
+            <ul className="lvl-rows">
+              {invite.people.map((p) => (
+                <li key={p.n}>
+                  <span>{I.person(p.n)}</span>
+                  <span className="badge">{I.stage[p.stage]}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p style={{ margin: 0 }}>{I.peopleEmpty}</p>
+          )}
+          <p className="sub" style={{ margin: 0 }}>
+            {I.peopleNote}
+          </p>
+        </section>
+      ) : null}
 
       {v.reversals.length ? (
         <section className="card stack-sm">

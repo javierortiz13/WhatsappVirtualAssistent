@@ -25,7 +25,9 @@ import { trialMessageCap } from "../src/billing/trial";
 import { businessDateOf } from "../src/domain/dates";
 import { Decimal } from "../src/domain/money";
 import { saveHabitSettings } from "../src/ledger/habits";
+import { handleSignup } from "../src/onboarding/chat-signup";
 import { eraseTenant } from "../src/onboarding/erase";
+import { inviteReply, lateCodeReply } from "../src/render/points-es";
 
 /**
  * Invitaciones (PRD hábitos v4.2.1, P4-B: US-412, US-418, US-419, US-421, US-422, US-423). Las
@@ -411,5 +413,89 @@ describe("invitaciones (P4-B)", () => {
       ),
     );
     expect(left[0]?.n).toBe(0);
+  });
+
+  it("registro por chat con código: RW6i y 150 antes del nombre; la invitación con la cuenta", async () => {
+    const a = await inviter();
+    const e164 = "584169990001";
+    const input = (text: string | null, replyId: string | null = null) => ({
+      e164,
+      waUserId: null,
+      profileName: "Ana",
+      text,
+      replyId,
+    });
+    const first = await handleSignup(t.db, input(`Hola Rocco, me invitó ${a.code}`), {
+      dashboardUrl: "https://x.test",
+    });
+    const intro = String((first.outbound[0] as { body: string }).body);
+    expect(intro).toContain("*31 días o 150 mensajes gratis*");
+    expect(intro).toContain("_Llegaste con la invitación de alguien que usa Rocco:");
+    const [row] = await t.db.select().from(schema.signup).where(eq(schema.signup.e164, e164));
+    expect(row?.data).toEqual({ ref: a.code });
+    // Sin cuenta todavía, ninguna fila `referral` (P-4).
+    expect(await referralsOf(a.id)).toEqual([]);
+    await t.db
+      .update(schema.signup)
+      .set({
+        step: "budget",
+        data: {
+          ref: a.code,
+          name: "Ana",
+          kind: "personal",
+          businessType: "personal",
+          currency: "USD",
+          categories: ["Comida"],
+          accounts: [],
+        },
+      })
+      .where(eq(schema.signup.e164, e164));
+    const done = await handleSignup(t.db, input(null, "signup:bud:skip"), {
+      dashboardUrl: "https://x.test",
+    });
+    expect(String((done.outbound[0] as { body: string }).body)).toContain("150 mensajes");
+    const tenantId = done.created?.tenantId as string;
+    const [b] = await withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId)),
+    );
+    expect(b?.extraMessages).toBe(50);
+    expect((await referralsOf(a.id)).map((r) => r.via)).toEqual(["chat"]);
+  });
+
+  it("primer mensaje sin código, o con un código que no existe: el registro de siempre", async () => {
+    for (const text of ["hola rocco", "Hola Rocco, me invitó ZZ22ZZ", "PRUEBA"]) {
+      const out = await handleSignup(
+        t.db,
+        {
+          e164: `58416999${String(1000 + ++n)}`,
+          waUserId: null,
+          profileName: null,
+          text,
+          replyId: null,
+        },
+        { dashboardUrl: "https://x.test" },
+      );
+      const body = String((out.outbound[0] as { body: string }).body);
+      expect(body).toContain("*31 días o 100 mensajes gratis*");
+      expect(body).not.toContain("invitación");
+    }
+  });
+
+  it("textos RW-late y RW4-i (v1.2)", () => {
+    expect(lateCodeReply({ kind: "attached", code: "RK4M7Q", tope: 50 }).body).toBe(
+      "Listo, quedó anotado que te invitó RK4M7Q. Tu prueba ahora trae 50 mensajes más: son 150. Si pagas tu primer mes en los 90 días desde tu registro, esa persona recibe un mes de regalo. Y solo verá en qué paso vas, nunca tu nombre, tu número, tus montos ni tus movimientos.",
+    );
+    expect(lateCodeReply({ kind: "closed" }).body).toBe(
+      "Ya no se puede agregar un código de invitación a esta cuenta. Las reglas: holarocco.com/puntos",
+    );
+    const two = inviteReply({ code: "RK4M7Q" });
+    expect(two).toHaveLength(2);
+    expect(String((two[1] as { body: string }).body).endsWith("holarocco.com/?ref=RK4M7Q")).toBe(
+      true,
+    );
+    expect(inviteReply("not_eligible")[0]).toEqual({
+      type: "text",
+      body: "Tu enlace para invitar aparece cuando hayas anotado algo en 3 días distintos.",
+    });
   });
 });

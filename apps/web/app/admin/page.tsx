@@ -23,6 +23,7 @@ import {
   loadPendingPayments,
   loadPoints,
   loadRates,
+  loadReferrals,
   loadReminderStats,
   loadTenants,
   requireAdmin,
@@ -71,6 +72,8 @@ const OK: Record<string, string> = {
   habito: "Interruptores del hábito guardados. Rocco los usa desde el próximo mensaje.",
   rescate: "Interruptores del registro guardados.",
   puntos: "Puntos y regalos guardados. Rocco los usa desde el próximo mensaje.",
+  mes_aprobado: "Mes de regalo aprobado.",
+  mes_rechazado: "Mes de regalo rechazado. Quien invitó lo verá en su próxima respuesta.",
   lote_programado:
     "Lote programado. «Registro: plantilla (lote)» quedó encendido; el worker lo corre solo a la hora.",
   lote_cancelado: "Lote cancelado. «Registro: plantilla (lote)» quedó apagado.",
@@ -125,6 +128,7 @@ export default async function AdminHome({
       loadMonthOutbound(tenants, now),
     ]);
   const points = await loadPoints(tenants, now);
+  const refs = await loadReferrals(tenants, now);
   const rescue = funnel.rescue;
   // Lote de la plantilla del registro (A-0031): programado, ya corrido o lo que saldría ahora.
   const [lote, loteRan] = await Promise.all([batchSchedule(db()), batchAlreadyRan(db())]);
@@ -156,8 +160,8 @@ export default async function AdminHome({
               ? "«8 pm para todos» necesita el aviso de las 8 pm encendido."
               : sp.error === "puntos_primero"
                 ? "Premios e Invitaciones necesitan Puntos encendido."
-                : sp.error === "invitaciones_p4b"
-                  ? "Invitaciones llega con la P4-B: todavía no se puede encender."
+                : sp.error === "mes_pronto"
+                  ? "Ese mes se puede aprobar 7 días después del pago del invitado."
                   : sp.error === "tope"
                     ? "El tope va de 0 a 200 US$, con hasta dos decimales."
                     : sp.error === "lote"
@@ -462,6 +466,8 @@ export default async function AdminHome({
         summary={points.summary}
         booked={points.booked}
         alert={points.alert}
+        referrals={refs.summary}
+        review={refs.review}
       />
 
       <section className="card stack-sm">

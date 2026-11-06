@@ -33,10 +33,9 @@ async function isBeta(): Promise<boolean> {
 
 /** Portada pública. Quien ya tiene sesión entra por "Entrar": /login lo manda a /inicio. */
 export default async function Home() {
-  const wa = process.env.PLATFORM_WA_NUMBER;
-  const waUrl = wa
-    ? `https://wa.me/${wa}?text=${encodeURIComponent("Hola Rocco")}&utm_source=landing&utm_medium=cta`
-    : null;
+  // El botón pasa por /w (P4-B, US-420): sin invitación, el mismo «Hola Rocco» con sus UTM; con
+  // la cookie de invitación, «Hola Rocco, me invitó CODE». La portada sigue estática.
+  const waUrl = process.env.PLATFORM_WA_NUMBER ? "/w" : null;
   // Foto del hero: se activa sola al dejar `public/hero.jpg` (runbook de marketing, §5).
   const heroPhoto = existsSync(join(process.cwd(), "public", "hero.jpg")) ? "/hero.jpg" : null;
   return <Landing waUrl={waUrl} heroPhoto={heroPhoto} beta={await isBeta()} />;
