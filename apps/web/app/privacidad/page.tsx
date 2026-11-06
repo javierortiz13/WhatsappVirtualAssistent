@@ -9,7 +9,7 @@ export default function Privacidad() {
   return (
     <main className="legal">
       <h1>Política de privacidad</h1>
-      <p className="updated">Rocco · última actualización: 5 de noviembre de 2026</p>
+      <p className="updated">Rocco · última actualización: 6 de noviembre de 2026</p>
 
       <p>
         Rocco (antes «Asistente de Caja») es un servicio para personas y dueños de negocios pequeños
@@ -38,6 +38,11 @@ export default function Privacidad() {
           <strong>Datos del negocio:</strong> nombre, tipo, categorías, movimientos de caja (montos,
           monedas, fechas, descripciones) y la tasa de cambio aplicada.
         </li>
+        {/* PR-R1, corte P4-A (strings de puntos v1.2): la mitad de invitaciones llega con P4-B. */}
+        <li>
+          <strong>Puntos y niveles:</strong> tus puntos y de qué acción vino cada uno, tu nivel y
+          los regalos que recibiste o tienes pendientes.
+        </li>
         <li>
           <strong>Registro sin terminar:</strong> en qué paso te quedaste, cuándo escribiste por
           última vez, si Rocco te escribió para recordártelo y si pediste que no te escriba.
@@ -58,6 +63,12 @@ export default function Privacidad() {
           un mensaje a las 8 pm: lo que anotaste ese día o, si no anotaste nada, un aviso para que
           no se te pase. Ese mensaje llega una vez al día como máximo y no llega los días que marcas
           «sin gastos». Si después de 3 avisos seguidos no anotas nada, los pausamos 14 días.
+        </li>
+        {/* PR-R2, corte P4-A. */}
+        <li>
+          Calcular tus puntos y tu nivel con lo que anotas y darte los regalos del programa
+          (mensajes extra, días de prueba, días en tu plan y descuentos en tu plan de Rocco). No
+          mostramos tus puntos a otros usuarios.
         </li>
         <li>
           Puedes apagar estos avisos cuando quieras. Con «no me recuerdes» apagas el mensaje de las
@@ -100,6 +111,11 @@ export default function Privacidad() {
         </li>
         <li>Las fotos de facturas se conservan 12 meses y luego se borran.</li>
         <li>Los movimientos de caja se conservan mientras tu cuenta esté activa.</li>
+        {/* PR-R3, corte P4-A. */}
+        <li>
+          Tus puntos, tu nivel y tus regalos se conservan mientras tengas la cuenta y se borran con
+          ella.
+        </li>
         <li>
           Si empiezas a crear tu cuenta por WhatsApp y no la terminas, 90 días después de tu último
           mensaje borramos ese registro: tu número, tu nombre y tus respuestas. Si le pediste a

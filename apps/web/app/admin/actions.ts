@@ -7,16 +7,23 @@ import {
   cancelSignupBatch,
   Decimal,
   founderUntilFrom,
+  habitSettings,
   latestRates,
   PLANS,
+  parseCeiling,
   parseVenezuelanAmount,
   planById,
   quote,
   RECHARGE,
+  REMOVE_REASONS,
   recordPayment,
   rejectPayment,
+  removePoints,
+  rewardChangesForFlags,
+  rewardSettings,
   saveHabitSettings,
   saveLaunchSettings,
+  saveRewardSettings,
   saveSignupRescueSettings,
   scheduleSignupBatch,
   setTenantBilling,
@@ -396,6 +403,16 @@ export async function saveHabitsAction(formData: FormData): Promise<void> {
   if ((reminders || nudge || dailyClose) && !prefs) redirect("/admin?error=avisos_primero");
   if (dailyClose && !nudge) redirect("/admin?error=aviso_primero");
   try {
+    // P4 (P-16): el día en que cambia `dailyClose` mueve la fecha de /puntos.
+    const now = new Date();
+    const before = await habitSettings(db());
+    if (before.dailyClose !== dailyClose)
+      await saveRewardSettings(
+        db(),
+        rewardChangesForFlags(before, { ...before, dailyClose }, await rewardSettings(db()), now),
+        admin.email,
+        now,
+      );
     await saveHabitSettings(
       db(),
       {
@@ -415,6 +432,123 @@ export async function saveHabitsAction(formData: FormData): Promise<void> {
   }
   revalidatePath("/", "layout");
   redirect("/admin?ok=habito");
+}
+
+/**
+ * Puntos, regalos e invitaciones (PRD hábitos v4.2.1 US-413, SEC-P4-3, SEC-P4-11): `requireAdmin`
+ * dentro de la acción; `rewards` o `referrals` sin `xp` se rechazan; el tope va de 0 a 200 con dos
+ * decimales. P4-A: `referrals` no se puede encender (llega con P4-B). Encender `xp` guarda el día
+ * (A40). `audit_log` exige un negocio: el antes y el después quedan en el log del servidor y
+ * `app_setting.updated_by` guarda el correo.
+ */
+export async function saveRewardsAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const xp = formData.get("xp") === "on";
+  const rewards = formData.get("rewards") === "on";
+  const referrals = formData.get("referrals") === "on";
+  if ((rewards || referrals) && !xp) redirect("/admin?error=puntos_primero#puntos");
+  if (referrals) redirect("/admin?error=invitaciones_p4b#puntos");
+  const ceiling = parseCeiling(formData.get("ceiling"));
+  if (ceiling === null) redirect("/admin?error=tope#puntos");
+  const now = new Date();
+  try {
+    const before = await habitSettings(db());
+    const rs = await rewardSettings(db());
+    const after = { ...before, xp, rewards, referrals };
+    await saveHabitSettings(db(), { xp, rewards, referrals }, admin.email, now);
+    await saveRewardSettings(
+      db(),
+      { monthlyCeilingUsd: ceiling, ...rewardChangesForFlags(before, after, rs, now) },
+      admin.email,
+      now,
+    );
+    console.info(
+      JSON.stringify({
+        level: "info",
+        msg: "admin: puntos y regalos",
+        admin: admin.email,
+        before: {
+          xp: before.xp,
+          rewards: before.rewards,
+          referrals: before.referrals,
+          ceiling: rs.monthlyCeilingUsd,
+        },
+        after: { xp, rewards, referrals, ceiling },
+      }),
+    );
+  } catch (err) {
+    console.error(JSON.stringify({ level: "error", msg: "admin puntos", detail: errorText(err) }));
+    redirect("/admin?error=servidor");
+  }
+  revalidatePath("/", "layout");
+  revalidatePath("/puntos");
+  redirect("/admin?ok=puntos#puntos");
+}
+
+/** Quita la línea roja del tope (A46) hasta la próxima vez que pase dos meses seguidos. */
+export async function dismissRewardsAlertAction(): Promise<void> {
+  const admin = await requireAdmin();
+  await saveRewardSettings(db(), { alertDismissed: true }, admin.email, new Date());
+  console.info(
+    JSON.stringify({ level: "info", msg: "admin: alerta del tope vista", admin: admin.email }),
+  );
+  revalidatePath("/admin");
+  redirect("/admin?ok=puntos#puntos");
+}
+
+const RemovePoints = z.object({
+  tenant_id: z.string().uuid(),
+  action_id: z.string().uuid(),
+  points: z.coerce.number().int().min(1).max(100_000),
+  reason: z.enum(REMOVE_REASONS),
+});
+
+/**
+ * «Quitar puntos» (US-432, SEC-P4-3, SEC-P4-11): un número entero de 1 al total y un motivo de la
+ * lista fija, dentro de `withTenant` del negocio. La clave de la acción hace que repetirla no quite
+ * dos veces. `audit_log` con el correo, el motivo y el antes/después. RW8h en la próxima respuesta.
+ */
+export async function removePointsAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const tenantId = String(formData.get("tenant_id") ?? "");
+  const parsed = RemovePoints.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) fail(tenantId, "puntos");
+  const f = parsed.data;
+  const now = new Date();
+  let outcome = "ok=puntos";
+  try {
+    await withTenant(db(), f.tenant_id, async (tx) => {
+      const r = await removePoints(
+        tx,
+        f.tenant_id,
+        { actionId: f.action_id, points: f.points, reason: f.reason },
+        now,
+      );
+      if (!r) {
+        outcome = "error=puntos";
+        return;
+      }
+      await tx.insert(schema.auditLog).values({
+        tenantId: f.tenant_id,
+        actorType: "user",
+        actorId: admin.userId,
+        action: "remove_points",
+        entity: "points_event",
+        entityId: f.action_id,
+        before: { total: r.before },
+        after: { total: r.after, reason: f.reason, by: admin.email },
+        channel: "admin",
+        createdAt: now,
+      });
+    });
+  } catch (err) {
+    console.error(
+      JSON.stringify({ level: "error", msg: "admin quitar puntos", detail: errorText(err) }),
+    );
+    outcome = "error=servidor";
+  }
+  revalidatePath(`/admin/negocios/${f.tenant_id}`);
+  redirect(`/admin/negocios/${f.tenant_id}?${outcome}#puntos`);
 }
 
 const FounderMark = z.object({ id: z.string().uuid(), on: z.enum(["1", "0"]) });

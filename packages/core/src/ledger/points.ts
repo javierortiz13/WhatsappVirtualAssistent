@@ -1,10 +1,10 @@
 import {
-  allTenantIds,
   and,
   asc,
   type Db,
   desc,
   eq,
+  everyTenantId,
   isNull,
   rows,
   schema,
@@ -501,7 +501,8 @@ export async function runPointsHousekeeping(
   const ctx = { now, rewardsOn: flags.rewards, ceilingUsd: settings.monthlyCeilingUsd };
   let released = 0;
   let synced = 0;
-  const tenants = await allTenantIds(db);
+  // Suspendidos incluidos: Oro detenido de quien dejó de pagar pasa a esperar el pago (P-14).
+  const tenants = await everyTenantId(db);
   if (settings.releasedMonth !== month) {
     const queue: { tenantId: string; id: string; at: number }[] = [];
     for (const tenantId of tenants) {

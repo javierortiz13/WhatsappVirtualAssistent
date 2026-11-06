@@ -1,7 +1,9 @@
 import {
+  es,
   founderDiscount,
   latestRates,
   launchSettings,
+  leyendaPct,
   monthUsage,
   PLANS,
   planById,
@@ -50,13 +52,15 @@ export default async function MiPlan({
   const { tenant } = await requireTenant();
   const sp = await searchParams;
   const now = new Date();
-  const [{ t, usage, trial, payments }, rates, launch] = await Promise.all([
+  const [{ t, usage, trial, payments, leyenda }, rates, launch] = await Promise.all([
     withTenant(db(), tenant.id, async (tx) => {
       const [t] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenant.id));
       return {
         t,
         usage: await monthUsage(tx, tenant.id, now),
         trial: t?.status === "trial" ? await trialSpend(tx, t) : null,
+        // Nivel Leyenda (P4, US-417): 10 % después del fundador, si vale.
+        leyenda: t ? await leyendaPct(tx, t, now) : 0,
         payments: await tx
           .select()
           .from(schema.payment)
@@ -95,7 +99,7 @@ export default async function MiPlan({
   // Precio fundador (0019): los montos ya van con el descuento, igual que en el chat.
   const founderPct = founderDiscount(t, now);
   const q = (m: "pago_movil" | "zelle" | "binance") =>
-    quote(plan, m, 1, rates, "bcv_eur", founderPct);
+    quote(plan, m, 1, rates, "bcv_eur", founderPct, leyenda);
 
   return (
     <div className="stack">
@@ -148,11 +152,12 @@ export default async function MiPlan({
             {formatShortDate(t.founderUntil as never)}. Los montos ya van descontados.
           </p>
         ) : null}
+        {leyenda ? <p className="sub">{es.leyendaPlanLine(Boolean(founderPct))}</p> : null}
       </section>
 
       <span className="sect">Planes</span>
       {PLANS.map((p) => {
-        const pm = quote(p, "pago_movil", 1, rates, "bcv_eur", founderPct);
+        const pm = quote(p, "pago_movil", 1, rates, "bcv_eur", founderPct, leyenda);
         const current = p.id === plan.id;
         return (
           <section

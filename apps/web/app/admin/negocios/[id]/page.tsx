@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   es,
   latestRates,
@@ -5,6 +6,7 @@ import {
   PLANS,
   quote,
   RECHARGE,
+  REMOVE_REASONS,
   TRIAL_BUDGET_USD,
 } from "@caja/core";
 import { businessDateOf, formatShortDate } from "@caja/core/domain";
@@ -18,6 +20,7 @@ import {
   giftRechargeAction,
   recordPaymentAction,
   rejectPaymentAction,
+  removePointsAction,
   restoreTenantAction,
   saveCrmAction,
   setFounderAction,
@@ -56,6 +59,25 @@ const ACTION: Record<string, string> = {
   suspend_expired: "Suspendido por vencimiento",
   founder_on: "Precio fundador activado",
   founder_off: "Precio fundador quitado",
+  remove_points: "Puntos quitados",
+  reward_trial_days: "Regalo: días de prueba",
+  reward_free_week: "Regalo: semana del nivel Oro",
+};
+
+/** Estado de un regalo en /admin (nombres internos permitidos, §P4.8). */
+const GRANT_STATUS: Record<string, string> = {
+  applied: "aplicado",
+  waiting: "esperando",
+  test: "prueba (interna)",
+  cancelled: "cancelado",
+  refused: "rechazado",
+  pending_review: "por revisar",
+};
+const WAIT_REASON: Record<string, string> = {
+  ceiling: "tope del mes",
+  not_paying: "espera un pago",
+  flag_off: "Premios apagado",
+  paused: "pausa (tope 0)",
 };
 const PAY_STATUS: Record<string, { label: string; cls: string }> = {
   pending: { label: "por verificar", cls: "warn" },
@@ -133,7 +155,8 @@ export default async function AdminTenant({
   const suggested = Object.fromEntries(
     (["pago_movil", "zelle", "binance"] as const).map((m) => [
       m,
-      quote(d.plan, m, 1, rates)?.amount.toFixed(2) ?? "",
+      // Lo que el dueño ve en el chat: fundador y, si aplica, Leyenda (P4, US-417, A38).
+      quote(d.plan, m, 1, rates, "bcv_eur", d.founderPct, d.leyendaPct)?.amount.toFixed(2) ?? "",
     ]),
   );
 
@@ -407,6 +430,47 @@ export default async function AdminTenant({
           </div>
         ))}
       </section>
+
+      {d.points ? (
+        <section className="card stack-sm" id="puntos">
+          <span className="label">Puntos</span>
+          <Line label="Nivel" value={`${es.logrosLevel(d.points.level)} (N${d.points.level})`} />
+          <Line label="Total" value={es.logrosTotal(d.points.total)} />
+          {d.leyendaPct ? <Line label="Leyenda" value={`${d.leyendaPct} % en el plan`} /> : null}
+          {d.points.grants.map((g) => (
+            <Line
+              key={g.level}
+              label={`Regalo N${g.level}`}
+              value={`${GRANT_STATUS[g.status] ?? g.status}${g.waitReason ? ` · ${WAIT_REASON[g.waitReason] ?? g.waitReason}` : ""}${g.appliedAs ? ` · ${g.appliedAs}` : ""}`}
+            />
+          ))}
+          {d.points.total > 0 ? (
+            <form action={removePointsAction} className="admin-inline">
+              <input type="hidden" name="tenant_id" value={t.id} />
+              <input type="hidden" name="action_id" value={randomUUID()} />
+              <input
+                className="input num"
+                name="points"
+                type="number"
+                min={1}
+                max={d.points.total}
+                defaultValue={1}
+                aria-label="Puntos a quitar"
+              />
+              <select className="input" name="reason" aria-label="Motivo">
+                {REMOVE_REASONS.map((r) => (
+                  <option key={r} value={r}>
+                    {es.REMOVE_REASON_TEXT[r]}
+                  </option>
+                ))}
+              </select>
+              <button className="btn secondary small" type="submit">
+                Quitar puntos
+              </button>
+            </form>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="card">
         <span className="label">Acciones sin pago</span>

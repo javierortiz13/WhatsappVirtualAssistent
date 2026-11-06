@@ -2360,3 +2360,50 @@ figure.chat-mock {
   margin: 0;
   flex: 1 1 260px;
 }
+
+/* ---------------------------------------------------------------- «Mis logros» (P4, US-427) */
+.lvl-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  background: var(--mint-soft);
+  border: 1px solid rgba(63, 224, 176, 0.5);
+  color: var(--mint);
+  font-size: 20px;
+  font-weight: 700;
+}
+.lvl-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.lvl-bar i {
+  display: block;
+  height: 100%;
+  background: var(--mint);
+}
+.lvl-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lvl-rows li {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.lvl-rows li:first-child {
+  border-top: 0;
+}
+.lvl-rows .block {
+  display: block;
+}

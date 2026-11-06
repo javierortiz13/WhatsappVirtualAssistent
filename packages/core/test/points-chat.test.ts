@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { eq, schema, withTenant } from "@caja/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { saveRewardSettings } from "../src/billing/rewards";
-import { businessDateOf } from "../src/domain/dates";
+import { businessDateOf, type IsoDate } from "../src/domain/dates";
 import { saveHabitSettings } from "../src/ledger/habits";
 import { removePoints } from "../src/ledger/points";
 import {
@@ -11,8 +11,11 @@ import {
   levelUpLine,
   leyendaQuoteLine,
   myPoints,
+  POINTS_RULES_DATE,
   pointsHow,
   pointsLevels,
+  pointsRules,
+  rulesUpdatedOn,
 } from "../src/render/points-es";
 import { botHarness, CASHIER, idsOf } from "./bot-harness";
 
@@ -225,6 +228,26 @@ describe("puntos en el chat", () => {
   });
 });
 
+describe("/puntos y las reglas (US-431, RW9, P-16)", () => {
+  it("sin dailyClose no habla del cierre; P4-A no tiene líneas de invitaciones", () => {
+    const on = pointsRules({ dailyClose: true });
+    const off = pointsRules({ dailyClose: false });
+    expect(on).toHaveLength(9);
+    expect(on[0]).toContain("cierras el día");
+    expect(off[0]).not.toContain("cierras el día");
+    expect(on.join(" ")).not.toMatch(/invit/i);
+    // Línea 3 de R-12, palabra por palabra.
+    expect(on[2]).toBe(
+      "Los puntos, los niveles y los regalos no tienen valor en efectivo: no se cambian por dinero, no se venden y no pasan a otra cuenta.",
+    );
+  });
+  it("la fecha es la más nueva entre el texto y los cambios de dailyClose o referrals", () => {
+    expect(rulesUpdatedOn([])).toBe(POINTS_RULES_DATE);
+    expect(rulesUpdatedOn(["2026-12-01" as IsoDate, null])).toBe("2026-12-01");
+    expect(rulesUpdatedOn(["2026-01-01" as IsoDate])).toBe(POINTS_RULES_DATE);
+  });
+});
+
 describe("textos de puntos (strings v1.2)", () => {
   it("RW2: las variantes", () => {
     expect(
@@ -234,7 +257,7 @@ describe("textos de puntos (strings v1.2)", () => {
         benefit: "messages",
         k: 20,
         trial: false,
-        vence: "2026-11-30",
+        vence: "2026-11-30" as IsoDate,
       }),
     ).toBe(
       "¡Epa, subiste al nivel *Guardián*! Te regalé *20 mensajes* extra, para usar hasta el lun 30/11.",
@@ -243,7 +266,12 @@ describe("textos de puntos (strings v1.2)", () => {
       "¡Epa, subiste al nivel *Oro*! Te regalé una semana: cuando pagues tu plan, te sumo 7 días más.",
     );
     expect(
-      levelUpLine({ level: 4, outcome: "ceiling", benefit: "week", fechaTope: "2026-12-01" }),
+      levelUpLine({
+        level: 4,
+        outcome: "ceiling",
+        benefit: "week",
+        fechaTope: "2026-12-01" as IsoDate,
+      }),
     ).toBe(
       "¡Epa, subiste al nivel *Oro*! Este mes se agotaron los regalos de Rocco, así que tus 7 días de regalo se suman a tu plan el mar 01/12.",
     );
@@ -263,7 +291,7 @@ describe("textos de puntos (strings v1.2)", () => {
         benefit: "trial_days",
         days: 7,
         trial: true,
-        fin: "2026-12-14",
+        fin: "2026-12-14" as IsoDate,
         tope: 120,
       }),
     ).toBe(

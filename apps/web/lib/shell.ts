@@ -47,5 +47,7 @@ export async function shellProps(session: Session): Promise<Omit<SidebarProps, "
     isAdmin: adminEmails().includes(session.user.email.toLowerCase()),
     planBadge: extra?.t ? planBadge(extra.t, new Date()) : null,
     reminders: tenant?.role === "owner" && (await habitSettings(db())).reminders,
+    // P4 (US-427): «Mis logros», con `habits.xp` y solo para el dueño.
+    points: tenant?.role === "owner" && (await habitSettings(db())).xp,
   };
 }

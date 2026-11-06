@@ -4,6 +4,7 @@ import {
   Decimal,
   founderDiscount,
   latestRates,
+  leyendaPct,
   PLANS,
   parseVenezuelanAmount,
   planById,
@@ -74,7 +75,9 @@ export async function reportPaymentAction(formData: FormData): Promise<void> {
     tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenant.id)),
   );
   const pct = row ? founderDiscount(row, now) : 0;
-  const q = quote(plan, f.method, f.months, await latestRates(db()), "bcv_eur", pct);
+  // Nivel Leyenda (P4, US-417): el 10 % después del fundador, como en el chat.
+  const ley = row ? await withTenant(db(), tenant.id, (tx) => leyendaPct(tx, row, now)) : 0;
+  const q = quote(plan, f.method, f.months, await latestRates(db()), "bcv_eur", pct, ley);
   try {
     await withTenant(db(), tenant.id, (tx) =>
       reportPayment(
@@ -88,7 +91,7 @@ export async function reportPaymentAction(formData: FormData): Promise<void> {
           currency: f.method === "pago_movil" ? "VES" : f.method === "zelle" ? "USD" : "USDT",
           rateKind: q?.rateKind ?? null,
           rateValue: q?.rateValue ?? null,
-          amountUsd: withDiscount(new Decimal(plan.priceUsd).mul(f.months), pct),
+          amountUsd: withDiscount(withDiscount(new Decimal(plan.priceUsd).mul(f.months), pct), ley),
           reference: f.reference,
           notes: null,
         },

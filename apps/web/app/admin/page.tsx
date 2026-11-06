@@ -21,6 +21,7 @@ import {
   loadMonthOutbound,
   loadNudgeStats,
   loadPendingPayments,
+  loadPoints,
   loadRates,
   loadReminderStats,
   loadTenants,
@@ -40,6 +41,7 @@ import {
   scheduleBatchAction,
 } from "./actions";
 import { dueClass, dueText, METHOD_LABEL, planClass, STATE, usd, ves } from "./format";
+import { PointsCard } from "./points-card";
 
 /** Semáforo del CRM: cuándo escribió por última vez. */
 const HEALTH: Record<Health, { label: string; cls: string }> = {
@@ -68,6 +70,7 @@ const OK: Record<string, string> = {
   lanzamiento: "Modo de lanzamiento guardado. Rocco lo usa desde el próximo mensaje.",
   habito: "Interruptores del hábito guardados. Rocco los usa desde el próximo mensaje.",
   rescate: "Interruptores del registro guardados.",
+  puntos: "Puntos y regalos guardados. Rocco los usa desde el próximo mensaje.",
   lote_programado:
     "Lote programado. «Registro: plantilla (lote)» quedó encendido; el worker lo corre solo a la hora.",
   lote_cancelado: "Lote cancelado. «Registro: plantilla (lote)» quedó apagado.",
@@ -121,6 +124,7 @@ export default async function AdminHome({
       loadReminderStats(tenants, now, 14),
       loadMonthOutbound(tenants, now),
     ]);
+  const points = await loadPoints(tenants, now);
   const rescue = funnel.rescue;
   // Lote de la plantilla del registro (A-0031): programado, ya corrido o lo que saldría ahora.
   const [lote, loteRan] = await Promise.all([batchSchedule(db()), batchAlreadyRan(db())]);
@@ -150,9 +154,15 @@ export default async function AdminHome({
             ? "Recordatorios y el aviso de las 8 pm necesitan Avisos encendido: enciéndelos juntos."
             : sp.error === "aviso_primero"
               ? "«8 pm para todos» necesita el aviso de las 8 pm encendido."
-              : sp.error === "lote"
-                ? `No se programó el lote: ${sp.motivo ?? "revisa el estado"}.`
-                : "No se pudo guardar el cambio."}
+              : sp.error === "puntos_primero"
+                ? "Premios e Invitaciones necesitan Puntos encendido."
+                : sp.error === "invitaciones_p4b"
+                  ? "Invitaciones llega con la P4-B: todavía no se puede encender."
+                  : sp.error === "tope"
+                    ? "El tope va de 0 a 200 US$, con hasta dos decimales."
+                    : sp.error === "lote"
+                      ? `No se programó el lote: ${sp.motivo ?? "revisa el estado"}.`
+                      : "No se pudo guardar el cambio."}
         </div>
       ) : null}
 
@@ -445,6 +455,14 @@ export default async function AdminHome({
           </button>
         </form>
       </section>
+
+      <PointsCard
+        flags={habitFlags}
+        settings={points.settings}
+        summary={points.summary}
+        booked={points.booked}
+        alert={points.alert}
+      />
 
       <section className="card stack-sm">
         <span className="sect">Registro: recordatorios</span>

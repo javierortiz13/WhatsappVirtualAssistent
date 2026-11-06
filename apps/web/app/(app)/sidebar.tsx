@@ -35,6 +35,8 @@ export type SidebarProps = {
   planBadge?: { text: string; warn: boolean } | null;
   /** Recordatorios (hábitos US-309): con `habits.reminders` encendido y solo para el dueño. */
   reminders?: boolean;
+  /** «Mis logros» (P4, US-427): con `habits.xp` encendido y solo para el dueño. */
+  points?: boolean;
 };
 
 const TITLES: [string, string][] = [
@@ -47,6 +49,7 @@ const TITLES: [string, string][] = [
   ["/movimientos", "Movimientos"],
   ["/cierres", "Cierres"],
   ["/recordatorios", "Recordatorios"],
+  ["/logros", "Mis logros"],
   ["/ajustes/categorias", "Categorías"],
   ["/ajustes/numeros", "Números"],
   ["/ajustes/negocio", "Negocio"],
@@ -125,6 +128,7 @@ export function Shell({ children, ...p }: SidebarProps & { children: ReactNode }
         {item("/ajustes/cuentas", "Cuentas", <IconWallet />)}
         {item("/cierres", "Cierres", <IconBars />)}
         {p.reminders ? item("/recordatorios", "Recordatorios", <IconClock />) : null}
+        {p.points ? item("/logros", "Mis logros", <IconBars />) : null}
         <span className="sect">Negocio</span>
         {item("/ajustes/categorias", "Categorías", <IconTags />)}
         {item(

@@ -219,6 +219,12 @@ export default async function Inicio({
       </section>
 
       {streak ? <StreakCard streak={streak} personal={progress.personal} /> : null}
+      {/* P4 (US-427): «Mis logros», con `habits.xp` y solo para el dueño. */}
+      {habits.xp && tenant.role === "owner" ? (
+        <a className="card link" href="/logros">
+          <strong>{es.LOGROS.title}</strong>
+        </a>
+      ) : null}
       {nextReminders.length ? (
         <section className="card stack-sm">
           <div className="day">

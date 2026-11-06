@@ -9,6 +9,7 @@ export * from "./habits";
 export * from "./income";
 export * from "./last-movement";
 export * from "./points";
+export * from "./points-stats";
 export * from "./purge";
 export * from "./rate-for";
 export * from "./reports";

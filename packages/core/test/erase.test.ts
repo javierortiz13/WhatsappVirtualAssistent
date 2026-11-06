@@ -13,6 +13,7 @@ import { MemoryObjectStore } from "../src/storage/index";
 
 /** Eliminar un negocio por completo (0017): todo lo suyo se va, lo de los demás queda. */
 describe("eliminar un negocio", () => {
+  let goneP4Payment = "";
   let t: Awaited<ReturnType<typeof createTestDb>>;
   let gone: string;
   let kept: string;
@@ -154,6 +155,54 @@ describe("eliminar un negocio", () => {
           .insert(schema.noSpendDay)
           .values({ tenantId, phoneId: phone?.id as string, day: "2026-10-04" });
       });
+    // Puntos y regalos (0035): se van en cascada con el negocio. El regalo de otro negocio que
+    // apunta a un pago del que se borra queda con `payment_id` en null (ER-1, US-411).
+    goneP4Payment = await withTenant(t.db, gone, async (tx) => {
+      const [p] = await tx
+        .insert(schema.payment)
+        .values({
+          tenantId: gone,
+          plan: "personal",
+          method: "zelle",
+          amount: "5.99",
+          currency: "USD",
+          amountUsd: "5.99",
+        })
+        .returning({ id: schema.payment.id });
+      return p?.id as string;
+    });
+    for (const tenantId of [gone, kept])
+      await withTenant(t.db, tenantId, async (tx) => {
+        const [award] = await tx
+          .insert(schema.pointsEvent)
+          .values({
+            tenantId,
+            rule: "record_day",
+            refKey: "2026-10-04",
+            points: 5,
+            businessDate: "2026-10-04",
+          })
+          .returning({ id: schema.pointsEvent.id });
+        await tx.insert(schema.pointsEvent).values({
+          tenantId,
+          rule: "record_day",
+          refKey: "2026-10-04:rev",
+          points: -5,
+          businessDate: "2026-10-05",
+          reason: "record_deleted",
+          reverses: award?.id ?? null,
+        });
+        await tx.insert(schema.rewardGrant).values({
+          tenantId,
+          kind: "level_n2",
+          status: "applied",
+          // El de `kept` apunta al pago de `gone` (en P4-B, el pago del invitado).
+          paymentId: goneP4Payment,
+        });
+        await tx
+          .insert(schema.pointsNotice)
+          .values({ tenantId, kind: "level", args: { level: 2 } });
+      });
   });
   afterAll(() => t.close());
 
@@ -187,6 +236,9 @@ describe("eliminar un negocio", () => {
       "signup",
       "dashboard_link",
       "no_spend_day",
+      "points_event",
+      "reward_grant",
+      "points_notice",
     ];
     const before = Object.fromEntries(
       await Promise.all(tables.map(async (x) => [x, await count(x, kept)] as const)),
@@ -212,6 +264,9 @@ describe("eliminar un negocio", () => {
 
     // El otro negocio, intacto.
     for (const x of tables) expect(await count(x, kept), x).toBe(before[x]);
+    // Su regalo sigue, sin el pago del negocio borrado.
+    const [kg] = await withTenant(t.db, kept, (tx) => tx.select().from(schema.rewardGrant));
+    expect(kg?.paymentId).toBeNull();
 
     const store = new MemoryObjectStore();
     await store.put(`${gone}/foto.jpg`, new Uint8Array([1]), "image/jpeg");

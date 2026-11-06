@@ -1,23 +1,32 @@
 import "server-only";
 import {
+  bookedThisMonth,
+  caracasMonth,
   Decimal,
+  founderDiscount,
   type HabitStats,
   type HabitSummary,
   habitStats,
   latestRates,
+  leyendaPct,
   type MonthUsage,
   monthOutbound,
   monthUsage,
   type NudgeStats,
   nudgeStats,
+  type PointsStats,
   planById,
+  pointsStats,
+  pointsView,
   type ReminderStats,
   reminderStats,
+  rewardSettings,
   type SubscriptionState,
   signupCountsByDay,
   subscriptionState,
   sumCounts,
   summarizeHabits,
+  summarizePoints,
   sumNudgeStats,
   sumReminderStats,
   type TenantPhone,
@@ -389,7 +398,13 @@ export async function loadTenantDetail(tenantId: string, now: Date) {
       )
       .orderBy(desc(schema.auditLog.createdAt))
       .limit(5);
+    // P4 (US-429, US-417): nivel, total y regalos; el % de Leyenda para el monto esperado.
+    const points = await pointsView(tx, tenantId, now);
+    const leyenda = points ? await leyendaPct(tx, t, now) : 0;
     return {
+      points,
+      founderPct: founderDiscount(t, now),
+      leyendaPct: leyenda,
       tenant: t,
       plan: planById(t.plan),
       state: subscriptionState(t, now),
@@ -503,5 +518,35 @@ export async function loadMonthOutbound(tenants: TenantRow[], now: Date): Promis
       JSON.stringify({ level: "error", msg: "admin salientes", detail: errorText(err) }),
     );
     return null;
+  }
+}
+
+/**
+ * «Puntos y premios» (PRD hábitos v4.2.1 §P4.9, US-429): filas 1–3 y 7, solo clientes y solo
+ * conteos y dólares reservados. Las mismas cuentas que `pnpm metrics` (`pointsStats`).
+ */
+export async function loadPoints(tenants: TenantRow[], now: Date) {
+  await requireAdmin();
+  const conn = db();
+  const settings = await rewardSettings(conn);
+  const month = caracasMonth(now).key;
+  try {
+    const list: PointsStats[] = [];
+    for (const t of tenants) {
+      if (t.internal) continue;
+      list.push(await withTenant(conn, t.id, (tx) => pointsStats(tx, t.id, now)));
+    }
+    const booked = await bookedThisMonth(conn, month);
+    return {
+      summary: summarizePoints(list),
+      settings,
+      booked: Number(booked.toFixed(2)),
+      // El 10 % de Leyenda se reserva sin grant: lo que queda del contador.
+      alert: settings.alertMonth === month && !settings.alertDismissed,
+    };
+  } catch (err) {
+    // Sin la migración 0035 la tarjeta no se puede calcular; el resto sigue.
+    console.error(JSON.stringify({ level: "error", msg: "admin puntos", detail: errorText(err) }));
+    return { summary: null, settings, booked: 0, alert: false };
   }
 }

@@ -373,7 +373,7 @@ describe("puntos (P4-A)", () => {
         tx.select().from(schema.pointsNotice).where(eq(schema.pointsNotice.tenantId, tn.id)),
       );
       expect(notes).toHaveLength(1);
-      expect((notes[0]?.args as { level: number }).level).toBe(3);
+      expect(notes[0]?.args).toMatchObject({ level: 3 });
       // A41: cuenta interna → `test`, sin tocar el cobro ni el tope.
       expect((await grants(tn.id)).every((g) => g.status === "test")).toBe(true);
       expect((await tenantRow(tn.id)).extraMessages).toBe(0);
@@ -445,6 +445,35 @@ describe("puntos (P4-A)", () => {
       await Promise.all([runPointsHousekeeping(t.db, dec1), runPointsHousekeeping(t.db, dec1)]);
       const after = (await tenantRow(tn.id)).paidUntil?.getTime() ?? 0;
       expect(after - before).toBe(7 * DAY);
+    });
+    it("P-14: Oro detenido por el tope y el plan suspendido antes del 1 → espera el pago", async () => {
+      await saveRewardSettings(t.db, { monthlyCeilingUsd: 0.5 }, "test", NOW);
+      const tn = await tenant({ status: "active", paidUntil: new Date("2027-01-20T00:00:00Z") });
+      await give(tn.id, 1200);
+      await sync(tn.id);
+      expect((await grants(tn.id)).find((g) => g.kind === "level_n4")?.waitReason).toBe("ceiling");
+      await withTenant(t.db, tn.id, (tx) =>
+        tx
+          .update(schema.tenant)
+          .set({ status: "suspended", suspendedAt: NOW })
+          .where(eq(schema.tenant.id, tn.id)),
+      );
+      await saveRewardSettings(t.db, { releasedMonth: null }, "test", NOW);
+      await runPointsHousekeeping(t.db, new Date("2026-12-01T12:00:00Z"));
+      const oro = (await grants(tn.id)).find((g) => g.kind === "level_n4");
+      expect([oro?.status, oro?.waitReason]).toEqual(["waiting", "not_paying"]);
+      // Oro no reservó nada (Pana Fiel, también detenido, sí llegó el 1); y sin RW8b-arrive.
+      expect(oro?.bookedMonth).toBeNull();
+      const n3 = (await grants(tn.id)).find((g) => g.kind === "level_n3");
+      expect([n3?.status, n3?.bookedMonth]).toEqual(["applied", "2026-12"]);
+      const arrived = await withTenant(t.db, tn.id, (tx) =>
+        tx.select().from(schema.pointsNotice).where(eq(schema.pointsNotice.tenantId, tn.id)),
+      );
+      expect(
+        arrived.filter(
+          (n) => n.kind === "gift_arrived" && (n.args as { level: number }).level === 4,
+        ),
+      ).toEqual([]);
     });
     it("tope en 0 → pausa (RW2-hold); no sale el 1; al volver a $20 sale", async () => {
       await saveRewardSettings(t.db, { monthlyCeilingUsd: 0 }, "test", NOW);
@@ -684,9 +713,11 @@ describe("puntos (P4-A)", () => {
       );
       expect(tooMuch).toBeNull();
       const notes = await withTenant(t.db, tn.id, (tx) =>
-        tx.select().from(schema.pointsNotice).where(eq(schema.pointsNotice.kind, "points_removed")),
+        tx.select().from(schema.pointsNotice).where(eq(schema.pointsNotice.tenantId, tn.id)),
       );
-      expect(notes.map((x) => x.args)).toEqual([{ k: 30, motivo: "fake_records" }]);
+      expect(notes.filter((x) => x.kind === "points_removed").map((x) => x.args)).toEqual([
+        { k: 30, motivo: "fake_records" },
+      ]);
     });
   });
 });

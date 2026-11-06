@@ -7,7 +7,7 @@ import {
   POINT_RULES,
   STREAK_BONUS,
 } from "../billing/rewards";
-import { formatShortDate, type IsoDate } from "../domain/dates";
+import { businessDateOf, formatShortDate, type IsoDate } from "../domain/dates";
 import type { Outbound } from "./outbound";
 
 /**
@@ -322,3 +322,265 @@ export const leyendaPlanLine = (founder: boolean) =>
 /** PR-R4 (corte de P4-A): una vez, en la próxima respuesta, después del despliegue. */
 export const privacyNoticeP4 = (dashboardUrl: string) =>
   `_Actualizamos la política de privacidad por los puntos y los niveles. Léela en ${dashboardUrl}/privacidad_`;
+
+// ---------------------------------------------------------------- RW1c, RW5 (panel «Mis logros»)
+
+/** Fecha de los textos de las reglas (RW9 / RW5-8): se mueve cuando cambia su texto (P-16). */
+export const POINTS_RULES_DATE = "2026-11-06" as IsoDate;
+
+export type PanelRow = { action: string; points: string; note?: string; rule?: string };
+
+/** RW1c: las filas de «Cómo sumar puntos», con los mismos cortes por interruptor que RW1a. */
+export function pointsHowRows(v: { business: boolean; flags: PointsFlags }): {
+  title: string;
+  rows: PanelRow[];
+}[] {
+  const p = POINT_RULES;
+  return [
+    {
+      title: "Cada día",
+      rows: [
+        {
+          action: "Anotar cualquier movimiento en el día",
+          points: `+${p.record_day}`,
+          note: "Un gasto, un ingreso, una venta, una transferencia o un cambio. Cuenta una vez al día.",
+        },
+        ...(v.flags.dailyClose
+          ? [
+              {
+                action: "Cerrar el día con «Eso es todo»",
+                points: `+${p.close_day}`,
+                note: "Los días que te llega el cierre de las 8 pm.",
+              },
+            ]
+          : []),
+        { action: "Racha de 7 días seguidos", points: `+${STREAK_BONUS[7]}` },
+        { action: "Racha de 15 días seguidos", points: `+${STREAK_BONUS[15]}` },
+        {
+          action: "Racha de 30 días seguidos",
+          points: `+${STREAK_BONUS[30]}`,
+          note: "Se repite cada 30 días. La racha da extra solo si anotaste algo en al menos la mitad de esos días.",
+        },
+      ],
+    },
+    {
+      title: "Una sola vez",
+      rows: [
+        { action: "Terminar tu registro", points: `+${p.signup_done}`, rule: "signup_done" },
+        { action: "Conectar tu panel", points: `+${p.panel_connected}`, rule: "panel_connected" },
+        {
+          action: "Agregar 2 o más cuentas",
+          points: `+${p.accounts_2}`,
+          note: "Banco, efectivo, divisas…",
+          rule: "accounts_2",
+        },
+        { action: "Tu primer presupuesto", points: `+${p.first_budget}`, rule: "first_budget" },
+        ...(v.flags.reminders
+          ? [
+              {
+                action: "Tu primer recordatorio",
+                points: `+${p.first_reminder}`,
+                rule: "first_reminder",
+              },
+            ]
+          : []),
+        ...(v.business
+          ? [
+              {
+                action: "Agregar un empleado (negocio)",
+                points: `+${p.employee_joined}`,
+                note: "Cuenta cuando tu empleado acepta.",
+                rule: "employee_joined",
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      title: "Lo que no suma",
+      rows: [
+        { action: "«Hoy no gasté nada»", points: "0", note: "Cuida tu racha, pero no da puntos." },
+        { action: "Saludar, preguntar, pedir la tasa", points: "0" },
+        {
+          action: "Borrar lo anotado ese mismo día",
+          points: "—",
+          note: "Los puntos de ese día se quitan.",
+        },
+      ],
+    },
+  ];
+}
+
+export const LOGROS = {
+  title: "Mis logros",
+  employee: "Los puntos y los regalos son de la cuenta del negocio.",
+  yourLevel: "Tu nivel",
+  howTitle: "Cómo sumar puntos",
+  levelsTitle: "Niveles y regalos",
+  rulesTitle: "Reglas de los puntos",
+  done: "Hecho",
+  badgeAlt: {
+    1: "Insignia Cachorro: un pug cachorro",
+    2: "Insignia Guardián: Rocco atento, vigilando",
+    3: "Insignia Pana Fiel: Rocco sentado a tu lado",
+    4: "Insignia Oro: Rocco con una medalla dorada",
+    5: "Insignia Leyenda: Rocco con una corona",
+  } as Record<Level, string>,
+} as const;
+
+/** RW5-1: «Nivel {nivel}», «{total} puntos», «Hoy: +{hoy}». */
+export const logrosLevel = (l: Level) => `Nivel ${name(l)}`;
+export const logrosTotal = (total: number) => `${pts(total)} puntos`;
+export const logrosToday = (today: number) => (today > 0 ? `Hoy: +${today}` : null);
+
+/** RW5-2: la barra. */
+export function logrosBar(v: {
+  total: number;
+  next: Level | null;
+  missing: number;
+  trial: boolean;
+  leyendaEnded: boolean;
+}): { caption: string; aria: string | null; under: string } {
+  if (!v.next)
+    return {
+      caption: "Llegaste al nivel más alto.",
+      aria: null,
+      under: v.leyendaEnded
+        ? `Tu ${GIFTS.pct5} % menos terminó porque tu plan estuvo suspendido más de 30 días.`
+        : `Tu regalo: ${GIFTS.pct5} % menos en tu plan mientras sigas pagando.`,
+    };
+  return {
+    caption:
+      v.missing === 1
+        ? `Te falta 1 punto para el nivel ${name(v.next)}`
+        : `Te faltan ${pts(v.missing)} puntos para el nivel ${name(v.next)}`,
+    aria: `Progreso: ${pts(v.total)} de ${pts(LEVEL_MIN[v.next])} puntos para el nivel ${name(v.next)}`,
+    under: `Al llegar: ${nextGift(v.next, v.trial)}`,
+  };
+}
+
+/** RW1b sin `*`: el regalo de cada nivel, para el panel y /puntos. */
+export function levelGiftText(l: Level, trial = false): string {
+  if (l === 1) return "ahí arrancas";
+  if (l === 2) return `+${GIFTS.msg2} mensajes${trial ? " en tu prueba" : ""}`;
+  if (l === 3) return `+${GIFTS.msg3} mensajes, o ${GIFTS.dias3} días más si estás en la prueba`;
+  if (l === 4) return "una semana de regalo, 7 días más en tu plan";
+  return `${GIFTS.pct5} % menos en tu plan mientras sigas pagando`;
+}
+
+/** RW9: «Nivel Cachorro (desde 0): ahí arrancas» … */
+export function levelLinePlain(l: Level): string {
+  const from = l === 1 ? "desde 0" : l === 2 ? `${pts(LEVEL_MIN[2])} puntos` : pts(LEVEL_MIN[l]);
+  return `Nivel ${name(l)} (${from}): ${levelGiftText(l)}`;
+}
+
+export type LevelChip = { chip: string | null; line: string };
+
+/** RW5-4: el chip de cada nivel y su línea. */
+export function levelChip(v: {
+  level: Level;
+  reached: boolean;
+  missing: number;
+  trial: boolean;
+  grant: {
+    status: string;
+    waitReason: string | null;
+    appliedAs: string | null;
+    appliedAt: Date | null;
+  } | null;
+  vence: IsoDate;
+  fechaTope: IsoDate;
+  leyendaEnded: boolean;
+}): LevelChip {
+  if (v.level === 1) return { chip: null, line: "Ahí arrancas" };
+  if (!v.reached) return { chip: "Por lograr", line: `Te faltan ${pts(v.missing)} puntos` };
+  const g = v.grant;
+  if (v.level === 5) {
+    if (v.leyendaEnded)
+      return {
+        chip: "Terminado",
+        line: "Terminó porque tu plan estuvo suspendido más de 30 días.",
+      };
+    if (g?.status === "waiting" && (g.waitReason === "flag_off" || g.waitReason === "paused"))
+      return { chip: "Guardado", line: "Te avisamos cuando llegue." };
+    return { chip: "Activo", line: `${GIFTS.pct5} % menos en cada pago, mientras sigas pagando` };
+  }
+  if (g?.status === "waiting") {
+    if (g.waitReason === "ceiling")
+      return {
+        chip: "Pendiente por el tope",
+        line: `Este mes se agotaron los regalos de Rocco. Te llega el ${d(v.fechaTope)}.`,
+      };
+    if (g.waitReason === "not_paying")
+      return v.level === 4
+        ? { chip: "Logrado", line: "Se suman cuando pagues tu plan" }
+        : { chip: "Logrado", line: `Tus ${GIFTS.msg3} mensajes te llegan cuando actives tu plan` };
+    return { chip: "Guardado", line: "Te avisamos cuando llegue." };
+  }
+  const since = g?.appliedAt ? d(businessDateOf(g.appliedAt)) : "";
+  if (g?.appliedAs === "week")
+    return { chip: "Aplicado", line: `7 días más en tu plan desde el ${since}` };
+  if (g?.appliedAs === "trial_days")
+    return { chip: "Aplicado", line: `${GIFTS.dias3} días más en tu prueba desde el ${since}` };
+  const k = v.level === 2 ? GIFTS.msg2 : GIFTS.msg3;
+  return v.trial
+    ? { chip: "Logrado", line: `${k} mensajes más en tu prueba` }
+    : { chip: "Logrado", line: `${k} mensajes extra, para usar hasta el ${d(v.vence)}` };
+}
+
+/** RW5-7: el estado vacío (solo puntos de la configuración). */
+export const logrosEmpty = (total: number) =>
+  `Ya tienes ${pts(total)} puntos por lo que configuraste. Anota algo en el chat y hoy sumas +${POINT_RULES.record_day}.`;
+
+/**
+ * Reversas como líneas (N-2). Los textos no tienen una línea propia para esto (ER, pregunta al
+ * copywriter): se usan la fila de RW1c («Borrar lo anotado ese mismo día») y la primera frase de
+ * RW8h, palabra por palabra.
+ */
+export function reversalLine(r: { points: number; reason: string; date: string }): string {
+  const motivo = r.reason.startsWith("manual:")
+    ? (r.reason.slice(7) as keyof typeof REMOVE_REASON_TEXT)
+    : null;
+  if (motivo && REMOVE_REASON_TEXT[motivo])
+    return `−${pts(r.points)} · Quitamos ${r.points} puntos de tu cuenta porque ${REMOVE_REASON_TEXT[motivo]}. · ${d(r.date)}`;
+  return `−${pts(r.points)} · Borrar lo anotado ese mismo día · ${d(r.date)}`;
+}
+
+/** RW5-8 / RW9: las reglas, con los cortes por interruptor (sin invitaciones en P4-A). */
+export function pointsRules(flags: { dailyClose: boolean }): string[] {
+  return [
+    flags.dailyClose
+      ? "Sumas puntos cuando anotas tus movimientos, cierras el día, mantienes tu racha y configuras Rocco por primera vez. No se suman por reseñas, por seguirnos en redes ni por compartir publicaciones."
+      : "Sumas puntos cuando anotas tus movimientos, mantienes tu racha y configuras Rocco por primera vez. No se suman por reseñas, por seguirnos en redes ni por compartir publicaciones.",
+    "Los puntos son de la cuenta y los ve solo su dueño. Los empleados no suman puntos propios: lo que anotan suma para la cuenta del negocio.",
+    "Los puntos, los niveles y los regalos no tienen valor en efectivo: no se cambian por dinero, no se venden y no pasan a otra cuenta.",
+    "Los puntos no se gastan. Cada nivel y su regalo llegan una sola vez, y tu nivel no baja.",
+    `Los regalos son solo de Rocco: mensajes extra, días de prueba, días en tu plan y descuentos en tu plan. Los mensajes extra de un plan pagado valen hasta fin de mes. Si tu plan no está activo, los 7 días del nivel Oro se suman cuando lo pagues; y si tu prueba ya llegó a su tope de mensajes, los ${GIFTS.msg3} mensajes del nivel Pana Fiel te llegan cuando actives tu plan.`,
+    "Rocco tiene un tope de regalos por mes para todos. Si este mes se agotan, el tuyo te llega el 1 del mes siguiente.",
+    `El ${GIFTS.pct5} % menos del nivel Leyenda se aplica sobre lo que pagas, también con precio de fundador, mientras sigas pagando. Si tu plan se suspende y no vuelves a pagar en 30 días, se termina. Un pago que reportaste antes de que venciera tu plan cuenta aunque lo aprobemos después.`,
+    "Si borras lo que anotaste un día, ese mismo día, los puntos de ese día se quitan. Si vemos movimientos falsos, podemos quitar esos puntos, y te avisamos por el chat. Los regalos que ya recibiste no se quitan.",
+    "Podemos cambiar o terminar el programa avisándote en el panel y en el chat al menos 30 días antes; los regalos que ya tengas se respetan. Si hay un abuso o una falla, podemos pausar los regalos unos días; los pendientes te llegan después.",
+  ];
+}
+
+/** RW9: la página pública de reglas. */
+export const PUNTOS_PAGE = {
+  title: "Reglas de los puntos · Rocco",
+  /** Sin `referrals` (v1.2 S-3). */
+  description:
+    "Cómo se suman los puntos de Rocco, qué regalos trae cada nivel y cómo cambiamos el programa.",
+  h1: "Reglas de los puntos",
+  lead: "Estas son las reglas de los puntos, los niveles y los regalos de Rocco.",
+  levelsTitle: "Niveles y regalos",
+  rulesTitle: "Las reglas",
+} as const;
+
+/** «Última actualización: {fecha}» (P-16): lo más nuevo entre el texto y los cambios de interruptor. */
+export function rulesUpdatedOn(dates: (IsoDate | null)[]): IsoDate {
+  return dates.reduce<IsoDate>((a, b) => (b && b > a ? b : a), POINTS_RULES_DATE);
+}
+
+export const formatRulesDate = (iso: IsoDate) => formatShortDate(iso);
+
+/** Umbral de un nivel (para la barra y la lista). */
+export const levelMin = (l: Level) => LEVEL_MIN[l];

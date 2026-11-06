@@ -15,6 +15,8 @@ const PRIVATE_PREFIXES = [
   "/adjuntos",
   "/exportar",
   "/sin-negocio",
+  /** P4 (SEC-P4-4): los puntos del dueño. */
+  "/logros",
 ];
 
 export async function proxy(request: NextRequest) {

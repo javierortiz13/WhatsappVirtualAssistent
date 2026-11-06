@@ -1,14 +1,23 @@
 import {
+  addDays,
+  bookedThisMonth,
+  businessDateOf,
+  caracasMonth,
   EMPTY_REMINDER_STATS,
   habitStats,
   isQuietHours,
+  keptDays,
+  type PointsStats,
+  pointsStats,
   type ReminderStats,
   reminderStats,
+  rewardSettings,
   SIGNUP_RESCUE_AFTER_MS,
   signupCountsByDay,
   signupRescueSettings,
   sumCounts,
   summarizeHabits,
+  summarizePoints,
   sumReminderStats,
 } from "@caja/core";
 import { createDb, loadNearestEnvFile, rows, sql } from "@caja/db";
@@ -147,6 +156,7 @@ const FREE_TIER = 1000;
   );
   await habits();
   await reminders();
+  await points();
   await signupRescue();
   await close();
 })().catch(async (err) => {
@@ -300,6 +310,99 @@ async function reminders() {
   console.log(
     `Dueños con 2 o más recordatorios (uso repetido): ${cumulative[0]?.repeatOwners ?? 0}`,
   );
+}
+
+/**
+ * Puntos (PRD hábitos v4.2.1 §P4.9, US-430): las filas 1–3 y 7 de /admin, la alerta del tope
+ * (A46), S1 nueva (dueños en el máximo diario +7 en 12 de 14 días) y los días con registro antes y
+ * después de encender `xp` por dueño, sin etiqueta. Solo clientes; nunca un nombre ni un número.
+ */
+async function points() {
+  const now = new Date();
+  const tenants = rows<{ id: string }>(
+    await db.execute(sql`
+      select id from app.tenant
+      where not exists (select 1 from unnest(crm_tags) g where lower(btrim(g)) = 'interna')`),
+  );
+  const list: PointsStats[] = [];
+  try {
+    for (const t of tenants) list.push(await db.transaction((tx) => pointsStats(tx, t.id, now)));
+  } catch {
+    console.log("\n== Puntos: sin la migración 0035");
+    return;
+  }
+  const s = summarizePoints(list);
+  const settings = await rewardSettings(db);
+  const month = caracasMonth(now).key;
+  const booked = await bookedThisMonth(db, month);
+  console.log("\n== Puntos (P4, solo clientes, solo conteos)");
+  if (settings.alertMonth === month && !settings.alertDismissed)
+    console.log("ALERTA (A46): dos meses seguidos por encima del tope de regalos.");
+  console.table([
+    {
+      fila: "1 puntos dados",
+      mes: s.pointsMonth,
+      "14 d": s.points14,
+      dueños_14d: `${s.ownersAwarded14} de ${s.owners}`,
+      reversas: s.reversals,
+    },
+  ]);
+  console.log(
+    `2 niveles: ${
+      s.byLevel
+        ? Object.entries(s.byLevel)
+            .map(([l, n]) => `N${l} ${n}`)
+            .join(" · ")
+        : `${s.owners} dueños (menos de 5 en algún nivel)`
+    } · subidas este mes: ${
+      s.levelUpsMonth
+        ? Object.entries(s.levelUpsMonth)
+            .map(([l, n]) => `N${l} ${n}`)
+            .join(" · ")
+        : s.levelUpsMonthTotal
+    }`,
+  );
+  console.log(
+    `3 costo del mes: $${booked.toFixed(2)} de $${settings.monthlyCeilingUsd.toFixed(2)} · esperando: tope ${s.waiting.ceiling}, pago ${s.waiting.not_paying}, apagado ${s.waiting.flag_off}, pausa ${s.waiting.paused} · topes alcanzados: mes ${s.ceilingHitsMonth}, pasado ${s.ceilingHitsLastMonth}`,
+  );
+  console.log(
+    `7 señales (14 d): S2 ráfagas ${s.s2BurstTenants} negocios · S3 < $0,10 ${s.s3Tiny} de ${s.records14} · S4 ${s.s4SameAmount} · S5 ${s.s5LaterDelete}`,
+  );
+  // S1 nueva: días con +7 o más (sin bonos) en 12 de los últimos 14.
+  const today = businessDateOf(now);
+  const since14 = addDays(today, -13);
+  let atMax = 0;
+  const beforeAfter: { antes: number; despues: number }[] = [];
+  const on = settings.xpOnSince;
+  for (const t of tenants) {
+    const [r] = rows<{ n: number }>(
+      await db.execute(sql`
+        select count(*)::int as n from (
+          select business_date from app.points_event
+          where tenant_id = ${t.id} and rule in ('record_day', 'close_day')
+            and business_date >= ${since14}::date
+          group by business_date having sum(points) >= 7) x`),
+    );
+    if ((r?.n ?? 0) >= 12) atMax += 1;
+    if (on) {
+      const kept = await db.transaction((tx) => keptDays(tx, t.id));
+      const count = (from: string, to: string) =>
+        [...kept].filter(([d, st]) => st === "recorded" && d >= from && d <= to).length;
+      beforeAfter.push({
+        antes: count(addDays(on, -14), addDays(on, -1)),
+        despues: count(on, addDays(on, 13)),
+      });
+    }
+  }
+  console.log(
+    `S1 (para analytics-lead): dueños en el máximo diario en 12 de 14 días: ${atMax} de ${s.owners}`,
+  );
+  if (on) {
+    console.log(
+      `Días con registro, 14 antes y 14 después de encender (${on}), por dueño, sin etiqueta:`,
+    );
+    console.table(beforeAfter.sort((a, b) => b.despues - a.despues || b.antes - a.antes));
+  }
 }
 
 /**
