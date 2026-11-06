@@ -191,7 +191,7 @@ async function takeNudge(
           personal,
           noSpendDate: noSpendButton ? today : null,
         });
-  if (asking) out = es.withEveningAsk(out);
+  if (asking) out = es.withEveningAsk(out, Boolean(close && totals));
   // La marca va antes de enviar y se confirma con esta transacción.
   const [row] = await tx
     .insert(schema.message)

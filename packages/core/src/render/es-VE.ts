@@ -3390,20 +3390,25 @@ export function habitNudge(v: NudgeView): Outbound {
 
 /**
  * 1B (decisión del fundador, 05/11): el primer mensaje de las 8 pm a quien nunca lo aceptó
- * pregunta, con «Sí, escríbeme» (H7d) y «No me recuerdes». Sin el «Sí» no hay un segundo.
+ * pregunta (H7d), con «¡Sí, dale!» (acepta) y «No, gracias» (abre la tarjeta para apagar). Sin
+ * el «Sí» no hay un segundo. Texto v2 (opción A del fundador, 06/11): más cercano, igual de
+ * cierto: solo le escribe los días que hablaron (la ventana de 24 h de WhatsApp).
  */
 export const EVENING_ASK =
-  "¿Te escribo así a las 8 pm, si me escribiste en las últimas 24 horas? Lo apagas cuando quieras.";
+  "Si quieres, te escribo cada noche a las 8, los días que hablemos, para que no se te escape ningún gasto y tus cuentas queden al día. Lo apagas cuando quieras.";
+/** Encabezado de la pregunta cuando el mensaje es el cierre del día. */
+export const EVENING_ASK_CLOSE_LEAD = "¿Te sirvió este resumen?";
 
 /** El mensaje de las 8 pm convertido en la pregunta de 1B: mismo cuerpo, más H7d y sus botones. */
-export function withEveningAsk(out: Outbound): Outbound {
+export function withEveningAsk(out: Outbound, close = false): Outbound {
   if (out.type !== "buttons") return out;
+  const ask = close ? `${EVENING_ASK_CLOSE_LEAD} ${EVENING_ASK}` : EVENING_ASK;
   return {
     ...out,
-    body: `${out.body}\n\n${EVENING_ASK}`,
+    body: `${out.body}\n\n${ask}`,
     buttons: [
-      { id: IDS.pref("optin"), title: "Sí, escríbeme" },
-      { id: IDS.pref("nudges_off"), title: "No me recuerdes" },
+      { id: IDS.pref("optin"), title: "¡Sí, dale!" },
+      { id: IDS.pref("nudges_off"), title: "No, gracias" },
     ],
   };
 }
@@ -3474,7 +3479,7 @@ export function noSpendStale(): Outbound {
 export const consentTextVersion = {
   H7: "v1",
   /** 1B (05/11): «¿Te escribo así a las 8 pm…?» en el primer mensaje de las 8 pm, «Sí, escríbeme». */
-  H7d: "v1",
+  H7d: "v2",
   H13: "v1",
   H13b: "v1.1",
   H13c: "v1.2",

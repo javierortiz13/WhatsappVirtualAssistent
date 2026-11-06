@@ -391,7 +391,7 @@ describe("runHabitNudges (US-207, US-208)", () => {
       });
     });
   const ASK =
-    "¿Te escribo así a las 8 pm, si me escribiste en las últimas 24 horas? Lo apagas cuando quieras.";
+    "Si quieres, te escribo cada noche a las 8, los días que hablemos, para que no se te escape ningún gasto y tus cuentas queden al día. Lo apagas cuando quieras.";
   const optedIn = () =>
     t.db.update(schema.phoneNumber).set({ nudgeOptInAt: new Date(now.getTime() - 30 * DAY) });
 
@@ -403,14 +403,14 @@ describe("runHabitNudges (US-207, US-208)", () => {
     await wrote(3);
     expect((await runHabitNudges(t.db, meta, { now })).sent).toBe(1);
     expect(bodyOf(sent[0])).toBe(
-      `Hoy anotaste *$2,00* en gastos (1 registro).\n🔥 Llevas 2 días seguidos.\n¿Falta algo por anotar?\n\n${ASK}`,
+      `Hoy anotaste *$2,00* en gastos (1 registro).\n🔥 Llevas 2 días seguidos.\n¿Falta algo por anotar?\n\n¿Te sirvió este resumen? ${ASK}`,
     );
     expect(idsOf(sent[0])).toEqual(["pref:optin", "pref:nudges_off"]);
     const first = sent[0]?.interactive as
       | { action: { buttons: { reply: { title: string } }[] } }
       | undefined;
     const titles = first?.action.buttons.map((b) => b.reply.title);
-    expect(titles).toEqual(["Sí, escríbeme", "No me recuerdes"]);
+    expect(titles).toEqual(["¡Sí, dale!", "No, gracias"]);
     // Mañana, sin haber tocado «Sí»: nada.
     const tomorrow = new Date(now.getTime() + DAY);
     await move("expense", "3.00", 0, tomorrow);
@@ -462,7 +462,8 @@ describe("runHabitNudges (US-207, US-208)", () => {
       .set({ createdAt: new Date(now.getTime() - 8 * DAY) })
       .where(eq(schema.message.status, "failed"));
     expect((await runHabitNudges(t.db, meta, { now: tomorrow })).sent).toBe(1);
-    expect(bodyOf(sent[0])).toMatch(new RegExp(`${ASK.replace(/[?¿]/g, ".")}$`));
+    // Sin registros hoy: el aviso con la pregunta, sin «¿Te sirvió este resumen?».
+    expect(bodyOf(sent[0])).toBe(`¿Hubo algo hoy que anotar?\n\n${ASK}`);
   });
 
   it("MF-2: persona con solo ingreso; persona ingreso + gasto; negocio «se anotaron»", async () => {

@@ -725,7 +725,7 @@ describe("botón «Hoy no gasté nada» del aviso (US-212) y oferta del aviso (U
     expect(await consents()).toEqual([
       {
         action: "nudge_opt_in",
-        after: { source: "button", text_id: "H7d", text_version: "v1" },
+        after: { source: "button", text_id: "H7d", text_version: "v2" },
       },
     ]);
     // Sin aceptar y con la pregunta abierta, la frase igual guarda la aceptación (antes decía
