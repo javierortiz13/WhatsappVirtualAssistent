@@ -270,7 +270,7 @@ const DAY_MS = 86_400_000;
 const founderPct = (t: { founderUntil: string | null }, now: Date) =>
   t.founderUntil && businessDateOf(now) <= t.founderUntil ? FOUNDER.discountPct : 0;
 
-function isPaying(t: TenantRow, now: Date): boolean {
+export function isPaying(t: TenantRow, now: Date): boolean {
   if (t.status === "trial" || !t.paidUntil) return false;
   const k = subscriptionState(t, now).kind;
   return k === "active" || k === "grace";
@@ -461,7 +461,16 @@ export type NoticeKind =
   /** RW8a-ley: el 10 % de Leyenda en este pago. */
   | "leyenda_paid"
   /** RW8h: puntos quitados a mano. */
-  | "points_removed";
+  | "points_removed"
+  /** P4-B: RW8c-first, RW8c-paid, RW8c-paid-trial, RW8d, RW8e, RW8f, RW8g, RW8a-ref. */
+  | "ref_active"
+  | "ref_paid"
+  | "ref_paid_wait"
+  | "ref_capped"
+  | "ref_refused"
+  | "ref_reversed"
+  | "code_paused"
+  | "ref_month_paid";
 
 export async function addNotice(
   tx: Tx,

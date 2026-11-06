@@ -45,7 +45,7 @@ export const TENANT_STATUSES = ["trial", "active", "suspended"] as const;
 export const PLAN_IDS = ["personal", "negocio", "negocio_plus"] as const;
 export const PAYMENT_METHODS_BILLING = ["pago_movil", "zelle", "binance"] as const;
 export const PAYMENT_CURRENCIES = ["VES", "USD", "USDT"] as const;
-export const PAYMENT_STATUSES = ["pending", "approved", "rejected"] as const;
+export const PAYMENT_STATUSES = ["pending", "approved", "rejected", "reversed"] as const;
 export const BILLING_RATE_KINDS = ["bcv_usd", "bcv_eur", "manual"] as const;
 export const MOVEMENT_TYPES = ["expense", "income"] as const;
 export const BUDGET_PERIODS = ["monthly", "biweekly"] as const;
@@ -133,6 +133,8 @@ export const tenant = app.table(
     /** Nivel de puntos guardado (0035, PRD hábitos P4): 1 Cachorro … 5 Leyenda; nunca baja. */
     pointsLevel: smallint("points_level").notNull().default(1),
     pointsLevelAt: timestamp("points_level_at", { withTimezone: true }),
+    /** «me invitó CODE» después del registro (0036, P4-B): intentos, máximo 3. */
+    referralLateAttempts: smallint("referral_late_attempts").notNull().default(0),
     ...timestamps,
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -529,6 +531,9 @@ export const payment = app.table(
     kind: text("kind").notNull().default("plan"),
     /** Recarga (0020): mensajes que suma al aprobarse (+20 o +100). */
     extraMessages: integer("extra_messages"),
+    /** Devuelto (0036, US-418): lo marca el fundador; no cambia la vigencia. */
+    reversedAt: timestamp("reversed_at", { withTimezone: true }),
+    reversedBy: text("reversed_by"),
     ...timestamps,
   },
   (t) => [
@@ -871,3 +876,45 @@ export const rewardMonth = app.table("reward_month", {
 
 export type PointsEvent = typeof pointsEvent.$inferSelect;
 export type RewardGrant = typeof rewardGrant.$inferSelect;
+
+// ---------------------------------------------------------------- invitaciones (0036, P4-B)
+
+/** El código para invitar del dueño (0036). */
+export const referralCode = app.table("referral_code", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .unique()
+    .references(() => tenant.id, { onDelete: "cascade" }),
+  code: text("code").notNull().unique(),
+  disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  disabledReason: text("disabled_reason"),
+  ...timestamps,
+});
+
+/**
+ * Quién invitó a quién (0036). `tenantId` es el del que invita; el invitado se escribe solo con
+ * las funciones SECURITY DEFINER. caja_app solo lee. Sin nombres (A43).
+ */
+export const referral = app.table("referral", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenant.id, { onDelete: "cascade" }),
+  inviteeTenantId: uuid("invitee_tenant_id")
+    .notNull()
+    .unique()
+    .references(() => tenant.id, { onDelete: "cascade" }),
+  via: text("via").notNull(),
+  stage: text("stage").notNull(),
+  signedUpAt: timestamp("signed_up_at", { withTimezone: true }).notNull(),
+  activeAt: timestamp("active_at", { withTimezone: true }),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  paymentId: uuid("payment_id").references(() => payment.id, { onDelete: "set null" }),
+  sourceApprovedAt: timestamp("source_approved_at", { withTimezone: true }),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  endReason: text("end_reason"),
+  flags: jsonb("flags").notNull().default({}),
+  ...timestamps,
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});

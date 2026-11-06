@@ -363,7 +363,7 @@ export async function takePaymentNotices(
       and(
         eq(schema.pointsNotice.tenantId, tenantId),
         isNull(schema.pointsNotice.shownAt),
-        inArray(schema.pointsNotice.kind, ["gift_paid", "leyenda_paid"]),
+        inArray(schema.pointsNotice.kind, ["gift_paid", "leyenda_paid", "ref_month_paid"]),
       ),
     );
   return pays.map((p) => ({

@@ -3,6 +3,7 @@ import { type Decimal, toDbAmount, toDbRate } from "../domain/money";
 import { habitSettings } from "../ledger/habits";
 import { PERIOD_DAYS, type PlanId, RECHARGE } from "./plans";
 import type { BillingMethod, BillingRateKind } from "./pricing";
+import { releaseRefMonths, syncInvitee } from "./referrals";
 import { leyendaPct, onPlanPaymentApproved, rewardSettings } from "./rewards";
 import { extendPaidUntil } from "./subscription";
 import { caracasMonth } from "./usage";
@@ -181,6 +182,10 @@ export async function approvePayment(
       ceilingUsd: rs.monthlyCeilingUsd,
       leyendaPct: ley,
     });
+    // P4-B: el paso «pagó» del invitado (si lo invitaron) y los meses de regalo que esperaban
+    // un pago de este negocio como quien invita.
+    await syncInvitee(tx);
+    await releaseRefMonths(tx, tenantId, pay.id, now);
   }
   const [after] = await tx
     .select({ paidUntil: schema.tenant.paidUntil })
@@ -222,7 +227,7 @@ export async function addExtraMessages(
   /** null = el sistema (regalo de un nivel, P4 US-416). */
   actor: Reviewer | null,
   now: Date,
-  reason: "approve_recharge" | "admin_gift" | "reward",
+  reason: "approve_recharge" | "admin_gift" | "reward" | "referral",
 ): Promise<number> {
   const month = caracasMonth(now).key;
   // En la prueba los regalos se acumulan aunque cambie el mes: suben el tope de la prueba.

@@ -12,6 +12,7 @@ import {
   type Tx,
   withTenant,
 } from "@caja/db";
+import { inviterSweep, syncInvitee } from "../billing/referrals";
 import {
   addNotice,
   type GiftLine,
@@ -183,6 +184,8 @@ export async function syncPoints(
   if (!flags.xp) return null;
   const settings = ctx?.settings ?? (await rewardSettings(tx));
   const today = businessDateOf(now);
+  // P4-B: el paso de la invitación de este negocio como invitado (no-op si no lo invitaron).
+  await syncInvitee(tx);
   const since = settings.xpOnSince ?? today;
 
   // Una sola vez: lo que ya existe en el negocio, con la fecha en que pasó.
@@ -528,6 +531,24 @@ export async function runPointsHousekeeping(
       now,
     );
     if (released > 0 || alert) log.info({ released, alert }, "puntos: entrega del 1");
+  }
+  // P4-B (US-422): el lado del que invita en cada corrida, desde que `referrals` se encendió una
+  // vez (las invitaciones guardadas siguen moviéndose aunque se apague).
+  if (settings.referralsOnSince) {
+    for (const tenantId of tenants) {
+      try {
+        await withTenant(db, tenantId, async (tx) => {
+          await syncInvitee(tx);
+          if ((await inviterSweep(tx, tenantId, now)) > 0)
+            await syncPoints(tx, tenantId, now, { flags, settings });
+        });
+      } catch (err) {
+        log.error(
+          { tenantId, err: err instanceof Error ? err.message : String(err) },
+          "puntos: invitaciones",
+        );
+      }
+    }
   }
   if (settings.sweptOn !== today) {
     for (const tenantId of tenants) {
