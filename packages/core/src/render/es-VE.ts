@@ -10,6 +10,7 @@ import {
 import { Decimal, formatMoney, parseVenezuelanAmount, type RateOrigin } from "../domain/money";
 import type { PagoMovilData } from "../domain/pago-movil";
 import { IDS, type Outbound, type RenewMethod } from "./outbound";
+import { leyendaQuoteLine } from "./points-es";
 
 /**
  * Todo texto que ve el usuario vive aquí (Fase 4). Habla Rocco, "tu amigo fiel con tus finanzas"
@@ -354,6 +355,8 @@ export type RenewOfferView = {
   supportHint: string | null;
   /** Precio fundador (0019): ya va descontado en los montos. */
   founder?: { pct: number; until: string } | null | undefined;
+  /** Nivel Leyenda (P4, US-417): el 10 %, ya descontado (RW-quote). */
+  leyendaPct?: number | undefined;
   /** Mensajes usados y el tope (de la prueba o del mes). */
   usage?: { used: number; cap: number; trial: boolean } | null | undefined;
 };
@@ -426,6 +429,7 @@ export function renewOffer(v: RenewOfferView): Outbound {
     lines.push(
       `🎁 Precio de fundador: ${v.founder.pct} % menos hasta el ${formatShortDate(asIsoDate(v.founder.until))}. Ya va descontado.`,
     );
+  if (v.leyendaPct) lines.push(leyendaQuoteLine(Boolean(v.founder)));
   if (v.quotes.length === 0) {
     lines.push(
       v.supportHint
@@ -3998,3 +4002,5 @@ export const PRIVACY_BANNER = {
   dismiss: "Entendido",
   dismissLabel: "Cerrar aviso de privacidad",
 } as const;
+
+export * from "./points-es";

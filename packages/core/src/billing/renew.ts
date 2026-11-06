@@ -306,6 +306,8 @@ export type PaymentNotice = {
   paidUntil: Date | null;
   /** Teléfono del dueño, solo si escribió en las últimas 24 horas (ventana de servicio de Meta). */
   to: { phoneId: string; e164: string } | null;
+  /** P4 (RW8a): líneas de regalos de este pago, para el mismo aviso; se marcan vistas al enviarse. */
+  points: { id: string; kind: string; args: Record<string, unknown> }[];
 };
 
 /**
@@ -354,7 +356,23 @@ export async function takePaymentNotices(
         pays.map((p) => p.id),
       ),
     );
+  const points = await tx
+    .select()
+    .from(schema.pointsNotice)
+    .where(
+      and(
+        eq(schema.pointsNotice.tenantId, tenantId),
+        isNull(schema.pointsNotice.shownAt),
+        inArray(schema.pointsNotice.kind, ["gift_paid", "leyenda_paid"]),
+      ),
+    );
   return pays.map((p) => ({
+    points:
+      p.status === "approved"
+        ? points
+            .filter((n) => (n.args as { paymentId?: string }).paymentId === p.id)
+            .map((n) => ({ id: n.id, kind: n.kind, args: n.args as Record<string, unknown> }))
+        : [],
     paymentId: p.id,
     status: p.status as "approved" | "rejected",
     kind: p.kind === "recharge" ? "recharge" : "plan",

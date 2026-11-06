@@ -1,11 +1,12 @@
-import { type Db, everyTenantId, schema, withTenant } from "@caja/db";
+import { type Db, everyTenantId, inArray, schema, withTenant } from "@caja/db";
 import { RECHARGE } from "../billing/plans";
 import { takePaymentNotices } from "../billing/renew";
 import type { RetentionNotice } from "../billing/retention";
 import { businessDateOf } from "../domain/dates";
 import { type Logger, maskPhone, silentLogger } from "../log";
 import { es } from "../render/index";
-import type { MetaClient } from "../whatsapp/client";
+import { LIMITS, type MetaClient } from "../whatsapp/client";
+
 import { sendOutbound } from "./process";
 import { windowOpenAt } from "./window";
 
@@ -17,7 +18,12 @@ import { windowOpenAt } from "./window";
 export async function sendPaymentNotices(
   db: Db,
   meta: MetaClient | null,
-  opts: { now: Date; supportHint: string | null; log?: Logger },
+  opts: {
+    now: Date;
+    supportHint: string | null;
+    privacyContact?: string | undefined;
+    log?: Logger;
+  },
 ): Promise<{ sent: number; skipped: number }> {
   const log = opts.log ?? silentLogger;
   let sent = 0;
@@ -34,7 +40,7 @@ export async function sendPaymentNotices(
           skipped += 1;
           continue;
         }
-        const out =
+        const base =
           n.status === "approved"
             ? n.kind === "recharge"
               ? es.rechargeVerified(n.extraMessages ?? RECHARGE.messages)
@@ -44,6 +50,17 @@ export async function sendPaymentNotices(
                 reason: n.reason,
                 supportHint: opts.supportHint,
               });
+        // P4 (RW8a): los regalos de este pago van en el mismo aviso, si caben; si no, en la
+        // próxima respuesta.
+        const lines = n.points
+          .map((p) => ({ id: p.id, line: es.noticeLine(p, opts.privacyContact ?? "") }))
+          .filter((p): p is { id: string; line: string } => Boolean(p.line));
+        const joined = lines.length
+          ? `${base.body}\n\n${lines.map((l) => l.line).join("\n")}`
+          : base.body;
+        const withPoints =
+          lines.length > 0 && joined.length <= LIMITS.textBody && base.type === "text";
+        const out = withPoints ? { ...base, body: joined } : base;
         try {
           const r = await sendOutbound(meta, n.to.e164, out);
           const to = n.to;
@@ -60,6 +77,18 @@ export async function sendPaymentNotices(
               toolCalls: [{ name: "notice_payment", args: {} }],
             }),
           );
+          if (withPoints)
+            await withTenant(db, tenantId, (tx) =>
+              tx
+                .update(schema.pointsNotice)
+                .set({ shownAt: opts.now })
+                .where(
+                  inArray(
+                    schema.pointsNotice.id,
+                    lines.map((l) => l.id),
+                  ),
+                ),
+            );
           sent += 1;
         } catch (err) {
           // Ya quedó marcado: no se reintenta en bucle; el dueño lo ve en "Mi plan".

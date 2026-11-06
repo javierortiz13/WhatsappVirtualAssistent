@@ -60,6 +60,7 @@ export async function renewOfferReply(
     quotes: o.quotes.map(view),
     supportHint: c.supportHint,
     founder: o.founder,
+    leyendaPct: o.leyendaPct,
   });
 }
 

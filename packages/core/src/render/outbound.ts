@@ -119,6 +119,8 @@ export type ParsedReplyId =
   | { kind: "reminder_list" }
   | { kind: "habit_nospend"; date: string }
   | { kind: "habit_close"; action: "done" | "more"; date: string }
+  /** P4 (US-424): botones de «mis puntos». */
+  | { kind: "points"; action: "how" | "levels" | "invite" }
   | { kind: "unknown"; raw: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -191,6 +193,10 @@ export function parseReplyId(raw: string): ParsedReplyId {
         return { kind: "habit_close", action, date: day as string };
       break;
     }
+    case "pts":
+      if (value === "how" || value === "levels" || value === "invite")
+        return { kind: "points", action: value };
+      break;
     case "pref":
       if ((PREF_VALUES as readonly string[]).includes(value))
         return { kind: "pref", value: value as PrefValue };

@@ -22,6 +22,7 @@ import {
   releaseStalePending,
   retentionSweep,
   runHabitNudges,
+  runPointsHousekeeping,
   runScheduledSignupBatch,
   runSignupRescue,
   sendLifecycleNotices,
@@ -296,12 +297,23 @@ export async function registerJobs(opts: {
           "números pendientes: ¿falta la migración 0027?",
         );
       }
+      // Puntos (P4, solo con `habits.xp`): la entrega del día 1 y la sincronización diaria.
+      try {
+        const p = await runPointsHousekeeping(db, now, log);
+        if (p.released || p.synced) log.info(p, "puntos");
+      } catch (err) {
+        log.error(
+          { err: err instanceof Error ? err.message : String(err) },
+          "puntos: ¿falta la migración 0035?",
+        );
+      }
       // Pagos revisados en la consola: avisar al dueño por WhatsApp (si escribió en 24 h).
       try {
         const meta = opts.platformPhoneNumberId ? deps.metaFor(opts.platformPhoneNumberId) : null;
         const notices = await sendPaymentNotices(db, meta, {
           now,
           supportHint: deps.config.supportHint,
+          privacyContact: deps.config.privacyContact,
           log,
         });
         if (notices.sent || notices.skipped) log.info(notices, "avisos de pago");

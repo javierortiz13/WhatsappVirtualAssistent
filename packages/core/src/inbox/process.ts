@@ -118,6 +118,7 @@ import {
   TransferError,
   transferAmounts,
 } from "../ledger/index";
+import { syncPoints } from "../ledger/points";
 import { NoRateError, rateFor } from "../ledger/rate-for";
 import { errorText, type Logger, maskPhone, silentLogger } from "../log";
 import {
@@ -161,6 +162,13 @@ import {
   payWithNewAccount,
 } from "./account-ask";
 import { saveSurveyAnswer } from "./lifecycle";
+import {
+  classifyPointsAsk,
+  closeDayReply,
+  pendingPointsLine,
+  pointsReply,
+  recordsTouchedSince,
+} from "./points-chat";
 import { hasPrefsOff, prefState, routePrefs } from "./prefs";
 import { SPLIT_WORDS, splitFollowUp, splitFromPhoto } from "./split";
 
@@ -195,6 +203,8 @@ export type ProcessDeps = {
     privacyContact?: string;
     /** H53 (US-200): la línea de la política nueva sale una vez a cada dueño. Lo enciende el worker. */
     privacyNotice?: boolean;
+    /** PR-R4, corte P4-A (US-428): «Actualizamos la política… por los puntos y los niveles». */
+    privacyNoticeP4?: boolean;
     unknownReplyMax: number;
     unknownReplyWindowMs: number;
     /** Conocidos: mensajes por ventana antes de avisar una vez y callar (checklist S2). */
@@ -485,6 +495,12 @@ export async function processInbound(
     );
     // Primero: la pregunta de la leyenda lee la última marca del turno.
     if (habitMarks.length) route.toolCalls = [...habitMarks, ...route.toolCalls];
+    // Puntos (P4, US-414; DQ-P4-2): después de guardar los borradores del turno y de deshacer lo
+    // que una corrección reemplazó, para que el +5 vea lo que quedó. Solo si el turno tocó un
+    // registro; el resto lo pone al día el mantenimiento (una vez por día) y «mis puntos».
+    const habitFlags = await habitSettings(tx);
+    if (habitFlags.xp && (await recordsTouchedSince(tx, resolved.tenantId, started)))
+      await syncPoints(tx, resolved.tenantId, started, { flags: habitFlags });
 
     // Aviso único al 80 % de los mensajes de la prueba, después de la respuesta (solo al dueño).
     if (
@@ -541,6 +557,35 @@ export async function processInbound(
         }
       }
     }
+    // Puntos (US-425): una línea pendiente (RW2, RW8…) arriba de la respuesta del dueño, debajo de
+    // H53/PR-R4 y encima de H28b/H23. Nunca en las respuestas sin rider ni con la cuenta detenida;
+    // una sola por respuesta; si no cabe, espera al turno siguiente.
+    if (
+      resolved.role === "owner" &&
+      !route.noRider &&
+      !route.pointsLine &&
+      !ctx.trialCapped &&
+      !ctx.monthCapped
+    ) {
+      const at = outbound.findIndex((o) => o.type !== "reaction");
+      const target = outbound[at];
+      const pts = target
+        ? await pendingPointsLine(
+            tx,
+            resolved.tenantId,
+            deps.config.privacyContact ?? DEFAULT_PRIVACY_CONTACT,
+            started,
+          )
+        : null;
+      if (pts && target) {
+        const body = `${pts.line}\n\n${target.body}`;
+        if (body.length <= (target.type === "text" ? LIMITS.textBody : LIMITS.interactiveBody)) {
+          await pts.commit();
+          outbound[at] = { ...target, body } as Outbound;
+          route.toolCalls = [pts.mark, ...route.toolCalls];
+        }
+      }
+    }
     // Política de privacidad nueva (US-200, H53): una vez por teléfono del dueño, arriba de todo
     // (H53, luego H28b y H23). No en las tarjetas de avisos, eraseConfirm, la cuenta suspendida
     // ni una respuesta que es solo reacción: espera la siguiente.
@@ -552,6 +597,24 @@ export async function processInbound(
         if (body.length <= (target.type === "text" ? LIMITS.textBody : LIMITS.interactiveBody)) {
           outbound[at] = { ...target, body } as Outbound;
           route.toolCalls = [{ name: PRIVACY_NOTICE, args: {} }, ...route.toolCalls];
+        }
+      }
+    }
+    // PR-R4, corte P4-A (US-428): una vez por teléfono del dueño, con el mismo patrón que H53 y
+    // nunca en la misma respuesta que H53 (una línea de política por respuesta).
+    if (
+      deps.config.privacyNoticeP4 &&
+      resolved.role === "owner" &&
+      !route.noRider &&
+      !route.toolCalls.some((c) => c.name === PRIVACY_NOTICE)
+    ) {
+      const at = outbound.findIndex((o) => o.type !== "reaction");
+      const target = outbound[at];
+      if (target && !(await sentPrivacyNotice(tx, resolved.phoneId, PRIVACY_NOTICE_P4))) {
+        const body = `${es.privacyNoticeP4(deps.config.dashboardUrl)}\n\n${target.body}`;
+        if (body.length <= (target.type === "text" ? LIMITS.textBody : LIMITS.interactiveBody)) {
+          outbound[at] = { ...target, body } as Outbound;
+          route.toolCalls = [{ name: PRIVACY_NOTICE_P4, args: {} }, ...route.toolCalls];
         }
       }
     }
@@ -844,6 +907,8 @@ type RouteResult = {
    * y sus respuestas, la cuenta suspendida o sin mensajes, la papelera.
    */
   noRider?: boolean;
+  /** Ya es una línea de puntos (RW3-B): no lleva otra encima (una por respuesta, US-425). */
+  pointsLine?: boolean;
   toolCalls: { name: string; args: unknown }[];
   tokensIn: number;
   tokensOut: number;
@@ -1270,7 +1335,7 @@ async function routeMessage(
             deps.config.supportHint,
             ctx.personal,
             !ctx.personal && (await listAccounts(tx, ctx.tenantId)).some((a) => a.kind === "cash"),
-            (await habitSettings(tx)).prefs ? [es.PREFS_HELP_LINE] : [],
+            await helpExtra(tx, ctx),
           ),
         ]);
       if (keyword === "dashboard")
@@ -1287,6 +1352,12 @@ async function routeMessage(
       if (isReminderListAsk(msg.text) && (await habitSettings(tx)).reminders) {
         const list = await reminderListReply(tx, reminderChatCtx(deps, ctx));
         return { ...none(list.outbound), toolCalls: list.toolCalls };
+      }
+      // «mis puntos», «cómo sumo puntos», «qué regalos hay» (P4, US-424): sin la IA, con `xp`.
+      const pointsAsk = classifyPointsAsk(msg.text);
+      if (pointsAsk) {
+        const r = await pointsReply(tx, pointsCtx(deps, ctx), pointsAsk, "text");
+        if (r) return { ...none(r.outbound), toolCalls: r.toolCalls };
       }
       if (msg.text.length > deps.config.maxTextLength) return none([es.tooLong()]);
       // "Hoy no gasté nada" (hábitos US-106): sin la IA, solo el dueño y con su interruptor.
@@ -2357,9 +2428,23 @@ async function routeInteractive(
       // Cierre del día de las 8 pm: «Eso es todo» → ✅ (gratis); «Anotar algo más» → el ejemplo.
       // Cualquier toque ya es un mensaje suyo: la ventana de 24 h sigue abierta hasta mañana.
       if (ctx.role !== "owner") return none([es.outOfScope()]);
-      if (parsed.action === "done")
+      if (parsed.action === "done") {
+        // P4 (US-426, A44): con `xp`, el +2 y RW3-B en lugar del ✅ (un solo texto por cierre).
+        const pts = await closeDayReply(
+          tx,
+          { tenantId: ctx.tenantId, now: (deps.now ?? (() => new Date()))() },
+          parsed.date,
+        );
+        if (pts) return { ...none(pts.outbound), toolCalls: pts.toolCalls, pointsLine: true };
         return none([{ type: "reaction", body: "✅", waMessageId: ctx.inboundId }]);
+      }
       return none([es.eveningCloseMore(!!ctx.personal)]);
+    }
+    case "points": {
+      // Botones de «mis puntos» (US-424). «Invitar a alguien» llega con P4-B.
+      if (parsed.action === "invite") return none([es.outOfScope()]);
+      const r = await pointsReply(tx, pointsCtx(deps, ctx), parsed.action, "button");
+      return r ? { ...none(r.outbound), toolCalls: r.toolCalls } : none([es.outOfScope()]);
     }
     case "signup":
       // Un toque viejo del recordatorio del registro, ya con cuenta (US-SR-04): el menú.
@@ -3426,9 +3511,32 @@ async function settleTurnDrafts(
 }
 
 const PRIVACY_NOTICE = "privacy_notice_v2";
+const PRIVACY_NOTICE_P4 = "privacy_notice_p4";
 
-/** ¿Este teléfono ya recibió H53? */
-async function sentPrivacyNotice(tx: Tx, phoneId: string): Promise<boolean> {
+/** Las líneas de hábitos y puntos de la ayuda: H51 «Avisos», luego RW-help (dueño, con `xp`). */
+async function helpExtra(tx: Tx, ctx: RouteCtx): Promise<string[]> {
+  const flags = await habitSettings(tx);
+  return [
+    ...(flags.prefs ? [es.PREFS_HELP_LINE] : []),
+    ...(flags.xp && ctx.role === "owner" ? [es.pointsHelpLine] : []),
+  ];
+}
+
+const pointsCtx = (deps: ProcessDeps, ctx: RouteCtx) => ({
+  tenantId: ctx.tenantId,
+  role: ctx.role,
+  personal: ctx.personal === true,
+  inTrial: ctx.inTrial === true,
+  dashboardUrl: deps.config.dashboardUrl,
+  now: (deps.now ?? (() => new Date()))(),
+});
+
+/** ¿Este teléfono ya recibió esa línea de la política (H53, o PR-R4 de P4)? */
+async function sentPrivacyNotice(
+  tx: Tx,
+  phoneId: string,
+  marker: string = PRIVACY_NOTICE,
+): Promise<boolean> {
   const [hit] = await tx
     .select({ id: schema.message.id })
     .from(schema.message)
@@ -3436,7 +3544,7 @@ async function sentPrivacyNotice(tx: Tx, phoneId: string): Promise<boolean> {
       and(
         eq(schema.message.phoneId, phoneId),
         eq(schema.message.direction, "out"),
-        sql`${schema.message.toolCalls} @> ${JSON.stringify([{ name: PRIVACY_NOTICE }])}::jsonb`,
+        sql`${schema.message.toolCalls} @> ${JSON.stringify([{ name: marker }])}::jsonb`,
       ),
     )
     .limit(1);

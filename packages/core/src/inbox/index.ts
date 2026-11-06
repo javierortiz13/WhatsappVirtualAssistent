@@ -3,6 +3,7 @@ export * from "./ingest";
 export * from "./lifecycle";
 export * from "./notices";
 export * from "./nudge";
+export * from "./points-chat";
 export * from "./prefs";
 export * from "./process";
 export * from "./split";

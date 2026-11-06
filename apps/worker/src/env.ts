@@ -11,6 +11,8 @@ const Env = z.object({
   SUPPORT_HINT: z.string().optional(),
   /** Correo de privacidad (D11, US-211): el de /privacidad, para H13d-tag. Mismo valor que en Vercel. */
   PRIVACY_CONTACT: z.string().email().default("privacidad@caja.jpsoftwaredev.com"),
+  /** PR-R4 de P4-A (US-428): «1» enciende la línea de la política nueva por los puntos. */
+  PRIVACY_NOTICE_P4: z.enum(["0", "1"]).default("0"),
   /** Datos de cobro que el bot manda al renovar el plan (mismos valores que en Vercel). */
   PAYMENT_PAGO_MOVIL: z.string().optional(),
   PAYMENT_ZELLE: z.string().optional(),
