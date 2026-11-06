@@ -10,6 +10,7 @@ import {
   planSignupBatch,
   premiumOverUsd,
   quote,
+  SCHEDULE_REFUSALS,
   signupRescueSettings,
   TRIAL_DAYS,
 } from "@caja/core";
@@ -165,7 +166,7 @@ export default async function AdminHome({
                   : sp.error === "tope"
                     ? "El tope va de 0 a 200 US$, con hasta dos decimales."
                     : sp.error === "lote"
-                      ? `No se programó el lote: ${sp.motivo ?? "revisa el estado"}.`
+                      ? `No se programó el lote: ${sp.motivo && SCHEDULE_REFUSALS.has(sp.motivo) ? sp.motivo : "revisa el estado"}.`
                       : "No se pudo guardar el cambio."}
         </div>
       ) : null}
@@ -510,7 +511,9 @@ export default async function AdminHome({
             <p className="sub num" style={{ margin: 0 }}>
               {lote?.result
                 ? `El lote ya corrió: enviados ${lote.result.sent} · retenidos ${lote.result.held} · fallidos ${lote.result.failed} · «no me escribas» ${lote.result.optOuts} · sin enviar ${lote.result.unsent} · $${lote.result.costUsd.toFixed(2)}${lote.result.stop ? ` · parada ${lote.result.stop}` : ""}.`
-                : "El lote ya corrió."}{" "}
+                : lote?.reason === "se cortó"
+                  ? "El lote se cortó a mitad (el worker se reinició)."
+                  : "El lote ya corrió."}{" "}
               No hay segunda corrida.
             </p>
           ) : (
@@ -530,6 +533,9 @@ export default async function AdminHome({
                 Antes: marca «Le escribí yo» en los que contactaste y en tus números de prueba, y
                 revisa en WhatsApp Manager calidad en verde, límite de 250 o más, método de pago y
                 tarifa de marketing de $0,10 o menos. Ese día, ninguna otra campaña con plantilla.
+              </p>
+              <p className="sub" style={{ margin: 0 }}>
+                Se programa la noche antes, desde las 6 pm.
               </p>
               <form action={scheduleBatchAction}>
                 <button
