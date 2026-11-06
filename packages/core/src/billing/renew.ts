@@ -14,6 +14,7 @@ import {
   rechargeById,
 } from "./plans";
 import { type BillingMethod, latestRates, type Quote, quote, quoteUsd } from "./pricing";
+import { leyendaPct } from "./rewards";
 import { type SubscriptionState, subscriptionState } from "./subscription";
 
 /**
@@ -59,6 +60,8 @@ export type RenewalOffer = {
   quotes: Quote[];
   /** Precio fundador aplicado (0019): porcentaje y hasta cuándo. */
   founder: { pct: number; until: string } | null;
+  /** Nivel Leyenda (P4, US-417): el porcentaje, si ya va descontado. */
+  leyendaPct: number;
 };
 
 const clampMonths = (n: number | null | undefined) =>
@@ -87,8 +90,9 @@ export async function renewalOffer(
   const months = clampMonths(opts.months);
   const rates = await latestRates(tx);
   const pct = founderDiscount(t, now);
+  const ley = await leyendaPct(tx, t, now);
   const quotes = BILLING_METHODS.filter((m) => dest[m])
-    .map((m) => quote(plan, m, months, rates, "bcv_eur", pct))
+    .map((m) => quote(plan, m, months, rates, "bcv_eur", pct, ley))
     .filter((q): q is Quote => q !== null);
   return {
     plan,
@@ -97,6 +101,7 @@ export async function renewalOffer(
     state: subscriptionState(t, now),
     quotes,
     founder: pct && t.founderUntil ? { pct, until: t.founderUntil } : null,
+    leyendaPct: ley,
   };
 }
 
@@ -135,7 +140,15 @@ export async function startRenewal(
   const rates = await latestRates(tx);
   const q = recharge
     ? quoteUsd(new Decimal(pack.priceUsd), input.method, rates)
-    : quote(plan, input.method, months, rates, "bcv_eur", founderDiscount(t, now));
+    : quote(
+        plan,
+        input.method,
+        months,
+        rates,
+        "bcv_eur",
+        founderDiscount(t, now),
+        await leyendaPct(tx, t, now),
+      );
   if (!q) return null;
   const intent: RenewIntent = {
     plan: plan.id,

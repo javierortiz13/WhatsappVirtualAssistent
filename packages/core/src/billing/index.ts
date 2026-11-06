@@ -7,6 +7,7 @@ export * from "./pricing";
 export * from "./renew";
 export * from "./renew-chat";
 export * from "./retention";
+export * from "./rewards";
 export * from "./subscription";
 export * from "./trial";
 export * from "./trial-31";

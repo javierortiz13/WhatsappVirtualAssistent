@@ -1,7 +1,9 @@
 import { and, eq, schema, type Tx } from "@caja/db";
 import { type Decimal, toDbAmount, toDbRate } from "../domain/money";
+import { habitSettings } from "../ledger/habits";
 import { PERIOD_DAYS, type PlanId, RECHARGE } from "./plans";
 import type { BillingMethod, BillingRateKind } from "./pricing";
+import { leyendaPct, onPlanPaymentApproved, rewardSettings } from "./rewards";
 import { extendPaidUntil } from "./subscription";
 import { caracasMonth } from "./usage";
 
@@ -152,6 +154,11 @@ export async function approvePayment(
   if (pay.kind === "recharge")
     return approveRecharge(tx, t, pay.id, pay.extraMessages ?? RECHARGE.messages, reviewer, now);
   const paidUntil = extendPaidUntil(t, pay.months, now, PERIOD_DAYS);
+  // P4 (US-416, US-417): con `xp`, el 10 % de Leyenda se decide con el negocio de antes del pago.
+  const flags = await habitSettings(tx);
+  const ley = flags.xp
+    ? await leyendaPct(tx, t, now, { reportedAt: pay.createdAt, approving: true })
+    : 0;
   const done = await tx
     .update(schema.payment)
     .set({ status: "approved", reviewedBy: reviewer.email, reviewedAt: now })
@@ -166,7 +173,20 @@ export async function approvePayment(
     now,
     "approve_payment",
   );
-  return { paidUntil };
+  if (flags.xp) {
+    const rs = await rewardSettings(tx);
+    await onPlanPaymentApproved(tx, tenantId, pay.id, now, {
+      xpOn: true,
+      rewardsOn: flags.rewards,
+      ceilingUsd: rs.monthlyCeilingUsd,
+      leyendaPct: ley,
+    });
+  }
+  const [after] = await tx
+    .select({ paidUntil: schema.tenant.paidUntil })
+    .from(schema.tenant)
+    .where(eq(schema.tenant.id, tenantId));
+  return { paidUntil: after?.paidUntil ?? paidUntil };
 }
 
 /**
@@ -199,9 +219,10 @@ export async function addExtraMessages(
   tx: Tx,
   t: typeof schema.tenant.$inferSelect,
   messages: number,
-  actor: Reviewer,
+  /** null = el sistema (regalo de un nivel, P4 US-416). */
+  actor: Reviewer | null,
   now: Date,
-  reason: "approve_recharge" | "admin_gift",
+  reason: "approve_recharge" | "admin_gift" | "reward",
 ): Promise<number> {
   const month = caracasMonth(now).key;
   // En la prueba los regalos se acumulan aunque cambie el mes: suben el tope de la prueba.

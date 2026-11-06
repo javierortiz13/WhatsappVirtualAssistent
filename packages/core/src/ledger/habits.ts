@@ -30,6 +30,12 @@ export const HABIT_FLAGS = [
    * (se apaga con «No me recuerdes»): el cierre del día si anotó algo, el aviso si no. Con `nudge`.
    */
   "dailyClose",
+  /** P4 (v4.2.1): puntos y niveles (US-413). Interruptor de todo: apagado, nada suma ni se ve. */
+  "xp",
+  /** P4: los regalos de cada nivel (US-416). Requiere `xp`. */
+  "rewards",
+  /** P4-B: invitaciones (US-418…US-423). Requiere `xp`; en P4-A no se puede encender. */
+  "referrals",
 ] as const;
 export type HabitFlag = (typeof HABIT_FLAGS)[number];
 export type HabitSettings = Record<HabitFlag, boolean>;
@@ -42,6 +48,9 @@ export const HABIT_DEFAULTS: HabitSettings = {
   nudge: false,
   reminderTemplate: false,
   dailyClose: false,
+  xp: false,
+  rewards: false,
+  referrals: false,
 };
 
 /** ¿El mensaje de las 8 pm sale sin que el dueño lo pida (cierre del día)? */

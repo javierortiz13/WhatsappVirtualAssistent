@@ -11,6 +11,7 @@ import {
   numeric,
   pgSchema,
   primaryKey,
+  smallint,
   text,
   time,
   timestamp,
@@ -129,6 +130,9 @@ export const tenant = app.table(
     crmTags: text("crm_tags").array().notNull().default(sql`'{}'::text[]`),
     /** De dónde sale la tasa de los gastos en Bs (0012): BCV, los lotes de cambio, o preguntar. */
     bsRateMode: text("bs_rate_mode").notNull().default("bcv"),
+    /** Nivel de puntos guardado (0035, PRD hábitos P4): 1 Cachorro … 5 Leyenda; nunca baja. */
+    pointsLevel: smallint("points_level").notNull().default(1),
+    pointsLevelAt: timestamp("points_level_at", { withTimezone: true }),
     ...timestamps,
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -770,3 +774,100 @@ export const accountTransfer = app.table(
     check("account_transfer_accounts_check", sql.raw(`from_account_id <> to_account_id`)),
   ],
 );
+
+// ---------------------------------------------------------------- puntos y regalos (0035, P4)
+
+export const REWARD_KINDS = [
+  "level_n2",
+  "level_n3",
+  "level_n4",
+  "level_n5",
+  "ref_month",
+  "ref_invitee_msgs",
+] as const;
+export const REWARD_STATUSES = [
+  "applied",
+  "waiting",
+  "pending_review",
+  "cancelled",
+  "refused",
+  "test",
+] as const;
+export const REWARD_WAIT_REASONS = ["ceiling", "not_paying", "flag_off", "paused"] as const;
+
+/** El libro de puntos (0035): una fila por regla y clave; las reversas son filas negativas. */
+export const pointsEvent = app.table(
+  "points_event",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id, { onDelete: "cascade" }),
+    rule: text("rule").notNull(),
+    refKey: text("ref_key").notNull(),
+    points: integer("points").notNull(),
+    businessDate: date("business_date").notNull(),
+    reason: text("reason"),
+    reverses: uuid("reverses").references((): AnyPgColumn => pointsEvent.id, {
+      onDelete: "set null",
+    }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("points_event_rule_key").on(t.tenantId, t.rule, t.refKey),
+    index("points_event_tenant_date").on(t.tenantId, t.businessDate),
+  ],
+);
+
+/** El regalo de cada nivel (0035) y, con P4-B, los de invitaciones. */
+export const rewardGrant = app.table(
+  "reward_grant",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenant.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    status: text("status").notNull(),
+    waitReason: text("wait_reason"),
+    appliedAs: text("applied_as"),
+    costUsdEstimate: numeric("cost_usd_estimate", { precision: 10, scale: 2 })
+      .notNull()
+      .default("0"),
+    bookedMonth: text("booked_month"),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    referralId: uuid("referral_id"),
+    paymentId: uuid("payment_id").references(() => payment.id, { onDelete: "set null" }),
+    sourceApprovedAt: timestamp("source_approved_at", { withTimezone: true }),
+    flags: jsonb("flags").notNull().default({}),
+    ...timestamps,
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("reward_grant_waiting").on(t.status, t.waitReason, t.createdAt),
+    check("reward_grant_kind_check", inList("kind", REWARD_KINDS)),
+    check("reward_grant_status_check", inList("status", REWARD_STATUSES)),
+  ],
+);
+
+/** Líneas para la próxima respuesta del dueño (0035): RW2, RW8…; se muestran una vez. */
+export const pointsNotice = app.table("points_notice", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenant.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  args: jsonb("args").notNull().default({}),
+  ...timestamps,
+  shownAt: timestamp("shown_at", { withTimezone: true }),
+});
+
+/** Lo reservado del tope de regalos del mes, entre todos (0035). caja_app solo lo lee. */
+export const rewardMonth = app.table("reward_month", {
+  month: text("month").primaryKey(),
+  bookedUsd: numeric("booked_usd", { precision: 10, scale: 2 }).notNull().default("0"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type PointsEvent = typeof pointsEvent.$inferSelect;
+export type RewardGrant = typeof rewardGrant.$inferSelect;

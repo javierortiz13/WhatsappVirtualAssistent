@@ -64,8 +64,13 @@ export function quote(
   preferred: BillingRateKind = "bcv_eur",
   /** Precio fundador (0019): porcentaje de descuento sobre el precio del plan. */
   discountPct = 0,
+  /** Nivel Leyenda (P4, A38): otro porcentaje, después del fundador, al centavo en cada paso. */
+  rewardPct = 0,
 ): Quote | null {
-  const usd = withDiscount(new Decimal(plan.priceUsd).mul(months), discountPct);
+  const usd = withDiscount(
+    withDiscount(new Decimal(plan.priceUsd).mul(months), discountPct),
+    rewardPct,
+  );
   return quoteUsd(usd, method, rates, preferred);
 }
 
