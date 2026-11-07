@@ -43,6 +43,15 @@ describe("isNoSpendPhrase", () => {
       "hoy no hubo ventas ni gastos",
       "hoy no abrimos",
       "Hoy no abrí",
+      // 07/11: lo que se contesta a la pregunta de las 8 pm, sin «hoy».
+      "No hubo gastos",
+      "no hubo gastos hoy",
+      "No gasté nada",
+      "no tuve gastos",
+      "No hubo nada.",
+      "no hubo ventas ni gastos",
+      "Sin gastos",
+      "hoy nada",
     ])
       expect(isNoSpendPhrase(t), t).toBe(true);
   });
@@ -53,6 +62,10 @@ describe("isNoSpendPhrase", () => {
       "ayer no gasté nada",
       "no gasté nada en la farmacia, fueron 5$",
       "hoy no vendí nada",
+      "no hubo ventas",
+      "nada",
+      "no hubo gastos ayer",
+      "no hubo gastos en comida",
     ])
       expect(isNoSpendPhrase(t), t).toBe(false);
   });
