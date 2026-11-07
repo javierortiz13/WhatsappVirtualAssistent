@@ -29,6 +29,13 @@ const Env = z.object({
   META_SIGNUP_TEMPLATE: z.string().optional(),
   /** Cuenta de WhatsApp Business: solo para leer el estado y la calidad de esa plantilla (CLI). */
   META_WABA_ID: z.string().optional(),
+  /** Número del administrador para el aviso de pagos reportados (E.164). Sin él, no hay aviso. */
+  ADMIN_ALERT_WA: z
+    .string()
+    .regex(/^\+?\d{10,15}$/)
+    .optional(),
+  /** Plantilla de utilidad aprobada para ese aviso cuando la ventana de 24 h está cerrada. */
+  META_ADMIN_ALERT_TEMPLATE: z.string().optional(),
   /** Tarifa de marketing para el costo estimado del lote (Resto de Latinoamérica, oct 2026). */
   META_MARKETING_RATE_USD: z.coerce.number().positive().default(0.074),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(4),

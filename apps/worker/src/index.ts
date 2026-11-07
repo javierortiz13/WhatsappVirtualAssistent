@@ -152,6 +152,23 @@ async function main() {
           rateUsd: env.META_MARKETING_RATE_USD,
         }
       : null,
+    adminAlert: env.ADMIN_ALERT_WA
+      ? {
+          e164: env.ADMIN_ALERT_WA,
+          template: env.META_ADMIN_ALERT_TEMPLATE
+            ? { name: env.META_ADMIN_ALERT_TEMPLATE, language: env.META_TEMPLATE_LANGUAGE }
+            : null,
+          dashboardUrl: env.DASHBOARD_URL,
+        }
+      : null,
+    // Sin el número ni datos del pago: solo cuántos y por qué no salió.
+    onPaymentAlertMissed: (r) =>
+      Sentry.captureMessage(
+        r.status === "no_window"
+          ? `Pago por verificar sin aviso: ventana de WhatsApp cerrada (${r.newPayments})`
+          : `Pago por verificar sin aviso: falló el envío (${r.newPayments})`,
+        { level: "warning" },
+      ),
     onError: (err, queue) => captureError(err, { queue }),
     // Aviso al administrador por Sentry (sin números ni mensajes): el bot sigue funcionando.
     onOverCap: (items) => {

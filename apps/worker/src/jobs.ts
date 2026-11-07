@@ -22,6 +22,7 @@ import {
   releaseStalePending,
   retentionSweep,
   runHabitNudges,
+  runPaymentAlerts,
   runPointsHousekeeping,
   runScheduledSignupBatch,
   runSignupRescue,
@@ -56,6 +57,7 @@ export const CRON = {
   signupReminders: "*/5 * * * *",
   habitNudges: "0 20 * * *",
   signupBatch: "*/5 10 * * 2-4",
+  adminAlerts: "* * * * *",
 } as const;
 
 export async function registerJobs(opts: {
@@ -83,6 +85,17 @@ export async function registerJobs(opts: {
     template: { name: string; language: string; wabaId: string | null };
     rateUsd: number;
   } | null;
+  /**
+   * Aviso al administrador de cada pago reportado: su número (solo en la variable del worker,
+   * nunca en el log) y la plantilla de utilidad para cuando su ventana de 24 h está cerrada.
+   */
+  adminAlert?: {
+    e164: string;
+    template: { name: string; language: string } | null;
+    dashboardUrl: string;
+  } | null;
+  /** Aviso a Sentry (sin datos) cuando un pago reportado no se pudo avisar por WhatsApp. */
+  onPaymentAlertMissed?: (r: { status: string; newPayments: number }) => void;
 }) {
   const { boss, db, deps, log } = opts;
   const guarded =
@@ -391,6 +404,28 @@ export async function registerJobs(opts: {
     }),
   );
 
+  // Aviso al administrador de los pagos reportados (06/11). Sin número configurado, no hace nada.
+  await boss.work(
+    QUEUES.adminAlerts,
+    { batchSize: 1, pollingIntervalSeconds: 10 },
+    guarded(QUEUES.adminAlerts, async () => {
+      const meta = opts.platformPhoneNumberId ? deps.metaFor(opts.platformPhoneNumberId) : null;
+      if (!opts.adminAlert) return;
+      const r = await runPaymentAlerts(db, meta, {
+        adminE164: opts.adminAlert.e164,
+        template: opts.adminAlert.template,
+        dashboardUrl: opts.adminAlert.dashboardUrl,
+        now: new Date(),
+      });
+      // Solo cuentas: ni el número del administrador ni datos del pago.
+      if (r.status === "sent") log.info(r, "aviso de pago al administrador");
+      if (r.status === "no_window" || r.status === "failed") {
+        log.warn(r, "aviso de pago al administrador: no salió");
+        opts.onPaymentAlertMissed?.(r);
+      }
+    }),
+  );
+
   // Aviso de racha (hábitos US-207): a las 8 pm. Sin `habits.nudge`, no hace nada.
   await boss.work(
     QUEUES.habitNudges,
@@ -426,6 +461,10 @@ export async function registerJobs(opts: {
   await boss.schedule(QUEUES.signupBatch, CRON.signupBatch, null, {
     tz: "America/Caracas",
     key: "tue-thu-10",
+  });
+  await boss.schedule(QUEUES.adminAlerts, CRON.adminAlerts, null, {
+    tz: "America/Caracas",
+    key: "every-minute",
   });
   await boss.schedule(QUEUES.habitNudges, CRON.habitNudges, null, {
     tz: "America/Caracas",

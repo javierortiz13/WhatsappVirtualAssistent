@@ -22,6 +22,8 @@ export const QUEUES = {
   habitNudges: "habit-nudges",
   /** Lote de la plantilla del registro programado desde /admin (A-0031): 10:00–10:45 mar–jue. */
   signupBatch: "signup-batch",
+  /** Aviso al administrador de los pagos reportados (06/11): cada minuto. */
+  adminAlerts: "admin-alerts",
 } as const;
 
 export const PGBOSS_SCHEMA = "pgboss";
@@ -89,6 +91,14 @@ export async function ensureQueues(boss: PgBoss): Promise<void> {
       retryLimit: 1,
       retryDelay: 60,
       expireInSeconds: 300,
+    },
+    {
+      // Sin reintentos: el minuto siguiente vuelve a mirar; lo avisado se guarda antes de enviar.
+      name: QUEUES.adminAlerts,
+      policy: "singleton",
+      retryLimit: 0,
+      retryDelay: 30,
+      expireInSeconds: 55,
     },
     {
       // Sin reintentos: el minuto siguiente vuelve a mirar. Un envío no se repite (marca primero).
