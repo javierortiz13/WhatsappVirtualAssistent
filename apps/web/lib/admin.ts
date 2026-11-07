@@ -12,6 +12,7 @@ import {
   latestRates,
   leyendaPct,
   type MonthUsage,
+  monthlyRevenueUsd,
   monthOutbound,
   monthUsage,
   type NudgeStats,
@@ -143,6 +144,23 @@ export async function loadTenants(now: Date): Promise<TenantRow[]> {
             .where(eq(schema.payment.tenantId, id))
         ).filter((p) => p.status === "pending").length;
         if (!t) return null;
+        // El último pago de plan aprobado: lo que de verdad paga por mes (descuentos incluidos).
+        const [lastPlanPayment] = await tx
+          .select({
+            plan: schema.payment.plan,
+            months: schema.payment.months,
+            amountUsd: schema.payment.amountUsd,
+          })
+          .from(schema.payment)
+          .where(
+            and(
+              eq(schema.payment.tenantId, id),
+              eq(schema.payment.status, "approved"),
+              eq(schema.payment.kind, "plan"),
+            ),
+          )
+          .orderBy(desc(schema.payment.createdAt))
+          .limit(1);
         const [act] = rows<{ last_in: string | null; first_day: number | string }>(
           await tx.execute(sql`
             select (select max(created_at) from app.message
@@ -158,6 +176,7 @@ export async function loadTenants(now: Date): Promise<TenantRow[]> {
           phones,
           usage,
           pendingCount,
+          lastPlanPayment: lastPlanPayment ?? null,
           lastInboundAt: act?.last_in ? new Date(act.last_in) : null,
           firstDayMovements: Number(act?.first_day ?? 0),
         };
@@ -168,41 +187,44 @@ export async function loadTenants(now: Date): Promise<TenantRow[]> {
   // Meta cobra por número de la plataforma: el excedente del mes se reparte por salientes.
   const totalOut = present.reduce((n, b) => n + b.usage.outbound, 0);
   const metaTotal = new Decimal(Math.max(totalOut - FREE_TIER, 0)).mul(env().META_MSG_RATE_USD);
-  return present.map(({ t, phones, usage, pendingCount, lastInboundAt, firstDayMovements }) => {
-    const plan = planById(t.plan);
-    const state = subscriptionState(t, now);
-    const paying = t.status === "active" && t.paidUntil !== null && state.kind !== "expired";
-    const revenue = new Decimal(paying ? plan.priceUsd : 0);
-    const meta = totalOut ? metaTotal.mul(usage.outbound).div(totalOut) : new Decimal(0);
-    return {
-      id: t.id,
-      name: t.name,
-      businessType: t.businessType,
-      plan: t.plan,
-      planPrice: plan.priceUsd,
-      cap: plan.messagesPerMonth + (t.extraMonth === usage.month ? t.extraMessages : 0),
-      status: t.status,
-      createdAt: t.createdAt,
-      state,
-      purgeAfter: t.deletedAt ? t.purgeAfter : null,
-      deletedAt: t.deletedAt,
-      suspendedAt: t.suspendedAt,
-      owner: phones.find((p) => p.role === "owner") ?? null,
-      usage,
-      pendingPayments: pendingCount,
-      metaCostUsd: meta.toDecimalPlaces(4),
-      revenueUsd: revenue,
-      marginUsd: revenue.minus(usage.aiCostUsd).minus(meta).toDecimalPlaces(2),
-      signupChannel: t.signupChannel,
-      founderUntil: t.founderUntil,
-      crmTags: t.crmTags,
-      internal: isInternal(t.crmTags),
-      survey: (t.survey ?? {}) as Record<string, string>,
-      lastInboundAt,
-      firstDayMovements,
-      health: healthOf(lastInboundAt, now),
-    };
-  });
+  return present.map(
+    ({ t, phones, usage, pendingCount, lastPlanPayment, lastInboundAt, firstDayMovements }) => {
+      const plan = planById(t.plan);
+      const state = subscriptionState(t, now);
+      const paying = t.status === "active" && t.paidUntil !== null && state.kind !== "expired";
+      // Lo que paga por mes (con el 40 % de fundador o Leyenda), no el precio de lista.
+      const revenue = paying ? monthlyRevenueUsd(t, lastPlanPayment, now) : new Decimal(0);
+      const meta = totalOut ? metaTotal.mul(usage.outbound).div(totalOut) : new Decimal(0);
+      return {
+        id: t.id,
+        name: t.name,
+        businessType: t.businessType,
+        plan: t.plan,
+        planPrice: plan.priceUsd,
+        cap: plan.messagesPerMonth + (t.extraMonth === usage.month ? t.extraMessages : 0),
+        status: t.status,
+        createdAt: t.createdAt,
+        state,
+        purgeAfter: t.deletedAt ? t.purgeAfter : null,
+        deletedAt: t.deletedAt,
+        suspendedAt: t.suspendedAt,
+        owner: phones.find((p) => p.role === "owner") ?? null,
+        usage,
+        pendingPayments: pendingCount,
+        metaCostUsd: meta.toDecimalPlaces(4),
+        revenueUsd: revenue,
+        marginUsd: revenue.minus(usage.aiCostUsd).minus(meta).toDecimalPlaces(2),
+        signupChannel: t.signupChannel,
+        founderUntil: t.founderUntil,
+        crmTags: t.crmTags,
+        internal: isInternal(t.crmTags),
+        survey: (t.survey ?? {}) as Record<string, string>,
+        lastInboundAt,
+        firstDayMovements,
+        health: healthOf(lastInboundAt, now),
+      };
+    },
+  );
 }
 
 export type AbandonedSignup = {

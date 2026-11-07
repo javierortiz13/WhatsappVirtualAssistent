@@ -9,6 +9,7 @@ export * from "./referrals";
 export * from "./renew";
 export * from "./renew-chat";
 export * from "./retention";
+export * from "./revenue";
 export * from "./rewards";
 export * from "./subscription";
 export * from "./trial";
