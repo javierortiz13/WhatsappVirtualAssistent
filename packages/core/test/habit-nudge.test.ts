@@ -4,7 +4,12 @@ import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { addDays, businessDateOf } from "../src/domain/dates";
 import { takeUnsolicitedSlot } from "../src/inbox/gate";
-import { inNudgeWindow, runHabitNudges } from "../src/inbox/nudge";
+import {
+  earlyNudgeDue,
+  inEarlyNudgeWindow,
+  inNudgeWindow,
+  runHabitNudges,
+} from "../src/inbox/nudge";
 import { saveHabitSettings } from "../src/ledger/habits";
 import { MetaClient } from "../src/whatsapp/client";
 import * as fx from "./fixtures";
@@ -26,6 +31,27 @@ describe("inNudgeWindow", () => {
     expect(inNudgeWindow(at(20, 0))).toBe(true);
     expect(inNudgeWindow(at(20, 29))).toBe(true);
     expect(inNudgeWindow(at(20, 30))).toBe(false);
+  });
+});
+
+describe("8 pm adelantado (opción A, 07/11)", () => {
+  it("vueltas de 18:00 a 19:59", () => {
+    expect(inEarlyNudgeWindow(at(17, 59))).toBe(false);
+    expect(inEarlyNudgeWindow(at(18, 0))).toBe(true);
+    expect(inEarlyNudgeWindow(at(19, 55))).toBe(true);
+    expect(inEarlyNudgeWindow(at(20, 0))).toBe(false);
+  });
+  it("sale en las dos últimas vueltas con la ventana abierta, si cierra antes de las 20:00", () => {
+    // Contestó ayer a las 20:01: con el margen de 10 min, la ventana cierra hoy a las 19:51.
+    const last = at(20, 1, -1);
+    expect(earlyNudgeDue(last, at(19, 40))).toBe(false);
+    expect(earlyNudgeDue(last, at(19, 45))).toBe(true);
+    expect(earlyNudgeDue(last, at(19, 50))).toBe(true);
+    expect(earlyNudgeDue(last, at(19, 55))).toBe(false);
+    // Ayer a las 20:12: a las 20:00 sigue abierta; sale a las 20:00, no antes.
+    expect(earlyNudgeDue(at(20, 12, -1), at(19, 55))).toBe(false);
+    // Nunca escribió: nada.
+    expect(earlyNudgeDue(null, at(19, 45))).toBe(false);
   });
 });
 
@@ -167,6 +193,67 @@ describe("runHabitNudges (US-207, US-208)", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.status).toBe("ok");
     expect(rows[0]?.toolCalls).toEqual([{ name: "habit_nudge", args: { n: 2 } }]);
+  });
+
+  /** El dueño escribió en esta hora exacta. */
+  const wroteAt = (when: Date) =>
+    withTenant(t.db, tenantId, (tx) =>
+      tx.insert(schema.message).values({
+        tenantId,
+        phoneId,
+        direction: "in",
+        kind: "text",
+        body: "x",
+        createdAt: when,
+      }),
+    );
+
+  it("opción A: contestó ayer a las 20:01 → sale a las 19:45 (no a las 19:40) y no se repite a las 20:00", async () => {
+    await record(2);
+    await record(1);
+    await wroteAt(at(20, 1, -1));
+    const before = await runHabitNudges(t.db, meta, { now: at(19, 40) });
+    expect(before).toMatchObject({ sent: 0, outside: false, skipped: {} });
+    const early = await runHabitNudges(t.db, meta, { now: at(19, 45) });
+    expect(early).toMatchObject({ sent: 1, early: 1 });
+    expect(bodyOf(sent[0])).toBe("¿Hubo algo hoy que anotar? Así sigue tu racha de 2 días 🔥");
+    // Otra vuelta adelantada (19:50) ya ve la marca; a las 20:00 la ventana ya cerró.
+    expect((await runHabitNudges(t.db, meta, { now: at(19, 50) })).skipped.slot_taken).toBe(1);
+    expect((await runHabitNudges(t.db, meta, { now: at(20, 0) })).sent).toBe(0);
+    expect(sent).toHaveLength(1);
+  });
+
+  it("opción A: con la ventana abierta a las 20:00, las vueltas de antes no hacen nada", async () => {
+    await record(2);
+    await record(1);
+    await wroteAt(at(14, 0));
+    for (const [h, m] of [
+      [18, 0],
+      [19, 0],
+      [19, 55],
+    ] as const)
+      expect(await runHabitNudges(t.db, meta, { now: at(h, m) })).toMatchObject({
+        sent: 0,
+        skipped: {},
+      });
+    expect(await runHabitNudges(t.db, meta, { now: at(20, 0) })).toMatchObject({
+      sent: 1,
+      early: 0,
+    });
+  });
+
+  it("opción A: margen de 10 min a las 20:00 (ayer 20:12 sale); antes de las 18:00, nada", async () => {
+    await record(2);
+    await record(1);
+    await wroteAt(at(20, 12, -1));
+    expect(await runHabitNudges(t.db, meta, { now: at(20, 0) })).toMatchObject({ sent: 1 });
+    await t.db.delete(schema.message);
+    sent.length = 0;
+    // Ayer a las 17:55: la ventana cierra hoy a las 17:45, antes de la primera vuelta.
+    await wroteAt(at(17, 55, -1));
+    expect(await runHabitNudges(t.db, meta, { now: at(18, 0) })).toMatchObject({ sent: 0 });
+    expect((await runHabitNudges(t.db, meta, { now: at(20, 0) })).skipped.window_closed).toBe(1);
+    expect(sent).toHaveLength(0);
   });
 
   it("dos corridas el mismo día y un reintento a las 20:25 mandan uno; a las 20:31, ninguno", async () => {

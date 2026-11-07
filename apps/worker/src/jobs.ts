@@ -55,6 +55,8 @@ export const CRON = {
   reminders: "* * * * *",
   signupReminders: "*/5 * * * *",
   habitNudges: "0 20 * * *",
+  /** El de las 8 pm adelantado para quien su ventana de 24 h cierra antes (opción A, 07/11). */
+  habitNudgesEarly: "*/5 18-19 * * *",
   signupBatch: "*/5 10 * * 2-4",
 } as const;
 
@@ -430,6 +432,10 @@ export async function registerJobs(opts: {
   await boss.schedule(QUEUES.habitNudges, CRON.habitNudges, null, {
     tz: "America/Caracas",
     key: "daily-8pm",
+  });
+  await boss.schedule(QUEUES.habitNudges, CRON.habitNudgesEarly, null, {
+    tz: "America/Caracas",
+    key: "early-6-to-8pm",
   });
   // El autoguardado de cada minuto (0022) se reemplazó por el guardado al instante (0023).
   await boss.unschedule(RETIRED_AUTO_SAVE_QUEUE, "every-minute").catch(() => {});

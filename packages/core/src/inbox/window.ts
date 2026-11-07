@@ -8,9 +8,13 @@ import { and, desc, eq, schema, type Tx } from "@caja/db";
 export const WINDOW_MS = 24 * 3_600_000;
 export const WINDOW_SAFE_MS = 23.5 * 3_600_000;
 
-/** ¿Sigue abierta la ventana, con el margen? */
-export function windowOpenAt(lastInboundAt: Date | null, now: Date): boolean {
-  return lastInboundAt !== null && now.getTime() - lastInboundAt.getTime() < WINDOW_SAFE_MS;
+/** ¿Sigue abierta la ventana, con el margen? (`safeMs`: otro margen, p. ej. el de las 8 pm). */
+export function windowOpenAt(
+  lastInboundAt: Date | null,
+  now: Date,
+  safeMs = WINDOW_SAFE_MS,
+): boolean {
+  return lastInboundAt !== null && now.getTime() - lastInboundAt.getTime() < safeMs;
 }
 
 export type ServiceWindow = {
@@ -20,7 +24,12 @@ export type ServiceWindow = {
   open: boolean;
 };
 
-export async function serviceWindow(tx: Tx, phoneId: string, now: Date): Promise<ServiceWindow> {
+export async function serviceWindow(
+  tx: Tx,
+  phoneId: string,
+  now: Date,
+  safeMs = WINDOW_SAFE_MS,
+): Promise<ServiceWindow> {
   const [last] = await tx
     .select({ at: schema.message.createdAt })
     .from(schema.message)
@@ -31,6 +40,6 @@ export async function serviceWindow(tx: Tx, phoneId: string, now: Date): Promise
   return {
     lastInboundAt,
     closesAt: lastInboundAt ? new Date(lastInboundAt.getTime() + WINDOW_MS) : null,
-    open: windowOpenAt(lastInboundAt, now),
+    open: windowOpenAt(lastInboundAt, now, safeMs),
   };
 }
