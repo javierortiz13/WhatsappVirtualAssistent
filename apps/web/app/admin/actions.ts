@@ -7,10 +7,12 @@ import {
   BatchRefused,
   cancelSignupBatch,
   Decimal,
+  founderDiscount,
   founderUntilFrom,
   habitSettings,
   latestRates,
   PLANS,
+  paidAmountUsd,
   parseCeiling,
   parseVenezuelanAmount,
   planById,
@@ -33,6 +35,7 @@ import {
   subscriptionState,
   syncInvitee,
   TRIAL_DAYS,
+  withDiscount,
 } from "@caja/core";
 import { businessDateOf } from "@caja/core/domain";
 import { errorText } from "@caja/core/log";
@@ -79,8 +82,19 @@ export async function recordPaymentAction(formData: FormData): Promise<void> {
   const q = quote(plan, f.method, f.months, await latestRates(db()));
   const now = new Date();
   try {
-    await withTenant(db(), f.tenant_id, (tx) =>
-      recordPayment(
+    await withTenant(db(), f.tenant_id, async (tx) => {
+      const currency = f.method === "pago_movil" ? "VES" : f.method === "zelle" ? "USD" : "USDT";
+      const [t] = await tx
+        .select({ founderUntil: schema.tenant.founderUntil })
+        .from(schema.tenant)
+        .where(eq(schema.tenant.id, f.tenant_id));
+      // Lo que de verdad se cobró (con el 40 % de fundador, p. ej.), no el precio de lista.
+      const listed = withDiscount(
+        new Decimal(plan.priceUsd).mul(f.months),
+        founderDiscount({ founderUntil: t?.founderUntil ?? null }, now),
+      );
+      const rateValue = q?.rateValue ? new Decimal(q.rateValue) : null;
+      return recordPayment(
         tx,
         {
           tenantId: f.tenant_id,
@@ -88,18 +102,18 @@ export async function recordPaymentAction(formData: FormData): Promise<void> {
           months: f.months,
           method: f.method,
           amount,
-          currency: f.method === "pago_movil" ? "VES" : f.method === "zelle" ? "USD" : "USDT",
+          currency,
           rateKind: q?.rateKind ?? null,
           rateValue: q?.rateValue ?? null,
-          amountUsd: new Decimal(plan.priceUsd).mul(f.months),
+          amountUsd: paidAmountUsd(amount, currency, rateValue, listed),
           reference: f.reference || null,
           notes: f.notes || null,
         },
         admin,
         now,
         { approve: f.approve === "on" },
-      ),
-    );
+      );
+    });
   } catch (err) {
     fail(f.tenant_id, "servidor", err);
   }
