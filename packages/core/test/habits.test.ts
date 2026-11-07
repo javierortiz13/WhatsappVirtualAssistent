@@ -744,9 +744,27 @@ describe("botón «Hoy no gasté nada» del aviso (US-212) y oferta del aviso (U
     // Sin aceptar y con la pregunta abierta, la frase igual guarda la aceptación (antes decía
     // «ya estaba encendido» y no guardaba nada).
     await h.t.db.update(schema.phoneNumber).set({ nudgeOptInAt: null });
-    expect(await h.send("avísame a las 8")).toMatch(/^Dale: /);
+    // DC-13: con el 8 pm para todos, el texto dice que también llega el cierre (H13-daily).
+    expect(await h.send("avísame a las 8")).toBe(
+      "Dale: te escribo a las 8 pm si me escribiste en las últimas 24 horas: con lo que anotaste ese día o, si no anotaste nada, para que no se te pase. Para apagarlo: *no me recuerdes*.",
+    );
     expect((await phone()).nudgeOptInAt).not.toBeNull();
+    expect(await consents()).toContainEqual(
+      expect.objectContaining({
+        action: "nudge_opt_in",
+        after: expect.objectContaining({ text_id: "H13-daily", text_version: "v1" }),
+      }),
+    );
+    // Sin el interruptor, H13 como siempre.
     await saveHabitSettings(h.t.db, { dailyClose: false }, "test", new Date());
+    await h.t.db.update(schema.phoneNumber).set({ nudgeOptInAt: null });
+    expect(await h.send("avísame a las 8")).toMatch(/^Dale: los días que no anotes nada/);
+    expect(await consents()).toContainEqual(
+      expect.objectContaining({
+        action: "nudge_opt_in",
+        after: expect.objectContaining({ text_id: "H13", text_version: "v1" }),
+      }),
+    );
   });
 
   it("sin oferta con racha de 2, con el aviso apagado o ya aceptado, o sin el interruptor", async () => {

@@ -77,7 +77,8 @@ export async function saveHabitSettings(
     .select({ value: schema.appSetting.value })
     .from(schema.appSetting)
     .where(eq(schema.appSetting.key, KEY));
-  const value = { ...((r?.value ?? {}) as Record<string, unknown>), ...next };
+  const prev = (r?.value ?? {}) as Record<string, unknown>;
+  const value = { ...prev, ...next };
   await db
     .insert(schema.appSetting)
     .values({ key: KEY, value, updatedAt: now, updatedBy: actor })
@@ -85,6 +86,50 @@ export async function saveHabitSettings(
       target: schema.appSetting.key,
       set: { value, updatedAt: now, updatedBy: actor },
     });
+  // G1-4: la historia de cada cambio de interruptor (cuándo, cuál, de qué a qué y quién).
+  const changed = (Object.keys(next) as HabitFlag[]).filter(
+    (f) => next[f] !== undefined && (prev[f] === true) !== next[f],
+  );
+  if (!changed.length) return;
+  const [h] = await db
+    .select({ value: schema.appSetting.value })
+    .from(schema.appSetting)
+    .where(eq(schema.appSetting.key, HISTORY_KEY));
+  const history = [
+    ...((h?.value ?? []) as HabitHistoryEntry[]).slice(-(HISTORY_MAX - 1)),
+    {
+      at: now.toISOString(),
+      by: actor,
+      changed: Object.fromEntries(changed.map((f) => [f, [prev[f] === true, next[f] === true]])),
+    },
+  ];
+  await db
+    .insert(schema.appSetting)
+    .values({ key: HISTORY_KEY, value: history, updatedAt: now, updatedBy: actor })
+    .onConflictDoUpdate({
+      target: schema.appSetting.key,
+      set: { value: history, updatedAt: now, updatedBy: actor },
+    });
+}
+
+const HISTORY_KEY = "habits_history";
+/** Cambios que se guardan (los más viejos se descartan). */
+const HISTORY_MAX = 200;
+
+export type HabitHistoryEntry = {
+  at: string;
+  by: string;
+  /** Cada interruptor que cambió: [antes, después]. */
+  changed: Partial<Record<HabitFlag, [boolean, boolean]>>;
+};
+
+/** Los últimos `n` cambios de interruptores, el más reciente primero (G1-4, para /admin). */
+export async function habitHistory(db: Queryable, n = 10): Promise<HabitHistoryEntry[]> {
+  const [h] = await db
+    .select({ value: schema.appSetting.value })
+    .from(schema.appSetting)
+    .where(eq(schema.appSetting.key, HISTORY_KEY));
+  return ((h?.value ?? []) as HabitHistoryEntry[]).slice(-n).reverse();
 }
 
 // ---------------------------------------------------------------- racha

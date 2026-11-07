@@ -5,6 +5,7 @@ import {
   eq,
   everyTenantId,
   gt,
+  inArray,
   lt,
   rows,
   schema,
@@ -233,7 +234,7 @@ async function takeNudge(
           personal,
           noSpendDate: noSpendButton ? today : null,
         });
-  if (asking) out = es.withEveningAsk(out, Boolean(close && totals));
+  if (asking) out = es.withEveningAsk(out, Boolean(close && totals), personal);
   // La marca va antes de enviar y se confirma con esta transacción.
   const [row] = await tx
     .insert(schema.message)
@@ -273,7 +274,8 @@ export async function everSent(tx: Tx, phoneId: string): Promise<boolean> {
       and(
         eq(m.phoneId, phoneId),
         eq(m.direction, "out"),
-        eq(m.status, "ok"),
+        // DC-9: si Meta quizá lo entregó («unknown»), tampoco se vuelve a preguntar.
+        inArray(m.status, ["ok", "unknown"]),
         sql`(${m.toolCalls} @> ${JSON.stringify([{ name: NUDGE_MARK }])}::jsonb
              or ${m.toolCalls} @> ${JSON.stringify([{ name: CLOSE_MARK }])}::jsonb)`,
       ),
@@ -383,6 +385,11 @@ export type NudgeStats = {
   allOffs: number;
   /** De esos, los que llegaron hasta 24 h después de un mensaje de Rocco por su cuenta. */
   offsAfterSend: number;
+  /**
+   * DC-8: de esos, los «no me recuerdes» que llegaron después de la pregunta del primer mensaje
+   * (1B): un «No, gracias» a la pregunta, no una queja por un mensaje de Rocco.
+   */
+  declinesAfterAsk: number;
   /** Dueños con una tarjeta de apagar sin contestar (ahora). */
   pendingCards: number;
 };
@@ -452,6 +459,20 @@ export async function nudgeStats(
         )
     `),
   );
+  const [declines] = rows<{ n: number }>(
+    await tx.execute(sql`
+      select count(*)::int as n from app.audit_log l
+      where l.tenant_id = ${tenantId} and l.created_at > ${since.toISOString()}::timestamptz
+        and l.action = 'nudge_off'
+        and exists (
+          select 1 from app.message m
+          where m.phone_id = l.entity_id and m.direction = 'out' and m.status = 'ok'
+            and m.created_at between l.created_at - interval '24 hours' and l.created_at
+            and (m.tool_calls @> '[{"name":"habit_nudge","args":{"ask":true}}]'
+                 or m.tool_calls @> '[{"name":"habit_close","args":{"ask":true}}]')
+        )
+    `),
+  );
   const optIns = audits.filter((x) => x.action === "nudge_opt_in");
   return {
     offers: outs.filter((o) => has(o.toolCalls, "habit_optin_offer")).length,
@@ -468,6 +489,7 @@ export async function nudgeStats(
     nudgeOffs: audits.filter((x) => x.action === "nudge_off").length,
     allOffs: audits.filter((x) => x.action === "all_off").length,
     offsAfterSend: after?.n ?? 0,
+    declinesAfterAsk: declines?.n ?? 0,
     pendingCards: owners.filter((o) => o.pending).length,
   };
 }
@@ -510,6 +532,7 @@ export function sumNudgeStats(list: NudgeStats[]): NudgeStats {
     nudgeOffs: 0,
     allOffs: 0,
     offsAfterSend: 0,
+    declinesAfterAsk: 0,
     pendingCards: 0,
   };
   for (const s of list) for (const k of Object.keys(out) as (keyof NudgeStats)[]) out[k] += s[k];

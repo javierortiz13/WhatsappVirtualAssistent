@@ -15,7 +15,14 @@ describe("conteos de apagados, fallidos y salientes (G1-3)", () => {
   const now = new Date("2026-11-20T23:00:00Z");
   const H = 3_600_000;
 
-  const out = (tenantId: string, phoneId: string, name: string, at: Date, status = "ok") =>
+  const out = (
+    tenantId: string,
+    phoneId: string,
+    name: string,
+    at: Date,
+    status = "ok",
+    args: Record<string, unknown> = {},
+  ) =>
     withTenant(t.db, tenantId, (tx) =>
       tx.insert(schema.message).values({
         tenantId,
@@ -25,7 +32,7 @@ describe("conteos de apagados, fallidos y salientes (G1-3)", () => {
         body: "x",
         status,
         createdAt: at,
-        toolCalls: [{ name, args: {} }],
+        toolCalls: [{ name, args }],
       }),
     );
   const off = (tenantId: string, phoneId: string, action: string, at: Date) =>
@@ -69,11 +76,36 @@ describe("conteos de apagados, fallidos y salientes (G1-3)", () => {
   it("cada negocio ve lo suyo", async () => {
     const since = new Date(now.getTime() - 14 * 24 * H);
     const sa = await withTenant(t.db, a, (tx) => nudgeStats(tx, a, since, now));
-    expect(sa).toMatchObject({ nudgeOffs: 1, allOffs: 1, offsAfterSend: 1, pendingCards: 1 });
+    // DC-8: el cierre a quien ya aceptó + «no me recuerdes» no es un «No, gracias» a la pregunta.
+    expect(sa).toMatchObject({
+      nudgeOffs: 1,
+      allOffs: 1,
+      offsAfterSend: 1,
+      declinesAfterAsk: 0,
+      pendingCards: 1,
+    });
     const sb = await withTenant(t.db, b, (tx) => nudgeStats(tx, b, since, now));
     expect(sb).toMatchObject({ nudgeOffs: 0, allOffs: 1, offsAfterSend: 1, pendingCards: 0 });
     expect((await withTenant(t.db, a, (tx) => reminderStats(tx, a, since))).failed).toBe(1);
     expect((await withTenant(t.db, b, (tx) => reminderStats(tx, b, since))).failed).toBe(0);
+  });
+
+  it("DC-8: «No, gracias» a la primera pregunta cuenta aparte (1 y 1)", async () => {
+    const c = await seedTenant(t.db, {
+      name: "C",
+      businessType: "food",
+      ownerPhone: "584121000003",
+    });
+    const [pc] = await t.db
+      .select()
+      .from(schema.phoneNumber)
+      .where(eq(schema.phoneNumber.tenantId, c));
+    const phoneC = pc?.id ?? "";
+    await out(c, phoneC, "habit_nudge", new Date(now.getTime() - 4 * H), "ok", { n: 0, ask: true });
+    await off(c, phoneC, "nudge_off", new Date(now.getTime() - 3 * H));
+    const since = new Date(now.getTime() - 14 * 24 * H);
+    const sc = await withTenant(t.db, c, (tx) => nudgeStats(tx, c, since, now));
+    expect(sc).toMatchObject({ nudgeOffs: 1, offsAfterSend: 1, declinesAfterAsk: 1 });
   });
 
   it("salientes del mes: solo los que salieron, desde el día 1 de Caracas", async () => {

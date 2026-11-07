@@ -1,6 +1,7 @@
 import {
   and,
   type Db,
+  eq,
   inArray,
   isNotNull,
   isNull,
@@ -21,7 +22,8 @@ import { discardAttachment } from "./attachments";
  *   argumentos de `tool_calls` (quedan solo los nombres, para las métricas), el contenido de los
  *   borradores ya resueltos y el mensaje crudo del webhook.
  * - Las fotos de facturas se borran a los 12 meses (del bucket y baja lógica del adjunto).
- * - Los recordatorios se borran 90 días después de cumplidos, vencidos o borrados (hábitos P-4).
+ * - Los recordatorios se borran 90 días después de avisados, cumplidos, vencidos o borrados
+ *   (hábitos P-4; G1-2: un «delivered» que nunca se marcó hecho también se borra).
  * Los movimientos no se tocan: se conservan mientras la cuenta esté activa. Corre en el
  * housekeeping; las fotos van por tandas para no alargar la transacción.
  */
@@ -80,15 +82,18 @@ export async function purgeOldTenantData(
     .limit(PHOTO_BATCH);
   let photos = 0;
   for (const o of old) if (await discardAttachment(tx, store, tenantId, o.id, now, log)) photos++;
-  // `updated_at` es cuándo se cumplió, venció o se borró: después no cambia.
+  // `updated_at` es cuándo se cumplió, venció o se borró: después no cambia. G1-2: el avisado
+  // que nunca se marcó hecho cuenta desde que Rocco lo avisó (`delivered_at`).
   const r = schema.reminder;
   const reminders = await tx
     .delete(r)
     .where(
       and(
         sql`${r.tenantId} = ${tenantId}`,
-        inArray(r.status, ["done", "expired", "cancelled"]),
-        lt(r.updatedAt, textCutoff),
+        or(
+          and(inArray(r.status, ["done", "expired", "cancelled"]), lt(r.updatedAt, textCutoff)),
+          and(eq(r.status, "delivered"), isNull(r.doneAt), lt(r.deliveredAt, textCutoff)),
+        ),
       ),
     )
     .returning({ id: r.id });

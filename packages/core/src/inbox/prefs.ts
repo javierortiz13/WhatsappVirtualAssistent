@@ -1,4 +1,4 @@
-import { and, eq, schema, sql, type Tx } from "@caja/db";
+import { and, eq, inArray, schema, sql, type Tx } from "@caja/db";
 import { habitSettings, nudgeByDefault } from "../ledger/habits";
 import { type ConsentTextId, consentTextVersion } from "../render/es-VE";
 import { es, type Outbound, parseReplyId } from "../render/index";
@@ -128,7 +128,8 @@ export async function eveningAskOpen(tx: Tx, phoneId: string, now: Date): Promis
       and(
         eq(m.phoneId, phoneId),
         eq(m.direction, "out"),
-        eq(m.status, "ok"),
+        // DC-9: «unknown» (sin respuesta de Meta) cuenta como enviado.
+        inArray(m.status, ["ok", "unknown"]),
         sql`(${m.toolCalls} @> '[{"name":"habit_nudge"}]'::jsonb
              or ${m.toolCalls} @> '[{"name":"habit_close"}]'::jsonb)`,
       ),
@@ -289,6 +290,8 @@ async function turnOn(
   s: PrefState,
   intent: "nudges_on" | "all_on" | "both_on",
   source: "word" | "button",
+  /** DC-13: con el mensaje de las 8 pm para todos, el texto que dice que también llega el cierre. */
+  daily = false,
 ): Promise<PrefResult> {
   if (s.tagged) return reply(es.prefTagged(c.privacyContact));
   const paused = s.nudgePausedUntil !== null && s.nudgePausedUntil.getTime() > c.now.getTime();
@@ -310,8 +313,9 @@ async function turnOn(
       nudgePausedUntil: null,
       ...clearPending,
     });
-    await audit(tx, c, "nudge_opt_in", "H13", source);
-    return reply(es.prefTurnedOn("H13", c.held));
+    const id13 = daily ? "H13-daily" : "H13";
+    await audit(tx, c, "nudge_opt_in", id13, source);
+    return reply(es.prefTurnedOn(id13, c.held));
   }
   if (nudgeOn && !s.unsolicitedOffAt && !s.prefPending) return reply(es.prefAlreadyOn());
   const wasAllOff = s.unsolicitedOffAt !== null;
@@ -422,13 +426,13 @@ export async function routePrefs(
     case "keep:all_off":
       return keep(tx, c, s, "all_off");
     case "on":
-      return turnOn(tx, c, real, "both_on", "button");
+      return turnOn(tx, c, real, "both_on", "button", byDefault);
     case "optin":
       return optIn(tx, c, real, byDefault ? "H7d" : "H7");
     case "nudges_on":
     case "all_on":
     case "both_on":
-      return turnOn(tx, c, real, intent as "nudges_on" | "all_on" | "both_on", "word");
+      return turnOn(tx, c, real, intent as "nudges_on" | "all_on" | "both_on", "word", byDefault);
     case "status":
       return status(c, s);
     default:

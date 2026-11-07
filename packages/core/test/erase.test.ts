@@ -71,7 +71,7 @@ describe("eliminar un negocio", () => {
         actor,
         channel: "whatsapp",
       });
-      await createExpense(tx, {
+      const expense = await createExpense(tx, {
         tenantId,
         businessDate: day,
         amount: new Decimal(15),
@@ -85,13 +85,29 @@ describe("eliminar un negocio", () => {
         .insert(schema.webhookEvent)
         .values({ eventKey: `ev-${phone}`, payload: { sender: { e164: phone }, text: "hola" } })
         .returning();
-      await tx.insert(schema.message).values({
+      const [msg] = await tx
+        .insert(schema.message)
+        .values({
+          tenantId,
+          phoneId: actor.phoneId,
+          direction: "in",
+          kind: "text",
+          body: "gasté 15$",
+          webhookEventId: ev?.id ?? null,
+        })
+        .returning({ id: schema.message.id });
+      // S-3: un recordatorio ligado al gasto y al mensaje (las dos FK son SET NULL; la fila cae
+      // en cascada con el teléfono y el negocio).
+      await tx.insert(schema.reminder).values({
         tenantId,
         phoneId: actor.phoneId,
-        direction: "in",
-        kind: "text",
-        body: "gasté 15$",
-        webhookEventId: ev?.id ?? null,
+        text: "pagar la luz",
+        kind: "pay",
+        dueAt: new Date(`${day}T15:00:00Z`),
+        dueDate: day,
+        status: "pending",
+        linkedMovementId: expense.id,
+        sourceMessageId: msg?.id ?? null,
       });
       await tx.insert(schema.attachment).values({
         tenantId,
@@ -236,6 +252,7 @@ describe("eliminar un negocio", () => {
       "signup",
       "dashboard_link",
       "no_spend_day",
+      "reminder",
       "points_event",
       "reward_grant",
       "points_notice",

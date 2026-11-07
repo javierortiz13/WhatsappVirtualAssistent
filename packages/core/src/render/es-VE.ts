@@ -3409,13 +3409,34 @@ export const EVENING_ASK =
 /** Encabezado de la pregunta cuando el mensaje es el cierre del día. */
 export const EVENING_ASK_CLOSE_LEAD = "¿Te sirvió este resumen?";
 
-/** El mensaje de las 8 pm convertido en la pregunta de 1B: mismo cuerpo, más H7d y sus botones. */
-export function withEveningAsk(out: Outbound, close = false): Outbound {
-  if (out.type !== "buttons") return out;
+/**
+ * DC-7: el primer mensaje sin registros hoy no lleva su propia pregunta («¿Hubo algo hoy que
+ * anotar?»), solo esta línea, para que «¡Sí, dale!» responda a una sola pregunta.
+ */
+export const EVENING_ASK_NUDGE_LEAD = {
+  personal: "Hoy todavía no has anotado nada.",
+  business: "Hoy todavía no se ha anotado nada.",
+} as const;
+
+/**
+ * El mensaje de las 8 pm convertido en la pregunta de 1B, con H7d y sus botones. DC-7: una sola
+ * pregunta para los dos botones: el cierre sin «¿Falta algo por anotar?»; el aviso, solo la línea
+ * de EVENING_ASK_NUDGE_LEAD.
+ */
+export function withEveningAsk(out: Outbound, close = false, personal = true): Outbound {
+  if (out.type !== "buttons") throw new Error("withEveningAsk: sin botones");
   const ask = close ? `${EVENING_ASK_CLOSE_LEAD} ${EVENING_ASK}` : EVENING_ASK;
+  const body = close
+    ? out.body
+        .split("\n")
+        .filter((l) => l !== "¿Falta algo por anotar?")
+        .join("\n")
+    : personal
+      ? EVENING_ASK_NUDGE_LEAD.personal
+      : EVENING_ASK_NUDGE_LEAD.business;
   return {
     ...out,
-    body: `${out.body}\n\n${ask}`,
+    body: `${body}\n\n${ask}`,
     buttons: [
       { id: IDS.pref("optin"), title: "¡Sí, dale!" },
       { id: IDS.pref("nudges_off"), title: "No, gracias" },
@@ -3491,6 +3512,8 @@ export const consentTextVersion = {
   /** 1B (05/11): «¿Te escribo así a las 8 pm…?» en el primer mensaje de las 8 pm, «Sí, escríbeme». */
   H7d: "v2",
   H13: "v1",
+  /** DC-13: «avísame a las 8» con el mensaje de las 8 pm para todos (`habits.dailyClose`). */
+  "H13-daily": "v1",
   H13b: "v1.1",
   H13c: "v1.2",
   "H13c-all": "v1.2",
@@ -3590,9 +3613,15 @@ export function prefAlreadyOff(target: "nudges_off" | "all_off"): Outbound {
 }
 
 /** H13 / H13b / H13c / H13c-all: encender. Es el texto de consentimiento (US-201). */
-export function prefTurnedOn(id: "H13" | "H13b" | "H13c" | "H13c-all", held: boolean): Outbound {
+export function prefTurnedOn(
+  id: "H13" | "H13-daily" | "H13b" | "H13c" | "H13c-all",
+  held: boolean,
+): Outbound {
   const body = {
     H13: "Dale: los días que no anotes nada te aviso a las 8 pm, si me escribiste en las últimas 24 horas. Para apagarlo: *no me recuerdes*.",
+    // DC-13: con el cierre del día, también le llega los días que anotó.
+    "H13-daily":
+      "Dale: te escribo a las 8 pm si me escribiste en las últimas 24 horas: con lo que anotaste ese día o, si no anotaste nada, para que no se te pase. Para apagarlo: *no me recuerdes*.",
     H13b: "Listo, vuelvo a escribirte por mi cuenta: tus recordatorios y los avisos que tenías. Para apagarlo: *no me escribas*.",
     H13c: "Listo, encendí el mensaje de las 8 pm y los avisos adelantados de tus recordatorios. El de las 8 pm te llega si me escribiste en las últimas 24 horas. Para apagarlos: *mis avisos*.",
     "H13c-all":
