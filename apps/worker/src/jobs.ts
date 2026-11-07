@@ -402,7 +402,7 @@ export async function registerJobs(opts: {
         // Solo cuentas y códigos: ni números ni nombres.
         log: (line) => log.info({}, `registro: lote · ${line}`),
       });
-      if (r.ran || r.why === "missed") log.info(r, "registro: lote programado");
+      if (r.ran || r.why === "missed" || r.why === "cut") log.info(r, "registro: lote programado");
     }),
   );
 

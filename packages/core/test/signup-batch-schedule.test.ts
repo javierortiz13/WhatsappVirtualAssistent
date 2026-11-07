@@ -1,6 +1,7 @@
 import { eq, schema } from "@caja/db";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { saveHabitSettings } from "../src/ledger/habits";
 import { BATCH_KEY, BatchRefused } from "../src/onboarding/signup-batch";
 import {
   batchSchedule,
@@ -8,6 +9,7 @@ import {
   nextBatchSlot,
   runScheduledSignupBatch,
   SCHEDULE_KEY,
+  SCHEDULE_REFUSALS,
   scheduleSignupBatch,
 } from "../src/onboarding/signup-batch-schedule";
 import { saveSignupRescueSettings, signupRescueSettings } from "../src/onboarding/signup-rescue";
@@ -19,15 +21,48 @@ const H = 3_600_000;
 const MONDAY_NIGHT = new Date("2026-11-10T01:00:00Z");
 /** Martes 10/11/2026, 10:00 de Caracas. */
 const TUESDAY_10 = new Date("2026-11-10T14:00:00Z");
-const TEMPLATE = { name: "rocco_registro_pendiente", language: "es", wabaId: null };
+const TEMPLATE = { name: "rocco_registro_pendiente", language: "es", wabaId: "WABA" };
 
-function fakeMeta() {
+const denied = () =>
+  new Response(JSON.stringify({ error: { message: "sin permiso", code: 10 } }), { status: 403 });
+
+/**
+ * Meta de prueba. La calidad se lee bien (APPROVED, MARKETING, GREEN) salvo que se diga otra
+ * cosa: `phone` cambia la calidad del número y `unreadableAfter` hace que, después de ese número
+ * de envíos, la calidad del número ya no se pueda leer.
+ */
+function fakeMeta(q: { phone?: string; unreadableAfter?: number } = {}) {
   const sent: string[] = [];
-  const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
-    if (!init?.method || init.method === "GET")
-      return new Response(JSON.stringify({ error: { message: "sin permiso", code: 10 } }), {
-        status: 403,
-      });
+  const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+    if (!init?.method || init.method === "GET") {
+      const u = String(url);
+      if (u.includes("/message_templates"))
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                name: TEMPLATE.name,
+                status: "APPROVED",
+                category: "MARKETING",
+                quality_score: { score: "GREEN" },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      if (u.includes("quality_rating")) {
+        if (q.unreadableAfter !== undefined && sent.length >= q.unreadableAfter) return denied();
+        return new Response(JSON.stringify({ quality_rating: q.phone ?? "GREEN" }), {
+          status: 200,
+        });
+      }
+      return new Response(
+        JSON.stringify({ whatsapp_business_manager_messaging_limit: "TIER_1K" }),
+        {
+          status: 200,
+        },
+      );
+    }
     const body = JSON.parse(String(init.body)) as { to: string };
     sent.push(body.to);
     return new Response(
@@ -54,9 +89,9 @@ describe("nextBatchSlot", () => {
 describe("lote programado", () => {
   let t: Awaited<ReturnType<typeof createTestDb>>;
   let clock = TUESDAY_10;
-  const run = (meta: MetaClient) =>
+  const run = (meta: MetaClient, template: typeof TEMPLATE | { wabaId: null } = TEMPLATE) =>
     runScheduledSignupBatch(t.db, meta, {
-      template: TEMPLATE,
+      template: { ...TEMPLATE, ...template },
       now: () => clock,
       sleep: async (ms) => {
         clock = new Date(clock.getTime() + ms);
@@ -85,7 +120,120 @@ describe("lote programado", () => {
     await t.db.delete(schema.signup);
     await t.db.delete(schema.appSetting).where(eq(schema.appSetting.key, BATCH_KEY));
     await t.db.delete(schema.appSetting).where(eq(schema.appSetting.key, SCHEDULE_KEY));
-    await saveSignupRescueSettings(t.db, { template: false, holdoutPct: 20 }, "test", MONDAY_NIGHT);
+    await saveSignupRescueSettings(
+      t.db,
+      { template: false, holdoutPct: 20, inWindowVia: "text" },
+      "test",
+      MONDAY_NIGHT,
+    );
+    await saveHabitSettings(t.db, { reminderTemplate: false }, "test", MONDAY_NIGHT);
+  });
+
+  /** El lote se negó antes de reclamar: nada salió y la corrida única sigue sin gastar. */
+  const refusedBeforeClaim = async (meta: ReturnType<typeof fakeMeta>, reason: string) => {
+    expect(meta.sent).toHaveLength(0);
+    expect(await batchSchedule(t.db)).toMatchObject({ status: "refused", reason });
+    const key = await t.db
+      .select()
+      .from(schema.appSetting)
+      .where(eq(schema.appSetting.key, BATCH_KEY));
+    expect(key).toHaveLength(0);
+    expect((await signupRescueSettings(t.db)).template).toBe(false);
+  };
+
+  it("LB-1: sin la cuenta de WhatsApp (no se lee la plantilla) se niega antes de reclamar", async () => {
+    await backlog(3);
+    await scheduleSignupBatch(t.db, { actor: "fundador", now: MONDAY_NIGHT });
+    const meta = fakeMeta();
+    const r = await run(meta.client, { wabaId: null });
+    expect(r).toMatchObject({ ran: true, result: null });
+    await refusedBeforeClaim(meta, "S6: no se pudo leer la calidad del número o de la plantilla");
+  });
+
+  it("LB-1: con el número en amarillo se niega antes de reclamar", async () => {
+    await backlog(3);
+    await scheduleSignupBatch(t.db, { actor: "fundador", now: MONDAY_NIGHT });
+    const meta = fakeMeta({ phone: "YELLOW" });
+    await run(meta.client);
+    await refusedBeforeClaim(meta, "S6: la calidad o la plantilla no están bien");
+  });
+
+  it("LB-1: si la calidad deja de leerse en el envío 6, para con S6", async () => {
+    await backlog(8);
+    await scheduleSignupBatch(t.db, { actor: "fundador", now: MONDAY_NIGHT });
+    const meta = fakeMeta({ unreadableAfter: 5 });
+    const r = await run(meta.client);
+    expect(r.ran && r.result).toMatchObject({ sent: 5, stop: "S6", unsent: 3 });
+    expect(meta.sent).toHaveLength(5);
+    expect(await batchSchedule(t.db)).toMatchObject({
+      status: "done",
+      result: { sent: 5, stop: "S6", unsent: 3 },
+    });
+  });
+
+  it("LB-3: con «recordatorio como plantilla» encendido se niega antes de reclamar", async () => {
+    await backlog(2);
+    await scheduleSignupBatch(t.db, { actor: "fundador", now: MONDAY_NIGHT });
+    await saveSignupRescueSettings(t.db, { inWindowVia: "template" }, "fundador", MONDAY_NIGHT);
+    const meta = fakeMeta();
+    await run(meta.client);
+    await refusedBeforeClaim(meta, "T4: «recordatorio como plantilla» está encendido");
+  });
+
+  it("LB-3: con los recordatorios por plantilla encendidos se niega antes de reclamar", async () => {
+    await backlog(2);
+    await scheduleSignupBatch(t.db, { actor: "fundador", now: MONDAY_NIGHT });
+    await saveHabitSettings(t.db, { reminderTemplate: true }, "fundador", MONDAY_NIGHT);
+    const meta = fakeMeta();
+    await run(meta.client);
+    await refusedBeforeClaim(meta, "T4: los recordatorios por plantilla están encendidos");
+  });
+
+  it("LB-2: se programa la noche antes, desde las 6 pm", async () => {
+    await backlog(2);
+    // Viernes 06/11 20:00 de Caracas: el martes queda a más de 16 h; no cambia nada.
+    await expect(
+      scheduleSignupBatch(t.db, { actor: "fundador", now: new Date("2026-11-07T00:00:00Z") }),
+    ).rejects.toMatchObject({ reason: "prográmalo la noche antes, desde las 6 pm" });
+    expect(await batchSchedule(t.db)).toBeNull();
+    expect((await signupRescueSettings(t.db)).template).toBe(false);
+    // Lunes 18:30 → martes 10:00.
+    const s = await scheduleSignupBatch(t.db, {
+      actor: "fundador",
+      now: new Date("2026-11-09T22:30:00Z"),
+    });
+    expect(s.at).toBe(TUESDAY_10.toISOString());
+    // Martes 09:00 → ese martes 10:00.
+    await cancelSignupBatch(t.db, "fundador", new Date("2026-11-10T13:00:00Z"));
+    const s2 = await scheduleSignupBatch(t.db, {
+      actor: "fundador",
+      now: new Date("2026-11-10T13:00:00Z"),
+    });
+    expect(s2.at).toBe(TUESDAY_10.toISOString());
+  });
+
+  it("LB-4: /admin solo muestra los motivos conocidos de programar", () => {
+    expect(SCHEDULE_REFUSALS.has("prográmalo la noche antes, desde las 6 pm")).toBe(true);
+    expect(SCHEDULE_REFUSALS.has("ya hay un lote programado")).toBe(true);
+    expect(SCHEDULE_REFUSALS.has("<b>otra cosa</b>")).toBe(false);
+  });
+
+  it("LB-5: «corriendo» 2 h después de su hora queda «se cortó» y apaga el interruptor", async () => {
+    await backlog(2);
+    const s = await scheduleSignupBatch(t.db, { actor: "fundador", now: MONDAY_NIGHT });
+    await t.db
+      .update(schema.appSetting)
+      .set({ value: { ...s, status: "running" } })
+      .where(eq(schema.appSetting.key, SCHEDULE_KEY));
+    const meta = fakeMeta();
+    clock = new Date(TUESDAY_10.getTime() + 2 * H);
+    expect(await run(meta.client)).toEqual({ ran: false, why: "none" });
+    expect((await signupRescueSettings(t.db)).template).toBe(true);
+    clock = new Date(TUESDAY_10.getTime() + 2 * H + 60_000);
+    expect(await run(meta.client)).toEqual({ ran: false, why: "cut" });
+    expect(await batchSchedule(t.db)).toMatchObject({ status: "done", reason: "se cortó" });
+    expect((await signupRescueSettings(t.db)).template).toBe(false);
+    expect(meta.sent).toHaveLength(0);
   });
 
   it("se programa el lunes en la noche y sale solo el martes a las 10:00; apaga el interruptor", async () => {

@@ -1,6 +1,7 @@
 import { and, type Db, eq, inArray, isNotNull, isNull, or, schema, sql } from "@caja/db";
 import { businessDateOf, weekday } from "../domain/dates";
 import { isQuietHours } from "../inbox/gate";
+import { habitSettings } from "../ledger/habits";
 import type { MetaClient } from "../whatsapp/client";
 import { MetaApiError } from "../whatsapp/client";
 import { bumpSignupCounts } from "./signup-counts";
@@ -288,6 +289,13 @@ export async function runSignupBatch(
      * siendo elegibles al empezar.
      */
     onlyIds?: string[];
+    /**
+     * LB-1 (lote programado, sin nadie mirando): S6 exige poder leer la calidad. Antes de reclamar
+     * la corrida, se niega si no se lee el número, el estado o la categoría de la plantilla, o si no
+     * están bien (negarse antes no gasta la única corrida); durante la corrida, una lectura que no
+     * sale para con S6. LB-3: también se niega con plantillas de recordatorio encendidas (T4).
+     */
+    strictQuality?: boolean;
   },
 ): Promise<BatchResult> {
   const intervalS = opts.intervalS ?? BATCH_DEFAULT_INTERVAL_S;
@@ -314,6 +322,18 @@ export async function runSignupBatch(
   if (plan.toSend === 0) throw new BatchRefused("no hay nadie a quien enviar");
   // CC-8: el tope de A-0031.
   if (plan.costUsd > 3) throw new BatchRefused("el costo estimado pasa de $3,00 (A-0031)");
+  if (opts.strictQuality) {
+    // LB-3 (T4): ese día ninguna otra plantilla.
+    if (cfg.inWindowVia === "template")
+      throw new BatchRefused("T4: «recordatorio como plantilla» está encendido");
+    if ((await habitSettings(db)).reminderTemplate)
+      throw new BatchRefused("T4: los recordatorios por plantilla están encendidos");
+    // LB-1 (S6).
+    const q = await readQuality(meta, opts.template);
+    if (q.phoneQuality === null || q.templateStatus === null || q.templateCategory === null)
+      throw new BatchRefused("S6: no se pudo leer la calidad del número o de la plantilla");
+    if (qualityStop(q)) throw new BatchRefused("S6: la calidad o la plantilla no están bien");
+  }
   // Una sola corrida en la vida (3B): la fila se crea una vez; un segundo --apply choca aquí.
   const claimed = await db
     .insert(schema.appSetting)
@@ -365,8 +385,13 @@ export async function runSignupBatch(
         q.phoneQuality === null || (q.templateStatus === null && q.templateQuality === null);
       if (unreadable && !result.qualityUnreadable) {
         result.qualityUnreadable = true;
-        log("calidad: no se pudo leer todo; siguen S1–S5 y S7");
+        log(
+          opts.strictQuality
+            ? "calidad: no se pudo leer; para con S6"
+            : "calidad: no se pudo leer todo; siguen S1–S5 y S7",
+        );
       }
+      if (unreadable && opts.strictQuality) return "S6";
       if (qualityStop(q)) return "S6";
     }
     if (pastEnd(opts.now())) return "S7";

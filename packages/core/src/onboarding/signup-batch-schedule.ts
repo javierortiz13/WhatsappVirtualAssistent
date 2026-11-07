@@ -32,6 +32,25 @@ import { saveSignupRescueSettings } from "./signup-rescue";
 export const SCHEDULE_KEY = "signup_batch_schedule";
 const ACTOR = "lote programado";
 
+/** LB-2: se programa la noche antes (desde las 6 pm), como mucho 16 h antes de la hora. */
+export const SCHEDULE_LEAD_MAX_MS = 16 * 3_600_000;
+/** LB-5: un lote que sigue «corriendo» 2 h después de su hora se cortó (el worker se cayó). */
+export const RUNNING_STALE_MS = 2 * 3_600_000;
+
+const REFUSE = {
+  ran: "ya hubo una corrida; no hay segunda",
+  scheduled: "ya hay un lote programado",
+  lead: "prográmalo la noche antes, desde las 6 pm",
+  empty: "no hay nadie a quien enviar",
+  cost: "el costo estimado pasa de $3,00 (A-0031)",
+} as const;
+
+/**
+ * LB-4: los únicos motivos de `scheduleSignupBatch` que /admin muestra tal cual (llegan por la
+ * URL); cualquier otro texto se muestra como «revisa el estado».
+ */
+export const SCHEDULE_REFUSALS: ReadonlySet<string> = new Set(Object.values(REFUSE));
+
 export type BatchScheduleStatus =
   | "scheduled"
   | "running"
@@ -113,21 +132,24 @@ export async function scheduleSignupBatch(
   db: Db,
   opts: { actor: string; now: Date; rateUsd?: number },
 ): Promise<BatchSchedule> {
-  if (await batchAlreadyRan(db)) throw new BatchRefused("ya hubo una corrida; no hay segunda");
+  if (await batchAlreadyRan(db)) throw new BatchRefused(REFUSE.ran);
   const current = await batchSchedule(db);
   if (current?.status === "scheduled" || current?.status === "running")
-    throw new BatchRefused("ya hay un lote programado");
+    throw new BatchRefused(REFUSE.scheduled);
+  // LB-2: la lista que el fundador confirma no puede tener días de vieja.
+  const at = nextBatchSlot(opts.now);
+  if (at.getTime() - opts.now.getTime() > SCHEDULE_LEAD_MAX_MS) throw new BatchRefused(REFUSE.lead);
   const plan = await planSignupBatch(db, {
     now: opts.now,
     maxAgeDays: 30,
     parkNumbers: [],
     rateUsd: opts.rateUsd ?? 0.074,
   });
-  if (plan.toSend === 0) throw new BatchRefused("no hay nadie a quien enviar");
-  if (plan.costUsd > 3) throw new BatchRefused("el costo estimado pasa de $3,00 (A-0031)");
+  if (plan.toSend === 0) throw new BatchRefused(REFUSE.empty);
+  if (plan.costUsd > 3) throw new BatchRefused(REFUSE.cost);
   const value: BatchSchedule = {
     status: "scheduled",
-    at: nextBatchSlot(opts.now).toISOString(),
+    at: at.toISOString(),
     ids: plan.rows.map((r) => r.id).slice(0, BATCH_CAP),
     confirm: plan.toSend,
     costUsd: plan.costUsd,
@@ -149,7 +171,7 @@ export async function cancelSignupBatch(db: Db, actor: string, now: Date): Promi
 }
 
 export type ScheduledRun =
-  | { ran: false; why: "none" | "not_yet" | "missed" | "taken" }
+  | { ran: false; why: "none" | "not_yet" | "missed" | "taken" | "cut" }
   | { ran: true; result: BatchResult | null; refused: string | null };
 
 /**
@@ -169,6 +191,21 @@ export async function runScheduledSignupBatch(
   },
 ): Promise<ScheduledRun> {
   const s = await batchSchedule(db);
+  // LB-5: «corriendo» 2 h después de su hora es una corrida cortada (el worker se reinició a
+  // mitad): queda terminada y el interruptor apagado. No se retoma (A-0031: una sola corrida).
+  if (s?.status === "running") {
+    const now = opts.now();
+    if (now.getTime() - new Date(s.at).getTime() <= RUNNING_STALE_MS)
+      return { ran: false, why: "none" };
+    await save(
+      db,
+      { ...s, status: "done", reason: "se cortó", endedAt: now.toISOString() },
+      now,
+      ACTOR,
+    );
+    await saveSignupRescueSettings(db, { template: false }, ACTOR, now);
+    return { ran: false, why: "cut" };
+  }
   if (s?.status !== "scheduled") return { ran: false, why: "none" };
   const now = opts.now();
   const at = new Date(s.at);
@@ -206,6 +243,8 @@ export async function runScheduledSignupBatch(
       maxAgeDays: 30,
       parkNumbers: [],
       rateUsd: opts.rateUsd ?? 0.074,
+      // LB-1: sin nadie mirando, S6 exige leer la calidad.
+      strictQuality: true,
       now: opts.now,
       sleep: opts.sleep,
       ...(opts.log ? { log: opts.log } : {}),
