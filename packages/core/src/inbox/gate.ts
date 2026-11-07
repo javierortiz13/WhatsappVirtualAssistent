@@ -132,6 +132,8 @@ export type GateInput = {
   lifecycleDueToday?: boolean;
   /** El mensaje de las 8 pm sale sin pedirlo (`habits.dailyClose`): no hace falta aceptarlo. */
   nudgeByDefault?: boolean;
+  /** Otro margen para la ventana de 24 h (el mensaje de las 8 pm usa 10 min). */
+  windowSafeMs?: number;
 };
 
 export async function takeUnsolicitedSlot(tx: Tx, g: GateInput): Promise<GateResult> {
@@ -141,7 +143,7 @@ export async function takeUnsolicitedSlot(tx: Tx, g: GateInput): Promise<GateRes
   const deny = (reason: GateDeny): GateResult => ({ allow: false, reason });
   if (g.tenantBlocked) return deny("tenant_blocked");
   // La plantilla (camino d) es justamente para cuando la ventana está cerrada.
-  if (g.kind !== "reminder_d" && !(await serviceWindow(tx, g.phoneId, g.now)).open)
+  if (g.kind !== "reminder_d" && !(await serviceWindow(tx, g.phoneId, g.now, g.windowSafeMs)).open)
     return deny("window_closed");
   if (g.kind !== "reminder_a" && isQuietHours(g.now)) return deny("quiet_hours");
   const s = await prefState(tx, g.phoneId, g.tenantId);

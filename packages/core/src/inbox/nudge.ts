@@ -22,10 +22,13 @@ import { MetaApiError, type MetaClient } from "../whatsapp/client";
 import { caracasDayStart, type GateDeny, takeUnsolicitedSlot } from "./gate";
 import { lifecycleDueToday } from "./lifecycle";
 import { sendOutbound } from "./process";
+import { serviceWindow } from "./window";
 
 /**
  * El aviso de las 8 pm (PRD hábitos US-207, US-208). La cola `habit-nudges` corre a las 20:00 de
- * Caracas; como resguardo, solo actúa de 20:00 a 20:29 (un reintento tardío no manda nada).
+ * Caracas; como resguardo, solo actúa de 20:00 a 20:29 (un reintento tardío no manda nada). Desde
+ * el 07/11 también corre cada 5 min de 18:00 a 19:55, solo para quien su ventana de 24 h cierra
+ * antes de las 20:00 (ver `earlyNudgeDue`).
  *
  * A quién: el teléfono dueño que aceptó el aviso, con 2 días de racha o más y nada anotado hoy
  * (un día sin gastos cuenta), si la puerta (US-203, `kind = nudge`) lo deja. Un mensaje, sin la IA.
@@ -56,8 +59,42 @@ export function inNudgeWindow(now: Date): boolean {
   return caracas.getUTCHours() === 20 && caracas.getUTCMinutes() < 30;
 }
 
+/**
+ * Opción A del fundador (07/11): el mensaje de las 8 pm le hace contestar a las 8:01, y al día
+ * siguiente a las 8:00 su ventana de 24 h ya cerró por minutos, así que nunca le volvía a llegar.
+ * Ahora:
+ * - El mensaje de las 8 pm usa un margen de 10 min (y no de 30) antes de que cierre la ventana.
+ * - Si la ventana cierra antes de las 20:00, sale antes: en la última vuelta (cada 5 min desde
+ *   las 18:00) con la ventana todavía abierta. Nunca antes de las 18:00.
+ */
+export const NUDGE_WINDOW_SAFE_MS = 24 * 3_600_000 - 10 * 60_000;
+/** Vueltas adelantadas: de 18:00 a 19:59 de Caracas, cada 5 min. */
+export const NUDGE_EARLY_STEP_MS = 5 * 60_000;
+
+/** De 18:00 a 19:59 de Caracas: vueltas del envío adelantado. */
+export function inEarlyNudgeWindow(now: Date): boolean {
+  const caracas = new Date(now.getTime() - 4 * 3_600_000);
+  const h = caracas.getUTCHours();
+  return h === 18 || h === 19;
+}
+
+/**
+ * ¿Le toca el mensaje ya, adelantado? Solo si su ventana (con el margen de 10 min) cierra antes de
+ * las 20:00 de hoy y esta es una de las dos últimas vueltas con la ventana abierta (dos, por si
+ * una vuelta no corre).
+ */
+export function earlyNudgeDue(lastInboundAt: Date | null, now: Date): boolean {
+  if (!lastInboundAt) return false;
+  const closes = lastInboundAt.getTime() + NUDGE_WINDOW_SAFE_MS;
+  const eight = caracasDayStart(now).getTime() + 20 * 3_600_000;
+  const left = closes - now.getTime();
+  return closes <= eight && left > 0 && left <= 2 * NUDGE_EARLY_STEP_MS;
+}
+
 export type NudgeRun = {
   sent: number;
+  /** De esos, los que salieron antes de las 20:00 (la ventana cerraba antes). */
+  early: number;
   failed: number;
   paused: number;
   /** Por qué no salió, solo cuentas. */
@@ -113,6 +150,7 @@ async function takeNudge(
   noSpendButton: boolean,
   run: NudgeRun,
   byDefault = false,
+  early = false,
 ): Promise<Pending | null> {
   const skip = (why: keyof NudgeRun["skipped"]) => {
     run.skipped[why] = (run.skipped[why] ?? 0) + 1;
@@ -131,6 +169,9 @@ async function takeNudge(
     .where(and(eq(p.tenantId, tenantId), eq(p.role, "owner"), eq(p.status, "active")))
     .limit(1);
   if (!owner?.e164) return null;
+  // Vuelta adelantada: solo a quien la ventana se le cierra antes de las 20:00 (sin contarlo).
+  if (early && !earlyNudgeDue((await serviceWindow(tx, owner.id, now)).lastInboundAt, now))
+    return null;
   // Sin aceptar no se mira más (la puerta lo negaría igual), salvo que el mensaje de las 8 pm
   // salga para todos (cierre del día, decisión del 05/11).
   if (owner.off || (!owner.optIn && !byDefault)) return skip("not_opted_in");
@@ -175,6 +216,7 @@ async function takeNudge(
     // Un aviso de la prueba que sale más tarde hoy se queda con el día (F-1).
     lifecycleDueToday: await lifecycleDueToday(tx, tenantId, now),
     nudgeByDefault: byDefault,
+    windowSafeMs: NUDGE_WINDOW_SAFE_MS,
   });
   if (!gate.allow) return skip(gate.reason);
   const [t] = await tx
@@ -271,16 +313,17 @@ export async function runHabitNudges(
 ): Promise<NudgeRun> {
   const log = opts.log ?? silentLogger;
   const now = opts.now;
-  const run: NudgeRun = { sent: 0, failed: 0, paused: 0, skipped: {}, outside: false };
+  const run: NudgeRun = { sent: 0, early: 0, failed: 0, paused: 0, skipped: {}, outside: false };
   if (!meta) return run;
   const flags = await habitSettings(db);
   // Sin «apagar y encender avisos», el «No me recuerdes» del aviso no funcionaría.
   if (!flags.nudge || !flags.prefs) return run;
-  if (!inNudgeWindow(now)) return { ...run, outside: true };
+  const early = inEarlyNudgeWindow(now);
+  if (!early && !inNudgeWindow(now)) return { ...run, outside: true };
   for (const tenantId of await everyTenantId(db)) {
     try {
       const p = await withTenant(db, tenantId, (tx) =>
-        takeNudge(tx, tenantId, now, flags.noSpend, run, nudgeByDefault(flags)),
+        takeNudge(tx, tenantId, now, flags.noSpend, run, nudgeByDefault(flags), early),
       );
       if (!p) continue;
       const status = (s: "ok" | "failed" | "unknown", waMessageId: string | null = null) =>
@@ -294,6 +337,7 @@ export async function runHabitNudges(
         const r = await sendOutbound(meta, p.e164, p.out);
         await status("ok", r.waMessageId);
         run.sent += 1;
+        if (early) run.early += 1;
       } catch (err) {
         run.failed += 1;
         // Meta respondió: no salió (N-4). Sin respuesta (red): no se sabe, no se repite.
