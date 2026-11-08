@@ -20,6 +20,20 @@ export function rows<T>(result: unknown): T[] {
 }
 
 /**
+ * drizzle deja pasar tal cual los parámetros de fecha (sus columnas ya los mandan como texto ISO).
+ * Una fecha de JavaScript dentro de SQL escrito a mano (`sql\`... ${new Date()}\``) llegaba como
+ * objeto y postgres.js fallaba al armar la consulta (08/11: `recordsTouchedSince` con Puntos
+ * encendido, y en silencio `reminderStats` en /admin). PGlite sí la convierte, por eso las pruebas
+ * no lo veían. Aquí se convierte una vez para toda la aplicación; el texto sigue igual.
+ */
+export function serializeDates(client: ReturnType<typeof postgres>): void {
+  const dateParam = (v: unknown) => (v instanceof Date ? v.toISOString() : v);
+  const serializers = client.options.serializers as Record<string, (v: unknown) => unknown>;
+  // timestamptz y timestamp: los tipos que postgres.js le asigna a un Date.
+  for (const type of ["1184", "1114"]) serializers[type] = dateParam;
+}
+
+/**
  * Crea la conexión de la aplicación. `max` bajo a propósito: web y worker son procesos
  * pequeños y Supabase limita conexiones directas.
  */
@@ -36,6 +50,7 @@ export function createDb(url: string, opts: { max?: number; idleTimeoutSec?: num
     ...(ssl ? { ssl } : {}),
   });
   const db = drizzle(client, { schema, casing: "snake_case" });
+  serializeDates(client);
   return { db, client, close: () => client.end({ timeout: 5 }) };
 }
 
