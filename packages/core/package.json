@@ -17,7 +17,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.129.0",
+    "@anthropic-ai/sdk": "^1.3.0",
     "@caja/db": "workspace:*",
     "decimal.js": "^10.6.0",
     "yaml": "^2.9.1",
