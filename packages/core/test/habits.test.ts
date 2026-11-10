@@ -12,6 +12,7 @@ import { type ProcessDeps, processInbound } from "../src/inbox/process";
 import {
   type HabitStats,
   habitStats,
+  isEveningNoAnswer,
   isNoSpendPhrase,
   saveHabitSettings,
   streakFor,
@@ -68,6 +69,41 @@ describe("isNoSpendPhrase", () => {
       "no hubo gastos en comida",
     ])
       expect(isNoSpendPhrase(t), t).toBe(false);
+  });
+});
+
+describe("isEveningNoAnswer (10/11: «Hola no» a la pregunta de las 8 pm)", () => {
+  it("un «no» corto, con saludo o «pana» alrededor, o una frase de sin gastos", () => {
+    for (const t of [
+      "Hola no",
+      "no",
+      "No.",
+      "nada",
+      "Nop",
+      "no, nada",
+      "Buenas noches, nada",
+      "hoy no",
+      "no hubo",
+      "nada pana",
+      "Hola, hoy no hubo nada",
+      "ninguno",
+      "Epa no hubo nada",
+    ])
+      expect(isEveningNoAnswer(t), t).toBe(true);
+  });
+  it("con algo más, no", () => {
+    for (const t of [
+      "hola",
+      "no gasté 5$",
+      "sí",
+      "gasté 5$ en café",
+      "no me recuerdes",
+      "no me escribas",
+      "nada más 5$ de pan",
+      "hola no sé cómo anotar",
+      "vendí 20$",
+    ])
+      expect(isEveningNoAnswer(t), t).toBe(false);
   });
 });
 
@@ -670,7 +706,7 @@ describe("botón «Hoy no gasté nada» del aviso (US-212) y oferta del aviso (U
     await h.recordDaysAgo(1);
     const card = await h.send("gasté 5$ en café");
     expect(card).toMatch(
-      /\n\n🔥 Llevas 3 días seguidos\. Cada día que anotes algo, tu racha sigue\.\n\n¿Te aviso a las 8 pm los días que no anotes nada\? Lo apagas cuando quieras\.$/,
+      /\n\n🔥 Llevas 3 días seguidos\. Cada día que anotes algo, tu racha sigue\.\n\n¿Te escribo en la noche los días que no anotes nada\? Lo apagas cuando quieras\.$/,
     );
     expect(lastIds()).toHaveLength(3);
     expect(lastIds().at(-1)).toBe("pref:optin");
@@ -678,7 +714,7 @@ describe("botón «Hoy no gasté nada» del aviso (US-212) y oferta del aviso (U
       { name: "habit_optin_offer", args: { n: 3 } },
     ]);
     // La tarjeta siguiente, y cualquier otro día, ya no la llevan.
-    expect(await h.send("gasté 6$ en pan")).not.toMatch(/Te aviso a las 8/);
+    expect(await h.send("gasté 6$ en pan")).not.toMatch(/Te escribo en la noche/);
     expect(lastIds()).not.toContain("pref:optin");
   });
 
@@ -689,7 +725,7 @@ describe("botón «Hoy no gasté nada» del aviso (US-212) y oferta del aviso (U
     expect(await consents()).toEqual([
       {
         action: "nudge_opt_in",
-        after: { source: "button", text_id: "H7", text_version: "v1" },
+        after: { source: "button", text_id: "H7", text_version: "v1.4" },
       },
     ]);
     // Otra vez: ✅ sin otra auditoría.
@@ -715,18 +751,18 @@ describe("botón «Hoy no gasté nada» del aviso (US-212) y oferta del aviso (U
     );
     await h.recordDaysAgo(2);
     await h.recordDaysAgo(1);
-    expect(await h.send("gasté 5$ en café")).not.toMatch(/Te aviso a las 8/);
+    expect(await h.send("gasté 5$ en café")).not.toMatch(/Te escribo en la noche/);
     // Con la pregunta de 1B abierta (todavía no le llegó), la tarjeta nombra el mensaje de las 8 pm.
     expect(await h.send("no me recuerdes")).toMatch(
-      /^¿Apago estos avisos\?\n• El mensaje de las 8 pm\n/,
+      /^¿Apago estos avisos\?\n• El mensaje de la noche\n/,
     );
     expect(await h.tap("pref:yes:nudges_off")).toBe(
-      "Listo, ya no te escribo a las 8 pm ni te adelanto recordatorios. Los que me pidas te llegan a su hora o cuando me escribas. Para volver: *actívame los avisos*.",
+      "Listo, ya no te escribo en la noche ni te adelanto recordatorios. Los que me pidas te llegan a su hora o cuando me escribas. Para volver: *actívame los avisos*.",
     );
     expect((await phone()).nudgeOffAt).not.toBeNull();
     expect((await consents())[0]).toMatchObject({
       action: "nudge_off",
-      after: { text_id: "H45", text_version: "v1.3" },
+      after: { text_id: "H45", text_version: "v1.4" },
     });
     await saveHabitSettings(h.t.db, { dailyClose: false }, "test", new Date());
   });
@@ -738,31 +774,49 @@ describe("botón «Hoy no gasté nada» del aviso (US-212) y oferta del aviso (U
     expect(await consents()).toEqual([
       {
         action: "nudge_opt_in",
-        after: { source: "button", text_id: "H7d", text_version: "v2" },
+        after: { source: "button", text_id: "H7d", text_version: "v3" },
       },
     ]);
     // Sin aceptar y con la pregunta abierta, la frase igual guarda la aceptación (antes decía
     // «ya estaba encendido» y no guardaba nada).
     await h.t.db.update(schema.phoneNumber).set({ nudgeOptInAt: null });
-    expect(await h.send("avísame a las 8")).toMatch(/^Dale: /);
+    // DC-13: con el 8 pm para todos, el texto dice que también llega el cierre (H13-daily).
+    expect(await h.send("avísame a las 8")).toBe(
+      "Dale: te escribo en la noche, entre las 6 y las 8:30, si me escribiste en las últimas 24 horas: con lo que anotaste ese día o, si no anotaste nada, para que no se te pase. Para apagarlo: *no me recuerdes*.",
+    );
     expect((await phone()).nudgeOptInAt).not.toBeNull();
+    expect(await consents()).toContainEqual(
+      expect.objectContaining({
+        action: "nudge_opt_in",
+        after: expect.objectContaining({ text_id: "H13-daily", text_version: "v1.4" }),
+      }),
+    );
+    // Sin el interruptor, H13 como siempre.
     await saveHabitSettings(h.t.db, { dailyClose: false }, "test", new Date());
+    await h.t.db.update(schema.phoneNumber).set({ nudgeOptInAt: null });
+    expect(await h.send("avísame a las 8")).toMatch(/^Dale: los días que no anotes nada/);
+    expect(await consents()).toContainEqual(
+      expect.objectContaining({
+        action: "nudge_opt_in",
+        after: expect.objectContaining({ text_id: "H13", text_version: "v1.4" }),
+      }),
+    );
   });
 
   it("sin oferta con racha de 2, con el aviso apagado o ya aceptado, o sin el interruptor", async () => {
     await h.recordDaysAgo(1);
-    expect(await h.send("gasté 5$ en café")).not.toMatch(/Te aviso a las 8/);
+    expect(await h.send("gasté 5$ en café")).not.toMatch(/Te escribo en la noche/);
     await h.reset();
     await h.recordDaysAgo(2);
     await h.recordDaysAgo(1);
     await h.t.db.update(schema.phoneNumber).set({ nudgeOffAt: new Date() });
-    expect(await h.send("gasté 5$ en café")).not.toMatch(/Te aviso a las 8/);
+    expect(await h.send("gasté 5$ en café")).not.toMatch(/Te escribo en la noche/);
     await h.reset();
     await h.recordDaysAgo(2);
     await h.recordDaysAgo(1);
     await h.t.db.update(schema.phoneNumber).set({ nudgeOffAt: null });
     await saveHabitSettings(h.t.db, { nudge: false }, "test", new Date());
-    expect(await h.send("gasté 5$ en café")).not.toMatch(/Te aviso a las 8/);
+    expect(await h.send("gasté 5$ en café")).not.toMatch(/Te escribo en la noche/);
     expect(await marks()).not.toContainEqual(
       expect.objectContaining({ name: "habit_optin_offer" }),
     );
@@ -1030,5 +1084,93 @@ describe("números del hábito = SQL del plan de medición (ER-4)", () => {
       ownerDays: 14,
     });
     expect(sum.cohorts[0]).toMatchObject({ signedUp: 3, d7Mature: 3, d7Recorded: 2 });
+  });
+});
+
+describe("respuesta escrita a «¿Hubo ventas o gastos hoy?» (10/11)", () => {
+  let h: Awaited<ReturnType<typeof harness>>;
+  const marks = async () =>
+    (await h.t.db.select({ tc: schema.message.toolCalls }).from(schema.message))
+      .flatMap((m) => (m.tc ?? []) as { name: string; args?: Record<string, unknown> }[])
+      .filter((c) => c.name === "habit_no_spend");
+  /** Rocco mandó la pregunta de la noche (`mark`) hace `minutesAgo` minutos. */
+  const asked = (minutesAgo: number, mark = "habit_nudge", status = "ok") =>
+    withTenant(h.t.db, h.tenantId, (tx) =>
+      tx.insert(schema.message).values({
+        tenantId: h.tenantId,
+        phoneId: h.ownerPhoneId(),
+        direction: "out",
+        kind: "interactive",
+        body: "¿Hubo ventas o gastos hoy?",
+        status,
+        toolCalls: [{ name: mark, args: {} }],
+        createdAt: new Date(Date.now() - minutesAgo * 60_000),
+      }),
+    );
+  beforeAll(async () => {
+    h = await harness("food");
+  });
+  afterAll(() => h.t.close());
+  beforeEach(async () => {
+    await h.reset();
+    await saveHabitSettings(
+      h.t.db,
+      { streakLine: true, noSpend: true, prefs: true, nudge: true },
+      "test",
+      new Date(),
+    );
+  });
+
+  it("«Hola no» justo después del aviso → día anotado sin la IA, con via answer", async () => {
+    await h.recordDaysAgo(2);
+    await h.recordDaysAgo(1);
+    await asked(1);
+    const calls = h.llm.calls;
+    const reply = await h.send("Hola no");
+    expect(reply).toContain("3 días");
+    expect(h.llm.calls).toBe(calls);
+    expect((await h.streak()).noSpendToday).toBe(true);
+    expect(await marks()).toEqual([{ name: "habit_no_spend", args: { n: 3, via: "answer" } }]);
+  });
+
+  it("también después del cierre del día; «nada pana» vale", async () => {
+    await h.recordDaysAgo(1);
+    await asked(1, "habit_close");
+    await h.send("nada pana");
+    expect((await h.streak()).noSpendToday).toBe(true);
+  });
+
+  it("sin la pregunta como último mensaje de hoy, «no» no anota nada", async () => {
+    await h.recordDaysAgo(1);
+    // Nunca se preguntó.
+    await h.send("no");
+    expect((await h.streak()).noSpendToday).toBe(false);
+    // La pregunta falló al enviarse.
+    await h.reset();
+    await asked(1, "habit_nudge", "failed");
+    await h.send("no");
+    expect((await h.streak()).noSpendToday).toBe(false);
+    // La pregunta fue ayer.
+    await h.reset();
+    await asked(26 * 60);
+    await h.send("no");
+    expect((await h.streak()).noSpendToday).toBe(false);
+    expect(await marks()).toEqual([]);
+  });
+
+  it("después de la pregunta hubo otra conversación → «no» va al flujo normal", async () => {
+    await h.recordDaysAgo(1);
+    await asked(10);
+    await h.send("gasté 5$ en café");
+    await h.send("no");
+    expect(await marks()).toEqual([]);
+  });
+
+  it("con «Hoy no gasté nada» apagado, no anota", async () => {
+    await saveHabitSettings(h.t.db, { noSpend: false }, "test", new Date());
+    await h.recordDaysAgo(1);
+    await asked(1);
+    await h.send("Hola no");
+    expect((await h.streak()).noSpendToday).toBe(false);
   });
 });

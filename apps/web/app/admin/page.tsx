@@ -3,6 +3,7 @@ import {
   batchSchedule,
   Decimal,
   es,
+  habitHistory,
   habitSettings,
   launchSettings,
   nextBatchSlot,
@@ -128,6 +129,8 @@ export default async function AdminHome({
       loadReminderStats(tenants, now, 14),
       loadMonthOutbound(tenants, now),
     ]);
+  // G1-4: los últimos cambios de interruptores de hábitos.
+  const flagHistory = await habitHistory(db(), 10);
   const points = await loadPoints(tenants, now);
   const refs = await loadReferrals(tenants, now);
   const rescue = funnel.rescue;
@@ -362,8 +365,8 @@ export default async function AdminHome({
               <strong>Avisos apagados (14 d)</strong>
               <span className="sub num">
                 no me recuerdes {offs.nudgeOffs} · no me escribas {offs.allOffs} · después de un
-                mensaje de Rocco (24 h) {offs.offsAfterSend} · tarjetas sin contestar{" "}
-                {offs.pendingCards}
+                mensaje de Rocco (24 h) {offs.offsAfterSend} (a la primera pregunta{" "}
+                {offs.declinesAfterAsk}) · tarjetas sin contestar {offs.pendingCards}
               </span>
             </span>
             <strong className="num">{offs.nudgeOffs + offs.allOffs}</strong>
@@ -459,6 +462,24 @@ export default async function AdminHome({
             Guardar hábito
           </button>
         </form>
+        {flagHistory.length ? (
+          <div className="stack-sm">
+            <span className="label">Últimos cambios</span>
+            {flagHistory.flatMap((h) =>
+              Object.entries(h.changed).map(([flag, [before, after]]) => {
+                const hhmm = new Date(new Date(h.at).getTime() - 4 * 3_600_000)
+                  .toISOString()
+                  .slice(11, 16);
+                return (
+                  <p className="sub num" style={{ margin: 0 }} key={`${h.at}-${flag}`}>
+                    {formatShortDate(businessDateOf(new Date(h.at)))} {hhmm} · {flag}{" "}
+                    {before ? "encendido" : "apagado"}→{after ? "encendido" : "apagado"} · {h.by}
+                  </p>
+                );
+              }),
+            )}
+          </div>
+        ) : null}
       </section>
 
       <PointsCard

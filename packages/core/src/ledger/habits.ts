@@ -1,4 +1,4 @@
-import { and, eq, type Queryable, rows, schema, sql, type Tx } from "@caja/db";
+import { and, desc, eq, type Queryable, rows, schema, sql, type Tx } from "@caja/db";
 import { addDays, businessDateOf, type IsoDate, weekday } from "../domain/dates";
 
 /**
@@ -77,7 +77,8 @@ export async function saveHabitSettings(
     .select({ value: schema.appSetting.value })
     .from(schema.appSetting)
     .where(eq(schema.appSetting.key, KEY));
-  const value = { ...((r?.value ?? {}) as Record<string, unknown>), ...next };
+  const prev = (r?.value ?? {}) as Record<string, unknown>;
+  const value = { ...prev, ...next };
   await db
     .insert(schema.appSetting)
     .values({ key: KEY, value, updatedAt: now, updatedBy: actor })
@@ -85,6 +86,50 @@ export async function saveHabitSettings(
       target: schema.appSetting.key,
       set: { value, updatedAt: now, updatedBy: actor },
     });
+  // G1-4: la historia de cada cambio de interruptor (cuándo, cuál, de qué a qué y quién).
+  const changed = (Object.keys(next) as HabitFlag[]).filter(
+    (f) => next[f] !== undefined && (prev[f] === true) !== next[f],
+  );
+  if (!changed.length) return;
+  const [h] = await db
+    .select({ value: schema.appSetting.value })
+    .from(schema.appSetting)
+    .where(eq(schema.appSetting.key, HISTORY_KEY));
+  const history = [
+    ...((h?.value ?? []) as HabitHistoryEntry[]).slice(-(HISTORY_MAX - 1)),
+    {
+      at: now.toISOString(),
+      by: actor,
+      changed: Object.fromEntries(changed.map((f) => [f, [prev[f] === true, next[f] === true]])),
+    },
+  ];
+  await db
+    .insert(schema.appSetting)
+    .values({ key: HISTORY_KEY, value: history, updatedAt: now, updatedBy: actor })
+    .onConflictDoUpdate({
+      target: schema.appSetting.key,
+      set: { value: history, updatedAt: now, updatedBy: actor },
+    });
+}
+
+const HISTORY_KEY = "habits_history";
+/** Cambios que se guardan (los más viejos se descartan). */
+const HISTORY_MAX = 200;
+
+export type HabitHistoryEntry = {
+  at: string;
+  by: string;
+  /** Cada interruptor que cambió: [antes, después]. */
+  changed: Partial<Record<HabitFlag, [boolean, boolean]>>;
+};
+
+/** Los últimos `n` cambios de interruptores, el más reciente primero (G1-4, para /admin). */
+export async function habitHistory(db: Queryable, n = 10): Promise<HabitHistoryEntry[]> {
+  const [h] = await db
+    .select({ value: schema.appSetting.value })
+    .from(schema.appSetting)
+    .where(eq(schema.appSetting.key, HISTORY_KEY));
+  return ((h?.value ?? []) as HabitHistoryEntry[]).slice(-n).reverse();
 }
 
 // ---------------------------------------------------------------- racha
@@ -231,16 +276,76 @@ const NO_SPEND_PHRASES = new Set([
   "hoy nada",
 ]);
 
-/** ¿El mensaje entero dice que hoy no hubo gastos? Con otra cosa más, va al flujo normal. */
-export function isNoSpendPhrase(text: string): boolean {
-  const t = text
+/** Sin acentos, mayúsculas ni signos, con un solo espacio. */
+const normalizePhrase = (text: string) =>
+  text
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .trim()
     .replace(/\s+/g, " ");
-  return NO_SPEND_PHRASES.has(t);
+
+/** ¿El mensaje entero dice que hoy no hubo gastos? Con otra cosa más, va al flujo normal. */
+export function isNoSpendPhrase(text: string): boolean {
+  return NO_SPEND_PHRASES.has(normalizePhrase(text));
+}
+
+/**
+ * Respuestas cortas a «¿Hubo ventas o gastos hoy?» (10/11: «Hola no» se fue a la IA). Solas no
+ * dicen nada: solo valen si lo último que Rocco le mandó a ese teléfono hoy fue esa pregunta.
+ */
+const EVENING_NO = new Set([
+  "no",
+  "nop",
+  "nope",
+  "nel",
+  "negativo",
+  "nada",
+  "no nada",
+  "nada nada",
+  "nada de nada",
+  "no hoy no",
+  "hoy no",
+  "no hoy",
+  "no hubo",
+  "no hoy no hubo",
+  "tampoco",
+  "ninguno",
+  "ninguna",
+  "cero",
+  "nada que anotar",
+  "nada que registrar",
+  "no hay nada",
+  "no hay",
+]);
+const GREETING =
+  /^(hola|holi|buenas noches|buenas tardes|buenas|epa|ey|hey|saludos|ok|okey|bueno)\s+/;
+const TAIL = /\s+(pana|mi pana|rocco|gracias|amigo|amiga|chamo|hermano|bro)$/;
+
+/** ¿Es un «no» a la pregunta de las 8 pm? (Con saludo o «pana» alrededor, también.) */
+export function isEveningNoAnswer(text: string): boolean {
+  let t = normalizePhrase(text);
+  for (let i = 0; i < 2; i++) t = t.replace(GREETING, "").replace(TAIL, "");
+  return EVENING_NO.has(t) || NO_SPEND_PHRASES.has(t);
+}
+
+/**
+ * ¿Lo último que Rocco le mandó a este teléfono, hoy (Caracas) y entregado, fue la pregunta de la
+ * noche (el aviso de las 8 pm o el cierre del día)? Si después hubo otra conversación, no.
+ */
+export async function eveningAskIsLast(tx: Tx, phoneId: string, now: Date): Promise<boolean> {
+  const m = schema.message;
+  const [last] = await tx
+    .select({ at: m.createdAt, toolCalls: m.toolCalls, status: m.status })
+    .from(m)
+    .where(and(eq(m.phoneId, phoneId), eq(m.direction, "out")))
+    .orderBy(desc(m.createdAt))
+    .limit(1);
+  if (!last || last.status !== "ok") return false;
+  if (businessDateOf(last.at) !== businessDateOf(now)) return false;
+  const calls = (last.toolCalls ?? []) as { name?: string }[];
+  return calls.some((c) => c.name === "habit_nudge" || c.name === "habit_close");
 }
 
 export type NoSpendResult =

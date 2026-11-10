@@ -56,7 +56,7 @@ export function pointsHow(v: { business: boolean; flags: PointsFlags }): Outboun
     "*Cada día*",
     daily,
     ...(v.flags.dailyClose
-      ? [`• Tocar *Eso es todo* en el cierre de las 8 pm: +${p.close_day}`]
+      ? [`• Tocar *Eso es todo* en el cierre de la noche: +${p.close_day}`]
       : []),
     `• Racha de 7, 15 y 30 días seguidos: +${STREAK_BONUS[7]}, +${STREAK_BONUS[15]} y +${STREAK_BONUS[30]}, y se repite cada 30 días`,
     "",
@@ -384,7 +384,7 @@ export function pointsHowRows(v: { business: boolean; flags: PointsFlags }): {
               {
                 action: "Cerrar el día con «Eso es todo»",
                 points: `+${p.close_day}`,
-                note: "Los días que te llega el cierre de las 8 pm.",
+                note: "Los días que te llega el cierre de la noche.",
               },
             ]
           : []),

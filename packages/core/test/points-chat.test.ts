@@ -142,7 +142,7 @@ describe("puntos en el chat", () => {
     const how = await h.tap("pts:how");
     expect(how.startsWith("Así sumas puntos, pana:")).toBe(true);
     expect(how).toContain("tú o tu empleado");
-    expect(how).toContain("• Tocar *Eso es todo* en el cierre de las 8 pm: +2");
+    expect(how).toContain("• Tocar *Eso es todo* en el cierre de la noche: +2");
     expect(how).not.toContain("Invitando");
     expect(await h.send("¿Cómo gano puntos?")).toBe(how);
     const lv = await h.tap("pts:levels");

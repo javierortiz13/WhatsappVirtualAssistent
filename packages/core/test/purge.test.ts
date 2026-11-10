@@ -166,6 +166,36 @@ describe("conservación de datos", () => {
     expect(left.map((x) => x.status).sort()).toEqual(["delivered", "done", "pending"]);
   });
 
+  it("G1-2: un recordatorio avisado y nunca marcado hecho se borra 90 días después del aviso", async () => {
+    await run((tx) => tx.delete(schema.reminder).where(eq(schema.reminder.tenantId, tenantId)));
+    const row = (status: string, days: number, delivered: boolean) => ({
+      tenantId,
+      phoneId,
+      text: "pagar la luz",
+      kind: "pay",
+      dueAt: ago(days + 1),
+      dueDate: ago(days + 1)
+        .toISOString()
+        .slice(0, 10),
+      status,
+      updatedAt: ago(days),
+      ...(delivered ? { deliveredAt: ago(days) } : {}),
+    });
+    await run((tx) =>
+      tx
+        .insert(schema.reminder)
+        .values([row("delivered", 91, true), row("delivered", 89, true), row("done", 91, false)]),
+    );
+    const r = await run((tx) => purgeOldTenantData(tx, store, tenantId, now));
+    expect(r.reminders).toBe(2);
+    const left = await run((tx) =>
+      tx.select().from(schema.reminder).where(eq(schema.reminder.tenantId, tenantId)),
+    );
+    expect(left).toHaveLength(1);
+    expect(left[0]?.status).toBe("delivered");
+    expect(left[0]?.deliveredAt?.getTime()).toBe(ago(89).getTime());
+  });
+
   it("vacía el mensaje crudo de eventos cerrados con más de 90 días", async () => {
     expect(await purgeOldWebhookPayloads(t.db, now)).toBe(1);
     const evs = await t.db.select().from(schema.webhookEvent);
