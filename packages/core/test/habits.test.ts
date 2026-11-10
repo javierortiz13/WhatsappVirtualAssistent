@@ -12,6 +12,7 @@ import { type ProcessDeps, processInbound } from "../src/inbox/process";
 import {
   type HabitStats,
   habitStats,
+  isEveningNoAnswer,
   isNoSpendPhrase,
   saveHabitSettings,
   streakFor,
@@ -68,6 +69,41 @@ describe("isNoSpendPhrase", () => {
       "no hubo gastos en comida",
     ])
       expect(isNoSpendPhrase(t), t).toBe(false);
+  });
+});
+
+describe("isEveningNoAnswer (10/11: «Hola no» a la pregunta de las 8 pm)", () => {
+  it("un «no» corto, con saludo o «pana» alrededor, o una frase de sin gastos", () => {
+    for (const t of [
+      "Hola no",
+      "no",
+      "No.",
+      "nada",
+      "Nop",
+      "no, nada",
+      "Buenas noches, nada",
+      "hoy no",
+      "no hubo",
+      "nada pana",
+      "Hola, hoy no hubo nada",
+      "ninguno",
+      "Epa no hubo nada",
+    ])
+      expect(isEveningNoAnswer(t), t).toBe(true);
+  });
+  it("con algo más, no", () => {
+    for (const t of [
+      "hola",
+      "no gasté 5$",
+      "sí",
+      "gasté 5$ en café",
+      "no me recuerdes",
+      "no me escribas",
+      "nada más 5$ de pan",
+      "hola no sé cómo anotar",
+      "vendí 20$",
+    ])
+      expect(isEveningNoAnswer(t), t).toBe(false);
   });
 });
 
@@ -1030,5 +1066,93 @@ describe("números del hábito = SQL del plan de medición (ER-4)", () => {
       ownerDays: 14,
     });
     expect(sum.cohorts[0]).toMatchObject({ signedUp: 3, d7Mature: 3, d7Recorded: 2 });
+  });
+});
+
+describe("respuesta escrita a «¿Hubo ventas o gastos hoy?» (10/11)", () => {
+  let h: Awaited<ReturnType<typeof harness>>;
+  const marks = async () =>
+    (await h.t.db.select({ tc: schema.message.toolCalls }).from(schema.message))
+      .flatMap((m) => (m.tc ?? []) as { name: string; args?: Record<string, unknown> }[])
+      .filter((c) => c.name === "habit_no_spend");
+  /** Rocco mandó la pregunta de la noche (`mark`) hace `minutesAgo` minutos. */
+  const asked = (minutesAgo: number, mark = "habit_nudge", status = "ok") =>
+    withTenant(h.t.db, h.tenantId, (tx) =>
+      tx.insert(schema.message).values({
+        tenantId: h.tenantId,
+        phoneId: h.ownerPhoneId(),
+        direction: "out",
+        kind: "interactive",
+        body: "¿Hubo ventas o gastos hoy?",
+        status,
+        toolCalls: [{ name: mark, args: {} }],
+        createdAt: new Date(Date.now() - minutesAgo * 60_000),
+      }),
+    );
+  beforeAll(async () => {
+    h = await harness("food");
+  });
+  afterAll(() => h.t.close());
+  beforeEach(async () => {
+    await h.reset();
+    await saveHabitSettings(
+      h.t.db,
+      { streakLine: true, noSpend: true, prefs: true, nudge: true },
+      "test",
+      new Date(),
+    );
+  });
+
+  it("«Hola no» justo después del aviso → día anotado sin la IA, con via answer", async () => {
+    await h.recordDaysAgo(2);
+    await h.recordDaysAgo(1);
+    await asked(1);
+    const calls = h.llm.calls;
+    const reply = await h.send("Hola no");
+    expect(reply).toContain("3 días");
+    expect(h.llm.calls).toBe(calls);
+    expect((await h.streak()).noSpendToday).toBe(true);
+    expect(await marks()).toEqual([{ name: "habit_no_spend", args: { n: 3, via: "answer" } }]);
+  });
+
+  it("también después del cierre del día; «nada pana» vale", async () => {
+    await h.recordDaysAgo(1);
+    await asked(1, "habit_close");
+    await h.send("nada pana");
+    expect((await h.streak()).noSpendToday).toBe(true);
+  });
+
+  it("sin la pregunta como último mensaje de hoy, «no» no anota nada", async () => {
+    await h.recordDaysAgo(1);
+    // Nunca se preguntó.
+    await h.send("no");
+    expect((await h.streak()).noSpendToday).toBe(false);
+    // La pregunta falló al enviarse.
+    await h.reset();
+    await asked(1, "habit_nudge", "failed");
+    await h.send("no");
+    expect((await h.streak()).noSpendToday).toBe(false);
+    // La pregunta fue ayer.
+    await h.reset();
+    await asked(26 * 60);
+    await h.send("no");
+    expect((await h.streak()).noSpendToday).toBe(false);
+    expect(await marks()).toEqual([]);
+  });
+
+  it("después de la pregunta hubo otra conversación → «no» va al flujo normal", async () => {
+    await h.recordDaysAgo(1);
+    await asked(10);
+    await h.send("gasté 5$ en café");
+    await h.send("no");
+    expect(await marks()).toEqual([]);
+  });
+
+  it("con «Hoy no gasté nada» apagado, no anota", async () => {
+    await saveHabitSettings(h.t.db, { noSpend: false }, "test", new Date());
+    await h.recordDaysAgo(1);
+    await asked(1);
+    await h.send("Hola no");
+    expect((await h.streak()).noSpendToday).toBe(false);
   });
 });
