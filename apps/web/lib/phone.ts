@@ -32,3 +32,18 @@ export function formatE164(e164: string): string {
   const rest = e164.slice(cc.length);
   return `+${cc} ${rest.slice(0, 3)} ${rest.slice(3)}`.trim();
 }
+
+/**
+ * Teléfono enmascarado para /admin (rediseño 08/11): «+58 4•• ••• •• 67». Quedan el país, el
+ * primer dígito y los dos últimos; el número completo solo aparece al tocar «Ver».
+ */
+export function maskE164(e164: string): string {
+  const digits = e164.replace(/\D/g, "");
+  const cc =
+    COUNTRY_CODES.map((c) => c.code)
+      .sort((a, b) => b.length - a.length)
+      .find((c) => digits.startsWith(c)) ?? digits.slice(0, 2);
+  const rest = digits.slice(cc.length);
+  if (rest.length < 4) return `+${cc} ••••`;
+  return `+${cc} ${rest[0]}•• ••• •• ${rest.slice(-2)}`;
+}
