@@ -7,6 +7,8 @@ import {
   BatchRefused,
   cancelSignupBatch,
   Decimal,
+  type FlagChangeError,
+  type FlagState,
   founderDiscount,
   founderUntilFrom,
   habitSettings,
@@ -32,9 +34,11 @@ import {
   saveSignupRescueSettings,
   scheduleSignupBatch,
   setTenantBilling,
+  signupRescueSettings,
   subscriptionState,
   syncInvitee,
   TRIAL_DAYS,
+  validateFlagSave,
   withDiscount,
 } from "@caja/core";
 import { businessDateOf } from "@caja/core/domain";
@@ -49,13 +53,48 @@ import { confirmsName, eraseBusiness, restoreBusiness, trashBusiness } from "@/l
 
 const DAY = 24 * 60 * 60 * 1000;
 const PlanId = z.enum(PLANS.map((p) => p.id) as ["personal", "negocio", "negocio_plus"]);
-const back = (tenantId: string, q: string) => redirect(`/admin/negocios/${tenantId}?${q}`);
+/** Pestaña de la ficha del negocio a la que vuelve cada acción (rediseño 08/11). */
+type TenantTab = "resumen" | "pagos" | "numeros" | "puntos" | "acciones" | "historial";
+const back = (tenantId: string, q: string, tab: TenantTab = "resumen") =>
+  redirect(`/admin/negocios/${tenantId}?tab=${tab}&${q}`);
 
-function fail(tenantId: string, code: string, err?: unknown): never {
+function fail(tenantId: string, code: string, err?: unknown, tab: TenantTab = "resumen"): never {
   if (err)
     console.error(JSON.stringify({ level: "error", msg: `admin ${code}`, detail: errorText(err) }));
-  return back(tenantId, `error=${code}`);
+  return back(tenantId, `error=${code}`, tab);
 }
+
+/** Error de un interruptor → el código de la URL (los textos están en `messages.ts`). */
+const FLAG_ERROR: Record<FlagChangeError, string> = {
+  sticky: "avisos_fijo",
+  blocked: "bloqueado",
+  managed: "del_lote",
+  needs: "depende",
+  approval_pending: "aprobacion_pendiente",
+  approval_code: "aprobacion",
+};
+
+/** Todos los interruptores de /admin como los ve hoy la base. */
+async function currentFlags(): Promise<FlagState> {
+  const [h, r] = await Promise.all([habitSettings(db()), signupRescueSettings(db())]);
+  return {
+    streakLine: h.streakLine,
+    noSpend: h.noSpend,
+    prefs: h.prefs,
+    nudge: h.nudge,
+    dailyClose: h.dailyClose,
+    reminders: h.reminders,
+    xp: h.xp,
+    rewards: h.rewards,
+    referrals: h.referrals,
+    inWindow: r.inWindow,
+    template: r.template,
+    viaTemplate: r.inWindowVia === "template",
+  };
+}
+
+/** Código de aprobación que escribió el administrador en la hoja (o nada). */
+const approvalCode = (formData: FormData) => String(formData.get("approval_code") ?? "").trim();
 
 const PaymentForm = z.object({
   tenant_id: z.string().uuid(),
@@ -73,11 +112,11 @@ export async function recordPaymentAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const parsed = PaymentForm.safeParse(Object.fromEntries(formData));
   const tenantId = String(formData.get("tenant_id") ?? "");
-  if (!parsed.success) fail(tenantId, "datos");
+  if (!parsed.success) fail(tenantId, "datos", undefined, "pagos");
   const f = parsed.data;
   // "19.99", "19,99", "19.527,03" y "19527.03" se leen bien; "1.200" son mil doscientos.
   const amount = parseVenezuelanAmount(f.amount);
-  if (!amount || amount.lte(0)) fail(tenantId, "monto");
+  if (!amount || amount.lte(0)) fail(tenantId, "monto", undefined, "pagos");
   const plan = planById(f.plan);
   const q = quote(plan, f.method, f.months, await latestRates(db()));
   const now = new Date();
@@ -115,10 +154,10 @@ export async function recordPaymentAction(formData: FormData): Promise<void> {
       );
     });
   } catch (err) {
-    fail(f.tenant_id, "servidor", err);
+    fail(f.tenant_id, "servidor", err, "pagos");
   }
   revalidatePath("/admin");
-  back(f.tenant_id, f.approve === "on" ? "ok=pago_aprobado" : "ok=pago_registrado");
+  back(f.tenant_id, f.approve === "on" ? "ok=pago_aprobado" : "ok=pago_registrado", "pagos");
 }
 
 const PaymentRef = z.object({
@@ -131,35 +170,35 @@ const PaymentRef = z.object({
 export async function approvePaymentAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const parsed = PaymentRef.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) redirect("/admin?error=datos");
+  if (!parsed.success) redirect("/admin/pagos?error=datos");
   const f = parsed.data;
   try {
     await withTenant(db(), f.tenant_id, (tx) =>
       approvePayment(tx, f.tenant_id, f.payment_id, admin, new Date()),
     );
   } catch (err) {
-    fail(f.tenant_id, "servidor", err);
+    fail(f.tenant_id, "servidor", err, "pagos");
   }
   revalidatePath("/admin");
-  if (f.from === "panel") redirect("/admin?ok=pago_aprobado");
-  back(f.tenant_id, "ok=pago_aprobado");
+  if (f.from === "panel") redirect("/admin/pagos?ok=pago_aprobado");
+  back(f.tenant_id, "ok=pago_aprobado", "pagos");
 }
 
 export async function rejectPaymentAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const parsed = PaymentRef.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) redirect("/admin?error=datos");
+  if (!parsed.success) redirect("/admin/pagos?error=datos");
   const f = parsed.data;
   try {
     await withTenant(db(), f.tenant_id, (tx) =>
       rejectPayment(tx, f.tenant_id, f.payment_id, admin, f.reason || null, new Date()),
     );
   } catch (err) {
-    fail(f.tenant_id, "servidor", err);
+    fail(f.tenant_id, "servidor", err, "pagos");
   }
   revalidatePath("/admin");
-  if (f.from === "panel") redirect("/admin?ok=pago_rechazado");
-  back(f.tenant_id, "ok=pago_rechazado");
+  if (f.from === "panel") redirect("/admin/pagos?ok=pago_rechazado");
+  back(f.tenant_id, "ok=pago_rechazado", "pagos");
 }
 
 const TenantChange = z.object({
@@ -183,7 +222,7 @@ export async function changeTenantAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const parsed = TenantChange.safeParse(Object.fromEntries(formData));
   const tenantId = String(formData.get("tenant_id") ?? "");
-  if (!parsed.success) fail(tenantId, "datos");
+  if (!parsed.success) fail(tenantId, "datos", undefined, "acciones");
   const f = parsed.data;
   const now = new Date();
   let outcome = "ok=guardado";
@@ -231,10 +270,10 @@ export async function changeTenantAction(formData: FormData): Promise<void> {
       }
     });
   } catch (err) {
-    fail(f.tenant_id, "servidor", err);
+    fail(f.tenant_id, "servidor", err, "acciones");
   }
   revalidatePath("/admin");
-  back(f.tenant_id, outcome);
+  back(f.tenant_id, outcome, "acciones");
 }
 
 /**
@@ -245,7 +284,7 @@ export async function eraseTenantAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const tenantId = String(formData.get("tenant_id") ?? "");
   const mode = formData.get("mode") === "now" ? "now" : "trash";
-  if (!z.string().uuid().safeParse(tenantId).success) redirect("/admin?error=datos");
+  if (!z.string().uuid().safeParse(tenantId).success) redirect("/admin/clientes?error=datos");
   const name = await withTenant(db(), tenantId, async (tx) => {
     const [t] = await tx
       .select({ name: schema.tenant.name })
@@ -253,31 +292,31 @@ export async function eraseTenantAction(formData: FormData): Promise<void> {
       .where(eq(schema.tenant.id, tenantId));
     return t?.name ?? null;
   });
-  if (name === null) redirect("/admin?error=datos");
-  if (!confirmsName(formData.get("confirm"), name)) back(tenantId, "error=confirmar");
+  if (name === null) redirect("/admin/clientes?error=datos");
+  if (!confirmsName(formData.get("confirm"), name)) back(tenantId, "error=confirmar", "acciones");
   try {
     if (mode === "now") await eraseBusiness(tenantId);
     else await trashBusiness(tenantId, "admin", { type: "user", id: admin.userId }, "admin");
   } catch (err) {
-    fail(tenantId, "servidor", err);
+    fail(tenantId, "servidor", err, "acciones");
   }
   revalidatePath("/admin");
-  if (mode === "now") redirect("/admin?ok=eliminado");
-  back(tenantId, "ok=papelera");
+  if (mode === "now") redirect("/admin/clientes?ok=eliminado");
+  back(tenantId, "ok=papelera", "acciones");
 }
 
 /** Saca un negocio de la papelera (0017). */
 export async function restoreTenantAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const tenantId = String(formData.get("tenant_id") ?? "");
-  if (!z.string().uuid().safeParse(tenantId).success) redirect("/admin?error=datos");
+  if (!z.string().uuid().safeParse(tenantId).success) redirect("/admin/clientes?error=datos");
   try {
     await restoreBusiness(tenantId, { type: "user", id: admin.userId }, "admin");
   } catch (err) {
-    fail(tenantId, "servidor", err);
+    fail(tenantId, "servidor", err, "acciones");
   }
   revalidatePath("/admin");
-  back(tenantId, "ok=recuperado");
+  back(tenantId, "ok=recuperado", "acciones");
 }
 
 // ---------------------------------------------------------------- CRM (0019)
@@ -320,7 +359,7 @@ export async function saveCrmAction(formData: FormData): Promise<void> {
 export async function setFounderAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const tenantId = String(formData.get("tenant_id") ?? "");
-  if (!z.string().uuid().safeParse(tenantId).success) redirect("/admin?error=datos");
+  if (!z.string().uuid().safeParse(tenantId).success) redirect("/admin/clientes?error=datos");
   const on = formData.get("founder") === "on";
   const now = new Date();
   try {
@@ -352,7 +391,7 @@ export async function setFounderAction(formData: FormData): Promise<void> {
 export async function giftRechargeAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const tenantId = String(formData.get("tenant_id") ?? "");
-  if (!z.string().uuid().safeParse(tenantId).success) redirect("/admin?error=datos");
+  if (!z.string().uuid().safeParse(tenantId).success) redirect("/admin/clientes?error=datos");
   try {
     await withTenant(db(), tenantId, async (tx) => {
       const [t] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, tenantId));
@@ -384,7 +423,7 @@ const LaunchForm = z.object({
 export async function saveLaunchAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const parsed = LaunchForm.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) redirect("/admin?error=datos");
+  if (!parsed.success) redirect("/admin/cobro?error=datos");
   try {
     await saveLaunchSettings(
       db(),
@@ -400,10 +439,10 @@ export async function saveLaunchAction(formData: FormData): Promise<void> {
     console.error(
       JSON.stringify({ level: "error", msg: "admin lanzamiento", detail: errorText(err) }),
     );
-    redirect("/admin?error=servidor");
+    redirect("/admin/cobro?error=servidor");
   }
   revalidatePath("/", "layout");
-  redirect("/admin?ok=lanzamiento");
+  redirect("/admin/cobro?ok=lanzamiento");
 }
 
 /**
@@ -416,10 +455,17 @@ export async function saveHabitsAction(formData: FormData): Promise<void> {
   const reminders = formData.get("reminders") === "on";
   const nudge = formData.get("nudge") === "on";
   const dailyClose = formData.get("daily_close") === "on";
-  // Avisos va primero (PRD hábitos §6): sin él, «no me escribas» no tendría efecto. El mensaje
-  // para todos es el aviso de las 8 pm sin pedirlo: va con él.
-  if ((reminders || nudge || dailyClose) && !prefs) redirect("/admin?error=avisos_primero");
-  if (dailyClose && !nudge) redirect("/admin?error=aviso_primero");
+  const streakLine = formData.get("streak_line") === "on";
+  const noSpend = formData.get("no_spend") === "on";
+  // Avisos va primero (PRD hábitos §6) y no se apaga; el mensaje para todos va con el aviso de
+  // las 8 pm; encender uno con aprobación pide su código exacto (rediseño 08/11, `admin/flags`).
+  const flagsBefore = await currentFlags();
+  const check = validateFlagSave(
+    flagsBefore,
+    { ...flagsBefore, streakLine, noSpend, prefs, nudge, dailyClose, reminders },
+    approvalCode(formData),
+  );
+  if (!check.ok) redirect(`/admin/interruptores?error=${FLAG_ERROR[check.error]}`);
   try {
     // P4 (P-16): el día en que cambia `dailyClose` mueve la fecha de /puntos.
     const now = new Date();
@@ -433,23 +479,17 @@ export async function saveHabitsAction(formData: FormData): Promise<void> {
       );
     await saveHabitSettings(
       db(),
-      {
-        streakLine: formData.get("streak_line") === "on",
-        noSpend: formData.get("no_spend") === "on",
-        prefs,
-        reminders,
-        nudge,
-        dailyClose,
-      },
+      { streakLine, noSpend, prefs, reminders, nudge, dailyClose },
       admin.email,
       new Date(),
+      { approval: check.approval },
     );
   } catch (err) {
     console.error(JSON.stringify({ level: "error", msg: "admin hábito", detail: errorText(err) }));
-    redirect("/admin?error=servidor");
+    redirect("/admin/interruptores?error=servidor");
   }
   revalidatePath("/", "layout");
-  redirect("/admin?ok=habito");
+  redirect("/admin/interruptores?ok=habito");
 }
 
 /**
@@ -464,15 +504,25 @@ export async function saveRewardsAction(formData: FormData): Promise<void> {
   const xp = formData.get("xp") === "on";
   const rewards = formData.get("rewards") === "on";
   const referrals = formData.get("referrals") === "on";
-  if ((rewards || referrals) && !xp) redirect("/admin?error=puntos_primero#puntos");
+  // Vuelve a donde estaba: el tope se cambia en «Puntos», los interruptores en «Interruptores».
+  const page = formData.get("from") === "puntos" ? "/admin/puntos" : "/admin/interruptores";
+  const flagsBefore = await currentFlags();
+  const check = validateFlagSave(
+    flagsBefore,
+    { ...flagsBefore, xp, rewards, referrals },
+    approvalCode(formData),
+  );
+  if (!check.ok) redirect(`${page}?error=${FLAG_ERROR[check.error]}`);
   const ceiling = parseCeiling(formData.get("ceiling"));
-  if (ceiling === null) redirect("/admin?error=tope#puntos");
+  if (ceiling === null) redirect(`${page}?error=tope`);
   const now = new Date();
   try {
     const before = await habitSettings(db());
     const rs = await rewardSettings(db());
     const after = { ...before, xp, rewards, referrals };
-    await saveHabitSettings(db(), { xp, rewards, referrals }, admin.email, now);
+    await saveHabitSettings(db(), { xp, rewards, referrals }, admin.email, now, {
+      approval: check.approval,
+    });
     await saveRewardSettings(
       db(),
       { monthlyCeilingUsd: ceiling, ...rewardChangesForFlags(before, after, rs, now) },
@@ -491,15 +541,16 @@ export async function saveRewardsAction(formData: FormData): Promise<void> {
           ceiling: rs.monthlyCeilingUsd,
         },
         after: { xp, rewards, referrals, ceiling },
+        approval: check.approval,
       }),
     );
   } catch (err) {
     console.error(JSON.stringify({ level: "error", msg: "admin puntos", detail: errorText(err) }));
-    redirect("/admin?error=servidor");
+    redirect(`${page}?error=servidor`);
   }
   revalidatePath("/", "layout");
   revalidatePath("/puntos");
-  redirect("/admin?ok=puntos#puntos");
+  redirect(`${page}?ok=puntos`);
 }
 
 /** Quita la línea roja del tope (A46) hasta la próxima vez que pase dos meses seguidos. */
@@ -510,7 +561,7 @@ export async function dismissRewardsAlertAction(): Promise<void> {
     JSON.stringify({ level: "info", msg: "admin: alerta del tope vista", admin: admin.email }),
   );
   revalidatePath("/admin");
-  redirect("/admin?ok=puntos#puntos");
+  redirect("/admin/puntos?ok=puntos");
 }
 
 const RemovePoints = z.object({
@@ -529,7 +580,7 @@ export async function removePointsAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const tenantId = String(formData.get("tenant_id") ?? "");
   const parsed = RemovePoints.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) fail(tenantId, "puntos");
+  if (!parsed.success) fail(tenantId, "puntos", undefined, "puntos");
   const f = parsed.data;
   const now = new Date();
   let outcome = "ok=puntos";
@@ -565,7 +616,7 @@ export async function removePointsAction(formData: FormData): Promise<void> {
     outcome = "error=servidor";
   }
   revalidatePath(`/admin/negocios/${f.tenant_id}`);
-  redirect(`/admin/negocios/${f.tenant_id}?${outcome}#puntos`);
+  back(f.tenant_id, outcome, "puntos");
 }
 
 const ReversePayment = z.object({
@@ -584,7 +635,7 @@ export async function reversePaymentAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const tenantId = String(formData.get("tenant_id") ?? "");
   const parsed = ReversePayment.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) fail(tenantId, "datos");
+  if (!parsed.success) fail(tenantId, "datos", undefined, "pagos");
   const f = parsed.data;
   const now = new Date();
   let outcome = "ok=devuelto";
@@ -620,9 +671,9 @@ export async function reversePaymentAction(formData: FormData): Promise<void> {
       await syncInvitee(tx);
     });
   } catch (err) {
-    fail(f.tenant_id, "servidor", err);
+    fail(f.tenant_id, "servidor", err, "pagos");
   }
-  back(f.tenant_id, outcome);
+  back(f.tenant_id, outcome, "pagos");
 }
 
 const CodeOp = z.object({ tenant_id: z.string().uuid(), op: z.enum(["disable", "enable"]) });
@@ -635,7 +686,7 @@ export async function setReferralCodeAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const tenantId = String(formData.get("tenant_id") ?? "");
   const parsed = CodeOp.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) fail(tenantId, "datos");
+  if (!parsed.success) fail(tenantId, "datos", undefined, "puntos");
   const f = parsed.data;
   const now = new Date();
   let outcome = "ok=codigo";
@@ -675,9 +726,9 @@ export async function setReferralCodeAction(formData: FormData): Promise<void> {
       });
     });
   } catch (err) {
-    fail(f.tenant_id, "servidor", err);
+    fail(f.tenant_id, "servidor", err, "puntos");
   }
-  back(f.tenant_id, outcome);
+  back(f.tenant_id, outcome, "puntos");
 }
 
 const RefReview = z.object({
@@ -694,7 +745,7 @@ const RefReview = z.object({
 export async function reviewRefMonthAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const parsed = RefReview.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) redirect("/admin?error=datos#invitaciones");
+  if (!parsed.success) redirect("/admin/puntos?error=datos#invitaciones");
   const f = parsed.data;
   const now = new Date();
   let outcome = `ok=${f.op === "approve" ? "mes_aprobado" : "mes_rechazado"}`;
@@ -726,7 +777,7 @@ export async function reviewRefMonthAction(formData: FormData): Promise<void> {
     }
   }
   revalidatePath("/admin");
-  redirect(`/admin?${outcome}#invitaciones`);
+  redirect(`/admin/puntos?${outcome}#invitaciones`);
 }
 
 const FounderMark = z.object({ id: z.string().uuid(), on: z.enum(["1", "0"]) });
@@ -738,7 +789,7 @@ const FounderMark = z.object({ id: z.string().uuid(), on: z.enum(["1", "0"]) });
 export async function markFounderContactedAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const parsed = FounderMark.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) redirect("/admin?error=servidor");
+  if (!parsed.success) redirect("/admin/registro?error=servidor");
   const on = parsed.data.on === "1";
   await db()
     .update(schema.signup)
@@ -754,20 +805,24 @@ export async function markFounderContactedAction(formData: FormData): Promise<vo
     }),
   );
   revalidatePath("/admin");
-  redirect("/admin?ok=registro#registros");
+  redirect("/admin/registro?ok=registro#registros");
 }
 
 /** Interruptores del recordatorio del registro (SR-ADM). Encender (A) guarda desde cuándo. */
 export async function saveSignupRescueAction(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
+  const inWindow = formData.get("in_window") === "on";
+  const template = formData.get("template") === "on";
+  const viaTemplate = formData.get("via_template") === "on";
+  // «Plantilla (lote)» la enciende solo el lote (a mano solo se apaga, como freno); «como
+  // plantilla» no está aprobado (rediseño 08/11, `admin/flags`).
+  const flagsBefore = await currentFlags();
+  const check = validateFlagSave(flagsBefore, { ...flagsBefore, inWindow, template, viaTemplate });
+  if (!check.ok) redirect(`/admin/interruptores?error=${FLAG_ERROR[check.error]}`);
   try {
     await saveSignupRescueSettings(
       db(),
-      {
-        inWindow: formData.get("in_window") === "on",
-        template: formData.get("template") === "on",
-        inWindowVia: formData.get("via_template") === "on" ? "template" : "text",
-      },
+      { inWindow, template, inWindowVia: viaTemplate ? "template" : "text" },
       admin.email,
       new Date(),
     );
@@ -775,10 +830,10 @@ export async function saveSignupRescueAction(formData: FormData): Promise<void> 
     console.error(
       JSON.stringify({ level: "error", msg: "admin registro", detail: errorText(err) }),
     );
-    redirect("/admin?error=servidor");
+    redirect("/admin/interruptores?error=servidor");
   }
   revalidatePath("/admin");
-  redirect("/admin?ok=rescate");
+  redirect("/admin/interruptores?ok=rescate");
 }
 
 /**
@@ -792,17 +847,17 @@ export async function scheduleBatchAction(): Promise<void> {
     await scheduleSignupBatch(db(), { actor: admin.email, now: new Date() });
   } catch (err) {
     if (err instanceof BatchRefused)
-      redirect(`/admin?error=lote&motivo=${encodeURIComponent(err.reason)}#lote`);
+      redirect(`/admin/registro?error=lote&motivo=${encodeURIComponent(err.reason)}#lote`);
     console.error(JSON.stringify({ level: "error", msg: "admin lote", detail: errorText(err) }));
-    redirect("/admin?error=servidor");
+    redirect("/admin/registro?error=servidor");
   }
   revalidatePath("/admin");
-  redirect("/admin?ok=lote_programado#lote");
+  redirect("/admin/registro?ok=lote_programado#lote");
 }
 
 export async function cancelBatchAction(): Promise<void> {
   const admin = await requireAdmin();
   await cancelSignupBatch(db(), admin.email, new Date());
   revalidatePath("/admin");
-  redirect("/admin?ok=lote_cancelado#lote");
+  redirect("/admin/registro?ok=lote_cancelado#lote");
 }

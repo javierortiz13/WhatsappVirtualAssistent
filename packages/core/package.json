@@ -9,7 +9,8 @@
     "./plans": "./src/billing/plans.ts",
     "./whatsapp": "./src/whatsapp/index.ts",
     "./inbox": "./src/inbox/index.ts",
-    "./log": "./src/log.ts"
+    "./log": "./src/log.ts",
+    "./admin-flags": "./src/admin/flags.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

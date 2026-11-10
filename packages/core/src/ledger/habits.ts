@@ -71,6 +71,8 @@ export async function saveHabitSettings(
   next: Partial<HabitSettings>,
   actor: string,
   now: Date,
+  /** El código de la aprobación de la agencia con que se encendió (rediseño de /admin, 08/11). */
+  meta: { approval?: string | null } = {},
 ): Promise<void> {
   // Se guardan junto a lo que ya hubiera (las fases siguientes agregan sus interruptores).
   const [r] = await db
@@ -101,6 +103,7 @@ export async function saveHabitSettings(
       at: now.toISOString(),
       by: actor,
       changed: Object.fromEntries(changed.map((f) => [f, [prev[f] === true, next[f] === true]])),
+      ...(meta.approval ? { approval: meta.approval } : {}),
     },
   ];
   await db
@@ -121,6 +124,8 @@ export type HabitHistoryEntry = {
   by: string;
   /** Cada interruptor que cambió: [antes, después]. */
   changed: Partial<Record<HabitFlag, [boolean, boolean]>>;
+  /** Código de la aprobación con que se encendió (A-0033, A-0039-T1…). */
+  approval?: string;
 };
 
 /** Los últimos `n` cambios de interruptores, el más reciente primero (G1-4, para /admin). */

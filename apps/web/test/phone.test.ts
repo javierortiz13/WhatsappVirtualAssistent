@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatE164, toE164 } from "../lib/phone";
+import { formatE164, maskE164, toE164 } from "../lib/phone";
 
 describe("teléfonos del formulario", () => {
   it("normaliza números venezolanos con o sin cero inicial y con separadores", () => {
@@ -19,5 +19,14 @@ describe("teléfonos del formulario", () => {
   it("formatea para mostrar", () => {
     expect(formatE164("584121234567")).toBe("+58 412 1234567");
     expect(formatE164("17869660391")).toBe("+1 786 9660391");
+  });
+});
+
+describe("maskE164 (admin, 08/11)", () => {
+  it("deja el país, el primer dígito y los dos últimos", () => {
+    expect(maskE164("584121234567")).toBe("+58 4•• ••• •• 67");
+    expect(maskE164("17869660391")).toBe("+1 7•• ••• •• 91");
+    expect(maskE164("50761234567")).toBe("+507 6•• ••• •• 67");
+    expect(maskE164("584121234567")).not.toContain("1234");
   });
 });

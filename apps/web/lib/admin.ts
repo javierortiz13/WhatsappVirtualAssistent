@@ -369,10 +369,22 @@ export function surveyTally(tenants: TenantRow[]) {
 export type PendingPayment = typeof schema.payment.$inferSelect & { tenantName: string };
 
 export async function loadPendingPayments(): Promise<PendingPayment[]> {
+  return (await loadPayments(new Date())).pending;
+}
+
+/**
+ * Pagos por verificar (el más viejo primero) y los revisados este mes de Caracas (aprobados o
+ * devueltos, el más nuevo primero), con la misma lectura de antes (rediseño 08/11).
+ */
+export async function loadPayments(
+  now: Date,
+): Promise<{ pending: PendingPayment[]; approvedMonth: PendingPayment[] }> {
   // Defensa en profundidad: el layout no se vuelve a renderizar en cada navegación.
   await requireAdmin();
   const conn = db();
-  const out: PendingPayment[] = [];
+  const month = businessDateOf(now).slice(0, 7);
+  const pending: PendingPayment[] = [];
+  const approvedMonth: PendingPayment[] = [];
   for (const id of await everyTenantId(conn)) {
     const rows = await withTenant(conn, id, async (tx) => {
       const [t] = await tx
@@ -384,13 +396,23 @@ export async function loadPendingPayments(): Promise<PendingPayment[]> {
         .from(schema.payment)
         .where(eq(schema.payment.tenantId, id))
         .orderBy(desc(schema.payment.createdAt));
-      return list
-        .filter((p) => p.status === "pending")
-        .map((p) => ({ ...p, tenantName: t?.name ?? "?" }));
+      return list.map((p) => ({ ...p, tenantName: t?.name ?? "?" }));
     });
-    out.push(...rows);
+    for (const p of rows) {
+      if (p.status === "pending") pending.push(p);
+      else if (
+        (p.status === "approved" || p.status === "reversed") &&
+        businessDateOf(p.reviewedAt ?? p.createdAt).slice(0, 7) === month
+      )
+        approvedMonth.push(p);
+    }
   }
-  return out.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  return {
+    pending: pending.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()),
+    approvedMonth: approvedMonth.sort(
+      (a, b) => (b.reviewedAt ?? b.createdAt).getTime() - (a.reviewedAt ?? a.createdAt).getTime(),
+    ),
+  };
 }
 
 export async function loadTenantDetail(tenantId: string, now: Date) {

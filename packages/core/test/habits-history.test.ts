@@ -15,7 +15,9 @@ describe("habitHistory (G1-4)", () => {
     const d2 = new Date("2026-11-07T16:00:00Z");
     await saveHabitSettings(t.db, { nudge: true, prefs: true }, "fundador@x", d1);
     // `prefs` no cambia (ya estaba encendido): no entra.
-    await saveHabitSettings(t.db, { prefs: true, dailyClose: true, nudge: false }, "otro@x", d2);
+    await saveHabitSettings(t.db, { prefs: true, dailyClose: true, nudge: false }, "otro@x", d2, {
+      approval: "A-0038",
+    });
     // Nada cambia: no se agrega nada.
     await saveHabitSettings(t.db, { prefs: true }, "otro@x", d2);
     const h = await habitHistory(t.db);
@@ -24,6 +26,7 @@ describe("habitHistory (G1-4)", () => {
         at: d2.toISOString(),
         by: "otro@x",
         changed: { dailyClose: [false, true], nudge: [true, false] },
+        approval: "A-0038",
       },
       {
         at: d1.toISOString(),
