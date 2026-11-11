@@ -17,7 +17,12 @@ import type { ProcessMessageJob } from "@caja/db/queue";
 import { z } from "zod";
 import { LlmUnavailableError } from "../agent/llm";
 import { REMINDER_LINK } from "../agent/reminder-tools";
-import { deleteLastFlow, expenseDraftOutbound, expensesDraftOutbound } from "../agent/tools";
+import {
+  cleanCategoryName,
+  deleteLastFlow,
+  expenseDraftOutbound,
+  expensesDraftOutbound,
+} from "../agent/tools";
 import type { AgentInput, AgentRunner, UnclearReceipt } from "../agent/types";
 import {
   type CapStatus,
@@ -60,6 +65,7 @@ import {
 } from "../identity/resolve";
 import { createAttachment, discardAttachment } from "../ledger/attachments";
 import { budgetStatuses } from "../ledger/budgets";
+import { CategoryError, createCategory } from "../ledger/categories";
 import {
   type BsRateMode,
   completeExchange,
@@ -118,6 +124,7 @@ import {
   TransferError,
   transferAmounts,
 } from "../ledger/index";
+import { isTooOld, lastMovementByPhone } from "../ledger/last-movement";
 import { syncPoints } from "../ledger/points";
 import { NoRateError, rateFor } from "../ledger/rate-for";
 import { errorText, type Logger, maskPhone, silentLogger } from "../log";
@@ -2407,6 +2414,27 @@ async function routeInteractive(
       return runAgent(tx, deps, ctx, ctx.inboundId, {
         kind: "text",
         text: `Respuesta al botón de categoría: ${JSON.stringify(cat.name)}. Aplícala a lo del mensaje anterior.`,
+      });
+    }
+    case "category_new_no":
+      return none([es.categoryCreateDeclined()]);
+    case "category_new": {
+      // «Sí, créala» (11/11): solo el dueño. Se crea y, si ese gasto sigue siendo su último (y
+      // de menos de 30 min), se propone el cambio con la confirmación de siempre.
+      if (ctx.role !== "owner") return none([es.outOfScope()]);
+      const name = cleanCategoryName(parsed.name);
+      try {
+        await createCategory(tx, { tenantId: ctx.tenantId, phoneId: ctx.phoneId }, name, "expense");
+      } catch (err) {
+        if (!(err instanceof CategoryError) || err.code !== "duplicate") throw err;
+      }
+      const now = (deps.now ?? (() => new Date()))();
+      const last = await lastMovementByPhone(tx, ctx.tenantId, ctx.phoneId);
+      if (!last || last.id !== parsed.movementId || isTooOld(last, now))
+        return none([es.categoryCreatedOnly(name, deps.config.dashboardUrl)]);
+      return runAgent(tx, deps, ctx, ctx.inboundId, {
+        kind: "text",
+        text: `Cambia la categoría de mi último gasto a ${JSON.stringify(name)}.`,
       });
     }
     case "recharge": {

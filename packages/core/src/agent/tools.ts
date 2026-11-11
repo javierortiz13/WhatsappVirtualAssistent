@@ -37,7 +37,7 @@ import {
   starterFor,
 } from "../ledger/accounts";
 import { budgetStatuses } from "../ledger/budgets";
-import { OTHER_INCOME } from "../ledger/categories";
+import { CategoryError, createCategory, OTHER_INCOME } from "../ledger/categories";
 import {
   createExpenseDraft,
   createExpensesDraft,
@@ -78,7 +78,7 @@ import { matchCategoryName } from "../ledger/reports";
 import { renderSummary } from "../ledger/summary";
 import { type TransferDraft, transferAmounts } from "../ledger/transfers";
 import { getRateInfo } from "../rates/current";
-import { es, type Outbound } from "../render/index";
+import { es, mergeOutbound, type Outbound } from "../render/index";
 import type { LlmToolDef } from "./llm";
 import { REMINDER_TOOL_NAMES, REMINDER_TOOLS, reminderLink } from "./reminder-tools";
 import type { AgentContext } from "./types";
@@ -320,6 +320,25 @@ export const AmendLastInput = z.object({
     .describe("Nuevo método de pago (solo ventas), o keep si no cambia."),
   rate: z.string().describe('Nueva tasa Bs por dólar si la dice explícitamente, o "".'),
 });
+
+export const CreateCategoryInput = z.object({
+  name: z
+    .string()
+    .describe(
+      'El nombre de la categoría nueva tal como lo dijo, sin "categoría" ("Pago de deudas").',
+    ),
+  kind: z
+    .enum(["expense", "income"])
+    .describe(
+      "expense para gastos (lo normal); income solo si dice que es para ventas o ingresos.",
+    ),
+  apply_to_last: z
+    .boolean()
+    .describe(
+      "true si la pide para el último gasto que está corrigiendo ('categoría: crea una nueva que se llame X', 'ponlo en una categoría nueva X', 'cámbialo a X y créala'); false si solo quiere crearla.",
+    ),
+});
+export type CreateCategoryInput = z.infer<typeof CreateCategoryInput>;
 
 export const DeleteLastInput = z.object({
   scope: z
@@ -1467,14 +1486,21 @@ const amendLast: ToolSpec<typeof AmendLastInput> = {
         matchCategory(run.ctx.categories, input.category_name) ??
         (await findCategory(run.tx, run.ctx.tenantId, input.category_name));
       if (!c) {
+        // 11/11: el dueño puede crearla aquí mismo y pasar el gasto ahí (un toque).
+        const offer =
+          run.ctx.role === "owner" &&
+          m.type === "expense" &&
+          validCategoryName(input.category_name);
         return {
           kind: "terminal",
           status: "ok",
           outbound: [
-            es.categoryNotFound(
-              input.category_name,
-              run.ctx.categories.slice(0, 3).map((x) => x.name),
-            ),
+            offer
+              ? es.categoryCreateOffer(m.id, cleanCategoryName(input.category_name))
+              : es.categoryNotFound(
+                  input.category_name,
+                  run.ctx.categories.slice(0, 3).map((x) => x.name),
+                ),
           ],
         };
       }
@@ -1540,6 +1566,66 @@ const amendLast: ToolSpec<typeof AmendLastInput> = {
         return { kind: "terminal", outbound: [es.noRate()], status: "ok" };
       throw err;
     }
+  },
+};
+
+/** Nombre de categoría como se guarda: sin espacios de más (2 a 40 letras, igual que el panel). */
+export const cleanCategoryName = (name: string) => {
+  const t = name.trim().replace(/\s+/g, " ");
+  return t.charAt(0).toUpperCase() + t.slice(1);
+};
+export const validCategoryName = (name: string) => {
+  const n = cleanCategoryName(name).length;
+  return n >= 2 && n <= 40;
+};
+
+const createCategoryTool: ToolSpec<typeof CreateCategoryInput> = {
+  name: "create_category",
+  description:
+    "Crea una CATEGORÍA nueva para clasificar gastos (o ingresos): 'crea la categoría pago de deudas', 'agrega una categoría que se llame regalos', 'quiero una categoría nueva: mascotas'. Si la pide para el gasto que está corrigiendo ('categoría: crea una nueva que se llame X', 'ponlo en una categoría nueva X'), apply_to_last true: se crea y se propone el cambio del último gasto. No es para cuentas de dinero (eso es create_account).",
+  schema: CreateCategoryInput,
+  roles: ["owner"],
+  strict: false,
+  async run(input, run) {
+    const reply = (o: Outbound[]) => ({
+      kind: "terminal" as const,
+      status: "ok" as const,
+      outbound: o,
+    });
+    if (!validCategoryName(input.name))
+      return reply([es.clarification("¿Cómo se llama la categoría? De 2 a 40 letras.", [])]);
+    const name = cleanCategoryName(input.name);
+    const kind = input.apply_to_last ? "expense" : input.kind;
+    let created = true;
+    try {
+      await createCategory(
+        run.tx,
+        { tenantId: run.ctx.tenantId, phoneId: run.ctx.phoneId },
+        name,
+        kind,
+      );
+    } catch (err) {
+      if (!(err instanceof CategoryError) || err.code !== "duplicate") throw err;
+      created = false;
+    }
+    if (!input.apply_to_last) return reply([es.categoryCreated(name, kind, created)]);
+    // Se crea y se propone el cambio del último gasto, con la misma confirmación de siempre.
+    const amended = await amendLast.run(
+      {
+        amount: "",
+        currency: "keep",
+        category_name: name,
+        description: "",
+        when: "",
+        method: "keep",
+        rate: "",
+      },
+      run,
+    );
+    if (amended.kind !== "terminal") return amended;
+    const first = amended.outbound[0];
+    if (!first) return reply([es.categoryCreated(name, kind, created)]);
+    return reply(mergeOutbound(es.categoryCreatedShort(name, created), first));
   },
 };
 
@@ -2386,6 +2472,7 @@ export const ALL_TOOLS: ToolSpec<z.ZodType>[] = [
   exchangeUsdt,
   getAccounts,
   createAccountTool,
+  createCategoryTool,
   transferBetweenAccounts,
   ...REMINDER_TOOLS,
 ] as ToolSpec<z.ZodType>[];

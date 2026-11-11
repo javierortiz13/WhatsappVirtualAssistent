@@ -2211,6 +2211,62 @@ export function categoryNotFound(name: string, suggestions: string[]): Outbound 
   };
 }
 
+/**
+ * 11/11: al corregir a una categoría que no existe, el dueño la crea con un toque y el gasto pasa
+ * ahí (con la confirmación de siempre).
+ */
+export function categoryCreateOffer(movementId: string, name: string): Outbound {
+  return {
+    type: "buttons",
+    body: `No tengo la categoría *${name}*. ¿La creo y paso ahí este gasto?`,
+    buttons: [
+      { id: IDS.categoryNew(movementId, name), title: "Sí, créala" },
+      { id: IDS.categoryNewNo(), title: "No" },
+    ],
+  };
+}
+
+/** «crea la categoría X» (11/11). */
+export function categoryCreated(
+  name: string,
+  kind: "expense" | "income",
+  created: boolean,
+): Outbound {
+  if (!created)
+    return { type: "text", body: `Ya tenías la categoría *${name}*. La uso cuando la nombres.` };
+  return {
+    type: "text",
+    body:
+      kind === "income"
+        ? `Listo, creé *${name}* para tus ingresos.`
+        : `Listo, creé la categoría *${name}*. Para usarla: _gasté 20$ en ${name.toLowerCase()}_, o al corregir un gasto: _es ${name.toLowerCase()}_.`,
+  };
+}
+
+/** La primera línea cuando se crea para el gasto que se está corrigiendo. */
+export function categoryCreatedShort(name: string, created: boolean): Outbound {
+  return {
+    type: "text",
+    body: created ? `Listo, creé la categoría *${name}*.` : `Ya tenías la categoría *${name}*.`,
+  };
+}
+
+/** «No» a la oferta de crearla. */
+export function categoryCreateDeclined(): Outbound {
+  return {
+    type: "text",
+    body: "Listo, no la creé. Dime a cuál categoría lo paso, o escribe *ayuda*.",
+  };
+}
+
+/** «Sí, créala» cuando ese gasto ya no es el último o pasaron más de 30 minutos. */
+export function categoryCreatedOnly(name: string, dashboardUrl: string): Outbound {
+  return {
+    type: "text",
+    body: `Listo, creé la categoría *${name}*. Ese gasto ya no lo puedo cambiar por aquí; lo corriges en ${dashboardUrl}/movimientos`,
+  };
+}
+
 export function periodTooLong(dashboardUrl: string): Outbound {
   return {
     type: "text",

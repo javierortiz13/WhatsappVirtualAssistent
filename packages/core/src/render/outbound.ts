@@ -31,6 +31,9 @@ export const IDS = {
   choice: (pendingId: string, key: ChoiceKey) => `choice:${key}:${pendingId}`,
   currency: (c: "USD" | "VES") => `currency:${c}`,
   category: (categoryId: string) => `cat:${categoryId}`,
+  /** «Sí, créala» (11/11): crea la categoría y pasa ahí el gasto `movementId`; «No»: `catnew:no`. */
+  categoryNew: (movementId: string, name: string) => `catnew:${movementId}:${name}`,
+  categoryNewNo: () => "catnew:no",
   /** Renovar el plan: método elegido para un plan y meses (03/10). */
   renew: (method: RenewMethod, plan: string, months: number) => `renew:${method}:${plan}:${months}`,
   /** Ya pagó y mandó la referencia sin haber elegido método: un toque y queda reportado. */
@@ -103,6 +106,8 @@ export type ParsedReplyId =
   | { kind: "choice"; key: ChoiceKey; pendingId: string }
   | { kind: "currency"; currency: "USD" | "VES" }
   | { kind: "category"; categoryId: string }
+  | { kind: "category_new"; movementId: string; name: string }
+  | { kind: "category_new_no" }
   | { kind: "renew"; method: RenewMethod; plan: string; months: number }
   | { kind: "renew_ref"; method: RenewMethod; reference: string }
   | { kind: "bs_mode"; mode: BsMode }
@@ -153,6 +158,14 @@ export function parseReplyId(raw: string): ParsedReplyId {
       if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))
         return { kind: "category", categoryId: value };
       break;
+    case "catnew": {
+      if (value === "no") return { kind: "category_new_no" };
+      const [movementId, ...nameParts] = rest;
+      const name = nameParts.join(":").trim();
+      if (UUID.test(movementId ?? "") && name.length >= 2 && name.length <= 40)
+        return { kind: "category_new", movementId: movementId as string, name };
+      break;
+    }
     case "renew": {
       const [method, plan, months] = rest;
       const n = Number(months);

@@ -77,9 +77,14 @@ async function nameTaken(
   return rows.some((r) => r.id !== exceptId);
 }
 
+/** Quién crea: un usuario del panel (`userId`) o el dueño por WhatsApp (`phoneId`, 11/11). */
+export type CategoryActor =
+  | { tenantId: string; userId: string }
+  | { tenantId: string; phoneId: string };
+
 export async function createCategory(
   tx: Tx,
-  ref: { tenantId: string; userId: string },
+  ref: CategoryActor,
   rawName: string,
   kind: CategoryKind = "expense",
 ): Promise<string> {
@@ -193,7 +198,7 @@ export async function updateTenantSettings(
 
 async function audit(
   tx: Tx,
-  ref: { tenantId: string; userId: string },
+  ref: CategoryActor,
   action: "create" | "update",
   entity: "category" | "tenant",
   entityId: string,
@@ -202,14 +207,14 @@ async function audit(
 ) {
   await tx.insert(schema.auditLog).values({
     tenantId: ref.tenantId,
-    actorType: "user",
-    actorId: ref.userId,
+    actorType: "phoneId" in ref ? "phone" : "user",
+    actorId: "phoneId" in ref ? ref.phoneId : ref.userId,
     action,
     entity,
     entityId,
     before,
     after,
-    channel: "dashboard",
+    channel: "phoneId" in ref ? "whatsapp" : "dashboard",
   });
 }
 
