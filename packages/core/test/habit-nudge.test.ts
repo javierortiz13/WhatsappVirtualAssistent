@@ -478,7 +478,7 @@ describe("runHabitNudges (US-207, US-208)", () => {
       });
     });
   const ASK =
-    "Si quieres, te escribo cada noche a las 8, los días que hablemos, para que no se te escape ningún gasto y tus cuentas queden al día. Lo apagas cuando quieras.";
+    "Si quieres, te escribo cada noche, entre las 6 y las 8:30, los días que hablemos, para que no se te escape ningún gasto y tus cuentas queden al día. Lo apagas cuando quieras.";
   const optedIn = () =>
     t.db.update(schema.phoneNumber).set({ nudgeOptInAt: new Date(now.getTime() - 30 * DAY) });
 
@@ -490,7 +490,8 @@ describe("runHabitNudges (US-207, US-208)", () => {
     await wrote(3);
     expect((await runHabitNudges(t.db, meta, { now })).sent).toBe(1);
     expect(bodyOf(sent[0])).toBe(
-      `Hoy anotaste *$2,00* en gastos (1 registro).\n🔥 Llevas 2 días seguidos.\n¿Falta algo por anotar?\n\n¿Te sirvió este resumen? ${ASK}`,
+      // DC-7: una sola pregunta para los dos botones (sin «¿Falta algo por anotar?»).
+      `Hoy anotaste *$2,00* en gastos (1 registro).\n🔥 Llevas 2 días seguidos.\n\n¿Te sirvió este resumen? ${ASK}`,
     );
     expect(idsOf(sent[0])).toEqual(["pref:optin", "pref:nudges_off"]);
     const first = sent[0]?.interactive as
@@ -549,8 +550,39 @@ describe("runHabitNudges (US-207, US-208)", () => {
       .set({ createdAt: new Date(now.getTime() - 8 * DAY) })
       .where(eq(schema.message.status, "failed"));
     expect((await runHabitNudges(t.db, meta, { now: tomorrow })).sent).toBe(1);
-    // Sin registros hoy: el aviso con la pregunta, sin «¿Te sirvió este resumen?».
-    expect(bodyOf(sent[0])).toBe(`¿Hubo algo hoy que anotar?\n\n${ASK}`);
+    // Sin registros hoy (DC-7): la línea de «todavía no» y la pregunta, sin «¿Hubo algo…?».
+    expect(bodyOf(sent[0])).toBe(`Hoy todavía no has anotado nada.\n\n${ASK}`);
+  });
+
+  it("DC-7: en un negocio, la línea dice «se ha anotado»", async () => {
+    await saveHabitSettings(t.db, { dailyClose: true }, "test", now);
+    await t.db.update(schema.phoneNumber).set({ nudgeOptInAt: null });
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.update(schema.tenant).set({ businessType: "food" }).where(eq(schema.tenant.id, tenantId)),
+    );
+    await wrote(3);
+    expect((await runHabitNudges(t.db, meta, { now })).sent).toBe(1);
+    expect(bodyOf(sent[0])).toBe(`Hoy todavía no se ha anotado nada.\n\n${ASK}`);
+  });
+
+  it("DC-9: si el primero quedó «unknown» (Meta quizá lo entregó), no se vuelve a preguntar", async () => {
+    await saveHabitSettings(t.db, { dailyClose: true }, "test", now);
+    await t.db.update(schema.phoneNumber).set({ nudgeOptInAt: null });
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.insert(schema.message).values({
+        tenantId,
+        phoneId,
+        direction: "out",
+        kind: "buttons",
+        body: "x",
+        status: "unknown",
+        createdAt: new Date(now.getTime() - DAY),
+        toolCalls: [{ name: "habit_nudge", args: { n: 0, ask: true } }],
+      }),
+    );
+    await wrote(3);
+    expect((await runHabitNudges(t.db, meta, { now })).skipped.not_opted_in).toBe(1);
+    expect(sent).toHaveLength(0);
   });
 
   it("MF-2: persona con solo ingreso; persona ingreso + gasto; negocio «se anotaron»", async () => {

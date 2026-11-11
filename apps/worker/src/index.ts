@@ -16,7 +16,7 @@ import { createBoss, ensureQueues } from "@caja/db/queue";
 import { loadEnv } from "./env";
 import { registerJobs } from "./jobs";
 import { createLogger } from "./logger";
-import { captureError, initSentry, Sentry } from "./sentry";
+import { captureError, initSentry, jobErrorContext, Sentry } from "./sentry";
 
 /**
  * Proceso worker: pg-boss toma los jobs de `process-message` (uno a la vez por teléfono, en
@@ -169,7 +169,10 @@ async function main() {
           : `Pago por verificar sin aviso: falló el envío (${r.newPayments})`,
         { level: "warning" },
       ),
-    onError: (err, queue) => captureError(err, { queue }),
+    onError: (err, queue, final) => {
+      const c = jobErrorContext(queue, final);
+      captureError(err, c.tags, c.level);
+    },
     // Aviso al administrador por Sentry (sin números ni mensajes): el bot sigue funcionando.
     onOverCap: (items) => {
       for (const i of items)

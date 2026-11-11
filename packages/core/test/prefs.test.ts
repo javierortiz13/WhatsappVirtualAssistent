@@ -16,6 +16,8 @@ describe("classifyPref: el mensaje entero, nada más", () => {
     expect(classifyPref("Para!")).toBe("all_off");
     expect(classifyPref("no me escribas")).toBe("all_off");
     expect(classifyPref("Avísame a las 8 pm")).toBe("nudges_on");
+    // H8 «Avísame en la noche» escrito a mano (10/11).
+    expect(classifyPref("Avísame en la noche")).toBe("nudges_on");
     expect(classifyPref("ya puedes escribirme")).toBe("all_on");
     expect(classifyPref("actívame los avisos")).toBe("both_on");
     expect(classifyPref("mis avisos")).toBe("status");
@@ -45,6 +47,10 @@ describe("classifyPref: el mensaje entero, nada más", () => {
       "no me mandes el mensaje de las 8",
       "no quiero el mensaje de las 8",
       "no me mandes el resumen de las 8",
+      // «El mensaje de la noche» (10/11).
+      "No me escribas en la noche",
+      "no me mandes el mensaje de la noche",
+      "no quiero el mensaje de la noche",
       "no me recuerdes porfa",
     ])
       expect(classifyPref(t), t).toBe("nudges_off");
@@ -137,7 +143,7 @@ describe("apagar y encender avisos por chat", () => {
     ]);
     // Otra vez: ya estaban apagados, sin tarjeta.
     expect(await h.tap("pref:yes:nudges_off", "Sí, apágalos")).toMatch(
-      /^El mensaje de las 8 pm y los avisos adelantados ya estaban apagados\. Para volver: \*actívame los avisos\*\.$/,
+      /^El mensaje de la noche y los avisos adelantados ya estaban apagados\. Para volver: \*actívame los avisos\*\.$/,
     );
     expect(await h.send("no me recuerdes")).toMatch(/ya estaban apagados/);
   });
@@ -145,19 +151,19 @@ describe("apagar y encender avisos por chat", () => {
   it("con el aviso aceptado sale H45 con las dos viñetas y «Sí» responde H11", async () => {
     await h.t.db.update(schema.phoneNumber).set({ nudgeOptInAt: new Date() });
     expect(await h.send("apaga los avisos")).toMatch(
-      /^¿Apago estos avisos\?\n• El mensaje de las 8 pm\n• Los avisos adelantados/,
+      /^¿Apago estos avisos\?\n• El mensaje de la noche\n• Los avisos adelantados/,
     );
     expect(await h.tap("pref:yes:nudges_off")).toBe(
-      "Listo, ya no te escribo a las 8 pm ni te adelanto recordatorios. Los que me pidas te llegan a su hora o cuando me escribas. Para volver: *actívame los avisos*.",
+      "Listo, ya no te escribo en la noche ni te adelanto recordatorios. Los que me pidas te llegan a su hora o cuando me escribas. Para volver: *actívame los avisos*.",
     );
-    expect((await consents())[0]).toMatchObject({ text_id: "H45", text_version: "v1.3" });
+    expect((await consents())[0]).toMatchObject({ text_id: "H45", text_version: "v1.4" });
   });
 
   it("«no me escribas» → H46; un «No» en una H45 vieja vuelve a mostrar H46; el «No» de H46 → H48", async () => {
     await h.send("no me recuerdes");
     const card = await h.send("Stop");
     expect(card).toMatch(
-      /^¿Apago los mensajes que te mando por mi cuenta\?\n• El mensaje de las 8 pm\n/,
+      /^¿Apago los mensajes que te mando por mi cuenta\?\n• El mensaje de la noche\n/,
     );
     expect(card).toContain("Los avisos de un pago tuyo o del borrado de tus datos llegan igual.");
     expect((await phone()).prefPending).toBe("all_off");
@@ -182,7 +188,7 @@ describe("apagar y encender avisos por chat", () => {
     );
     expect(await h.send("mis avisos")).toMatch(/^No te escribo por mi cuenta/);
     expect(await h.send("Actívame los avisos")).toBe(
-      "Listo, vuelvo a escribirte por mi cuenta y encendí el mensaje de las 8 pm: te llega si me escribiste en las últimas 24 horas. Para apagarlos: *mis avisos*.",
+      "Listo, vuelvo a escribirte por mi cuenta y encendí el mensaje de la noche: te llega entre las 6 y las 8:30 si me escribiste en las últimas 24 horas. Para apagarlos: *mis avisos*.",
     );
     const p = await phone();
     expect(p.unsolicitedOffAt).toBeNull();
@@ -216,14 +222,14 @@ describe("apagar y encender avisos por chat", () => {
 
   it("empleado: los avisos son del dueño; «ya puedes escribirme» limpia su teléfono", async () => {
     expect(await h.send("mis avisos", CASHIER)).toBe(
-      "El mensaje de las 8 pm y los recordatorios son solo para el dueño de la cuenta.",
+      "El mensaje de la noche y los recordatorios son solo para el dueño de la cuenta.",
     );
     await h.t.db
       .update(schema.phoneNumber)
       .set({ unsolicitedOffAt: new Date() })
       .where(eq(schema.phoneNumber.e164, CASHIER));
     expect(await h.send("ya puedes escribirme", CASHIER)).toBe(
-      "Listo. El mensaje de las 8 pm y los recordatorios son solo para el dueño de la cuenta.",
+      "Listo. El mensaje de la noche y los recordatorios son solo para el dueño de la cuenta.",
     );
     expect((await phone(CASHIER)).unsolicitedOffAt).toBeNull();
   });

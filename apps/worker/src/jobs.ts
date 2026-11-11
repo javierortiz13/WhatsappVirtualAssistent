@@ -72,7 +72,8 @@ export async function registerJobs(opts: {
   /** Número de la plataforma desde el que salen los avisos de pago verificado. */
   platformPhoneNumberId?: string;
   /** Se llama con cada error de un handler antes de relanzarlo (Sentry en producción). */
-  onError?: (err: unknown, queue: string) => void;
+  /** `final`: el último intento de un mensaje entrante (se queda sin respuesta). */
+  onError?: (err: unknown, queue: string, final?: boolean) => void;
   /** Negocios que pasaron el límite de mensajes del plan este mes (una vez por mes cada uno). */
   onOverCap?: (items: OverCap[]) => void;
   onTrialCapped?: (items: TrialCapped[]) => void;
@@ -133,7 +134,7 @@ export async function registerJobs(opts: {
             { jobId: job.id, retry: job.retryCount, err: message },
             "job agotó los reintentos; se cierra para no bloquear el teléfono",
           );
-          opts.onError?.(err, QUEUES.processMessage);
+          opts.onError?.(err, QUEUES.processMessage, true);
           await markWebhookEvent(db, job.data.webhookEventId, "failed", message.slice(0, 500));
         }
       }

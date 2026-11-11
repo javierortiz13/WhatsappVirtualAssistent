@@ -5,6 +5,7 @@ import {
   eq,
   everyTenantId,
   gt,
+  inArray,
   lt,
   rows,
   schema,
@@ -233,7 +234,7 @@ async function takeNudge(
           personal,
           noSpendDate: noSpendButton ? today : null,
         });
-  if (asking) out = es.withEveningAsk(out, Boolean(close && totals));
+  if (asking) out = es.withEveningAsk(out, Boolean(close && totals), personal);
   // La marca va antes de enviar y se confirma con esta transacción.
   const [row] = await tx
     .insert(schema.message)
@@ -273,7 +274,8 @@ export async function everSent(tx: Tx, phoneId: string): Promise<boolean> {
       and(
         eq(m.phoneId, phoneId),
         eq(m.direction, "out"),
-        eq(m.status, "ok"),
+        // DC-9: si Meta quizá lo entregó («unknown»), tampoco se vuelve a preguntar.
+        inArray(m.status, ["ok", "unknown"]),
         sql`(${m.toolCalls} @> ${JSON.stringify([{ name: NUDGE_MARK }])}::jsonb
              or ${m.toolCalls} @> ${JSON.stringify([{ name: CLOSE_MARK }])}::jsonb)`,
       ),

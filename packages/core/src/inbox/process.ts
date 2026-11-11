@@ -103,12 +103,14 @@ import {
   ExpensesDraft,
   ensureIncomeCategories,
   ensureOtherCategory,
+  eveningAskIsLast,
   existingDayTotal,
   expenseTotalForDay,
   habitSettings,
   IncomeDayTotalDraft,
   IncomeSingleDraft,
   insertDraft,
+  isEveningNoAnswer,
   isNoSpendPhrase,
   listAccounts,
   markNoSpend,
@@ -1025,7 +1027,7 @@ async function noSpend(
   tx: Tx,
   deps: ProcessDeps,
   ctx: RouteCtx,
-  via: "word" | "button",
+  via: "word" | "button" | "answer",
 ): Promise<RouteResult> {
   const now = (deps.now ?? (() => new Date()))();
   const r = await markNoSpend(tx, { tenantId: ctx.tenantId, phoneId: ctx.phoneId, now });
@@ -1388,6 +1390,15 @@ async function routeMessage(
       // "Hoy no gasté nada" (hábitos US-106): sin la IA, solo el dueño y con su interruptor.
       if (ctx.role === "owner" && isNoSpendPhrase(msg.text) && (await habitSettings(tx)).noSpend)
         return noSpend(tx, deps, ctx, "word");
+      // «Hola no», «nada», «no pana» justo después de «¿Hubo ventas o gastos hoy?» (10/11): es la
+      // respuesta a esa pregunta, no algo para la IA. Solo si fue lo último que Rocco le mandó hoy.
+      if (
+        ctx.role === "owner" &&
+        isEveningNoAnswer(msg.text) &&
+        (await habitSettings(tx)).noSpend &&
+        (await eveningAskIsLast(tx, ctx.phoneId, (deps.now ?? (() => new Date()))()))
+      )
+        return noSpend(tx, deps, ctx, "answer");
       // Respuesta a "¿quién consumió qué?" de una cuenta para dividir (06/10).
       if (deps.bills) {
         const split = await splitFollowUp(

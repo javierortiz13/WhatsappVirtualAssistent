@@ -9,7 +9,7 @@ export default function Privacidad() {
   return (
     <main className="legal">
       <h1>Política de privacidad</h1>
-      <p className="updated">Rocco · última actualización: 6 de noviembre de 2026</p>
+      <p className="updated">Rocco · última actualización: 10 de noviembre de 2026</p>
 
       <p>
         Rocco (antes «Asistente de Caja») es un servicio para personas y dueños de negocios pequeños
@@ -64,9 +64,10 @@ export default function Privacidad() {
         <li>Enviarte respuestas y avisos por WhatsApp relacionados con tu caja.</li>
         <li>
           Enviarte los recordatorios que pides y, si le escribiste a Rocco en las últimas 24 horas,
-          un mensaje a las 8 pm: lo que anotaste ese día o, si no anotaste nada, un aviso para que
-          no se te pase. Ese mensaje llega una vez al día como máximo y no llega los días que marcas
-          «sin gastos». Si después de 3 avisos seguidos no anotas nada, los pausamos 14 días.
+          un mensaje en la noche, entre las 6 y las 8:30 pm: lo que anotaste ese día o, si no
+          anotaste nada, un aviso para que no se te pase. Ese mensaje llega una vez al día como
+          máximo y no llega los días que marcas «sin gastos». Si después de 3 avisos seguidos no
+          anotas nada, los pausamos 14 días.
         </li>
         {/* PR-R2 y PR-R5 (con P4-B). */}
         <li>
@@ -84,8 +85,8 @@ export default function Privacidad() {
           tu dispositivo.
         </li>
         <li>
-          Puedes apagar estos avisos cuando quieras. Con «no me recuerdes» apagas el mensaje de las
-          8 pm y los avisos adelantados de tus recordatorios; con «no me escribas», todo lo que
+          Puedes apagar estos avisos cuando quieras. Con «no me recuerdes» apagas el mensaje de la
+          noche y los avisos adelantados de tus recordatorios; con «no me escribas», todo lo que
           Rocco te manda por su cuenta, salvo los avisos sobre un pago tuyo o el borrado de tus
           datos. Antes de apagarlos, Rocco te pide confirmar, y mientras no contestes no te los
           manda. También puedes hacerlo en Ajustes, y volver a encenderlos con «actívame los avisos»
