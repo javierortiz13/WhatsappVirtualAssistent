@@ -9,7 +9,7 @@ export default function Privacidad() {
   return (
     <main className="legal">
       <h1>Política de privacidad</h1>
-      <p className="updated">Rocco · última actualización: 10 de noviembre de 2026</p>
+      <p className="updated">Rocco · última actualización: 20 de noviembre de 2026</p>
 
       <p>
         Rocco (antes «Asistente de Caja») es un servicio para personas y dueños de negocios pequeños
@@ -37,6 +37,13 @@ export default function Privacidad() {
         <li>
           <strong>Datos del negocio:</strong> nombre, tipo, categorías, movimientos de caja (montos,
           monedas, fechas, descripciones) y la tasa de cambio aplicada.
+        </li>
+        {/* P-1 (decisión del fundador 2A, 18/11). */}
+        <li>
+          <strong>Recordatorios y preferencias:</strong> lo que le pides a Rocco que te recuerde
+          (qué, cuándo y, si lo dices, un monto o el nombre de otra persona), los días que nos dices
+          que no tuviste gastos, si activaste o apagaste los avisos de Rocco, y tu racha, calculada
+          con tus registros.
         </li>
         {/* PR-R1 (strings de puntos v1.2, con P4-B). */}
         <li>
@@ -68,6 +75,11 @@ export default function Privacidad() {
           anotaste nada, un aviso para que no se te pase. Ese mensaje llega una vez al día como
           máximo y no llega los días que marcas «sin gastos». Si después de 3 avisos seguidos no
           anotas nada, los pausamos 14 días.
+        </li>
+        {/* P-3 (decisión del fundador 2A, 18/11). */}
+        <li>
+          Si en un recordatorio mencionas a otra persona, ese dato solo se usa para mostrártelo a
+          ti. Rocco nunca le escribe a esa persona ni usa ese dato para nada más.
         </li>
         {/* PR-R2 y PR-R5 (con P4-B). */}
         <li>
@@ -125,6 +137,14 @@ export default function Privacidad() {
         </li>
         <li>Las fotos de facturas se conservan 12 meses y luego se borran.</li>
         <li>Los movimientos de caja se conservan mientras tu cuenta esté activa.</li>
+        {/* P-4 (decisión del fundador 2A, 18/11). */}
+        <li>
+          Cada recordatorio se borra 90 días después de que Rocco te lo recuerda, lo marcas como
+          hecho, vence o lo borras. Si tocas «Borrar», el recordatorio pierde su texto al instante;
+          los mensajes del chat donde aparece (el tuyo y los de Rocco) se borran a los 90 días, como
+          todos los mensajes. Tus preferencias de avisos y los días sin gastos se conservan mientras
+          tengas la cuenta y se borran con ella.
+        </li>
         {/* PR-R3 (con P4-B). */}
         <li>
           Tus puntos, tu nivel y tus regalos se conservan mientras tengas la cuenta y se borran con

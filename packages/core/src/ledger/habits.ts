@@ -336,10 +336,16 @@ export function isEveningNoAnswer(text: string): boolean {
 }
 
 /**
- * ¿Lo último que Rocco le mandó a este teléfono, hoy (Caracas) y entregado, fue la pregunta de la
- * noche (el aviso de las 8 pm o el cierre del día)? Si después hubo otra conversación, no.
+ * ¿Lo último que Rocco le mandó a este teléfono, hoy (Caracas) y entregado o quizá entregado
+ * (DC-9), fue la pregunta de la noche? «ask» si fue la PRIMERA pregunta (1B, `args.ask`), donde un
+ * «no» es decir que no al mensaje de la noche (HN-1); «plain» si fue el aviso o el cierre de
+ * siempre, donde un «no» es «hoy no hubo nada». Si después hubo otra conversación, null.
  */
-export async function eveningAskIsLast(tx: Tx, phoneId: string, now: Date): Promise<boolean> {
+export async function eveningAskIsLast(
+  tx: Tx,
+  phoneId: string,
+  now: Date,
+): Promise<"ask" | "plain" | null> {
   const m = schema.message;
   const [last] = await tx
     .select({ at: m.createdAt, toolCalls: m.toolCalls, status: m.status })
@@ -347,10 +353,12 @@ export async function eveningAskIsLast(tx: Tx, phoneId: string, now: Date): Prom
     .where(and(eq(m.phoneId, phoneId), eq(m.direction, "out")))
     .orderBy(desc(m.createdAt))
     .limit(1);
-  if (!last || last.status !== "ok") return false;
-  if (businessDateOf(last.at) !== businessDateOf(now)) return false;
-  const calls = (last.toolCalls ?? []) as { name?: string }[];
-  return calls.some((c) => c.name === "habit_nudge" || c.name === "habit_close");
+  if (!last || (last.status !== "ok" && last.status !== "unknown")) return null;
+  if (businessDateOf(last.at) !== businessDateOf(now)) return null;
+  const calls = (last.toolCalls ?? []) as { name?: string; args?: { ask?: boolean } }[];
+  const evening = calls.filter((c) => c.name === "habit_nudge" || c.name === "habit_close");
+  if (!evening.length) return null;
+  return evening.some((c) => c.args?.ask) ? "ask" : "plain";
 }
 
 export type NoSpendResult =

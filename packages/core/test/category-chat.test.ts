@@ -8,7 +8,7 @@ import { createAgent } from "../src/agent/loop";
 import { Decimal } from "../src/domain/money";
 import { ingestWebhook } from "../src/inbox/ingest";
 import { type ProcessDeps, processInbound } from "../src/inbox/process";
-import { IDS, parseReplyId } from "../src/render/index";
+import { es, IDS, parseReplyId } from "../src/render/index";
 import { MetaClient } from "../src/whatsapp/client";
 import * as fx from "./fixtures";
 
@@ -118,6 +118,18 @@ describe("parseReplyId: catnew", () => {
   });
 });
 
+describe("textos de categoría (CAT-2)", () => {
+  it("en una cuenta personal, un ingreso es una fuente de ingreso", () => {
+    expect(es.categoryCreated("Freelance", "income", "created")).toEqual({
+      type: "text",
+      body: "Listo, creé la fuente de ingreso *Freelance*. La uso cuando me digas que te entró plata de ahí.",
+    });
+    expect(es.categoryCreated("Freelance", "income", "reactivated").body).toBe(
+      "Listo, volví a encender la fuente de ingreso *Freelance*.",
+    );
+  });
+});
+
 describe("crear una categoría por chat", () => {
   let t: Awaited<ReturnType<typeof createTestDb>>;
   let tenantId: string;
@@ -146,6 +158,9 @@ describe("crear una categoría por chat", () => {
     "otra vez la categoría mascotas": create("c3", "Mascotas", false),
     "es regalos": amend("a1", { category_name: "Regalos" }),
     "Cambia la categoría de mi último gasto": amend("a2", { category_name: "Regalos" }),
+    "enciende otra vez mascotas": create("c4", "mascotas", false),
+    "es mascotas": amend("a3", { category_name: "Mascotas" }),
+    "crea la categoría ventas online para ingresos": create("c5", "ventas online", false, "income"),
   });
 
   function deps(client: MetaClient): ProcessDeps {
@@ -242,7 +257,7 @@ describe("crear una categoría por chat", () => {
     const [yes, no] = buttonsOf(offer);
     await tap(client, no?.id as string, "No");
     expect(textOf(sent.at(-1))).toBe(
-      "Listo, no la creé. Dime a cuál categoría lo paso, o escribe *ayuda*.",
+      "Listo, no la creé. Dime a qué categoría lo paso, o escribe *ayuda*.",
     );
     expect((await categories()).some((c) => c.name === "Regalos")).toBe(false);
     await tap(client, yes?.id as string, "Sí, créala");
@@ -250,6 +265,49 @@ describe("crear una categoría por chat", () => {
     expect(textOf(card)).toContain("→ *Regalos*");
     await tap(client, fx.saveIdFrom(buttonsOf(card)), "Guardar");
     expect(await categoryOfLast()).toBe("Regalos");
+  });
+
+  it("CAT-1: una categoría apagada en el panel se vuelve a encender, y corregir a ella no ofrece crearla", async () => {
+    const { sent, client } = fakeMeta();
+    await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .update(schema.category)
+        .set({ isActive: false })
+        .where(eq(schema.category.name, "Mascotas")),
+    );
+    await send(client, "enciende otra vez mascotas");
+    expect(textOf(sent.at(-1))).toBe("Listo, volví a encender la categoría *Mascotas*.");
+    const [m] = await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .select({ on: schema.category.isActive })
+        .from(schema.category)
+        .where(eq(schema.category.name, "Mascotas")),
+    );
+    expect(m?.on).toBe(true);
+    const audit = await withTenant(t.db, tenantId, (tx) =>
+      tx.select().from(schema.auditLog).where(eq(schema.auditLog.action, "update")),
+    );
+    expect(audit.at(-1)).toMatchObject({
+      actorType: "phone",
+      channel: "whatsapp",
+      entity: "category",
+    });
+    await send(client, "es mascotas");
+    expect(textOf(sent.at(-1))).toContain("→ *Mascotas*");
+    expect(buttonsOf(sent.at(-1)).map((b) => b.title)).toEqual(["Guardar", "Cancelar"]);
+  });
+
+  it("CAT-2: en un negocio, una categoría «de ingresos» se crea como de gasto", async () => {
+    const { sent, client } = fakeMeta();
+    await send(client, "crea la categoría ventas online para ingresos");
+    expect(textOf(sent.at(-1))).toMatch(/^Listo, creé la categoría \*Ventas online\*\./);
+    const rows = await withTenant(t.db, tenantId, (tx) =>
+      tx
+        .select({ kind: schema.category.kind })
+        .from(schema.category)
+        .where(eq(schema.category.name, "Ventas online")),
+    );
+    expect(rows).toEqual([{ kind: "expense" }]);
   });
 
   it("«Sí, créala» de un gasto que ya no es el último: la crea, pero no cambia nada", async () => {

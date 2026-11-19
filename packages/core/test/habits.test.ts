@@ -1094,7 +1094,12 @@ describe("respuesta escrita a «¿Hubo ventas o gastos hoy?» (10/11)", () => {
       .flatMap((m) => (m.tc ?? []) as { name: string; args?: Record<string, unknown> }[])
       .filter((c) => c.name === "habit_no_spend");
   /** Rocco mandó la pregunta de la noche (`mark`) hace `minutesAgo` minutos. */
-  const asked = (minutesAgo: number, mark = "habit_nudge", status = "ok") =>
+  const asked = (
+    minutesAgo: number,
+    mark = "habit_nudge",
+    status = "ok",
+    args: Record<string, unknown> = {},
+  ) =>
     withTenant(h.t.db, h.tenantId, (tx) =>
       tx.insert(schema.message).values({
         tenantId: h.tenantId,
@@ -1103,7 +1108,7 @@ describe("respuesta escrita a «¿Hubo ventas o gastos hoy?» (10/11)", () => {
         kind: "interactive",
         body: "¿Hubo ventas o gastos hoy?",
         status,
-        toolCalls: [{ name: mark, args: {} }],
+        toolCalls: [{ name: mark, args }],
         createdAt: new Date(Date.now() - minutesAgo * 60_000),
       }),
     );
@@ -1164,6 +1169,32 @@ describe("respuesta escrita a «¿Hubo ventas o gastos hoy?» (10/11)", () => {
     await h.send("gasté 5$ en café");
     await h.send("no");
     expect(await marks()).toEqual([]);
+  });
+
+  it("HN-1: a la PRIMERA pregunta (ask), «no» y «No, gracias» abren la tarjeta para apagar; no anotan", async () => {
+    await h.recordDaysAgo(1);
+    for (const text of ["no", "No, gracias"]) {
+      await h.reset();
+      await h.t.db.update(schema.phoneNumber).set({ prefPending: null, prefPendingAt: null });
+      await h.recordDaysAgo(1);
+      await asked(1, "habit_nudge", "ok", { ask: true });
+      const reply = await h.send(text);
+      expect(reply, text).toMatch(/^¿Apago/);
+      expect((await h.streak()).noSpendToday, text).toBe(false);
+      expect(await marks(), text).toEqual([]);
+      const [p] = await h.t.db
+        .select({ pending: schema.phoneNumber.prefPending })
+        .from(schema.phoneNumber)
+        .where(eq(schema.phoneNumber.id, h.ownerPhoneId()));
+      expect(p?.pending, text).toBe("nudges_off");
+    }
+  });
+
+  it("DC-9: el aviso con estado «unknown» (quizá entregado) también cuenta", async () => {
+    await h.recordDaysAgo(1);
+    await asked(1, "habit_nudge", "unknown");
+    await h.send("Hola no");
+    expect((await h.streak()).noSpendToday).toBe(true);
   });
 
   it("con «Hoy no gasté nada» apagado, no anota", async () => {

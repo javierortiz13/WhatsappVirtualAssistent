@@ -3,17 +3,25 @@ import { rewardSettings } from "../billing/rewards";
 import { type HabitHistoryEntry, habitHistory, habitSettings } from "../ledger/habits";
 
 /**
- * Cuándo se encendieron `xp`, `rewards`, `referrals` y `dailyClose`, y si fue desde /admin o desde
+ * Cuándo se encendieron `xp`, `rewards`, `referrals`, `dailyClose`, `prefs` y `reminders`, y si fue desde /admin o desde
  * el sistema (10/11, para A-0038 y A-0039). Solo fechas y «/admin» o «sistema»: nunca un correo,
  * un nombre, un número ni un id. Se cruzan cuatro fuentes, porque el historial de interruptores
  * (G1-4) solo existe desde su deploy:
  * - el historial de interruptores (`habits_history`): fecha, hora y quién, de cada cambio;
  * - las fechas que guarda `rewards` al cambiar un interruptor (día de Caracas);
  * - el último cambio de cada ajuste (`app_setting.updated_at` y `updated_by`);
- * - la primera huella en los datos (primer punto, primer regalo, primera invitación, primer cierre).
+ * - la primera huella en los datos (primer punto, primer regalo, primera invitación, primer cierre,
+ *   primer cambio de avisos de un teléfono, primer recordatorio).
  */
-export type FlagKey = "xp" | "rewards" | "referrals" | "dailyClose";
-export const FLAG_DATE_KEYS: FlagKey[] = ["xp", "rewards", "referrals", "dailyClose"];
+export type FlagKey = "xp" | "rewards" | "referrals" | "dailyClose" | "prefs" | "reminders";
+export const FLAG_DATE_KEYS: FlagKey[] = [
+  "xp",
+  "rewards",
+  "referrals",
+  "dailyClose",
+  "prefs",
+  "reminders",
+];
 
 export type FlagDateRow = {
   flag: FlagKey;
@@ -66,6 +74,8 @@ export async function flagOnDates(db: Queryable): Promise<FlagDates> {
     rewards: Date | string | null;
     referrals: Date | string | null;
     daily_close: Date | string | null;
+    prefs: Date | string | null;
+    reminders: Date | string | null;
   }>(
     await db.execute(sql`
       select
@@ -73,19 +83,25 @@ export async function flagOnDates(db: Queryable): Promise<FlagDates> {
         (select min(created_at) from app.reward_grant) as rewards,
         (select min(created_at) from app.referral) as referrals,
         (select min(created_at) from app.message
-          where direction = 'out' and tool_calls @> '[{"name":"habit_close"}]'::jsonb) as daily_close`),
+          where direction = 'out' and tool_calls @> '[{"name":"habit_close"}]'::jsonb) as daily_close,
+        (select min(created_at) from app.audit_log where entity = 'phone_number') as prefs,
+        (select min(created_at) from app.reminder) as reminders`),
   );
   const saved: Record<FlagKey, string | null> = {
     xp: rewards.xpOnSince,
     rewards: null,
     referrals: rewards.referralsOnSince ?? rewards.referralsChangedOn,
     dailyClose: rewards.dailyCloseChangedOn,
+    prefs: null,
+    reminders: null,
   };
   const traces: Record<FlagKey, string | null> = {
     xp: iso(trace?.xp),
     rewards: iso(trace?.rewards),
     referrals: iso(trace?.referrals),
     dailyClose: iso(trace?.daily_close),
+    prefs: iso(trace?.prefs),
+    reminders: iso(trace?.reminders),
   };
   const changeOf = (key: string) => {
     const m = meta.find((r) => r.key === key);

@@ -37,7 +37,7 @@ import {
   starterFor,
 } from "../ledger/accounts";
 import { budgetStatuses } from "../ledger/budgets";
-import { CategoryError, createCategory, OTHER_INCOME } from "../ledger/categories";
+import { ensureCategory, OTHER_INCOME } from "../ledger/categories";
 import {
   createExpenseDraft,
   createExpensesDraft,
@@ -1593,22 +1593,20 @@ const createCategoryTool: ToolSpec<typeof CreateCategoryInput> = {
       outbound: o,
     });
     if (!validCategoryName(input.name))
-      return reply([es.clarification("¿Cómo se llama la categoría? De 2 a 40 letras.", [])]);
+      return reply([
+        es.clarification("¿Cómo se llama la categoría? Usa de 2 a 40 letras o números.", []),
+      ]);
     const name = cleanCategoryName(input.name);
-    const kind = input.apply_to_last ? "expense" : input.kind;
-    let created = true;
-    try {
-      await createCategory(
-        run.tx,
-        { tenantId: run.ctx.tenantId, phoneId: run.ctx.phoneId },
-        name,
-        kind,
-      );
-    } catch (err) {
-      if (!(err instanceof CategoryError) || err.code !== "duplicate") throw err;
-      created = false;
-    }
-    if (!input.apply_to_last) return reply([es.categoryCreated(name, kind, created)]);
+    // CAT-2: en un negocio las categorías nuevas son de gasto; las fuentes de ingreso solo existen
+    // (y se ven) en las cuentas personales.
+    const kind = input.apply_to_last || !run.ctx.personal ? "expense" : input.kind;
+    const { result } = await ensureCategory(
+      run.tx,
+      { tenantId: run.ctx.tenantId, phoneId: run.ctx.phoneId },
+      name,
+      kind,
+    );
+    if (!input.apply_to_last) return reply([es.categoryCreated(name, kind, result)]);
     // Se crea y se propone el cambio del último gasto, con la misma confirmación de siempre.
     const amended = await amendLast.run(
       {
@@ -1624,8 +1622,8 @@ const createCategoryTool: ToolSpec<typeof CreateCategoryInput> = {
     );
     if (amended.kind !== "terminal") return amended;
     const first = amended.outbound[0];
-    if (!first) return reply([es.categoryCreated(name, kind, created)]);
-    return reply(mergeOutbound(es.categoryCreatedShort(name, created), first));
+    if (!first) return reply([es.categoryCreated(name, kind, result)]);
+    return reply(mergeOutbound(es.categoryCreatedShort(name, result), first));
   },
 };
 

@@ -104,6 +104,32 @@ export async function createCategory(
   return row.id;
 }
 
+/**
+ * Crear por chat (11/11) sin duplicar: si ya existe con ese nombre y está apagada en el panel, se
+ * vuelve a encender (CAT-1, con la auditoría del teléfono); si está encendida, se usa esa.
+ */
+export async function ensureCategory(
+  tx: Tx,
+  ref: CategoryActor,
+  rawName: string,
+  kind: CategoryKind = "expense",
+): Promise<{ id: string; result: "created" | "reactivated" | "exists" }> {
+  const name = normalize(rawName);
+  const c = schema.category;
+  const [found] = await tx
+    .select({ id: c.id, isActive: c.isActive })
+    .from(c)
+    .where(
+      and(eq(c.tenantId, ref.tenantId), eq(c.kind, kind), sql`lower(${c.name}) = lower(${name})`),
+    );
+  if (found && found.isActive) return { id: found.id, result: "exists" };
+  if (found) {
+    await setCategoryActive(tx, ref, found.id, true);
+    return { id: found.id, result: "reactivated" };
+  }
+  return { id: await createCategory(tx, ref, name, kind), result: "created" };
+}
+
 export async function renameCategory(
   tx: Tx,
   ref: { tenantId: string; userId: string },
@@ -126,7 +152,7 @@ export async function renameCategory(
 
 export async function setCategoryActive(
   tx: Tx,
-  ref: { tenantId: string; userId: string },
+  ref: CategoryActor,
   id: string,
   isActive: boolean,
 ): Promise<void> {

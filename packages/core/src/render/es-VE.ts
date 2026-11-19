@@ -2226,28 +2226,39 @@ export function categoryCreateOffer(movementId: string, name: string): Outbound 
   };
 }
 
-/** «crea la categoría X» (11/11). */
+/** Qué pasó al crear por chat: nueva, vuelta a encender (CAT-1) o ya estaba. */
+type CategoryResult = "created" | "reactivated" | "exists";
+
+/** «crea la categoría X» (11/11). En una cuenta personal, «income» es una fuente de ingreso (CAT-2). */
 export function categoryCreated(
   name: string,
   kind: "expense" | "income",
-  created: boolean,
+  result: CategoryResult,
 ): Outbound {
-  if (!created)
-    return { type: "text", body: `Ya tenías la categoría *${name}*. La uso cuando la nombres.` };
+  const what = kind === "income" ? "la fuente de ingreso" : "la categoría";
+  if (result === "reactivated")
+    return { type: "text", body: `Listo, volví a encender ${what} *${name}*.` };
+  if (result === "exists")
+    return { type: "text", body: `Ya tenías ${what} *${name}*. La uso cuando la nombres.` };
   return {
     type: "text",
     body:
       kind === "income"
-        ? `Listo, creé *${name}* para tus ingresos.`
+        ? `Listo, creé la fuente de ingreso *${name}*. La uso cuando me digas que te entró plata de ahí.`
         : `Listo, creé la categoría *${name}*. Para usarla: _gasté 20$ en ${name.toLowerCase()}_, o al corregir un gasto: _es ${name.toLowerCase()}_.`,
   };
 }
 
 /** La primera línea cuando se crea para el gasto que se está corrigiendo. */
-export function categoryCreatedShort(name: string, created: boolean): Outbound {
+export function categoryCreatedShort(name: string, result: CategoryResult): Outbound {
   return {
     type: "text",
-    body: created ? `Listo, creé la categoría *${name}*.` : `Ya tenías la categoría *${name}*.`,
+    body:
+      result === "created"
+        ? `Listo, creé la categoría *${name}*.`
+        : result === "reactivated"
+          ? `Listo, volví a encender la categoría *${name}*.`
+          : `Ya tenías la categoría *${name}*.`,
   };
 }
 
@@ -2255,15 +2266,25 @@ export function categoryCreatedShort(name: string, created: boolean): Outbound {
 export function categoryCreateDeclined(): Outbound {
   return {
     type: "text",
-    body: "Listo, no la creé. Dime a cuál categoría lo paso, o escribe *ayuda*.",
+    body: "Listo, no la creé. Dime a qué categoría lo paso, o escribe *ayuda*.",
   };
 }
 
 /** «Sí, créala» cuando ese gasto ya no es el último o pasaron más de 30 minutos. */
-export function categoryCreatedOnly(name: string, dashboardUrl: string): Outbound {
+export function categoryCreatedOnly(
+  name: string,
+  dashboardUrl: string,
+  result: CategoryResult = "created",
+): Outbound {
+  const first =
+    result === "created"
+      ? `Listo, creé la categoría *${name}*.`
+      : result === "reactivated"
+        ? `Listo, volví a encender la categoría *${name}*.`
+        : `Ya tenías la categoría *${name}*.`;
   return {
     type: "text",
-    body: `Listo, creé la categoría *${name}*. Ese gasto ya no lo puedo cambiar por aquí; lo corriges en ${dashboardUrl}/movimientos`,
+    body: `${first} Ese gasto ya no lo puedo cambiar por aquí; lo corriges en ${dashboardUrl}/movimientos`,
   };
 }
 

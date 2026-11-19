@@ -19,6 +19,8 @@ const NAME = {
   rewards: "Premios",
   referrals: "Invitaciones",
   dailyClose: "8 pm para todos",
+  prefs: "Avisos: apagar y encender",
+  reminders: "Recordatorios de plata",
 };
 
 (async () => {

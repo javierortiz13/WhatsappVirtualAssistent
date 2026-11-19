@@ -31,6 +31,8 @@ describe("flagOnDates", () => {
       ["rewards", false, null, null, null],
       ["referrals", false, null, null, null],
       ["dailyClose", false, null, null, null],
+      ["prefs", false, null, null, null],
+      ["reminders", false, null, null, null],
     ]);
   });
 

@@ -65,7 +65,7 @@ import {
 } from "../identity/resolve";
 import { createAttachment, discardAttachment } from "../ledger/attachments";
 import { budgetStatuses } from "../ledger/budgets";
-import { CategoryError, createCategory } from "../ledger/categories";
+import { ensureCategory } from "../ledger/categories";
 import {
   type BsRateMode,
   completeExchange,
@@ -1283,28 +1283,25 @@ async function routeMessage(
   if (erase) return { ...erase, noRider: true };
   // Apagar y encender avisos (hábitos US-204, US-211): antes de la cuenta suspendida o sin
   // mensajes, para que un «no me escribas» siempre funcione. Sin la IA.
-  const prefs = await routePrefs(
-    tx,
-    {
-      tenantId: ctx.tenantId,
-      phoneId: ctx.phoneId,
-      role: ctx.role === "owner" ? "owner" : "employee",
-      held: Boolean(ctx.suspended || ctx.trialCapped || ctx.monthCapped),
-      privacyContact: deps.config.privacyContact ?? DEFAULT_PRIVACY_CONTACT,
-      now: (deps.now ?? (() => new Date()))(),
-      inboundId: ctx.inboundId,
-    },
-    {
-      // Un «No me escribas» viejo del recordatorio del registro (US-SR-04) vale como la frase.
-      text:
-        msg.kind === "text"
-          ? msg.text
-          : msg.kind === "interactive" && msg.replyId === "signup:stop"
-            ? "no me escribas"
-            : null,
-      replyId: msg.kind === "interactive" ? msg.replyId : null,
-    },
-  );
+  const prefCtx = {
+    tenantId: ctx.tenantId,
+    phoneId: ctx.phoneId,
+    role: ctx.role === "owner" ? ("owner" as const) : ("employee" as const),
+    held: Boolean(ctx.suspended || ctx.trialCapped || ctx.monthCapped),
+    privacyContact: deps.config.privacyContact ?? DEFAULT_PRIVACY_CONTACT,
+    now: (deps.now ?? (() => new Date()))(),
+    inboundId: ctx.inboundId,
+  };
+  const prefs = await routePrefs(tx, prefCtx, {
+    // Un «No me escribas» viejo del recordatorio del registro (US-SR-04) vale como la frase.
+    text:
+      msg.kind === "text"
+        ? msg.text
+        : msg.kind === "interactive" && msg.replyId === "signup:stop"
+          ? "no me escribas"
+          : null,
+    replyId: msg.kind === "interactive" ? msg.replyId : null,
+  });
   if (prefs) return { ...none(prefs.outbound), toolCalls: prefs.toolCalls, noRider: true };
   // Botones de un recordatorio (hábitos P3): también con la cuenta suspendida, para que Borrar
   // siempre funcione. Sin la IA.
@@ -1390,15 +1387,19 @@ async function routeMessage(
       // "Hoy no gasté nada" (hábitos US-106): sin la IA, solo el dueño y con su interruptor.
       if (ctx.role === "owner" && isNoSpendPhrase(msg.text) && (await habitSettings(tx)).noSpend)
         return noSpend(tx, deps, ctx, "word");
-      // «Hola no», «nada», «no pana» justo después de «¿Hubo ventas o gastos hoy?» (10/11): es la
+      // «Hola no», «nada», «no pana» justo después de la pregunta de la noche (10/11): es la
       // respuesta a esa pregunta, no algo para la IA. Solo si fue lo último que Rocco le mandó hoy.
-      if (
-        ctx.role === "owner" &&
-        isEveningNoAnswer(msg.text) &&
-        (await habitSettings(tx)).noSpend &&
-        (await eveningAskIsLast(tx, ctx.phoneId, (deps.now ?? (() => new Date()))()))
-      )
-        return noSpend(tx, deps, ctx, "answer");
+      // A la PRIMERA pregunta (1B), un «no» o «No, gracias» escrito es el botón «No, gracias»: la
+      // tarjeta para apagar (HN-1), nunca «hoy no hubo nada».
+      if (ctx.role === "owner" && isEveningNoAnswer(msg.text)) {
+        const asked = await eveningAskIsLast(tx, ctx.phoneId, (deps.now ?? (() => new Date()))());
+        if (asked === "ask") {
+          const r = await routePrefs(tx, prefCtx, { replyId: IDS.pref("nudges_off") });
+          if (r) return { ...none(r.outbound), toolCalls: r.toolCalls, noRider: true };
+        }
+        if (asked === "plain" && (await habitSettings(tx)).noSpend)
+          return noSpend(tx, deps, ctx, "answer");
+      }
       // Respuesta a "¿quién consumió qué?" de una cuenta para dividir (06/10).
       if (deps.bills) {
         const split = await splitFollowUp(
@@ -2434,15 +2435,16 @@ async function routeInteractive(
       // de menos de 30 min), se propone el cambio con la confirmación de siempre.
       if (ctx.role !== "owner") return none([es.outOfScope()]);
       const name = cleanCategoryName(parsed.name);
-      try {
-        await createCategory(tx, { tenantId: ctx.tenantId, phoneId: ctx.phoneId }, name, "expense");
-      } catch (err) {
-        if (!(err instanceof CategoryError) || err.code !== "duplicate") throw err;
-      }
+      const { result } = await ensureCategory(
+        tx,
+        { tenantId: ctx.tenantId, phoneId: ctx.phoneId },
+        name,
+        "expense",
+      );
       const now = (deps.now ?? (() => new Date()))();
       const last = await lastMovementByPhone(tx, ctx.tenantId, ctx.phoneId);
       if (!last || last.id !== parsed.movementId || isTooOld(last, now))
-        return none([es.categoryCreatedOnly(name, deps.config.dashboardUrl)]);
+        return none([es.categoryCreatedOnly(name, deps.config.dashboardUrl, result)]);
       return runAgent(tx, deps, ctx, ctx.inboundId, {
         kind: "text",
         text: `Cambia la categoría de mi último gasto a ${JSON.stringify(name)}.`,
