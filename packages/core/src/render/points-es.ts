@@ -158,9 +158,9 @@ export function giftHeldLine(g: GiftLine): string {
 /** RW8b-arrive: llegó un regalo detenido o guardado. Leyenda no tiene texto (no se detiene). */
 export function giftArrivedLine(g: GiftLine): string | null {
   // ER-P4-5: Pana Fiel guardado por la pausa o con `rewards` apagado, en una prueba sin su tope,
-  // llega como 7 días de prueba (`trial_days`). Su línea de llegada todavía no está escrita
-  // (copywriter, v1.4); mientras tanto queda lo de antes: sin línea. Condición 19 de cumplimiento:
-  // con `xp` encendido, ni tope en $0 ni `rewards` apagado hasta que llegue.
+  // llega como 7 días de prueba (`trial_days`), con su línea (v1.4).
+  if (g.benefit === "trial_days" && g.fin && g.tope)
+    return `✅ Llegaron tus *${g.days ?? GIFTS.dias3} días* de regalo del nivel *${name(g.level)}* a tu prueba: ahora termina el ${d(g.fin)} o al llegar a los ${g.tope} mensajes, lo que llegue primero.`;
   if (g.benefit === "week")
     return `✅ Llegaron tus 7 días de regalo del nivel *${name(4)}*: tu plan ahora vence el ${d(g.fin)}.`;
   if (g.benefit !== "messages") return null;
@@ -723,16 +723,18 @@ export function inviteReply(v: { code: string } | "not_eligible"): Outbound[] {
 export const codePausedLine = (contacto: string) =>
   `Pausamos tu código para invitar porque dos de tus invitaciones dejaron de contar. Si crees que es un error, escríbenos a ${contacto}.`;
 
+/** W-2 (a), v1.4: el código quedó pausado a mano desde /admin («Pausar código»). */
+export const codePausedAdminLine = (contacto: string) =>
+  `Pausamos tu código para invitar porque vimos una invitación hecha solo para sumar puntos. Si crees que es un error, escríbenos a ${contacto}.`;
+
 /**
- * RW4-i con el código pausado (cumplimiento W-2 b): nunca la línea P-3 a quien ya invitó. Pausado
- * por dos devoluciones (`reversals`): RW8g tal cual.
- * Pausado a mano desde /admin (`admin`): su línea (W-2 a) todavía no está escrita (copywriter,
- * v1.4). Mientras tanto queda lo de antes (la línea P-3) y nadie usa «Pausar código» (condición
- * 17 de cumplimiento). Cuando llegue la línea, va aquí y en el aviso de la pausa manual.
+ * RW4-i con el código pausado (cumplimiento W-2): nunca la línea P-3 a quien ya invitó. Pausado
+ * por dos devoluciones (`reversals`): RW8g tal cual. Pausado a mano desde /admin (`admin`, o un
+ * código pausado sin motivo guardado): la línea de W-2 (a).
  */
 export function invitePausedReply(reason: string | null, contacto: string): Outbound[] {
   if (reason === "reversals") return [{ type: "text", body: codePausedLine(contacto) }];
-  return [{ type: "text", body: NOT_ELIGIBLE_LINE }];
+  return [{ type: "text", body: codePausedAdminLine(contacto) }];
 }
 
 /** RW6i (tres frases): lo que sabe quien invitó. Solo en el chat, en cursiva (W-1: no en la web). */
@@ -799,7 +801,10 @@ export function referralLine(
     case "ref_reversed":
       return `Una de tus invitaciones dejó de contar: quitamos los +${POINT_RULES.ref_paid} puntos de esa invitación y no hay mes de regalo por ella. Si crees que es un error, escríbenos a ${contacto}.`;
     case "code_paused":
-      return codePausedLine(contacto);
+      // Sin motivo: la pausa por dos devoluciones (RW8g). `admin`: «Pausar código» (W-2 a).
+      return (a as { reason?: string }).reason === "admin"
+        ? codePausedAdminLine(contacto)
+        : codePausedLine(contacto);
     case "ref_month_paid":
       return `Tu mes de regalo por invitar ya está aplicado: sumé 30 días a tu plan, que ahora vence el ${d(a.fin)}.`;
     default:

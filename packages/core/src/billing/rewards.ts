@@ -494,23 +494,27 @@ export async function waitingGrants(
   tenantId: string,
   reasons: WaitReason[],
 ): Promise<Grant[]> {
-  return tx
-    .select()
-    .from(schema.rewardGrant)
-    .where(
-      and(
-        eq(schema.rewardGrant.tenantId, tenantId),
-        eq(schema.rewardGrant.status, "waiting"),
-        inArray(schema.rewardGrant.waitReason, reasons),
-      ),
-    )
-    .orderBy(asc(schema.rewardGrant.createdAt));
+  return (
+    tx
+      .select()
+      .from(schema.rewardGrant)
+      .where(
+        and(
+          eq(schema.rewardGrant.tenantId, tenantId),
+          eq(schema.rewardGrant.status, "waiting"),
+          inArray(schema.rewardGrant.waitReason, reasons),
+        ),
+      )
+      // Del más viejo al más nuevo; los del mismo momento, del nivel más bajo al más alto (la línea
+      // de llegada de uno ya cuenta los mensajes del anterior).
+      .orderBy(asc(schema.rewardGrant.createdAt), asc(schema.rewardGrant.kind))
+  );
 }
 
 /**
  * Suelta los regalos de un negocio que esperaban por `rewards` apagado o por la pausa (tope en 0),
  * bajo el tope, del más viejo al más nuevo (§P4.6 reglas 6 y 8). Si vuelven a esperar por el tope,
- * la línea ya dicha (RW2-hold) sigue valiendo; al llegar, RW8b-arrive.
+ * sale RW8b (R-1, como en `onPlanPaymentApproved`); al llegar el día 1, RW8b-arrive.
  */
 export async function releaseHeldGrants(
   tx: Tx,
@@ -521,10 +525,12 @@ export async function releaseHeldGrants(
   let n = 0;
   for (const g of await waitingGrants(tx, tenantId, ["flag_off", "paused"])) {
     const r = await settleGrant(tx, g.id, ctx);
-    if (r && (r.grant.status === "applied" || r.grant.status === "test")) {
+    if (!r) continue;
+    if (r.grant.status === "applied" || r.grant.status === "test") {
       n += 1;
       await addNotice(tx, tenantId, "gift_arrived", r.line, ctx.now);
-    }
+    } else if (r.grant.status === "waiting" && r.grant.waitReason === "ceiling")
+      await addNotice(tx, tenantId, "gift_held", r.line, ctx.now);
   }
   return n;
 }

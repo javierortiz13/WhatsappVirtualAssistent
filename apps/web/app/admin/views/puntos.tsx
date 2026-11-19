@@ -171,7 +171,7 @@ export function PuntosView(d: PuntosData) {
                   ["Aplicados", r.months.applied],
                   ["Cancelados", r.months.cancelled],
                   [
-                    "+50 del invitado (fuera del tope)",
+                    "+50 del invitado, total (fuera del tope)",
                     `${r.inviteeBonus} (${$(r.inviteeBonusUsd)})`,
                   ],
                   ["+50 del invitado, este mes", $(d.bookedInvitees)],

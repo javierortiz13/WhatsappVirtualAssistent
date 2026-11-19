@@ -33,6 +33,7 @@ import {
   saveRewardSettings,
   saveSignupRescueSettings,
   scheduleSignupBatch,
+  setReferralCodePaused,
   setTenantBilling,
   signupRescueSettings,
   subscriptionState,
@@ -43,7 +44,7 @@ import {
 } from "@caja/core";
 import { businessDateOf } from "@caja/core/domain";
 import { errorText } from "@caja/core/log";
-import { and, eq, isNotNull, isNull, schema, withTenant } from "@caja/db";
+import { and, eq, schema, withTenant } from "@caja/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -695,23 +696,9 @@ export async function setReferralCodeAction(formData: FormData): Promise<void> {
   let outcome = "ok=codigo";
   try {
     await withTenant(db(), f.tenant_id, async (tx) => {
-      const done = await tx
-        .update(schema.referralCode)
-        .set(
-          f.op === "disable"
-            ? { disabledAt: now, disabledReason: "admin" }
-            : { disabledAt: null, disabledReason: null },
-        )
-        .where(
-          and(
-            eq(schema.referralCode.tenantId, f.tenant_id),
-            f.op === "disable"
-              ? isNull(schema.referralCode.disabledAt)
-              : isNotNull(schema.referralCode.disabledAt),
-          ),
-        )
-        .returning({ id: schema.referralCode.id });
-      if (!done[0]) {
+      // Al pausar, el aviso de W-2 (a) para el dueño (v1.4).
+      const codeId = await setReferralCodePaused(tx, f.tenant_id, f.op, now);
+      if (!codeId) {
         outcome = "error=estado";
         return;
       }
@@ -721,7 +708,7 @@ export async function setReferralCodeAction(formData: FormData): Promise<void> {
         actorId: admin.userId,
         action: f.op === "disable" ? "disable_referral_code" : "enable_referral_code",
         entity: "referral_code",
-        entityId: done[0].id,
+        entityId: codeId,
         before: { disabled: f.op === "enable" },
         after: { disabled: f.op === "disable", by: admin.email },
         channel: "admin",

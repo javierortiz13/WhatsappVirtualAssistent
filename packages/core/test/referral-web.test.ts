@@ -6,7 +6,7 @@ import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { LlmClient } from "../src/agent/llm";
 import { createAgent } from "../src/agent/loop";
-import { referralCodeFor, storePendingRef } from "../src/billing/referrals";
+import { lateCode, referralCodeFor, storePendingRef } from "../src/billing/referrals";
 import { trialMessageCap } from "../src/billing/trial";
 import { businessDateOf } from "../src/domain/dates";
 import { Decimal } from "../src/domain/money";
@@ -188,6 +188,83 @@ describe("invitación del registro web (seguridad F1)", () => {
     } finally {
       await saveHabitSettings(t.db, { referrals: true }, "test", now());
     }
+    expect(await referralOf(r.tenantId)).toEqual([]);
+    const row = await tenantRow(r.tenantId);
+    expect([trialMessageCap(row), row.pendingRefCode]).toEqual([100, null]);
+  });
+
+  /**
+   * V-1 (re-revisión de fdae0ce): un número que el dueño agregó como empleado y que nunca escribió
+   * no decide si el negocio «ya usó Rocco»; si no, cualquiera podría saber si un número ajeno usó
+   * Rocco. Uno que sí escribió y quedó verificado, sí cuenta.
+   */
+  const OTHER_PHONE = "584240000201";
+  /** Un número que ya le escribió a Rocco (registro por chat sin terminar, o vaciado con marca). */
+  async function phoneWithHistory(e164: string) {
+    await t.db.insert(schema.signup).values({ e164, step: "name", data: {} });
+  }
+  async function addEmployee(tenantId: string, e164: string, verified: boolean) {
+    await withTenant(t.db, tenantId, (tx) =>
+      tx.insert(schema.phoneNumber).values({
+        tenantId,
+        e164,
+        role: "employee",
+        status: "active",
+        verifiedAt: verified ? new Date() : null,
+      }),
+    );
+  }
+
+  it("V-1: un empleado sin verificar con historia en Rocco no cuenta → attached, 150", async () => {
+    await phoneWithHistory(OTHER_PHONE);
+    const r = await webSignup("584240000202");
+    await addEmployee(r.tenantId, OTHER_PHONE, false);
+    expect(await verify("584240000202", r.code)).toBe("done");
+    const [ref] = await referralOf(r.tenantId);
+    expect([ref?.stage, ref?.endReason]).toEqual(["signed_up", null]);
+    expect(trialMessageCap(await tenantRow(r.tenantId))).toBe(150);
+  });
+
+  it("V-1: un empleado que escribió y está verificado sí cuenta → returning", async () => {
+    await phoneWithHistory("584240000203");
+    const r = await webSignup("584240000204");
+    await addEmployee(r.tenantId, "584240000203", true);
+    expect(await verify("584240000204", r.code)).toBe("done");
+    const [ref] = await referralOf(r.tenantId);
+    expect([ref?.stage, ref?.endReason]).toEqual(["ended", "returning"]);
+    expect(trialMessageCap(await tenantRow(r.tenantId))).toBe(100);
+  });
+
+  it("V-1: «me invitó CODE» con un empleado sin verificar con historia → attached", async () => {
+    await phoneWithHistory("584240000205");
+    const owner = await seedTenant(t.db, {
+      name: "Por chat",
+      businessType: "retail",
+      ownerPhone: "584240000206",
+    });
+    await addEmployee(owner, "584240000205", false);
+    const out = await withTenant(t.db, owner, (tx) =>
+      lateCode(tx, owner, `me invitó ${code}`, now()),
+    );
+    expect(out.kind).toBe("attached");
+    const [ref] = await referralOf(owner);
+    expect([ref?.via, ref?.stage, ref?.endReason]).toEqual(["late", "signed_up", null]);
+  });
+
+  it("V-2: si la unión falla, el número queda activo, sin invitación y el código no vuelve", async () => {
+    const r = await webSignup("584240000207");
+    await t.pg.exec("ALTER FUNCTION app.attach_referral(text, text) RENAME TO attach_referral_v2");
+    try {
+      expect(await verify("584240000207", r.code)).toBe("done");
+    } finally {
+      await t.pg.exec(
+        "ALTER FUNCTION app.attach_referral_v2(text, text) RENAME TO attach_referral",
+      );
+    }
+    const [phone] = await withTenant(t.db, r.tenantId, (tx) =>
+      tx.select().from(schema.phoneNumber).where(eq(schema.phoneNumber.tenantId, r.tenantId)),
+    );
+    expect([phone?.status, phone?.verifiedAt instanceof Date]).toEqual(["active", true]);
     expect(await referralOf(r.tenantId)).toEqual([]);
     const row = await tenantRow(r.tenantId);
     expect([trialMessageCap(row), row.pendingRefCode]).toEqual([100, null]);

@@ -46,6 +46,7 @@ import {
   renewReferenceReply,
   TRIAL_MESSAGES,
   TRIAL_WARN_PCT,
+  takePendingRef,
   trialSpend,
 } from "../billing/index";
 import {
@@ -860,10 +861,13 @@ async function handlePendingOwner(
     if (result === "expired")
       return { reply: es.codeExpired(registerUrl), note: "pendiente: código vencido" };
     // Seguridad F1: la invitación escrita en /registro se une recién ahora, con el número del
-    // dueño ya probado desde WhatsApp. Si falla (punto de guardado), el número queda vinculado.
-    await tx
-      .transaction((sp) => attachPendingRef(sp, resolved.tenantId, nowTs))
-      .catch((err) => log.warn({ err: errMsg(err) }, "registro web: invitación"));
+    // dueño ya probado desde WhatsApp. El código se borra antes (V-2); si la unión falla (punto de
+    // guardado), el número queda vinculado y el código no vuelve.
+    const pendingRef = await takePendingRef(tx, resolved.tenantId);
+    if (pendingRef)
+      await tx
+        .transaction((sp) => attachPendingRef(sp, resolved.tenantId, pendingRef, nowTs))
+        .catch((err) => log.warn({ err: errMsg(err) }, "registro web: invitación"));
     const [tenant] = await tx
       .select({ name: schema.tenant.name, businessType: schema.tenant.businessType })
       .from(schema.tenant)

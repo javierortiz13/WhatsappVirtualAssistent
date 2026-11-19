@@ -25,6 +25,7 @@ import {
   runPointsHousekeeping,
   syncPoints,
 } from "../src/ledger/points";
+import { noticeLine } from "../src/render/points-es";
 
 /**
  * Puntos, niveles y regalos (PRD hábitos v4.2.1, fase 4: US-411, US-413…US-417, US-432). Reloj
@@ -617,7 +618,77 @@ describe("puntos (P4-A)", () => {
         expect(row.trialEndsAt?.getTime()).toBe(end.getTime() + 7 * DAY);
         // Solo los +20 del Guardián: Pana Fiel no llegó como mensajes.
         expect(row.extraMessages).toBe(20);
+        // Su línea de llegada (v1.4), con el fin y el tope reales de la prueba.
+        const arrived = (
+          await withTenant(t.db, tn.id, (tx) =>
+            tx.select().from(schema.pointsNotice).where(eq(schema.pointsNotice.tenantId, tn.id)),
+          )
+        ).filter((n) => n.kind === "gift_arrived" && (n.args as { level: number }).level === 3);
+        expect(arrived).toHaveLength(1);
+        // 25/12 + 7 días = viernes 01/01; tope 100 + 20 del Guardián.
+        expect(noticeLine(arrived[0] as { kind: string; args: Record<string, unknown> }, "x")).toBe(
+          "✅ Llegaron tus *7 días* de regalo del nivel *Pana Fiel* a tu prueba: ahora termina el vie 01/01 o al llegar a los 120 mensajes, lo que llegue primero.",
+        );
       });
+    const notices = (id: string) =>
+      withTenant(t.db, id, (tx) =>
+        tx.select().from(schema.pointsNotice).where(eq(schema.pointsNotice.tenantId, id)),
+      );
+    it("R-1: flag_off → rewards encendido con el tope lleno → RW8b; el día 1 → +50 y RW8b-arrive", async () => {
+      await saveRewardSettings(t.db, { monthlyCeilingUsd: 0.5 }, "test", NOW);
+      await saveHabitSettings(t.db, { rewards: false }, "test", NOW);
+      const end = new Date("2026-12-25T12:00:00Z");
+      const tn = await tenant({ trialEndsAt: end });
+      await give(tn.id, 400);
+      await sync(tn.id);
+      expect((await grants(tn.id)).map((g) => g.waitReason)).toEqual(["flag_off", "flag_off"]);
+      await saveHabitSettings(t.db, { rewards: true }, "test", NOW);
+      await sync(tn.id);
+      // Guardián ($0.42) cabe; Pana Fiel ($0.60) vuelve a esperar, ahora por el tope: un RW8b.
+      const n3 = (await grants(tn.id)).find((g) => g.kind === "level_n3");
+      expect([n3?.status, n3?.waitReason]).toEqual(["waiting", "ceiling"]);
+      const held = (await notices(tn.id)).filter((n) => n.kind === "gift_held");
+      expect(held).toHaveLength(1);
+      expect(held[0]?.args).toMatchObject({ level: 3 });
+      await sync(tn.id); // otra vuelta: no repite el RW8b
+      expect((await notices(tn.id)).filter((n) => n.kind === "gift_held")).toHaveLength(1);
+      await runPointsHousekeeping(t.db, new Date("2026-12-01T12:00:00Z"));
+      const after = (await grants(tn.id)).find((g) => g.kind === "level_n3");
+      expect([after?.status, after?.appliedAs]).toEqual(["applied", "messages"]);
+      const row = await tenantRow(tn.id);
+      expect(row.extraMessages).toBe(70);
+      expect(row.trialEndsAt?.getTime()).toBe(end.getTime());
+      const arrived = (await notices(tn.id)).filter(
+        (n) => n.kind === "gift_arrived" && (n.args as { level: number }).level === 3,
+      );
+      expect(arrived).toHaveLength(1);
+    });
+    it("R-2: detenido por el tope → el día 1 con rewards apagado → al encender, +50 mensajes", async () => {
+      await saveRewardSettings(t.db, { monthlyCeilingUsd: 1 }, "test", NOW);
+      const end = new Date("2026-12-25T12:00:00Z");
+      const tn = await tenant({ trialEndsAt: end });
+      await give(tn.id, 100);
+      await sync(tn.id); // Guardián: $0.42 cabe
+      await give(tn.id, 300);
+      await sync(tn.id); // Pana Fiel ($0.60): no cabe
+      const n3 = (await grants(tn.id)).find((g) => g.kind === "level_n3");
+      expect([n3?.status, n3?.waitReason]).toEqual(["waiting", "ceiling"]);
+      await saveHabitSettings(t.db, { rewards: false }, "test", NOW);
+      await runPointsHousekeeping(t.db, new Date("2026-12-01T12:00:00Z"));
+      const off = (await grants(tn.id)).find((g) => g.kind === "level_n3");
+      expect([off?.status, off?.waitReason]).toEqual(["waiting", "flag_off"]);
+      expect((off?.flags as { ceilingHitMonth?: string } | null)?.ceilingHitMonth).toBeTruthy();
+      // Los +50 cuestan $1,05: con el tope en $1 solo entrarían forzados el día 1. Se sube a $20
+      // para ver que, al encender, llega como mensajes y no como días de prueba.
+      await saveRewardSettings(t.db, { monthlyCeilingUsd: 20 }, "test", NOW);
+      await saveHabitSettings(t.db, { rewards: true }, "test", NOW);
+      await sync(tn.id, new Date("2026-12-02T12:00:00Z"));
+      const after = (await grants(tn.id)).find((g) => g.kind === "level_n3");
+      expect([after?.status, after?.appliedAs]).toEqual(["applied", "messages"]);
+      const row = await tenantRow(tn.id);
+      expect(row.extraMessages).toBe(70);
+      expect(row.trialEndsAt?.getTime()).toBe(end.getTime());
+    });
     it("dos meses por encima del tope → alerta de /admin", async () => {
       await t.db.insert(schema.rewardMonth).values([
         { month: "2026-10", bookedUsd: "25.00" },

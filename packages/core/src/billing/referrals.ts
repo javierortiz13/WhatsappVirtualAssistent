@@ -511,6 +511,37 @@ export async function lateCode(
 }
 
 /**
+ * «Pausar código» / «Reactivar código» desde /admin (US-419, SEC-P4-3): pausar solo uno activo;
+ * reactivar solo uno pausado. Al pausar, la línea de W-2 (a) en la próxima respuesta del dueño
+ * (`code_paused` con `reason: "admin"`). Devuelve el id del código o null si no cambió nada.
+ */
+export async function setReferralCodePaused(
+  tx: Tx,
+  tenantId: string,
+  op: "disable" | "enable",
+  now: Date,
+): Promise<string | null> {
+  const c = schema.referralCode;
+  const [done] = await tx
+    .update(c)
+    .set(
+      op === "disable"
+        ? { disabledAt: now, disabledReason: "admin" }
+        : { disabledAt: null, disabledReason: null },
+    )
+    .where(
+      and(
+        eq(c.tenantId, tenantId),
+        op === "disable" ? sql`${c.disabledAt} is null` : sql`${c.disabledAt} is not null`,
+      ),
+    )
+    .returning({ id: c.id });
+  if (!done) return null;
+  if (op === "disable") await addNotice(tx, tenantId, "code_paused", { reason: "admin" }, now);
+  return done.id;
+}
+
+/**
  * Registro web (seguridad F1): el código escrito en /registro se guarda con la cuenta y espera;
  * no se une ni da nada hasta que el dueño verifique su número (`attachPendingRef`). Uno sin la
  * forma no se guarda.
@@ -524,27 +555,38 @@ export async function storePendingRef(tx: Tx, tenantId: string, code: string): P
 }
 
 /**
- * Al verificar el número del dueño de una cuenta web (seguridad F1): con `xp` y `referrals`, une
- * el código que esperaba y da el +50; así la regla 5 («nuevo en Rocco») mira un número que el
- * dueño acaba de probar desde WhatsApp. El código se borra siempre. Devuelve el tope nuevo o null.
+ * Al verificar el número del dueño de una cuenta web (seguridad F1), primero se toma el código que
+ * esperaba: se bloquea la fila y se borra (V-2: fuera del punto de guardado, para que un error al
+ * unir no lo deje vivo). Devuelve el código o null.
  */
-export async function attachPendingRef(
-  tx: Tx,
-  tenantId: string,
-  now: Date,
-): Promise<number | null> {
+export async function takePendingRef(tx: Tx, tenantId: string): Promise<string | null> {
   const [t] = await tx
     .select({ code: schema.tenant.pendingRefCode })
     .from(schema.tenant)
-    .where(eq(schema.tenant.id, tenantId));
+    .where(eq(schema.tenant.id, tenantId))
+    .for("update");
   if (!t?.code) return null;
   await tx
     .update(schema.tenant)
     .set({ pendingRefCode: null })
     .where(eq(schema.tenant.id, tenantId));
+  return t.code;
+}
+
+/**
+ * Después, dentro del punto de guardado: con `xp` y `referrals`, une ese código y da el +50; así la
+ * regla 5 («nuevo en Rocco») mira un número que el dueño acaba de probar desde WhatsApp. Devuelve
+ * el tope nuevo o null.
+ */
+export async function attachPendingRef(
+  tx: Tx,
+  tenantId: string,
+  code: string,
+  now: Date,
+): Promise<number | null> {
   const flags = await habitSettings(tx);
   if (!flags.xp || !flags.referrals) return null;
-  return attachAtSignup(tx, tenantId, t.code, "web", now);
+  return attachAtSignup(tx, tenantId, code, "web", now);
 }
 
 /** Une en el registro (chat o web) y da el +50 (US-421, US-423). Devuelve el tope nuevo o null. */

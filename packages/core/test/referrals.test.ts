@@ -18,6 +18,7 @@ import {
   ReviewRefused,
   referralCodeFor,
   refuseRefMonth,
+  setReferralCodePaused,
   syncInvitee,
 } from "../src/billing/referrals";
 import { saveRewardSettings } from "../src/billing/rewards";
@@ -25,7 +26,7 @@ import { trialMessageCap } from "../src/billing/trial";
 import { caracasMonth } from "../src/billing/usage";
 import { businessDateOf } from "../src/domain/dates";
 import { Decimal } from "../src/domain/money";
-import { pointsReply } from "../src/inbox/points-chat";
+import { pendingPointsLine, pointsReply } from "../src/inbox/points-chat";
 import { saveHabitSettings } from "../src/ledger/habits";
 import { syncPoints } from "../src/ledger/points";
 import { handleSignup } from "../src/onboarding/chat-signup";
@@ -576,14 +577,49 @@ describe("invitaciones (P4-B)", () => {
         body: "Pausamos tu código para invitar porque dos de tus invitaciones dejaron de contar. Si crees que es un error, escríbenos a privacidad@ejemplo.com.",
       },
     ]);
-    // Pausa manual: su línea (W-2 a) no está escrita; queda la de antes hasta que llegue.
+    // Pausa manual: la línea de W-2 (a), v1.4; nunca la P-3.
     await pause("admin");
-    expect((await ask())?.outbound).toEqual([
-      {
-        type: "text",
-        body: "Tu enlace para invitar aparece cuando hayas anotado algo en 3 días distintos.",
-      },
-    ]);
+    expect((await ask())?.outbound).toEqual([{ type: "text", body: W2A }]);
+  });
+
+  const W2A =
+    "Pausamos tu código para invitar porque vimos una invitación hecha solo para sumar puntos. Si crees que es un error, escríbenos a privacidad@ejemplo.com.";
+
+  it("W-2 a: «Pausar código» deja un aviso con su línea para la próxima respuesta; reactivar no avisa", async () => {
+    const a = await inviter();
+    const at = new Date();
+    expect(
+      await withTenant(t.db, a.id, (tx) => setReferralCodePaused(tx, a.id, "disable", at)),
+    ).toBeTruthy();
+    // Pausar otra vez no cambia nada ni repite el aviso.
+    expect(
+      await withTenant(t.db, a.id, (tx) => setReferralCodePaused(tx, a.id, "disable", at)),
+    ).toBeNull();
+    const [code] = await withTenant(t.db, a.id, (tx) =>
+      tx.select().from(schema.referralCode).where(eq(schema.referralCode.tenantId, a.id)),
+    );
+    expect(code?.disabledReason).toBe("admin");
+    // La línea que sale con la próxima respuesta del dueño (p. ej. «mis puntos»).
+    const first = await withTenant(t.db, a.id, async (tx) => {
+      const p = await pendingPointsLine(tx, a.id, "privacidad@ejemplo.com", at);
+      await p?.commit();
+      return p?.line;
+    });
+    expect(first).toBe(W2A);
+    expect(
+      await withTenant(t.db, a.id, (tx) =>
+        pendingPointsLine(tx, a.id, "privacidad@ejemplo.com", at),
+      ),
+    ).toBeNull();
+    // Reactivar: sin aviso.
+    expect(
+      await withTenant(t.db, a.id, (tx) => setReferralCodePaused(tx, a.id, "enable", at)),
+    ).toBeTruthy();
+    expect(
+      await withTenant(t.db, a.id, (tx) =>
+        pendingPointsLine(tx, a.id, "privacidad@ejemplo.com", at),
+      ),
+    ).toBeNull();
   });
 
   it("W-1: el campo de /registro (RW6i-field v1.3), con los dos textos de ayuda y sin RW6i", () => {
