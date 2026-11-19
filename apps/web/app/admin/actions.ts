@@ -5,6 +5,7 @@ import {
   approvePayment,
   approveRefMonth,
   BatchRefused,
+  cancelReaskBatch,
   cancelSignupBatch,
   Decimal,
   type FlagChangeError,
@@ -32,6 +33,7 @@ import {
   saveLaunchSettings,
   saveRewardSettings,
   saveSignupRescueSettings,
+  scheduleReaskBatch,
   scheduleSignupBatch,
   setTenantBilling,
   signupRescueSettings,
@@ -87,6 +89,9 @@ async function currentFlags(): Promise<FlagState> {
     xp: h.xp,
     rewards: h.rewards,
     referrals: h.referrals,
+    reengageAsk: h.reengageAsk,
+    nightRotation: h.nightRotation,
+    reengageTemplate: h.reengageTemplate,
     inWindow: r.inWindow,
     template: r.template,
     viaTemplate: r.inWindowVia === "template",
@@ -457,12 +462,27 @@ export async function saveHabitsAction(formData: FormData): Promise<void> {
   const dailyClose = formData.get("daily_close") === "on";
   const streakLine = formData.get("streak_line") === "on";
   const noSpend = formData.get("no_spend") === "on";
+  // Retención E1–E3 (A-0051).
+  const reengageAsk = formData.get("reengage_ask") === "on";
+  const nightRotation = formData.get("night_rotation") === "on";
+  const reengageTemplate = formData.get("reengage_template") === "on";
   // Avisos va primero (PRD hábitos §6) y no se apaga; el mensaje para todos va con el aviso de
   // las 8 pm; encender uno con aprobación pide su código exacto (rediseño 08/11, `admin/flags`).
   const flagsBefore = await currentFlags();
   const check = validateFlagSave(
     flagsBefore,
-    { ...flagsBefore, streakLine, noSpend, prefs, nudge, dailyClose, reminders },
+    {
+      ...flagsBefore,
+      streakLine,
+      noSpend,
+      prefs,
+      nudge,
+      dailyClose,
+      reminders,
+      reengageAsk,
+      nightRotation,
+      reengageTemplate,
+    },
     approvalCode(formData),
   );
   if (!check.ok) redirect(`/admin/interruptores?error=${FLAG_ERROR[check.error]}`);
@@ -479,7 +499,17 @@ export async function saveHabitsAction(formData: FormData): Promise<void> {
       );
     await saveHabitSettings(
       db(),
-      { streakLine, noSpend, prefs, reminders, nudge, dailyClose },
+      {
+        streakLine,
+        noSpend,
+        prefs,
+        reminders,
+        nudge,
+        dailyClose,
+        reengageAsk,
+        nightRotation,
+        reengageTemplate,
+      },
       admin.email,
       new Date(),
       { approval: check.approval },
@@ -853,6 +883,31 @@ export async function scheduleBatchAction(): Promise<void> {
   }
   revalidatePath("/admin");
   redirect("/admin/registro?ok=lote_programado#lote");
+}
+
+/**
+ * «Programar lote» de E3-t (A-0053): la pregunta por plantilla a los dueños callados, una sola vez,
+ * con las reglas del lote del registro. Sin datos en el log: solo la acción.
+ */
+export async function scheduleReaskAction(): Promise<void> {
+  const admin = await requireAdmin();
+  try {
+    await scheduleReaskBatch(db(), { actor: admin.email, now: new Date() });
+  } catch (err) {
+    if (err instanceof BatchRefused)
+      redirect(`/admin/habito?error=reask&motivo=${encodeURIComponent(err.reason)}#e3t`);
+    console.error(JSON.stringify({ level: "error", msg: "admin E3-t", detail: errorText(err) }));
+    redirect("/admin/habito?error=servidor");
+  }
+  revalidatePath("/admin");
+  redirect("/admin/habito?ok=reask_programado#e3t");
+}
+
+export async function cancelReaskAction(): Promise<void> {
+  const admin = await requireAdmin();
+  await cancelReaskBatch(db(), admin.email, new Date());
+  revalidatePath("/admin");
+  redirect("/admin/habito?ok=reask_cancelado#e3t");
 }
 
 export async function cancelBatchAction(): Promise<void> {

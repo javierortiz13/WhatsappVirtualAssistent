@@ -8,6 +8,7 @@ import {
   missingNeeds,
   validateFlagSave,
 } from "../src/admin/flags";
+import { HABIT_DEFAULTS } from "../src/ledger/habits";
 
 /** Interruptores de /admin (rediseño 08/11): dependencias, aprobaciones y los que no se tocan. */
 const OFF: FlagState = {
@@ -20,6 +21,9 @@ const OFF: FlagState = {
   xp: false,
   rewards: false,
   referrals: false,
+  reengageAsk: false,
+  nightRotation: false,
+  reengageTemplate: false,
   inWindow: false,
   template: false,
   viaTemplate: false,
@@ -185,5 +189,32 @@ describe("los que no se tocan", () => {
     expect(validateFlagSave(live, { ...live, template: false })).toMatchObject({ ok: true });
     // Apagar «8 pm para todos» (A-0038) tampoco pide código.
     expect(validateFlagSave(live, { ...live, dailyClose: false })).toMatchObject({ ok: true });
+  });
+});
+
+describe("retención E1–E3 (A-0051)", () => {
+  it("los tres apagados por defecto; E1 necesita E3, el aviso y Avisos; con A-0051 pendiente no se encienden", () => {
+    expect(HABIT_DEFAULTS).toMatchObject({
+      reengageAsk: false,
+      nightRotation: false,
+      reengageTemplate: false,
+    });
+    expect(missingNeeds("reengageTemplate", OFF)).toEqual(["prefs", "nudge", "reengageAsk"]);
+    expect(missingNeeds("reengageTemplate", { ...PROD, reengageAsk: true })).toEqual([]);
+    expect(APPROVALS["A-0051"].status).toBe("pending");
+    for (const key of ["reengageAsk", "nightRotation"] as const)
+      expect(applyFlagChange(PROD, key, true, "A-0051")).toEqual({
+        ok: false,
+        error: "approval_pending",
+      });
+    expect(validateFlagSave(PROD, { ...PROD, reengageAsk: true }, "A-0051")).toMatchObject({
+      ok: false,
+      error: "approval_pending",
+      key: "reengageAsk",
+    });
+    // Apagar E3 apaga E1 con él.
+    expect(
+      dependentsOn("reengageAsk", { ...PROD, reengageAsk: true, reengageTemplate: true }),
+    ).toEqual(["reengageTemplate"]);
   });
 });

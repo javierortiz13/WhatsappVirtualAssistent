@@ -205,6 +205,11 @@ export const phoneNumber = app.table(
     /** Apagado pendiente de confirmar (D10): ya cuenta como apagado. */
     prefPending: text("pref_pending"),
     prefPendingAt: timestamp("pref_pending_at", { withTimezone: true }),
+    /** Retención E1–E3 (0039): el «Sí, recuérdame», el «No, gracias» y la hora habitual. */
+    reengageOptInAt: timestamp("reengage_opt_in_at", { withTimezone: true }),
+    reengageDeclinedAt: timestamp("reengage_declined_at", { withTimezone: true }),
+    /** Minutos desde la medianoche de Caracas. */
+    reengageMinute: integer("reengage_minute"),
     ...timestamps,
   },
   (t) => [

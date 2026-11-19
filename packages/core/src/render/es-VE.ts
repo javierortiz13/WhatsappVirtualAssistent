@@ -3433,6 +3433,74 @@ export function withNudgeOffer(card: Outbound): Outbound | null {
   };
 }
 
+// ---------------------------------------------------------------- retención E3 (A-0051)
+
+/**
+ * E3, E3-n y E3-r (agencia, retencion-e1-e3-2026-11-19.md §3.1, v1): la pregunta del recordatorio
+ * a su hora, como último renglón de una tarjeta guardada, con «Sí, recuérdame» y «No, gracias».
+ * Es el consentimiento para la plantilla E1 (fuera de la ventana de 24 h).
+ */
+export const REENGAGE_ASK_LINES = {
+  /** En la tarjeta del primer movimiento, de 08:00 a 20:25 de Caracas. */
+  E3: "¿Te recuerdo mañana a esta hora? Los días que no anotes nada te escribo una vez, a la hora en que sueles anotar, aunque no me hayas escrito. Si pasan 3 días sin respuesta, paro. Lo apagas cuando quieras.",
+  /** El primer movimiento de 20:26 a 07:59. */
+  "E3-n":
+    "¿Te recuerdo anotar mañana? Los días que no anotes nada te escribo una vez, a eso de las 7 de la noche, aunque no me hayas escrito. Si pasan 3 días sin respuesta, paro. Lo apagas cuando quieras.",
+  /** Una vez, a quien ya anotó antes. */
+  "E3-r":
+    "¿Quieres que también te recuerde los días que no me escribas? Te escribo una vez, a la hora en que sueles anotar, y si pasan 3 días sin respuesta, paro. Lo apagas cuando quieras.",
+} as const;
+export type ReengageAskId = keyof typeof REENGAGE_ASK_LINES;
+
+/** Botones de E3 (y de la plantilla E3-t): 14 y 11 caracteres. */
+export const REENGAGE_ASK_BUTTONS = [
+  { id: IDS.pref("reengage_yes"), title: "Sí, recuérdame" },
+  { id: IDS.pref("reengage_no"), title: "No, gracias" },
+] as const;
+
+/**
+ * La tarjeta guardada con la pregunta E3 (como `withNudgeOffer`): solo si tiene 1 botón o
+ * ninguno, para que quepan los dos, y el cuerpo queda en 1.024 o menos. null si no cabe.
+ */
+export function withReengageAsk(card: Outbound, id: ReengageAskId): Outbound | null {
+  if (card.type !== "buttons" || card.buttons.length > 1) return null;
+  const body = `${card.body}\n\n${REENGAGE_ASK_LINES[id]}`;
+  if (body.length > 1024) return null;
+  return { ...card, body, buttons: [...card.buttons, ...REENGAGE_ASK_BUTTONS] };
+}
+
+/** E3-sí: la respuesta a «Sí, recuérdame». Es la confirmación del consentimiento: texto, no ✅. */
+export function reengageYes(): Outbound {
+  return {
+    type: "text",
+    body: "Dale, mañana te recuerdo si no has anotado nada. Para apagarlo: *no me recuerdes*.",
+  };
+}
+
+/** E3-no: la respuesta a «No, gracias». No se vuelve a preguntar. */
+export function reengageNo(): Outbound {
+  return {
+    type: "text",
+    body: "Dale, sin recordatorios. Aquí sigo cuando quieras anotar algo.",
+  };
+}
+
+/**
+ * Las dos plantillas de marketing (agencia §1.6 variante A y §7.1), tal cual se cargan en WhatsApp
+ * Manager después de la aprobación. El código no las manda como texto: solo su nombre y los
+ * payloads de los botones. Están aquí para la revisión del copy y las pruebas.
+ */
+export const REENGAGE_TEMPLATE_TEXT = {
+  body: "Epa, soy Rocco. ¿Hubo algún gasto hoy? Toca *Anotar gasto* y me lo dices por texto o por audio. Si no hubo nada, toca *Hoy no gasté*.\n\nTe escribo porque me pediste que te recordara. Si prefieres que no, toca *No me escribas*.",
+  footer: "Rocco · asistente automático",
+  buttons: ["Anotar gasto", "Hoy no gasté", "No me escribas"],
+} as const;
+export const REASK_TEMPLATE_TEXT = {
+  body: "Epa, soy Rocco. ¿Quieres que te recuerde anotar tus gastos? Los días que no anotes nada te escribo una vez, a la hora en que sueles anotar, aunque no me hayas escrito. Si pasan 3 días sin respuesta, paro. Lo apagas cuando quieras.",
+  footer: "Rocco · asistente automático",
+  buttons: ["Sí, recuérdame", "No, gracias", "No me escribas"],
+} as const;
+
 export type NudgeView = {
   /** La racha hasta ayer (hoy todavía no cuenta). Siempre 2 o más. */
   current: number;
@@ -3441,14 +3509,48 @@ export type NudgeView = {
   personal: boolean;
   /** Fecha de Caracas del aviso para el botón sin gastos (US-212), o null sin ese interruptor. */
   noSpendDate: string | null;
+  /** E2 (retención, A-0051): el arranque que toca. Sin él, N1 (el texto de siempre). */
+  variant?: NightVariant;
 };
+
+/**
+ * E2 (agencia, retencion-e1-e3-2026-11-19.md §2): los seis arranques del mensaje de la noche,
+ * persona | negocio. N1 es el texto de siempre (D2). Solo rota el arranque; la cola de la racha
+ * sigue igual, y `withEveningAsk` y `eveningClose` no rotan.
+ */
+export const NIGHT_OPENINGS = {
+  N1: { personal: "¿Hubo algo hoy que anotar?", business: "¿Hubo ventas o gastos hoy?" },
+  N2: {
+    personal: "Epa, ¿algo que anotar de hoy?",
+    business: "Epa, ¿hubo movimiento hoy en el negocio?",
+  },
+  N3: {
+    personal: "¿Cómo te fue hoy? Si gastaste algo, dímelo y lo anoto.",
+    business: "¿Cómo estuvo el día? Si hubo ventas o gastos, dímelo y lo anoto.",
+  },
+  N4: {
+    personal: "Antes de cerrar el día: ¿algo que anotar?",
+    business: "Antes de cerrar el día: ¿ventas o gastos que anotar?",
+  },
+  N5: {
+    personal: "¿Gastaste algo hoy? Me lo puedes mandar por audio.",
+    business: "¿Vendiste o gastaste algo hoy? Me lo puedes mandar por audio.",
+  },
+  N6: {
+    personal: "Pana, ¿qué hubo hoy? Cuéntame y lo dejo anotado.",
+    business: "Pana, ¿qué hubo hoy en el negocio? Cuéntame y lo dejo anotado.",
+  },
+} as const;
+export type NightVariant = keyof typeof NIGHT_OPENINGS;
+export const NIGHT_VARIANTS = Object.keys(NIGHT_OPENINGS) as NightVariant[];
 
 /**
  * H9 (copy v1.2.2): el aviso de las 8 pm, con la víspera de un hito o del récord (gana el hito).
  * Botones: «Hoy no gasté nada» / «Hoy no hubo nada» (US-212) y H10 «No me recuerdes» (abre H45).
  */
 export function habitNudge(v: NudgeView): Outbound {
-  const open = v.personal ? "¿Hubo algo hoy que anotar?" : "¿Hubo ventas o gastos hoy?";
+  const opening = NIGHT_OPENINGS[v.variant ?? "N1"];
+  const open = v.personal ? opening.personal : opening.business;
   // Sin racha (cierre del día para todos, decisión del 05/11): solo la pregunta.
   const goal =
     v.current < 2
@@ -3600,15 +3702,38 @@ export const consentTextVersion = {
   "H14-2": "v1.1",
   "H14e-1": "v1.4",
   "H14e-2": "v1.4",
-  H45: "v1.4",
+  /** v1.5 (retención E1, 19/11): la viñeta «El recordatorio para anotar…». */
+  H45: "v1.5",
   "H45-n": "v1.2.1",
-  H46: "v1.4",
+  /** v1.5 (retención E1, 19/11): la misma viñeta. */
+  H46: "v1.5",
+  /** Retención E1–E3 (agencia 19/11, A-0051): la pregunta y la plantilla que la repite (E3-t). */
+  E3: "v1",
+  "E3-n": "v1",
+  "E3-r": "v1",
+  "E3-t": "v1",
+  /** El «No me escribas» de la plantilla E1 (variante A). */
+  "E1-A": "v1",
   /** R-2 d: «ya puedes escribirme» desde un teléfono de empleado. */
   "R-2d": "v1.4",
   /** Recordatorios del registro: «no me escribas» durante el registro (signup-reminders v1.1). */
   "SR-STOP": "v1.1",
 } as const;
 export type ConsentTextId = keyof typeof consentTextVersion;
+
+/**
+ * Lo que H45 y H46 decían antes de E1 (v1.4): con `habits.reengageAsk` apagado se muestra ese
+ * texto, y la auditoría guarda esa versión.
+ */
+const CONSENT_BEFORE_E1: Partial<Record<ConsentTextId, string>> = { H45: "v1.4", H46: "v1.4" };
+
+/** La versión del texto que se mostró: la de antes de E1 si `reengageAsk` está apagado. */
+export function consentVersionOf(id: ConsentTextId, reengage: boolean): string {
+  return (reengage ? null : CONSENT_BEFORE_E1[id]) ?? consentTextVersion[id];
+}
+
+/** H45, H46 (v1.5): la viñeta nueva, después de «• El mensaje de la noche». */
+const REENGAGE_BULLET = "• El recordatorio para anotar, aunque no me hayas escrito";
 
 /** Línea R-2 a: cuenta suspendida o sin mensajes; el cambio se guarda, pero los avisos no salen. */
 const PREFS_HELD_LINE =
@@ -3624,7 +3749,7 @@ const prefButtons = (target: "nudges_off" | "all_off") => [
  * H45 (y H45-n, quien nunca aceptó el aviso de las 8 pm): «no me recuerdes». Desde que sale,
  * no se mandan hasta que conteste (D10).
  */
-export function prefNudgesOffCard(neverOptedIn: boolean): Outbound {
+export function prefNudgesOffCard(neverOptedIn: boolean, reengage = false): Outbound {
   const tail =
     "Hasta que me contestes, no te los mando. Los recordatorios que pidas te siguen llegando a su hora o cuando me escribas.";
   return {
@@ -3634,6 +3759,7 @@ export function prefNudgesOffCard(neverOptedIn: boolean): Outbound {
       : [
           "¿Apago estos avisos?",
           "• El mensaje de la noche",
+          ...(reengage ? [REENGAGE_BULLET] : []),
           "• Los avisos adelantados de tus recordatorios",
           tail,
         ].join("\n"),
@@ -3641,13 +3767,14 @@ export function prefNudgesOffCard(neverOptedIn: boolean): Outbound {
   };
 }
 
-/** H46: «no me escribas», «stop», «baja»… */
-export function prefAllOffCard(): Outbound {
+/** H46: «no me escribas», «stop», «baja»… (v1.5 con `reengageAsk`: la viñeta de E1). */
+export function prefAllOffCard(reengage = false): Outbound {
   return {
     type: "buttons",
     body: [
       "¿Apago los mensajes que te mando por mi cuenta?",
       "• El mensaje de la noche",
+      ...(reengage ? [REENGAGE_BULLET] : []),
       "• Los avisos de tus recordatorios",
       "• Los mensajes sobre tu prueba",
       "Hasta que me contestes, no te los mando. Los avisos de un pago tuyo o del borrado de tus datos llegan igual.",
@@ -3656,13 +3783,18 @@ export function prefAllOffCard(): Outbound {
   };
 }
 
-/** H11 (H11-n tras H45-n): «Sí, apágalos» en H45. */
-export function prefNudgesOffDone(neverOptedIn: boolean): Outbound {
+/**
+ * H11 (H11-n tras H45-n): «Sí, apágalos» en H45. Con `reengageAsk`, el H11 de E1 (agencia §3.3):
+ * «actívame los avisos» vuelve a encender el mensaje de la noche, no E1 (eso pide otro «Sí»).
+ */
+export function prefNudgesOffDone(neverOptedIn: boolean, reengage = false): Outbound {
   return {
     type: "text",
     body: neverOptedIn
       ? "Listo, ya no te adelanto recordatorios. Los que me pidas te llegan a su hora o cuando me escribas. Para volver a recibir avisos: *actívame los avisos*."
-      : "Listo, ya no te escribo en la noche ni te adelanto recordatorios. Los que me pidas te llegan a su hora o cuando me escribas. Para volver: *actívame los avisos*.",
+      : reengage
+        ? "Listo, ya no te escribo en la noche, ni te recuerdo anotar, ni te adelanto recordatorios. Los que me pidas te llegan a su hora o cuando me escribas. Para volver: *actívame los avisos*."
+        : "Listo, ya no te escribo en la noche ni te adelanto recordatorios. Los que me pidas te llegan a su hora o cuando me escribas. Para volver: *actívame los avisos*.",
   };
 }
 
@@ -3738,9 +3870,11 @@ export function prefStatus(v: {
   state: "A" | "B" | "C";
   nudgeOff: boolean;
   held: boolean;
+  /** Con `reengageAsk`: H50 A con la línea de E1 (agencia §3.3). */
+  reengage?: boolean;
 }): Outbound {
   const body = {
-    A: "Tus avisos están encendidos: el mensaje de la noche y los avisos adelantados de tus recordatorios. Para apagar también los demás mensajes que te mando por mi cuenta: *no me escribas*.",
+    A: `Tus avisos están encendidos: el mensaje de la noche y los avisos adelantados de tus recordatorios. Para apagar también los demás mensajes que te mando por mi cuenta: *no me escribas*.${v.reengage ? " Y si aceptaste el recordatorio para anotar, te lo mando a tu hora aunque no me hayas escrito." : ""}`,
     B: "El mensaje de la noche está apagado. Tus recordatorios te llegan a su hora o cuando me escribas.",
     C: "No te escribo por mi cuenta: ni el mensaje de la noche ni recordatorios a su hora. Tus recordatorios te los muestro cuando me escribas. Los avisos sobre un pago tuyo o el borrado de tus datos llegan igual.",
   }[v.state];

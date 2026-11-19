@@ -38,6 +38,15 @@ const Env = z.object({
   META_ADMIN_ALERT_TEMPLATE: z.string().optional(),
   /** Tarifa de marketing para el costo estimado del lote (Resto de Latinoamérica, oct 2026). */
   META_MARKETING_RATE_USD: z.coerce.number().positive().default(0.074),
+  /** Retención E1 (A-0051): la plantilla de marketing del recordatorio a su hora. */
+  META_REENGAGE_TEMPLATE: z.string().min(1).default("rocco_recordatorio_anotar"),
+  /**
+   * Tope duro del mes (USD) de la plantilla E1. Sin valor por defecto: sin ella no sale ninguna
+   * plantilla E1 (el texto dentro de la ventana sí).
+   */
+  META_REENGAGE_MONTHLY_CAP_USD: z.coerce.number().positive().optional(),
+  /** E3-t (A-0053): la plantilla que pregunta (`rocco_pregunta_recordatorio`). Sin ella, no corre. */
+  META_REASK_TEMPLATE: z.string().min(1).optional(),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(4),
   ANTHROPIC_API_KEY: z.string().optional(),
   LLM_PRIMARY: z.string().default("anthropic:claude-sonnet-5-5"),

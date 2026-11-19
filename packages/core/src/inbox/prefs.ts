@@ -1,7 +1,13 @@
-import { and, eq, inArray, schema, sql, type Tx } from "@caja/db";
-import { habitSettings, nudgeByDefault } from "../ledger/habits";
-import { type ConsentTextId, consentTextVersion } from "../render/es-VE";
+import { and, desc, eq, inArray, schema, sql, type Tx } from "@caja/db";
+import { habitSettings, nudgeByDefault, reengageOn } from "../ledger/habits";
+import {
+  type ConsentTextId,
+  consentTextVersion,
+  consentVersionOf,
+  type ReengageAskId,
+} from "../render/es-VE";
 import { es, type Outbound, parseReplyId } from "../render/index";
+import { USUAL_DEFAULT, usualMinute } from "./usual-hour";
 
 /**
  * Apagar y encender avisos (PRD hábitos US-204, US-211, D3, D10). Determinista, sin la IA, sobre
@@ -111,6 +117,9 @@ export type PrefState = {
   prefPending: "nudges_off" | "all_off" | null;
   /** Etiqueta `no-contactar` del CRM: todo apagado y solo se quita en /admin. */
   tagged: boolean;
+  /** Retención E3 (0039): «Sí, recuérdame» (consentimiento de la plantilla E1) o «No, gracias». */
+  reengageOptInAt: Date | null;
+  reengageDeclinedAt: Date | null;
 };
 
 /**
@@ -153,6 +162,8 @@ export async function prefState(tx: Tx, phoneId: string, tenantId: string): Prom
       unsolicitedOffAt: schema.phoneNumber.unsolicitedOffAt,
       nudgePausedUntil: schema.phoneNumber.nudgePausedUntil,
       prefPending: schema.phoneNumber.prefPending,
+      reengageOptInAt: schema.phoneNumber.reengageOptInAt,
+      reengageDeclinedAt: schema.phoneNumber.reengageDeclinedAt,
     })
     .from(schema.phoneNumber)
     .where(eq(schema.phoneNumber.id, phoneId));
@@ -168,6 +179,8 @@ export async function prefState(tx: Tx, phoneId: string, tenantId: string): Prom
     nudgePausedUntil: p?.nudgePausedUntil ?? null,
     prefPending: pending === "nudges_off" || pending === "all_off" ? pending : null,
     tagged: (t?.tags ?? []).some((g) => g.trim().toLowerCase() === NO_CONTACT_TAG),
+    reengageOptInAt: p?.reengageOptInAt ?? null,
+    reengageDeclinedAt: p?.reengageDeclinedAt ?? null,
   };
 }
 
@@ -181,6 +194,11 @@ export type PrefCtx = {
   now: Date;
   /** El mensaje entrante (wa id), para la ✅ sobre el toque de «Avísame a las 8» (US-206). */
   inboundId?: string;
+  /**
+   * El mensaje de Rocco al que responde (contexto de WhatsApp): dice si el toque vino de una
+   * plantilla (E1, E3-t), para auditar el texto que vio.
+   */
+  replyTo?: string | null;
 };
 
 export type PrefResult = { outbound: Outbound[]; toolCalls: { name: string; args: unknown }[] };
@@ -196,21 +214,35 @@ type PhoneChange = Partial<{
   nudgePausedUntil: Date | null;
   prefPending: "nudges_off" | "all_off" | null;
   prefPendingAt: Date | null;
+  reengageOptInAt: Date | null;
+  reengageDeclinedAt: Date | null;
+  reengageMinute: number | null;
 }>;
 
 async function setPhone(tx: Tx, phoneId: string, change: PhoneChange): Promise<void> {
   await tx.update(schema.phoneNumber).set(change).where(eq(schema.phoneNumber.id, phoneId));
 }
 
-type ConsentAction = "nudge_opt_in" | "nudge_off" | "all_off" | "all_on";
+type ConsentAction =
+  | "nudge_opt_in"
+  | "nudge_off"
+  | "all_off"
+  | "all_on"
+  | "reengage_opt_in"
+  | "reengage_declined"
+  | "reengage_off";
 
-/** Consentimiento (US-201, F2-4): qué texto vio y su versión. Nunca lo que escribió. */
+/**
+ * Consentimiento (US-201, F2-4): qué texto vio y su versión. Nunca lo que escribió. `reengage`:
+ * `habits.reengageAsk` encendido (H45 y H46 llevan la viñeta de E1 y su versión nueva).
+ */
 async function audit(
   tx: Tx,
   c: PrefCtx,
   action: ConsentAction,
   textId: ConsentTextId,
   source: "word" | "button",
+  reengage = false,
 ): Promise<void> {
   await tx.insert(schema.auditLog).values({
     tenantId: c.tenantId,
@@ -219,9 +251,80 @@ async function audit(
     action,
     entity: "phone_number",
     entityId: c.phoneId,
-    after: { source, text_id: textId, text_version: consentTextVersion[textId] },
+    after: { source, text_id: textId, text_version: consentVersionOf(textId, reengage) },
     channel: "whatsapp",
   });
+}
+
+/** Marcas de lo que pregunta E3 en una tarjeta (E3, E3-n, E3-r) y de la plantilla E3-t. */
+export const REENGAGE_ASK_MARK = "reengage_ask";
+export const REASK_TEMPLATE_MARK = "reengage_ask_t";
+/** Marca de la plantilla E1. */
+export const REENGAGE_TEMPLATE_MARK = "reengage_t";
+
+type MarkCall = { name?: string; args?: { v?: string } };
+
+/**
+ * El mensaje de Rocco al que responde este toque, si es suyo y lleva una de las marcas de E1/E3:
+ * la marca y, para E3, la variante. null si no responde a ninguno.
+ */
+async function repliedMark(
+  tx: Tx,
+  phoneId: string,
+  replyTo: string | null | undefined,
+): Promise<{ name: string; v?: string } | null> {
+  if (!replyTo) return null;
+  const [m] = await tx
+    .select({ toolCalls: schema.message.toolCalls })
+    .from(schema.message)
+    .where(
+      and(
+        eq(schema.message.phoneId, phoneId),
+        eq(schema.message.direction, "out"),
+        eq(schema.message.waMessageId, replyTo),
+      ),
+    )
+    .limit(1);
+  const calls = (Array.isArray(m?.toolCalls) ? m.toolCalls : []) as MarkCall[];
+  const hit = calls.find(
+    (x) =>
+      x.name === REENGAGE_ASK_MARK ||
+      x.name === REASK_TEMPLATE_MARK ||
+      x.name === REENGAGE_TEMPLATE_MARK,
+  );
+  return hit?.name ? { name: hit.name, ...(hit.args?.v ? { v: hit.args.v } : {}) } : null;
+}
+
+const ASK_IDS: readonly string[] = ["E3", "E3-n", "E3-r"];
+
+/**
+ * El texto de la pregunta que contesta este «Sí» o «No» (E3, E3-n, E3-r o E3-t): el del mensaje
+ * al que responde y, si no viene el contexto, la última pregunta que se le mostró. null si nunca
+ * se le preguntó (un toque sin pregunta no enciende nada).
+ */
+async function askedText(tx: Tx, c: PrefCtx): Promise<(ReengageAskId | "E3-t") | null> {
+  const replied = await repliedMark(tx, c.phoneId, c.replyTo);
+  if (replied?.name === REASK_TEMPLATE_MARK) return "E3-t";
+  if (replied?.name === REENGAGE_ASK_MARK && ASK_IDS.includes(replied.v ?? ""))
+    return replied.v as ReengageAskId;
+  const m = schema.message;
+  const [last] = await tx
+    .select({ toolCalls: m.toolCalls })
+    .from(m)
+    .where(
+      and(
+        eq(m.phoneId, c.phoneId),
+        eq(m.direction, "out"),
+        sql`(${m.toolCalls} @> ${JSON.stringify([{ name: REENGAGE_ASK_MARK }])}::jsonb
+             or ${m.toolCalls} @> ${JSON.stringify([{ name: REASK_TEMPLATE_MARK }])}::jsonb)`,
+      ),
+    )
+    .orderBy(desc(m.createdAt))
+    .limit(1);
+  const calls = (Array.isArray(last?.toolCalls) ? last.toolCalls : []) as MarkCall[];
+  if (calls.some((x) => x.name === REASK_TEMPLATE_MARK)) return "E3-t";
+  const v = calls.find((x) => x.name === REENGAGE_ASK_MARK)?.args?.v ?? "";
+  return ASK_IDS.includes(v) ? (v as ReengageAskId) : null;
 }
 
 /** El más amplio de dos apagados pendientes: «no me escribas» incluye «no me recuerdes». */
@@ -230,8 +333,10 @@ const wider = (
   b: "nudges_off" | "all_off",
 ): "nudges_off" | "all_off" => (a === "all_off" || b === "all_off" ? "all_off" : "nudges_off");
 
-function card(target: "nudges_off" | "all_off", s: PrefState): Outbound {
-  return target === "all_off" ? es.prefAllOffCard() : es.prefNudgesOffCard(!s.nudgeOptInAt);
+function card(target: "nudges_off" | "all_off", s: PrefState, reengage = false): Outbound {
+  return target === "all_off"
+    ? es.prefAllOffCard(reengage)
+    : es.prefNudgesOffCard(!s.nudgeOptInAt, reengage);
 }
 
 /** Muestra la tarjeta y deja el apagado pendiente (D10): desde ya no se manda lo que apagaría. */
@@ -240,12 +345,30 @@ async function ask(
   c: PrefCtx,
   s: PrefState,
   target: "nudges_off" | "all_off",
+  reengage = false,
 ): Promise<PrefResult> {
   if (s.tagged || s.unsolicitedOffAt) return reply(es.prefAlreadyOff("all_off"));
   if (target === "nudges_off" && s.nudgeOffAt) return reply(es.prefAlreadyOff("nudges_off"));
   const pending = wider(s.prefPending, target);
   await setPhone(tx, c.phoneId, { prefPending: pending, prefPendingAt: c.now });
-  return reply(card(target, s), [{ name: "pref_confirm", args: { target } }]);
+  return reply(card(target, s, reengage), [{ name: "pref_confirm", args: { target } }]);
+}
+
+/**
+ * Apagar también apaga E1 (agencia §3.2–§3.3): «actívame los avisos» vuelve a encender el mensaje
+ * de la noche, no la plantilla, que pide otro «Sí». Se audita con el texto del apagado.
+ */
+async function dropReengage(
+  tx: Tx,
+  c: PrefCtx,
+  s: PrefState,
+  textId: ConsentTextId,
+  reengage: boolean,
+  source: "word" | "button" = "button",
+): Promise<void> {
+  if (!s.reengageOptInAt) return;
+  await setPhone(tx, c.phoneId, { reengageOptInAt: null });
+  await audit(tx, c, "reengage_off", textId, source, reengage);
 }
 
 async function confirm(
@@ -253,15 +376,25 @@ async function confirm(
   c: PrefCtx,
   s: PrefState,
   target: "nudges_off" | "all_off",
+  reengage = false,
 ): Promise<PrefResult> {
   if (target === "all_off") {
     if (s.unsolicitedOffAt || s.tagged) return reply(es.prefAlreadyOff("all_off"));
+    // «No me escribas» de una plantilla (E1 o E3-t): apaga sin tarjeta y guarda ese texto.
+    const replied = await repliedMark(tx, c.phoneId, c.replyTo);
+    const textId: ConsentTextId =
+      replied?.name === REENGAGE_TEMPLATE_MARK
+        ? "E1-A"
+        : replied?.name === REASK_TEMPLATE_MARK
+          ? "E3-t"
+          : "H46";
     await setPhone(tx, c.phoneId, {
       unsolicitedOffAt: c.now,
       prefPending: null,
       prefPendingAt: null,
     });
-    await audit(tx, c, "all_off", "H46", "button");
+    await audit(tx, c, "all_off", textId, "button", reengage);
+    await dropReengage(tx, c, s, textId, reengage);
     return reply(es.prefAllOffDone());
   }
   if (s.nudgeOffAt) return reply(es.prefAlreadyOff("nudges_off"));
@@ -271,8 +404,10 @@ async function confirm(
     nudgeOffAt: c.now,
     ...(s.prefPending === "nudges_off" ? { prefPending: null, prefPendingAt: null } : {}),
   });
-  await audit(tx, c, "nudge_off", neverOptedIn ? "H45-n" : "H45", "button");
-  return reply(es.prefNudgesOffDone(neverOptedIn));
+  const id45 = neverOptedIn ? "H45-n" : "H45";
+  await audit(tx, c, "nudge_off", id45, "button", reengage);
+  await dropReengage(tx, c, s, id45, reengage);
+  return reply(es.prefNudgesOffDone(neverOptedIn, reengage));
 }
 
 async function keep(
@@ -280,11 +415,12 @@ async function keep(
   c: PrefCtx,
   s: PrefState,
   target: "nudges_off" | "all_off",
+  reengage = false,
 ): Promise<PrefResult> {
   const marks = [{ name: "pref_kept", args: { target } }];
   // Un «No» en una H45 vieja no quita un «no me escribas» pendiente: se vuelve a mostrar H46.
   if (s.prefPending === "all_off" && target === "nudges_off")
-    return reply(es.prefAllOffCard(), marks);
+    return reply(es.prefAllOffCard(reengage), marks);
   if (s.prefPending === target)
     await setPhone(tx, c.phoneId, { prefPending: null, prefPendingAt: null });
   return reply(es.prefKept(), marks);
@@ -344,11 +480,17 @@ async function turnOn(
  * responde con una ✅ sobre el toque (sin texto). Con todo apagado por «no me escribas», el botón
  * no lo enciende: se explica igual que a la frase. `s` es el estado real (sin `withDefaultNudge`).
  */
-async function optIn(tx: Tx, c: PrefCtx, s: PrefState, textId: "H7" | "H7d"): Promise<PrefResult> {
+async function optIn(
+  tx: Tx,
+  c: PrefCtx,
+  s: PrefState,
+  textId: "H7" | "H7d",
+  reengage = false,
+): Promise<PrefResult> {
   if (s.tagged) return reply(es.prefTagged(c.privacyContact));
   if (s.unsolicitedOffAt) return reply(es.prefAlreadyOff("all_off"));
   // Un «no me escribas» sin contestar sigue abierto: se vuelve a mostrar esa tarjeta.
-  if (s.prefPending === "all_off") return reply(es.prefAllOffCard());
+  if (s.prefPending === "all_off") return reply(es.prefAllOffCard(reengage));
   const paused = s.nudgePausedUntil !== null && s.nudgePausedUntil.getTime() > c.now.getTime();
   const on = s.nudgeOptInAt && !s.nudgeOffAt && !paused && !s.prefPending;
   if (!on) {
@@ -366,13 +508,67 @@ async function optIn(tx: Tx, c: PrefCtx, s: PrefState, textId: "H7" | "H7d"): Pr
     : reply(es.prefTurnedOn("H13", c.held), marks);
 }
 
-function status(c: PrefCtx, s: PrefState): PrefResult {
+/**
+ * Retención E3 (agencia §3.2, A-0051), sin la IA: «Sí, recuérdame» de la pregunta E3, E3-n o E3-r
+ * en una tarjeta, o de la plantilla E3-t. Enciende el mensaje de la noche como `optIn` (y limpia
+ * el apagado y la pausa), guarda el consentimiento de la plantilla E1 y la hora habitual, y
+ * responde E3-sí. «No, gracias» guarda el no (no se vuelve a preguntar) y responde E3-no. Con
+ * «no me escribas» o la etiqueta `no-contactar`, ninguno enciende ni guarda nada: se responde
+ * como `optIn`. `s` es el estado real.
+ */
+async function reengageAnswer(
+  tx: Tx,
+  c: PrefCtx,
+  s: PrefState,
+  yes: boolean,
+  reengage: boolean,
+): Promise<PrefResult | null> {
+  if (s.tagged) return reply(es.prefTagged(c.privacyContact));
+  if (s.unsolicitedOffAt) return reply(es.prefAlreadyOff("all_off"));
+  if (s.prefPending === "all_off") return reply(es.prefAllOffCard(reengage));
+  const textId = await askedText(tx, c);
+  // Sin una pregunta mostrada no hay texto que auditar: el toque no enciende nada.
+  if (!textId) return null;
+  const marks = [{ name: yes ? "reengage_yes" : "reengage_no", args: { text_id: textId } }];
+  if (!yes) {
+    if (!s.reengageDeclinedAt && !s.reengageOptInAt) {
+      await setPhone(tx, c.phoneId, { reengageDeclinedAt: c.now });
+      await audit(tx, c, "reengage_declined", textId, "button");
+    }
+    return reply(es.reengageNo(), marks);
+  }
+  if (s.reengageOptInAt) return reply(es.reengageYes(), marks);
+  // «a esta hora»: la hora del primer movimiento (con un día de datos, la hora habitual es esa);
+  // E3-n, de noche, dice «a eso de las 7 de la noche».
+  const minute = textId === "E3-n" ? USUAL_DEFAULT : await usualMinute(tx, c.tenantId, c.now);
+  await setPhone(tx, c.phoneId, {
+    nudgeOptInAt: c.now,
+    nudgeOffAt: null,
+    nudgePausedUntil: null,
+    reengageOptInAt: c.now,
+    reengageDeclinedAt: null,
+    reengageMinute: minute,
+    ...(s.prefPending === "nudges_off" ? { prefPending: null, prefPendingAt: null } : {}),
+  });
+  await audit(tx, c, "nudge_opt_in", textId, "button");
+  await audit(tx, c, "reengage_opt_in", textId, "button");
+  return reply(es.reengageYes(), marks);
+}
+
+function status(c: PrefCtx, s: PrefState, reengage = false): PrefResult {
   // Con una tarjeta sin contestar, se vuelve a mostrar esa tarjeta: la decisión sigue abierta.
-  if (s.prefPending) return reply(card(s.prefPending, s));
+  if (s.prefPending) return reply(card(s.prefPending, s, reengage));
   const paused = s.nudgePausedUntil !== null && s.nudgePausedUntil.getTime() > c.now.getTime();
   const state =
     s.unsolicitedOffAt || s.tagged ? "C" : s.nudgeOptInAt && !s.nudgeOffAt && !paused ? "A" : "B";
-  return reply(es.prefStatus({ state, nudgeOff: s.nudgeOffAt !== null, held: c.held }));
+  return reply(
+    es.prefStatus({
+      state,
+      nudgeOff: s.nudgeOffAt !== null,
+      held: c.held,
+      ...(reengage ? { reengage } : {}),
+    }),
+  );
 }
 
 /** Lo que el teléfono pidió sobre sus avisos, o null si el mensaje no es de esto. */
@@ -388,6 +584,8 @@ export async function routePrefs(
   const flags = await habitSettings(tx);
   if (!flags.prefs) return null;
   const byDefault = nudgeByDefault(flags);
+  // Retención E1–E3: los textos de apagar y «mis avisos» con la línea de E1 (agencia §3.3).
+  const e1 = flags.reengageAsk;
   // Real para encender; mostrado (con la pregunta de 1B abierta) para tarjetas y estado.
   const real = await prefState(tx, c.phoneId, c.tenantId);
   const s =
@@ -403,7 +601,9 @@ export async function routePrefs(
       intent === "nudges_on" ||
       intent === "both_on" ||
       tap === "on" ||
-      tap === "optin"
+      tap === "optin" ||
+      tap === "reengage_yes" ||
+      tap === "reengage_no"
     )
       return reply(es.prefEmployee(false));
     if (intent === "all_on") {
@@ -422,25 +622,30 @@ export async function routePrefs(
   switch (tap ?? intent) {
     case "nudges_off":
     case "all_off":
-      return ask(tx, c, s, (tap ?? intent) as "nudges_off" | "all_off");
+      return ask(tx, c, s, (tap ?? intent) as "nudges_off" | "all_off", e1);
     case "yes:nudges_off":
-      return confirm(tx, c, s, "nudges_off");
+      return confirm(tx, c, s, "nudges_off", e1);
     case "yes:all_off":
-      return confirm(tx, c, s, "all_off");
+      return confirm(tx, c, s, "all_off", e1);
     case "keep:nudges_off":
-      return keep(tx, c, s, "nudges_off");
+      return keep(tx, c, s, "nudges_off", e1);
     case "keep:all_off":
-      return keep(tx, c, s, "all_off");
+      return keep(tx, c, s, "all_off", e1);
     case "on":
       return turnOn(tx, c, real, "both_on", "button", byDefault);
     case "optin":
-      return optIn(tx, c, real, byDefault ? "H7d" : "H7");
+      return optIn(tx, c, real, byDefault ? "H7d" : "H7", e1);
+    case "reengage_yes":
+    case "reengage_no":
+      // Sin el recordatorio a su hora encendido, el toque no hace nada (va como botón viejo).
+      if (!reengageOn(flags)) return null;
+      return reengageAnswer(tx, c, real, tap === "reengage_yes", e1);
     case "nudges_on":
     case "all_on":
     case "both_on":
       return turnOn(tx, c, real, intent as "nudges_on" | "all_on" | "both_on", "word", byDefault);
     case "status":
-      return status(c, s);
+      return status(c, s, e1);
     default:
       return null;
   }
@@ -474,6 +679,8 @@ export async function setDashboardPref(
   const clearPending = { prefPending: null, prefPendingAt: null };
   let action: ConsentAction;
   let textId: ConsentTextId;
+  // Apagar en Ajustes también apaga E1 (como en el chat): volver a encender pide otro «Sí».
+  const dropReengageHere = !on && s.reengageOptInAt ? { reengageOptInAt: null } : {};
   if (which === "unsolicited") {
     if (on) {
       await setPhone(tx, c.phoneId, { unsolicitedOffAt: null, ...clearPending });
@@ -482,6 +689,7 @@ export async function setDashboardPref(
       await setPhone(tx, c.phoneId, {
         unsolicitedOffAt: s.unsolicitedOffAt ?? c.now,
         ...clearPending,
+        ...dropReengageHere,
       });
       [action, textId] = ["all_off", "H14e-2"];
     }
@@ -499,6 +707,7 @@ export async function setDashboardPref(
     await setPhone(tx, c.phoneId, {
       nudgeOffAt: s.nudgeOffAt ?? c.now,
       ...(s.prefPending === "nudges_off" ? clearPending : {}),
+      ...dropReengageHere,
     });
     [action, textId] = ["nudge_off", "H14e-1"];
   }
@@ -512,5 +721,16 @@ export async function setDashboardPref(
     after: { source: "dashboard", text_id: textId, text_version: consentTextVersion[textId] },
     channel: "dashboard",
   });
+  if ("reengageOptInAt" in dropReengageHere)
+    await tx.insert(schema.auditLog).values({
+      tenantId: c.tenantId,
+      actorType: "user",
+      actorId: c.userId,
+      action: "reengage_off",
+      entity: "phone_number",
+      entityId: c.phoneId,
+      after: { source: "dashboard", text_id: textId, text_version: consentTextVersion[textId] },
+      channel: "dashboard",
+    });
   return null;
 }

@@ -36,6 +36,19 @@ export const HABIT_FLAGS = [
   "rewards",
   /** P4-B: invitaciones (US-418…US-423). Requiere `xp`; en P4-A no se puede encender. */
   "referrals",
+  /**
+   * Retención E3 y E3-r (agencia 19/11, A-0051): la pregunta «¿Te recuerdo mañana a esta hora?» en
+   * la tarjeta guardada y, a quien dijo «Sí», su recordatorio a su hora habitual dentro de la
+   * ventana. Requiere `prefs` y `nudge`.
+   */
+  "reengageAsk",
+  /** Retención E2 (A-0051): el arranque del mensaje de la noche rota entre N1 y N6. */
+  "nightRotation",
+  /**
+   * Retención E1 (A-0051): la plantilla de marketing `rocco_recordatorio_anotar` a quien dijo «Sí»
+   * a E3 y tiene la ventana cerrada, con tope mensual. Requiere `reengageAsk`, `nudge` y `prefs`.
+   */
+  "reengageTemplate",
 ] as const;
 export type HabitFlag = (typeof HABIT_FLAGS)[number];
 export type HabitSettings = Record<HabitFlag, boolean>;
@@ -51,7 +64,16 @@ export const HABIT_DEFAULTS: HabitSettings = {
   xp: false,
   rewards: false,
   referrals: false,
+  reengageAsk: false,
+  nightRotation: false,
+  reengageTemplate: false,
 };
+
+/** ¿Corre el recordatorio a su hora (E3)? Con `reengageAsk`, `nudge` y `prefs`. */
+export const reengageOn = (f: HabitSettings): boolean => f.reengageAsk && f.nudge && f.prefs;
+/** ¿Sale la plantilla E1? Además, `reengageTemplate`. */
+export const reengageTemplateOn = (f: HabitSettings): boolean =>
+  reengageOn(f) && f.reengageTemplate;
 
 /** ¿El mensaje de las 8 pm sale sin que el dueño lo pida (cierre del día)? */
 export const nudgeByDefault = (f: HabitSettings): boolean => f.nudge && f.prefs && f.dailyClose;

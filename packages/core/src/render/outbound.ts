@@ -85,6 +85,12 @@ export const PREF_VALUES = [
   "on",
   /** H8 «Avísame a las 8» de la oferta en la tarjeta (US-206): enciende solo el aviso de racha. */
   "optin",
+  /**
+   * Retención E3 (A-0051): «Sí, recuérdame» y «No, gracias» de la pregunta en la tarjeta (E3,
+   * E3-n, E3-r) y de la plantilla E3-t.
+   */
+  "reengage_yes",
+  "reengage_no",
 ] as const;
 export type PrefValue = (typeof PREF_VALUES)[number];
 

@@ -21,8 +21,12 @@ import {
   planById,
   pointsStats,
   pointsView,
+  type ReengageStats,
   type ReferralStats,
   type ReminderStats,
+  reengageCapState,
+  reengageSkipCounts,
+  reengageStats,
   referralStats,
   reminderStats,
   rewardSettings,
@@ -34,6 +38,7 @@ import {
   summarizePoints,
   summarizeReferrals,
   sumNudgeStats,
+  sumReengageStats,
   sumReminderStats,
   type TenantPhone,
   tenantPhones,
@@ -549,6 +554,45 @@ export async function loadNudgeStats(
     return null;
   }
   return sumNudgeStats(list);
+}
+
+/**
+ * Retención E1–E3 (agencia 19/11 §1.9, §2, §7.5), últimos `days` días: solo conteos, nunca
+ * teléfonos, nombres ni textos. Los saltos de E1 son globales (cada teléfono una vez por razón y
+ * día); el tope y la tarifa son los que usó el worker en su última vuelta.
+ */
+export async function loadReengage(
+  tenants: TenantRow[],
+  now: Date,
+  days = 30,
+): Promise<{
+  stats: ReengageStats;
+  skips: Record<string, number>;
+  capUsd: number | null;
+  rateUsd: number | null;
+} | null> {
+  await requireAdmin();
+  const conn = db();
+  const since = new Date(now.getTime() - days * 86_400_000);
+  try {
+    const list: ReengageStats[] = [];
+    for (const t of tenants) {
+      if (t.internal) continue;
+      list.push(await withTenant(conn, t.id, (tx) => reengageStats(tx, t.id, since, now)));
+    }
+    const cap = await reengageCapState(conn);
+    return {
+      stats: sumReengageStats(list),
+      skips: await reengageSkipCounts(conn, businessDateOf(since)),
+      ...cap,
+    };
+  } catch (err) {
+    // Sin la migración 0039 la tarjeta no se puede calcular; el resto sigue.
+    console.error(
+      JSON.stringify({ level: "error", msg: "admin retención", detail: errorText(err) }),
+    );
+    return null;
+  }
 }
 
 /**

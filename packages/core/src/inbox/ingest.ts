@@ -1,5 +1,6 @@
 import { type Db, schema, type Tx } from "@caja/db";
 import type { ProcessMessageJob } from "@caja/db/queue";
+import { habitSettings, reengageOn } from "../ledger/habits";
 import { type Logger, maskPhone, silentLogger } from "../log";
 import { parseWebhook } from "../whatsapp/parse";
 import type { InboundMessage } from "../whatsapp/types";
@@ -77,7 +78,25 @@ export async function ingestWebhook(deps: IngestDeps, payload: unknown): Promise
     }
   }
 
+  // Retención E1 y E3-t (A-0051): con el recordatorio a su hora encendido también se guarda la
+  // entrega (solo el id y la hora, sin el número), para contar en /admin las plantillas que
+  // llegaron. Apagado, como siempre: solo los fallidos.
+  let keepDeliveries: boolean | null = null;
   for (const s of parsed.statuses) {
+    if (s.status === "delivered" && s.errors.length === 0) {
+      keepDeliveries ??= reengageOn(await habitSettings(deps.db));
+      if (keepDeliveries)
+        await deps.db
+          .insert(schema.webhookEvent)
+          .values({
+            eventKey: `status:${s.waMessageId}:delivered`,
+            payload: { waMessageId: s.waMessageId, status: s.status, timestamp: s.timestamp },
+            status: "ignored",
+            receivedAt: now(),
+          })
+          .onConflictDoNothing({ target: schema.webhookEvent.eventKey });
+      continue;
+    }
     if (s.status !== "failed" && s.errors.length === 0) continue;
     await deps.db
       .insert(schema.webhookEvent)

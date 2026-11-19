@@ -1,4 +1,5 @@
 import { and, eq, gt, gte, schema, sql, type Tx } from "@caja/db";
+import { isInternalTenant } from "../billing/rewards";
 import { businessDateOf } from "../domain/dates";
 import { prefState } from "./prefs";
 import { serviceWindow } from "./window";
@@ -12,8 +13,11 @@ import { serviceWindow } from "./window";
  *   pedida). Sí lo frena «no me escribas», también pendiente (D10).
  * - `reminder_b` (aviso adelantado), `reminder_d` (plantilla) y `nudge` (8 pm): gastan el cupo de
  *   uno al día y los frena cualquier apagado, también pendiente.
+ * - `reengage_t` (retención E1, A-0051): la plantilla de marketing a su hora. No exige la ventana
+ *   (como `reminder_d`); solo al dueño, nunca a una cuenta «interna», y solo con el «Sí» de E3
+ *   (`reengage_opt_in_at`): el H8 solo no alcanza. La frenan la pausa y «no me recuerdes».
  */
-export type UnsolicitedKind = "nudge" | "reminder_a" | "reminder_b" | "reminder_d";
+export type UnsolicitedKind = "nudge" | "reminder_a" | "reminder_b" | "reminder_d" | "reengage_t";
 
 export type GateDeny =
   | "window_closed"
@@ -26,7 +30,11 @@ export type GateDeny =
   | "not_opted_in"
   | "paused"
   | "lifecycle_today"
-  | "daily_cap";
+  | "daily_cap"
+  /** `reengage_t`: un teléfono de empleado. */
+  | "not_owner"
+  /** `reengage_t`: cuenta del equipo (etiqueta «interna»). */
+  | "internal";
 
 export type GateResult = { allow: true } | { allow: false; reason: GateDeny };
 
@@ -41,6 +49,9 @@ export const SLOT_MARKS = [
   "habit_close",
   "reminder_b",
   "reminder_d",
+  /** Retención E1: la plantilla a su hora; E3-t: la plantilla que pregunta (una vez). */
+  "reengage_t",
+  "reengage_ask_t",
 ] as const;
 const LIFECYCLE_MARKS = ["lifecycle_survey", "lifecycle_value", "lifecycle_trial_end"] as const;
 
@@ -142,8 +153,24 @@ export async function takeUnsolicitedSlot(tx: Tx, g: GateInput): Promise<GateRes
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${g.phoneId}))`);
   const deny = (reason: GateDeny): GateResult => ({ allow: false, reason });
   if (g.tenantBlocked) return deny("tenant_blocked");
-  // La plantilla (camino d) es justamente para cuando la ventana está cerrada.
-  if (g.kind !== "reminder_d" && !(await serviceWindow(tx, g.phoneId, g.now, g.windowSafeMs)).open)
+  if (g.kind === "reengage_t") {
+    const [p] = await tx
+      .select({ role: schema.phoneNumber.role, status: schema.phoneNumber.status })
+      .from(schema.phoneNumber)
+      .where(eq(schema.phoneNumber.id, g.phoneId));
+    if (p?.role !== "owner" || p.status !== "active") return deny("not_owner");
+    const [t] = await tx
+      .select({ tags: schema.tenant.crmTags })
+      .from(schema.tenant)
+      .where(eq(schema.tenant.id, g.tenantId));
+    if (isInternalTenant({ crmTags: t?.tags ?? null })) return deny("internal");
+  }
+  // Las plantillas (camino d, E1) son justamente para cuando la ventana está cerrada.
+  if (
+    g.kind !== "reminder_d" &&
+    g.kind !== "reengage_t" &&
+    !(await serviceWindow(tx, g.phoneId, g.now, g.windowSafeMs)).open
+  )
     return deny("window_closed");
   if (g.kind !== "reminder_a" && isQuietHours(g.now)) return deny("quiet_hours");
   const s = await prefState(tx, g.phoneId, g.tenantId);
@@ -158,6 +185,11 @@ export async function takeUnsolicitedSlot(tx: Tx, g: GateInput): Promise<GateRes
     if (!s.nudgeOptInAt && !g.nudgeByDefault) return deny("not_opted_in");
     if (s.nudgePausedUntil && s.nudgePausedUntil.getTime() > g.now.getTime()) return deny("paused");
   }
+  if (g.kind === "reengage_t") {
+    // H8 («Avísame en la noche») solo cubre la ventana de 24 h: hace falta el «Sí» de E3.
+    if (!s.reengageOptInAt) return deny("not_opted_in");
+    if (s.nudgePausedUntil && s.nudgePausedUntil.getTime() > g.now.getTime()) return deny("paused");
+  }
   if (await failedRecently(tx, g.phoneId, g.now)) return deny("failed_recent");
   if (g.kind === "reminder_a") {
     if ((await marksToday(tx, g.phoneId, ["reminder_a"], g.now)) >= REMINDER_A_PER_DAY)
@@ -166,7 +198,7 @@ export async function takeUnsolicitedSlot(tx: Tx, g: GateInput): Promise<GateRes
   }
   if (await marksToday(tx, g.phoneId, SLOT_MARKS, g.now)) return deny("slot_taken");
   if (
-    (g.kind === "nudge" || g.kind === "reminder_b") &&
+    (g.kind === "nudge" || g.kind === "reminder_b" || g.kind === "reengage_t") &&
     (g.lifecycleDueToday || (await marksToday(tx, g.phoneId, LIFECYCLE_MARKS, g.now)))
   )
     return deny("lifecycle_today");

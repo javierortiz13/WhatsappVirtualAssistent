@@ -24,6 +24,8 @@ export const QUEUES = {
   signupBatch: "signup-batch",
   /** Aviso al administrador de los pagos reportados (06/11): cada minuto. */
   adminAlerts: "admin-alerts",
+  /** Retención E1–E3 (A-0051): el recordatorio a su hora, cada 5 min de 08:00 a 20:55. */
+  reengage: "reengage",
 } as const;
 
 export const PGBOSS_SCHEMA = "pgboss";
@@ -123,6 +125,15 @@ export async function ensureQueues(boss: PgBoss): Promise<void> {
       retryLimit: 1,
       retryDelay: 120,
       expireInSeconds: 900,
+    },
+    {
+      // Sin reintentos: marca antes de enviar; la vuelta siguiente (5 min) mira de nuevo y la
+      // puerta ve la marca del día.
+      name: QUEUES.reengage,
+      policy: "singleton",
+      retryLimit: 0,
+      retryDelay: 60,
+      expireInSeconds: 240,
     },
     {
       // Sin reintentos: el lote se marca antes de empezar y no hay segunda corrida. Dura hasta

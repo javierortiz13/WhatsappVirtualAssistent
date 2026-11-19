@@ -15,9 +15,17 @@ import {
 } from "@caja/db";
 import { businessDateOf } from "../domain/dates";
 import { Decimal } from "../domain/money";
-import { habitSettings, keptDays, nudgeByDefault, streakFor } from "../ledger/habits";
+import {
+  type HabitSettings,
+  habitSettings,
+  keptDays,
+  nudgeByDefault,
+  reengageOn,
+  streakFor,
+} from "../ledger/habits";
 import { errorText, type Logger, maskPhone, silentLogger } from "../log";
 import { tenantBlocked } from "../reminders/deliver";
+import { NIGHT_VARIANTS, type NightVariant } from "../render/es-VE";
 import { es, type Outbound } from "../render/index";
 import { MetaApiError, type MetaClient } from "../whatsapp/client";
 import { caracasDayStart, type GateDeny, takeUnsolicitedSlot } from "./gate";
@@ -50,6 +58,8 @@ import { serviceWindow } from "./window";
  */
 
 export const NUDGE_MARK = "habit_nudge";
+/** Marca de la plantilla E1 (retención, A-0051): cuenta como aviso para la pausa (US-208). */
+export const REENGAGE_T_MARK = "reengage_t";
 /** Avisos seguidos sin un día cumplido que ponen el aviso en pausa (US-208). */
 export const NUDGE_IGNORED_TO_PAUSE = 3;
 export const NUDGE_PAUSE_DAYS = 14;
@@ -98,8 +108,13 @@ export type NudgeRun = {
   early: number;
   failed: number;
   paused: number;
-  /** Por qué no salió, solo cuentas. */
-  skipped: Partial<Record<GateDeny | "not_opted_in" | "short_streak" | "kept_today", number>>;
+  /**
+   * Por qué no salió, solo cuentas. `at_usual`: dijo «Sí» a E3 y su recordatorio va a su hora
+   * habitual (cola `reengage`); el cierre del día sí le llega aquí.
+   */
+  skipped: Partial<
+    Record<GateDeny | "not_opted_in" | "short_streak" | "kept_today" | "at_usual", number>
+  >;
   /** Corrida fuera de 20:00–20:29: no se miró nada. */
   outside: boolean;
 };
@@ -108,7 +123,8 @@ type Pending = { phoneId: string; e164: string; messageId: string; out: Outbound
 
 /**
  * Avisos seguidos, del más reciente hacia atrás, cuyo día terminó sin nada cumplido. Solo los
- * enviados desde `since` (la última aceptación o el fin de la última pausa) y antes de hoy.
+ * enviados desde `since` (la última aceptación o el fin de la última pausa) y antes de hoy. Las
+ * plantillas E1 sin respuesta también cuentan (retención, A-0051).
  */
 export async function ignoredInARow(
   tx: Tx,
@@ -128,7 +144,8 @@ export async function ignoredInARow(
         eq(m.status, "ok"),
         gt(m.createdAt, since),
         lt(m.createdAt, caracasDayStart(now)),
-        sql`${m.toolCalls} @> ${JSON.stringify([{ name: NUDGE_MARK }])}::jsonb`,
+        sql`(${m.toolCalls} @> ${JSON.stringify([{ name: NUDGE_MARK }])}::jsonb
+             or ${m.toolCalls} @> ${JSON.stringify([{ name: REENGAGE_T_MARK }])}::jsonb)`,
       ),
     )
     .orderBy(desc(m.createdAt))
@@ -144,15 +161,67 @@ export async function ignoredInARow(
   return n;
 }
 
+/** Cuántos mensajes de la noche atrás mira la rotación (E2): no se repite en los últimos 5. */
+export const NIGHT_ROTATION_LOOKBACK = 5;
+
+/**
+ * E2 (retención, A-0051): el arranque del próximo mensaje de la noche de este teléfono. El que no
+ * salió en sus últimos 5; entre esos, el que salió hace más tiempo (o nunca); empate, el de id
+ * menor. Un aviso sin `v` (de antes de la rotación) fue N1. Las preguntas de 1B (`ask`) no
+ * cuentan: no llevan arranque.
+ */
+export async function pickNightVariant(tx: Tx, phoneId: string): Promise<NightVariant> {
+  const m = schema.message;
+  const past = await tx
+    .select({ at: m.createdAt, toolCalls: m.toolCalls })
+    .from(m)
+    .where(
+      and(
+        eq(m.phoneId, phoneId),
+        eq(m.direction, "out"),
+        inArray(m.status, ["ok", "unknown"]),
+        sql`${m.toolCalls} @> ${JSON.stringify([{ name: NUDGE_MARK }])}::jsonb`,
+      ),
+    )
+    .orderBy(desc(m.createdAt))
+    .limit(200);
+  const shown: NightVariant[] = [];
+  for (const r of past) {
+    const call = (
+      (r.toolCalls ?? []) as { name?: string; args?: { v?: string; ask?: boolean } }[]
+    ).find((c) => c.name === NUDGE_MARK);
+    if (!call || call.args?.ask) continue;
+    const v = call.args?.v ?? "N1";
+    shown.push((NIGHT_VARIANTS as string[]).includes(v) ? (v as NightVariant) : "N1");
+  }
+  const recent = new Set(shown.slice(0, NIGHT_ROTATION_LOOKBACK));
+  /** Cuántos mensajes atrás salió por última vez (Infinity si nunca). */
+  const age = (v: NightVariant) => {
+    const i = shown.indexOf(v);
+    return i < 0 ? Number.POSITIVE_INFINITY : i;
+  };
+  const candidates = NIGHT_VARIANTS.filter((v) => !recent.has(v));
+  let best: NightVariant = candidates[0] ?? "N1";
+  for (const v of candidates) if (age(v) > age(best)) best = v;
+  return best;
+}
+
+type NudgeFlags = Pick<HabitSettings, "noSpend" | "nightRotation"> & {
+  byDefault: boolean;
+  /** El recordatorio a su hora (E3) está encendido: el aviso de quien dijo «Sí» va por su cola. */
+  reengage: boolean;
+};
+
 async function takeNudge(
   tx: Tx,
   tenantId: string,
   now: Date,
-  noSpendButton: boolean,
+  flags: NudgeFlags,
   run: NudgeRun,
-  byDefault = false,
   early = false,
 ): Promise<Pending | null> {
+  const noSpendButton = flags.noSpend;
+  const byDefault = flags.byDefault;
   const skip = (why: keyof NudgeRun["skipped"]) => {
     run.skipped[why] = (run.skipped[why] ?? 0) + 1;
     return null;
@@ -165,6 +234,7 @@ async function takeNudge(
       optIn: p.nudgeOptInAt,
       off: p.nudgeOffAt,
       pausedUntil: p.nudgePausedUntil,
+      reengage: p.reengageOptInAt,
     })
     .from(p)
     .where(and(eq(p.tenantId, tenantId), eq(p.role, "owner"), eq(p.status, "active")))
@@ -201,6 +271,9 @@ async function takeNudge(
   const streak = await streakFor(tx, tenantId, now);
   // Cierre del día: solo con registros hoy (un día marcado «sin gastos» ya lo dijo él).
   const close = byDefault && streak.recordedToday;
+  // Retención E3: a quien dijo «Sí», el aviso le llega a su hora habitual (cola `reengage`), no
+  // aquí. El cierre del día sí.
+  if (flags.reengage && owner.reengage && !close) return skip("at_usual");
   if (streak.keptToday && !close) return skip("kept_today");
   if (!streak.keptToday && streak.current < 2 && !byDefault) return skip("short_streak");
   // MF-2: el cierre cuenta gastos e ingresos o ventas; un día con solo una transferencia o un
@@ -225,6 +298,9 @@ async function takeNudge(
     .from(schema.tenant)
     .where(eq(schema.tenant.id, tenantId));
   const personal = t?.businessType === "personal";
+  // E2: con `nightRotation`, el arranque rota (la pregunta de 1B y el cierre no).
+  const variant =
+    flags.nightRotation && !close && !asking ? await pickNightVariant(tx, owner.id) : null;
   let out: Outbound =
     close && totals
       ? es.eveningClose({ personal, streak: streak.current, date: today, ...totals })
@@ -233,6 +309,7 @@ async function takeNudge(
           best: streak.best,
           personal,
           noSpendDate: noSpendButton ? today : null,
+          ...(variant ? { variant } : {}),
         });
   if (asking) out = es.withEveningAsk(out, Boolean(close && totals), personal);
   // La marca va antes de enviar y se confirma con esta transacción.
@@ -249,7 +326,11 @@ async function takeNudge(
       toolCalls: [
         {
           name: close ? CLOSE_MARK : NUDGE_MARK,
-          args: { n: streak.current, ...(asking ? { ask: true } : {}) },
+          args: {
+            n: streak.current,
+            ...(asking ? { ask: true } : {}),
+            ...(variant ? { v: variant } : {}),
+          },
         },
       ],
     })
@@ -325,7 +406,19 @@ export async function runHabitNudges(
   for (const tenantId of await everyTenantId(db)) {
     try {
       const p = await withTenant(db, tenantId, (tx) =>
-        takeNudge(tx, tenantId, now, flags.noSpend, run, nudgeByDefault(flags), early),
+        takeNudge(
+          tx,
+          tenantId,
+          now,
+          {
+            noSpend: flags.noSpend,
+            nightRotation: flags.nightRotation,
+            byDefault: nudgeByDefault(flags),
+            reengage: reengageOn(flags),
+          },
+          run,
+          early,
+        ),
       );
       if (!p) continue;
       const status = (s: "ok" | "failed" | "unknown", waMessageId: string | null = null) =>

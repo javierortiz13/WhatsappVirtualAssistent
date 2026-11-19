@@ -6,5 +6,8 @@ export * from "./nudge";
 export * from "./points-chat";
 export * from "./prefs";
 export * from "./process";
+export * from "./reengage";
+export * from "./reengage-stats";
 export * from "./split";
+export * from "./usual-hour";
 export * from "./window";

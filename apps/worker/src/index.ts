@@ -152,6 +152,31 @@ async function main() {
           rateUsd: env.META_MARKETING_RATE_USD,
         }
       : null,
+    // Retención E1 (A-0051): sin META_REENGAGE_MONTHLY_CAP_USD no sale ninguna plantilla.
+    reengage: {
+      template: {
+        name: env.META_REENGAGE_TEMPLATE,
+        language: env.META_TEMPLATE_LANGUAGE,
+        wabaId: env.META_WABA_ID ?? null,
+      },
+      capUsd: env.META_REENGAGE_MONTHLY_CAP_USD ?? null,
+      rateUsd: env.META_MARKETING_RATE_USD,
+    },
+    reaskTemplate: env.META_REASK_TEMPLATE
+      ? {
+          name: env.META_REASK_TEMPLATE,
+          language: env.META_TEMPLATE_LANGUAGE,
+          wabaId: env.META_WABA_ID ?? null,
+        }
+      : null,
+    // Sin números ni textos: solo cuántas y el tope.
+    onReengageAlert: (r) =>
+      Sentry.captureMessage(
+        r.kind === "cap_reached"
+          ? `Recordatorio E1: tope del mes alcanzado (${r.monthTemplates ?? 0} plantillas, tope $${r.capUsd ?? 0})`
+          : "Recordatorio E1: Meta retuvo una plantilla por calidad; no salen más hoy",
+        { level: "warning" },
+      ),
     adminAlert: env.ADMIN_ALERT_WA
       ? {
           e164: env.ADMIN_ALERT_WA,

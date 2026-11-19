@@ -76,6 +76,14 @@ export default function Privacidad() {
           máximo y no llega los días que marcas «sin gastos». Si después de 3 avisos seguidos no
           anotas nada, los pausamos 14 días.
         </li>
+        {/* P-2c (retención E1, agencia 19/11, A-0051). */}
+        <li>
+          Si aceptas que Rocco te recuerde anotar tus gastos (la pregunta «¿Te recuerdo mañana a
+          esta hora?»), también puede escribirte cuando no le hayas escrito en las últimas 24 horas:
+          una vez al día como máximo, a la hora en que sueles anotar, y si pasan 3 días sin
+          respuesta, deja de hacerlo. Lo apagas con «no me recuerdes», «no me escribas» o el botón
+          de ese mensaje.
+        </li>
         {/* P-3 (decisión del fundador 2A, 18/11). */}
         <li>
           Si en un recordatorio mencionas a otra persona, ese dato solo se usa para mostrártelo a

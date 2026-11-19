@@ -116,6 +116,8 @@ import {
   markNoSpend,
   PAYMENT_METHOD_LABELS,
   type PaymentMethod,
+  reengageOn,
+  reengageTemplateOn,
   renderSummary,
   resolveAccount,
   resolveMismatch,
@@ -179,7 +181,13 @@ import {
   pointsReply,
   recordsTouchedSince,
 } from "./points-chat";
-import { hasPrefsOff, prefState, routePrefs } from "./prefs";
+import {
+  hasPrefsOff,
+  prefState,
+  REASK_TEMPLATE_MARK,
+  REENGAGE_ASK_MARK,
+  routePrefs,
+} from "./prefs";
 import { SPLIT_WORDS, splitFollowUp, splitFromPhoto } from "./split";
 
 /**
@@ -1094,6 +1102,77 @@ async function nudgeOfferFor(tx: Tx, ctx: RouteCtx, now: Date): Promise<number |
   return s.current;
 }
 
+/**
+ * Retención E3 (agencia 19/11 §3.1, A-0051): si la pregunta no cabe en la tarjeta del primer
+ * movimiento, va en la próxima que quepa dentro de 48 h.
+ */
+export const REENGAGE_ASK_WINDOW_MS = 48 * 3_600_000;
+
+/** ¿El primer movimiento cayó de 20:26 a 07:59 de Caracas? (E3-n). */
+const askAtNight = (at: Date) => {
+  const c = new Date(at.getTime() - 4 * 3_600_000);
+  const m = c.getUTCHours() * 60 + c.getUTCMinutes();
+  return m < 8 * 60 || m > 20 * 60 + 25;
+};
+
+/**
+ * ¿Qué pregunta de E3 puede llevar esta tarjeta del dueño? Con `reengageAsk` (y `nudge` y
+ * `prefs`), sin respuesta a ninguna pregunta y sin nada apagado ni pendiente:
+ * - E3 / E3-n: el primer movimiento del negocio (gasto o ingreso) fue hace 48 h o menos y todavía
+ *   no se le mostró. E3-n si ese movimiento fue de noche.
+ * - E3-r: una sola vez, a quien ya anotó y no contestó; no mientras siga la pregunta anterior
+ *   (E3 o E3-t de las últimas 48 h).
+ * null si no toca. Nunca un mensaje aparte: solo como renglón de la tarjeta.
+ */
+async function reengageAskFor(tx: Tx, ctx: RouteCtx, now: Date): Promise<es.ReengageAskId | null> {
+  if (ctx.role !== "owner") return null;
+  if (!reengageOn(await habitSettings(tx))) return null;
+  const p = await prefState(tx, ctx.phoneId, ctx.tenantId);
+  if (
+    p.reengageOptInAt ||
+    p.reengageDeclinedAt ||
+    p.nudgeOffAt ||
+    p.unsolicitedOffAt ||
+    p.tagged ||
+    p.prefPending
+  )
+    return null;
+  const [first] = await tx
+    .select({ at: sql<Date>`min(${schema.movement.createdAt})` })
+    .from(schema.movement)
+    .where(eq(schema.movement.tenantId, ctx.tenantId));
+  const firstAt = first?.at ? new Date(first.at) : null;
+  if (!firstAt) return null;
+  const m = schema.message;
+  const asks = await tx
+    .select({ at: m.createdAt, toolCalls: m.toolCalls })
+    .from(m)
+    .where(
+      and(
+        eq(m.phoneId, ctx.phoneId),
+        eq(m.direction, "out"),
+        inArray(m.status, ["ok", "unknown", "sending"]),
+        sql`(${m.toolCalls} @> ${JSON.stringify([{ name: REENGAGE_ASK_MARK }])}::jsonb
+             or ${m.toolCalls} @> ${JSON.stringify([{ name: REASK_TEMPLATE_MARK }])}::jsonb)`,
+      ),
+    );
+  const variant = (tc: unknown) =>
+    ((tc ?? []) as { name?: string; args?: { v?: string } }[]).find(
+      (c) => c.name === REENGAGE_ASK_MARK,
+    )?.args?.v ?? null;
+  const firstAsks = asks.filter((a) => {
+    const v = variant(a.toolCalls);
+    return v === "E3" || v === "E3-n";
+  });
+  if (!firstAsks.length && now.getTime() - firstAt.getTime() <= REENGAGE_ASK_WINDOW_MS)
+    return askAtNight(firstAt) ? "E3-n" : "E3";
+  if (asks.some((a) => variant(a.toolCalls) === "E3-r")) return null;
+  // Sin encimar preguntas: E3 (o la plantilla E3-t) de las últimas 48 h sigue abierta.
+  const lastAsk = Math.max(0, ...asks.map((a) => a.at.getTime()));
+  if (now.getTime() - lastAsk < REENGAGE_ASK_WINDOW_MS) return null;
+  return "E3-r";
+}
+
 /** Marca del aviso "renové tu prueba" (beta, 20/10). */
 const TRIAL_EXTENDED = "trial_extended";
 
@@ -1291,6 +1370,8 @@ async function routeMessage(
     privacyContact: deps.config.privacyContact ?? DEFAULT_PRIVACY_CONTACT,
     now: (deps.now ?? (() => new Date()))(),
     inboundId: ctx.inboundId,
+    // E1 y E3-t: el toque de una plantilla trae el id del mensaje de Rocco al que responde.
+    replyTo: msg.replyTo,
   };
   const prefs = await routePrefs(tx, prefCtx, {
     // Un «No me escribas» viejo del recordatorio del registro (US-SR-04) vale como la frase.
@@ -2473,8 +2554,10 @@ async function routeInteractive(
     case "habit_nospend": {
       // «Hoy no gasté nada» del aviso de las 8 pm (hábitos US-212): las reglas de la frase, solo el
       // dueño y con los dos interruptores. Un toque de otro día no anota nada (A21, H52e).
+      // «Hoy no gasté» de la plantilla E1 (retención C5): también con `reengageTemplate`.
       const flags = await habitSettings(tx);
-      if (ctx.role !== "owner" || !flags.noSpend || !flags.nudge) return none([es.outOfScope()]);
+      if (ctx.role !== "owner" || !((flags.noSpend && flags.nudge) || reengageTemplateOn(flags)))
+        return none([es.outOfScope()]);
       const today = businessDateOf((deps.now ?? (() => new Date()))());
       if (parsed.date !== today)
         return {
@@ -3496,6 +3579,8 @@ async function settleTurnDrafts(
   let streakDone = ctx.role !== "owner" || replaced.length > 0;
   // Oferta del aviso de las 8 pm (US-206): una vez en la vida, en una tarjeta del dueño.
   let offerDone = ctx.role !== "owner";
+  // Retención E3: la pregunta, en una sola tarjeta por turno.
+  let askDone = ctx.role !== "owner";
   for (const p of fresh) {
     // Solo el borrador cuya tarjeta sale en este turno: "Guardar mi parte" de una cuenta dividida
     // o lo que espera una decisión siguen esperando su botón.
@@ -3546,6 +3631,21 @@ async function settleTurnDrafts(
           if (withLine !== next) {
             next = withLine;
             marks.push({ name: "habit_streak_line", args: line.args });
+          }
+        }
+      }
+      if (!askDone) {
+        const id = await reengageAskFor(tx, ctx, now);
+        if (id === null) askDone = true;
+        else {
+          // Sin lugar para los dos botones: la próxima tarjeta que quepa (hasta 48 h, o E3-r).
+          const asked = es.withReengageAsk(next, id);
+          if (asked) {
+            askDone = true;
+            // Con la pregunta, la tarjeta ya tiene 3 botones: la oferta H7 no cabe.
+            offerDone = true;
+            next = asked;
+            marks.push({ name: REENGAGE_ASK_MARK, args: { v: id } });
           }
         }
       }

@@ -1,4 +1,4 @@
-import { RECHARGE, SCHEDULE_REFUSALS } from "@caja/core";
+import { REASK_REFUSALS, RECHARGE, SCHEDULE_REFUSALS } from "@caja/core";
 
 /**
  * Textos de los banners de ?ok= / ?error= de /admin (los mismos de antes de 08/11, más los de los
@@ -20,6 +20,8 @@ export const OK: Record<string, string> = {
   lote_programado:
     "Lote programado. «Plantilla (lote)» quedó encendido; el worker lo corre solo a la hora.",
   lote_cancelado: "Lote cancelado. «Plantilla (lote)» quedó apagado.",
+  reask_programado: "Lote de E3-t programado. El worker lo corre solo a la hora.",
+  reask_cancelado: "Lote de E3-t cancelado.",
   registro: "Listo.",
   devuelto: "Pago marcado como devuelto. La vigencia no cambió: ajústala a mano si hace falta.",
   codigo: "Código actualizado.",
@@ -44,6 +46,7 @@ export function errorText(code: string | undefined, motivo?: string): string | n
     mes_pronto: "Ese mes se puede aprobar 7 días después del pago del invitado.",
     tope: "El tope va de 0 a 200 US$, con hasta dos decimales.",
     lote: `No se programó el lote: ${motivo && SCHEDULE_REFUSALS.has(motivo) ? motivo : "revisa el estado"}.`,
+    reask: `No se programó el lote de E3-t: ${motivo && REASK_REFUSALS.has(motivo) ? motivo : "revisa el estado"}.`,
     estado: "Ese cambio ya no se puede hacer (cambió el estado). Recarga la página.",
     datos: "Revisa los datos del formulario.",
     monto: "El monto no se entiende. Escríbelo como 19,99 o 19.527,03.",

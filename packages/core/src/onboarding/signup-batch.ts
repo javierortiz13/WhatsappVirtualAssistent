@@ -245,14 +245,14 @@ export function inStartWindow(now: Date): boolean {
 }
 
 /** S7: pasan las 11:30 de Caracas o entra la noche. */
-function pastEnd(now: Date): boolean {
+export function pastEnd(now: Date): boolean {
   return caracasMinutes(now) > 690 || isQuietHours(now);
 }
 
 type StoredFailure = { waId: string; code: number | null };
 
 /** Estados `failed` que Meta mandó por webhook para los envíos de esta corrida (P-15). */
-async function storedFailures(db: Db, waIds: string[]): Promise<StoredFailure[]> {
+export async function storedFailures(db: Db, waIds: string[]): Promise<StoredFailure[]> {
   if (!waIds.length) return [];
   const keys = waIds.map((id) => `status:${id}:failed`);
   const rows = await db

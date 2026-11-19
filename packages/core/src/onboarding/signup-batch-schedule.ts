@@ -1,6 +1,7 @@
 import { and, type Db, eq, schema, sql } from "@caja/db";
 import { addDays, businessDateOf, weekday } from "../domain/dates";
 import type { MetaClient } from "../whatsapp/client";
+import { reaskScheduledOn } from "./reask-batch";
 import {
   BATCH_CAP,
   BATCH_KEY,
@@ -43,6 +44,8 @@ const REFUSE = {
   lead: "prográmalo la noche antes, desde las 6 pm",
   empty: "no hay nadie a quien enviar",
   cost: "el costo estimado pasa de $3,00 (A-0031)",
+  /** E3-t (A-0053): nunca dos lotes de plantillas el mismo día. */
+  other: "ese día ya hay otro lote de plantillas",
 } as const;
 
 /**
@@ -139,6 +142,7 @@ export async function scheduleSignupBatch(
   // LB-2: la lista que el fundador confirma no puede tener días de vieja.
   const at = nextBatchSlot(opts.now);
   if (at.getTime() - opts.now.getTime() > SCHEDULE_LEAD_MAX_MS) throw new BatchRefused(REFUSE.lead);
+  if (await reaskScheduledOn(db, businessDateOf(at))) throw new BatchRefused(REFUSE.other);
   const plan = await planSignupBatch(db, {
     now: opts.now,
     maxAgeDays: 30,

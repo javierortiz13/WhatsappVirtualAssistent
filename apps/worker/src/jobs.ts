@@ -24,6 +24,8 @@ import {
   runHabitNudges,
   runPaymentAlerts,
   runPointsHousekeeping,
+  runReengage,
+  runScheduledReaskBatch,
   runScheduledSignupBatch,
   runSignupRescue,
   sendLifecycleNotices,
@@ -60,6 +62,8 @@ export const CRON = {
   habitNudgesEarly: "*/5 18-19 * * *",
   signupBatch: "*/5 10 * * 2-4",
   adminAlerts: "* * * * *",
+  /** Retención E1–E3: el recordatorio a su hora (Caracas, como `habitNudges`). */
+  reengage: "*/5 8-20 * * *",
 } as const;
 
 export async function registerJobs(opts: {
@@ -99,6 +103,23 @@ export async function registerJobs(opts: {
   } | null;
   /** Aviso a Sentry (sin datos) cuando un pago reportado no se pudo avisar por WhatsApp. */
   onPaymentAlertMissed?: (r: { status: string; newPayments: number }) => void;
+  /**
+   * Retención E1 (A-0051): la plantilla con su cuenta (para leer la calidad), el tope del mes
+   * (sin él no sale ninguna) y la tarifa.
+   */
+  reengage?: {
+    template: { name: string; language: string; wabaId: string | null } | null;
+    capUsd: number | null;
+    rateUsd: number;
+  } | null;
+  /** E3-t (A-0053): la plantilla que pregunta. Sin ella, el lote programado no corre. */
+  reaskTemplate?: { name: string; language: string; wabaId: string | null } | null;
+  /** Avisos a Sentry de E1 (sin datos): el tope del mes o una plantilla retenida por calidad. */
+  onReengageAlert?: (r: {
+    kind: "cap_reached" | "held";
+    monthTemplates?: number;
+    capUsd?: number;
+  }) => void;
 }) {
   const { boss, db, deps, log } = opts;
   const guarded =
@@ -394,16 +415,30 @@ export async function registerJobs(opts: {
     { batchSize: 1, pollingIntervalSeconds: 10 },
     guarded(QUEUES.signupBatch, async () => {
       const meta = opts.platformPhoneNumberId ? deps.metaFor(opts.platformPhoneNumberId) : null;
-      if (!meta || !opts.signupBatch) return;
-      const r = await runScheduledSignupBatch(db, meta, {
-        template: opts.signupBatch.template,
-        rateUsd: opts.signupBatch.rateUsd,
+      if (!meta) return;
+      if (opts.signupBatch) {
+        const r = await runScheduledSignupBatch(db, meta, {
+          template: opts.signupBatch.template,
+          rateUsd: opts.signupBatch.rateUsd,
+          now: () => new Date(),
+          sleep: (ms) => new Promise((ok) => setTimeout(ok, ms)),
+          // Solo cuentas y códigos: ni números ni nombres.
+          log: (line) => log.info({}, `registro: lote · ${line}`),
+        });
+        if (r.ran || r.why === "missed" || r.why === "cut")
+          log.info(r, "registro: lote programado");
+      }
+      // E3-t (A-0053): el lote de la pregunta por plantilla, en la misma franja; nunca el mismo
+      // día que el del registro. Sin uno programado, no hace nada.
+      const q = await runScheduledReaskBatch(db, meta, {
+        template: opts.reaskTemplate ?? null,
+        rateUsd: opts.reengage?.rateUsd ?? 0.074,
         now: () => new Date(),
         sleep: (ms) => new Promise((ok) => setTimeout(ok, ms)),
-        // Solo cuentas y códigos: ni números ni nombres.
-        log: (line) => log.info({}, `registro: lote · ${line}`),
+        log: (line) => log.info({}, `E3-t: lote · ${line}`),
       });
-      if (r.ran || r.why === "missed" || r.why === "cut") log.info(r, "registro: lote programado");
+      if (q.ran || q.why === "missed" || q.why === "cut" || q.why === "no_template")
+        log.info(q, "E3-t: lote programado");
     }),
   );
 
@@ -438,6 +473,27 @@ export async function registerJobs(opts: {
       const r = await runHabitNudges(db, meta, { now: new Date(), log });
       // Solo cuentas: ni números ni textos.
       if (r.sent || r.failed || r.paused || r.outside) log.info(r, "aviso de racha");
+    }),
+  );
+
+  // Retención E1–E3 (A-0051): el recordatorio a su hora. Sin `habits.reengageAsk`, no hace nada.
+  await boss.work(
+    QUEUES.reengage,
+    { batchSize: 1, pollingIntervalSeconds: 10 },
+    guarded(QUEUES.reengage, async () => {
+      const meta = opts.platformPhoneNumberId ? deps.metaFor(opts.platformPhoneNumberId) : null;
+      const r = await runReengage(db, meta, {
+        now: new Date(),
+        log,
+        template: opts.reengage?.template ?? null,
+        capUsd: opts.reengage?.capUsd ?? null,
+        rateUsd: opts.reengage?.rateUsd ?? 0.074,
+        onCapReached: (c) => opts.onReengageAlert?.({ kind: "cap_reached", ...c }),
+        onHeld: () => opts.onReengageAlert?.({ kind: "held" }),
+      });
+      // Solo cuentas y códigos: ni números ni textos.
+      if (r.text || r.templates || r.held || r.failed || r.paused || r.minutesUpdated)
+        log.info(r, "recordatorio a su hora");
     }),
   );
 
@@ -476,6 +532,10 @@ export async function registerJobs(opts: {
   await boss.schedule(QUEUES.habitNudges, CRON.habitNudgesEarly, null, {
     tz: "America/Caracas",
     key: "early-6-to-8pm",
+  });
+  await boss.schedule(QUEUES.reengage, CRON.reengage, null, {
+    tz: "America/Caracas",
+    key: "every-5-min-8-to-8pm",
   });
   // El autoguardado de cada minuto (0022) se reemplazó por el guardado al instante (0023).
   await boss.unschedule(RETIRED_AUTO_SAVE_QUEUE, "every-minute").catch(() => {});

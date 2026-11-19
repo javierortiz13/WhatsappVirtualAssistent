@@ -25,6 +25,9 @@ const FLAG_NAME: Record<string, string> = {
   xp: "Puntos",
   rewards: "Premios",
   referrals: "Invitaciones",
+  reengageAsk: "Recordatorio a su hora (E3)",
+  nightRotation: "Mensaje de la noche variado (E2)",
+  reengageTemplate: "Plantilla de recordatorio (E1)",
 };
 
 const when = (iso: string) => {

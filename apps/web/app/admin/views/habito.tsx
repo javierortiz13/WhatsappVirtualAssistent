@@ -1,6 +1,7 @@
 import type { HabitSummary, NudgeStats, ReminderStats } from "@caja/core";
 import { formatShortDate } from "@caja/core/domain";
 import { Banner, Card, Facts, Head, Kpi } from "../ui/bits";
+import { type ReaskState, RetencionCards } from "./retencion";
 
 export type HabitoData = {
   banner: { ok: string | null; error: string | null };
@@ -13,6 +14,9 @@ export type HabitoData = {
   reminders: ReminderStats | null;
   /** Fallidos de recordatorios (14 d). */
   reminders14: ReminderStats | null;
+  /** Retención E1–E3 (30 d) y el lote de E3-t. Opcional: las capturas viejas no lo traen. */
+  retencion?: Parameters<typeof RetencionCards>[0]["data"];
+  reask?: ReaskState;
 };
 
 const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)} %` : "—");
@@ -145,6 +149,7 @@ export function HabitoView(d: HabitoData) {
           </Card>
         ) : null}
       </div>
+      {d.reask ? <RetencionCards data={d.retencion ?? null} reask={d.reask} /> : null}
       {h ? (
         <Card title="Retención por semana de registro">
           {h.cohorts.length ? (

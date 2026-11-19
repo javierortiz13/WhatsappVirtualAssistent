@@ -19,6 +19,8 @@ export const APPROVALS = {
   /** Aprobada por el fundador (09/11); vale cuando se cumplan sus condiciones (agencia). */
   "A-0039-T1": { status: "approved" },
   "A-0039-T2": { status: "pending", target: "01/12" },
+  /** Retención E1–E3 (19/11): pendiente hasta que la apruebe el fundador y la agencia diga «OK <sha>». */
+  "A-0051": { status: "pending" },
 } as const satisfies Record<string, { status: ApprovalStatus; target?: string }>;
 
 export type ApprovalId = keyof typeof APPROVALS;
@@ -33,6 +35,9 @@ export type AdminFlagKey =
   | "xp"
   | "rewards"
   | "referrals"
+  | "reengageAsk"
+  | "nightRotation"
+  | "reengageTemplate"
   | "inWindow"
   | "template"
   | "viaTemplate";
@@ -107,6 +112,33 @@ export const FLAG_RULES: readonly FlagRule[] = [
     desc: "Por chat y en el panel. Necesita la /privacidad nueva publicada.",
     needs: ["prefs"],
     approval: "A-0037",
+  },
+  {
+    key: "reengageAsk",
+    group: "habits",
+    section: "Hábito",
+    title: "Recordatorio a su hora (E3)",
+    desc: "«¿Te recuerdo mañana a esta hora?» en la tarjeta del primer movimiento (y una vez a quien ya anotó). A quien dice «Sí», el mensaje de la noche a su hora habitual.",
+    needs: ["prefs", "nudge"],
+    approval: "A-0051",
+  },
+  {
+    key: "nightRotation",
+    group: "habits",
+    section: "Hábito",
+    title: "Mensaje de la noche variado (E2)",
+    desc: "El arranque del mensaje de la noche rota entre seis textos (N1–N6). Apagado, siempre el de hoy.",
+    needs: ["prefs", "nudge"],
+    approval: "A-0051",
+  },
+  {
+    key: "reengageTemplate",
+    group: "habits",
+    section: "Hábito",
+    title: "Plantilla de recordatorio (E1)",
+    desc: "La plantilla de marketing a quien dijo «Sí» a E3 y tiene la ventana cerrada, a su hora. Tope mensual en META_REENGAGE_MONTHLY_CAP_USD; sin él no sale ninguna.",
+    needs: ["prefs", "nudge", "reengageAsk"],
+    approval: "A-0051",
   },
   {
     key: "xp",
