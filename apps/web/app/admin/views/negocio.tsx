@@ -1,6 +1,7 @@
 import { es, PLANS, RECHARGE, REMOVE_REASONS, TRIAL_BUDGET_USD } from "@caja/core";
 import { businessDateOf, formatShortDate } from "@caja/core/domain";
 import type { Health, loadTenantDetail } from "@/lib/admin";
+import { maskE164 } from "@/lib/phone";
 import {
   approvePaymentAction,
   changeTenantAction,
@@ -139,6 +140,9 @@ export function NegocioView(x: NegocioData) {
   const t = d.tenant;
   const extra = t.extraMonth === d.usage.month ? t.extraMessages : 0;
   const survey = (t.survey ?? {}) as Record<string, string | undefined>;
+  // El número del dueño para «Escribirle por WhatsApp» (19/11): el activo, si no el primero.
+  const owners = d.phones.filter((p) => p.role === "owner");
+  const owner = owners.find((p) => p.status === "active") ?? owners[0];
   const bucket = (id: string | undefined) =>
     id ? (es.PRICE_BUCKETS.find((b) => b.id === id)?.title ?? id) : "sin respuesta";
   return (
@@ -181,6 +185,18 @@ export function NegocioView(x: NegocioData) {
             ],
           ]}
         />
+        {owner ? (
+          <div className="ad-btns">
+            <a
+              className="ad-btn pri"
+              href={`/admin/escribir/telefono/${t.id}/${owner.id}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Escribirle por WhatsApp
+            </a>
+          </div>
+        ) : null}
       </section>
       <nav className="ad-dtabs" aria-label="Secciones del negocio">
         {TABS.map((k) => (
@@ -484,9 +500,26 @@ export function NegocioView(x: NegocioData) {
                 <Facts
                   rows={[
                     ["Rol", p.role === "owner" ? "dueño" : "empleado"],
-                    ["Teléfono", <MaskedPhone key="v" e164={p.e164} />],
+                    [
+                      "Teléfono",
+                      <MaskedPhone
+                        key="v"
+                        masked={maskE164(p.e164)}
+                        phoneRef={{ kind: "phone", tenantId: t.id, phoneId: p.id }}
+                      />,
+                    ],
                   ]}
                 />
+                <div className="ad-btns">
+                  <a
+                    className="ad-btn"
+                    href={`/admin/escribir/telefono/${t.id}/${p.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Escribirle
+                  </a>
+                </div>
               </div>
             ))}
           </div>

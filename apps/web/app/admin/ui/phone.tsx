@@ -1,24 +1,39 @@
 "use client";
 
-import { useState } from "react";
-import { formatE164, maskE164 } from "@/lib/phone";
+import { useState, useTransition } from "react";
+import type { PhoneRef } from "@/lib/phone";
+import { revealPhoneAction } from "../actions";
 
 /**
- * Teléfono enmascarado («+58 4•• ••• •• 67») con «Ver» para mostrarlo completo (rediseño 08/11).
- * Para que no quede a la vista de quien mira la pantalla; «Escribirle» sigue abriendo wa.me.
+ * Teléfono enmascarado («+58 4•• ••• •• 67») con «Ver» (rediseño 08/11). Desde A-2 (19/11) el
+ * número completo no viaja en la página: «Ver» se lo pide al servidor, que comprueba el admin.
  */
-export function MaskedPhone({ e164 }: { e164: string }) {
+export function MaskedPhone({ masked, phoneRef }: { masked: string; phoneRef: PhoneRef }) {
+  const [full, setFull] = useState<string | null>(null);
   const [shown, setShown] = useState(false);
+  const [pending, start] = useTransition();
+  const toggle = () => {
+    if (shown) return setShown(false);
+    if (full) return setShown(true);
+    start(async () => {
+      const n = await revealPhoneAction(phoneRef);
+      if (n) {
+        setFull(n);
+        setShown(true);
+      }
+    });
+  };
   return (
     <span>
-      <span className="ad-phone">{shown ? formatE164(e164) : maskE164(e164)}</span>{" "}
+      <span className="ad-phone">{shown && full ? full : masked}</span>{" "}
       <button
         type="button"
         className="ad-link"
         aria-pressed={shown}
-        onClick={() => setShown((v) => !v)}
+        disabled={pending}
+        onClick={toggle}
       >
-        {shown ? "Ocultar" : "Ver"}
+        {shown ? "Ocultar" : pending ? "…" : "Ver"}
       </button>
     </span>
   );

@@ -1,5 +1,6 @@
 import type { BatchSchedule } from "@caja/core";
 import type { AbandonedSignup, RescueFunnel } from "@/lib/admin";
+import { maskE164 } from "@/lib/phone";
 import { cancelBatchAction, markFounderContactedAction, scheduleBatchAction } from "../actions";
 import { Badge, Banner, Card, Checks, Facts, Head, Kpi } from "../ui/bits";
 import { ConfirmButton } from "../ui/confirm";
@@ -91,7 +92,14 @@ export function RegistroView(d: RegistroData) {
                       ["Se quedó en", `«${STEP_LABEL[a.step] ?? a.step}»`],
                       ["Mensajes", a.messages],
                       ["Última vez", ago(a.updatedAt, d.now)],
-                      ["Teléfono", <MaskedPhone key="v" e164={a.e164} />],
+                      [
+                        "Teléfono",
+                        <MaskedPhone
+                          key="v"
+                          masked={maskE164(a.e164)}
+                          phoneRef={{ kind: "signup", id: a.id }}
+                        />,
+                      ],
                     ]}
                   />
                   {rescued ||
@@ -127,7 +135,7 @@ export function RegistroView(d: RegistroData) {
                     {rescued || a.contactOffAt ? null : (
                       <a
                         className="ad-btn pri"
-                        href={`https://wa.me/${a.e164}`}
+                        href={`/admin/escribir/signup/${a.id}`}
                         target="_blank"
                         rel="noreferrer"
                       >

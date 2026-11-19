@@ -47,3 +47,27 @@ export function maskE164(e164: string): string {
   if (rest.length < 4) return `+${cc} ••••`;
   return `+${cc} ${rest[0]}•• ••• •• ${rest.slice(-2)}`;
 }
+
+/**
+ * De quién es un teléfono que el admin quiere ver o escribirle (A-2, 19/11): un registro sin
+ * terminar o un número de un negocio. El número completo solo sale del servidor por aquí, con el
+ * admin comprobado; las páginas llevan el enmascarado.
+ */
+export type PhoneRef =
+  | { kind: "signup"; id: string }
+  | { kind: "phone"; tenantId: string; phoneId: string };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** «signup/<id>» o «telefono/<negocio>/<teléfono>», como lo llevan los enlaces del admin. */
+export function parsePhoneRef(parts: string[]): PhoneRef | null {
+  const [kind, a, b] = parts;
+  if (kind === "signup" && parts.length === 2 && UUID_RE.test(a ?? ""))
+    return { kind: "signup", id: a as string };
+  if (kind === "telefono" && parts.length === 3 && UUID_RE.test(a ?? "") && UUID_RE.test(b ?? ""))
+    return { kind: "phone", tenantId: a as string, phoneId: b as string };
+  return null;
+}
+
+export const phoneRefPath = (ref: PhoneRef) =>
+  ref.kind === "signup" ? `signup/${ref.id}` : `telefono/${ref.tenantId}/${ref.phoneId}`;

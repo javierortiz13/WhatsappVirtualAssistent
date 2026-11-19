@@ -47,9 +47,10 @@ import { and, eq, isNotNull, isNull, schema, withTenant } from "@caja/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/admin";
+import { adminPhone, requireAdmin } from "@/lib/admin";
 import { db } from "@/lib/db";
 import { confirmsName, eraseBusiness, restoreBusiness, trashBusiness } from "@/lib/erase";
+import { formatE164, type PhoneRef } from "@/lib/phone";
 
 const DAY = 24 * 60 * 60 * 1000;
 const PlanId = z.enum(PLANS.map((p) => p.id) as ["personal", "negocio", "negocio_plus"]);
@@ -860,4 +861,10 @@ export async function cancelBatchAction(): Promise<void> {
   await cancelSignupBatch(db(), admin.email, new Date());
   revalidatePath("/admin");
   redirect("/admin/registro?ok=lote_cancelado#lote");
+}
+
+/** «Ver» de un teléfono enmascarado (A-2): el número completo, solo para el admin. */
+export async function revealPhoneAction(ref: PhoneRef): Promise<string | null> {
+  const e164 = await adminPhone(ref);
+  return e164 ? formatE164(e164) : null;
 }

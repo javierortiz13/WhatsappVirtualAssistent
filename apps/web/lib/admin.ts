@@ -57,6 +57,7 @@ import {
 import { notFound, redirect } from "next/navigation";
 import { db } from "./db";
 import { env } from "./env";
+import type { PhoneRef } from "./phone";
 import { currentSession } from "./session";
 
 /**
@@ -274,6 +275,29 @@ async function keptMarks(): Promise<number> {
     .from(schema.signup)
     .where(isNotNull(schema.signup.purgedAt));
   return r?.n ?? 0;
+}
+
+/** El número completo (E.164 sin «+»), o null si no existe. Solo administradores. */
+export async function adminPhone(ref: PhoneRef): Promise<string | null> {
+  await requireAdmin();
+  const conn = db();
+  if (ref.kind === "signup") {
+    const [r] = await conn
+      .select({ e164: schema.signup.e164 })
+      .from(schema.signup)
+      .where(and(eq(schema.signup.id, ref.id), isNull(schema.signup.purgedAt)));
+    return r?.e164 ?? null;
+  }
+  if (!(await everyTenantId(conn)).includes(ref.tenantId)) return null;
+  return withTenant(conn, ref.tenantId, async (tx) => {
+    const [p] = await tx
+      .select({ e164: schema.phoneNumber.e164 })
+      .from(schema.phoneNumber)
+      .where(
+        and(eq(schema.phoneNumber.tenantId, ref.tenantId), eq(schema.phoneNumber.id, ref.phoneId)),
+      );
+    return p?.e164 ?? null;
+  });
 }
 
 export async function loadFunnel(tenants: TenantRow[], now: Date) {
