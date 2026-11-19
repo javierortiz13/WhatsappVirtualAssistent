@@ -5,6 +5,7 @@ import {
   createReceiptReader,
   DeepgramClient,
   type ProcessDeps,
+  ResendMailer,
   SupabaseAuthAdmin,
   SupabaseStorage,
   stubAgent,
@@ -120,6 +121,16 @@ async function main() {
   await boss.start();
   await ensureQueues(boss);
 
+  // Correo de pagos por verificar (19/11): solo con las dos variables.
+  const adminMailer =
+    env.ADMIN_ALERT_EMAIL && env.RESEND_API_KEY
+      ? new ResendMailer({
+          apiKey: env.RESEND_API_KEY,
+          from: env.ADMIN_ALERT_EMAIL_FROM,
+          to: env.ADMIN_ALERT_EMAIL,
+        })
+      : null;
+
   await registerJobs({
     boss,
     db,
@@ -152,21 +163,31 @@ async function main() {
           rateUsd: env.META_MARKETING_RATE_USD,
         }
       : null,
-    adminAlert: env.ADMIN_ALERT_WA
-      ? {
-          e164: env.ADMIN_ALERT_WA,
-          template: env.META_ADMIN_ALERT_TEMPLATE
-            ? { name: env.META_ADMIN_ALERT_TEMPLATE, language: env.META_TEMPLATE_LANGUAGE }
-            : null,
-          dashboardUrl: env.DASHBOARD_URL,
-        }
-      : null,
+    adminAlert:
+      env.ADMIN_ALERT_WA || adminMailer
+        ? {
+            e164: env.ADMIN_ALERT_WA ?? null,
+            template: env.META_ADMIN_ALERT_TEMPLATE
+              ? { name: env.META_ADMIN_ALERT_TEMPLATE, language: env.META_TEMPLATE_LANGUAGE }
+              : null,
+            mailer: adminMailer,
+            dashboardUrl: env.DASHBOARD_URL,
+          }
+        : null,
     // Sin el número ni datos del pago: solo cuántos y por qué no salió.
     onPaymentAlertMissed: (r) =>
       Sentry.captureMessage(
         r.status === "no_window"
           ? `Pago por verificar sin aviso: ventana de WhatsApp cerrada (${r.newPayments})`
           : `Pago por verificar sin aviso: falló el envío (${r.newPayments})`,
+        { level: "warning" },
+      ),
+    // Solo la cuenta: ni el correo ni el monto.
+    onPaymentEmailMissed: (r) =>
+      Sentry.captureMessage(
+        r.email === "capped"
+          ? `Pago por verificar sin correo: tope del día (${r.newPayments})`
+          : `Pago por verificar sin correo: falló el envío (${r.newPayments})`,
         { level: "warning" },
       ),
     onError: (err, queue, final) => {
@@ -202,6 +223,8 @@ async function main() {
       speech: speech ? `${speech.provider}:${env.DEEPGRAM_LANGUAGE}` : "off",
       vision: vision ? vision.provider : "off",
       store: store ? `${store.provider}:${env.STORAGE_BUCKET}` : "off",
+      // Solo si está encendido: nunca el correo.
+      paymentEmail: adminMailer ? "on" : "off",
     },
     "worker listo",
   );

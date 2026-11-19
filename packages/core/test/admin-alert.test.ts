@@ -2,7 +2,13 @@ import { eq, schema, withTenant } from "@caja/db";
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { ADMIN_ALERT_KEY, paymentAlertLine, runPaymentAlerts } from "../src/billing/admin-alert";
+import {
+  ADMIN_ALERT_KEY,
+  ADMIN_EMAIL_DAILY_CAP,
+  paymentAlertLine,
+  runPaymentAlerts,
+} from "../src/billing/admin-alert";
+import { AdminEmailError, type AdminMail, ResendMailer } from "../src/billing/admin-email";
 import { reportPayment } from "../src/billing/payments";
 import { Decimal } from "../src/domain/money";
 import { MetaClient } from "../src/whatsapp/client";
@@ -42,18 +48,35 @@ function fakeMeta(opts: { fail?: boolean } = {}) {
   return { sent, client: new MetaClient({ accessToken: "T", phoneNumberId: "P", fetchImpl }) };
 }
 
+function fakeMailer(opts: { fail?: boolean } = {}) {
+  const mails: AdminMail[] = [];
+  return {
+    mails,
+    mailer: {
+      async send(m: AdminMail) {
+        if (opts.fail) throw new AdminEmailError(500);
+        mails.push(m);
+      },
+    },
+  };
+}
+
 describe("aviso de pagos al administrador", () => {
   let t: Awaited<ReturnType<typeof createTestDb>>;
   let shop: string;
   let admin: string;
   let adminPhone: string;
 
-  const report = (at: Date, over: Partial<Parameters<typeof reportPayment>[1]> = {}) =>
-    withTenant(t.db, shop, (tx) =>
+  const report = (
+    at: Date,
+    over: Partial<Parameters<typeof reportPayment>[1]> = {},
+    tenantId = shop,
+  ) =>
+    withTenant(t.db, tenantId, (tx) =>
       reportPayment(
         tx,
         {
-          tenantId: shop,
+          tenantId,
           plan: "negocio",
           months: 1,
           method: "pago_movil",
@@ -221,6 +244,187 @@ describe("aviso de pagos al administrador", () => {
     expect(await run(fakeMeta().client, new Date(NOW.getTime() + 3 * MIN))).toEqual({
       status: "none",
     });
+  });
+
+  const runMail = (
+    mailer: ReturnType<typeof fakeMailer>["mailer"] | null,
+    now: Date,
+    meta: MetaClient | null = null,
+  ) =>
+    runPaymentAlerts(t.db, meta, {
+      adminE164: meta ? ADMIN : null,
+      template: null,
+      mailer,
+      dashboardUrl: "https://holarocco.com/",
+      now,
+    });
+
+  it("correo: un pago nuevo es un correo, y el mismo pago no se repite", async () => {
+    const m = fakeMailer();
+    expect(await runMail(m.mailer, NOW)).toEqual({ status: "none" }); // primera vuelta, sin pagos
+    await report(new Date(NOW.getTime() + MIN));
+    expect(await runMail(m.mailer, new Date(NOW.getTime() + 2 * MIN))).toMatchObject({
+      status: "off",
+      email: "sent",
+      newPayments: 1,
+      pending: 1,
+    });
+    expect(m.mails).toEqual([
+      {
+        subject: "Rocco: pago por verificar",
+        text: [
+          "Nuevo pago por verificar:",
+          "• Plan Negocio · 1 mes · Pago móvil · Bs 1.234,56",
+          "Revísalos en https://holarocco.com/admin/pagos",
+        ].join("\n"),
+      },
+    ]);
+    expect(await runMail(m.mailer, new Date(NOW.getTime() + 3 * MIN))).toEqual({
+      status: "none",
+    });
+    expect(m.mails).toHaveLength(1);
+  });
+
+  it("correo y WhatsApp comparten el «ya avisado»: un solo aviso por cada camino", async () => {
+    const m = fakeMailer();
+    const meta = fakeMeta();
+    await runMail(m.mailer, NOW, meta.client);
+    await adminWrote(NOW);
+    await report(new Date(NOW.getTime() + MIN));
+    expect(await runMail(m.mailer, new Date(NOW.getTime() + 2 * MIN), meta.client)).toMatchObject({
+      status: "sent",
+      via: "text",
+      email: "sent",
+    });
+    expect(await runMail(m.mailer, new Date(NOW.getTime() + 3 * MIN), meta.client)).toEqual({
+      status: "none",
+    });
+    expect(meta.sent).toHaveLength(1);
+    expect(m.mails).toHaveLength(1);
+    expect(meta.sent[0]?.body?.endsWith("Revísalos en https://holarocco.com/admin")).toBe(true);
+  });
+
+  it("correo: 7 pagos del mismo minuto van en uno, con 5 líneas y «y 2 más»", async () => {
+    const m = fakeMailer();
+    await runMail(m.mailer, NOW);
+    // Un negocio tiene como mucho 3 pagos por verificar: 3 + 3 + 1 en tres negocios.
+    const more = [
+      await seedTenant(t.db, {
+        name: "Otro 1",
+        businessType: "retail",
+        ownerPhone: "584241110001",
+      }),
+      await seedTenant(t.db, {
+        name: "Otro 2",
+        businessType: "retail",
+        ownerPhone: "584241110002",
+      }),
+    ];
+    const owners = [shop, shop, shop, more[0], more[0], more[0], more[1]];
+    for (const [i, id] of owners.entries())
+      await report(new Date(NOW.getTime() + MIN + i * 1000), {}, id);
+    await runMail(m.mailer, new Date(NOW.getTime() + 2 * MIN));
+    for (const id of more)
+      await withTenant(t.db, id, (tx) =>
+        tx.delete(schema.payment).where(eq(schema.payment.tenantId, id)),
+      );
+    expect(m.mails).toHaveLength(1);
+    const lines = (m.mails[0]?.text ?? "").split("\n");
+    expect(lines[0]).toBe("7 pagos nuevos por verificar:");
+    expect(lines.filter((l) => l.startsWith("• Plan"))).toHaveLength(5);
+    expect(lines).toContain("• y 2 más");
+  });
+
+  it("correo: sin cliente de correo ni número, no sale nada", async () => {
+    await report(NOW);
+    expect(await runMail(null, NOW)).toEqual({ status: "off" });
+  });
+
+  it("correo: tope de 20 al día de Caracas; al día siguiente vuelve", async () => {
+    const m = fakeMailer();
+    await runMail(m.mailer, NOW);
+    let at = NOW.getTime();
+    // Se verifica cada pago antes del siguiente: un negocio tiene como mucho 3 por verificar.
+    const clear = () =>
+      withTenant(t.db, shop, (tx) =>
+        tx.delete(schema.payment).where(eq(schema.payment.tenantId, shop)),
+      );
+    for (let i = 0; i < ADMIN_EMAIL_DAILY_CAP; i++) {
+      at += 2 * MIN;
+      await clear();
+      await report(new Date(at - MIN));
+      await runMail(m.mailer, new Date(at));
+    }
+    await clear();
+    expect(m.mails).toHaveLength(ADMIN_EMAIL_DAILY_CAP);
+    at += 2 * MIN;
+    await report(new Date(at - MIN));
+    expect(await runMail(m.mailer, new Date(at))).toMatchObject({ email: "capped" });
+    expect(m.mails).toHaveLength(ADMIN_EMAIL_DAILY_CAP);
+    // 15:00Z es 11:00 en Caracas: al día siguiente, otra vez hay cupo.
+    const tomorrow = new Date(NOW.getTime() + 24 * 3_600_000);
+    await clear();
+    await report(new Date(tomorrow.getTime() - MIN));
+    expect(await runMail(m.mailer, tomorrow)).toMatchObject({ email: "sent" });
+  });
+
+  it("correo: si Resend falla, no se repite y el error no lleva datos", async () => {
+    await runMail(fakeMailer().mailer, NOW);
+    await report(new Date(NOW.getTime() + MIN));
+    expect(
+      await runMail(fakeMailer({ fail: true }).mailer, new Date(NOW.getTime() + 2 * MIN)),
+    ).toMatchObject({
+      email: "failed",
+      newPayments: 1,
+    });
+    const m = fakeMailer();
+    expect(await runMail(m.mailer, new Date(NOW.getTime() + 3 * MIN))).toEqual({ status: "none" });
+    expect(m.mails).toHaveLength(0);
+  });
+
+  it("correo: ningún dato del cliente (nombre, teléfono, referencia)", async () => {
+    const m = fakeMailer();
+    await runMail(m.mailer, NOW);
+    await report(new Date(NOW.getTime() + MIN));
+    await runMail(m.mailer, new Date(NOW.getTime() + 2 * MIN));
+    const all = JSON.stringify(m.mails);
+    expect(all).not.toContain("Bodega");
+    expect(all).not.toContain("REF-SECRETA");
+    expect(all).not.toMatch(/58\d{9,}/);
+  });
+
+  it("ResendMailer: manda texto plano a un solo destinatario y el error solo dice el código", async () => {
+    const calls: { url: string; auth: string | null; body: unknown }[] = [];
+    let status = 200;
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({
+        url: String(url),
+        auth: new Headers(init?.headers).get("authorization"),
+        body: JSON.parse(String(init?.body)),
+      });
+      return new Response(JSON.stringify({ message: "rechazado: admin@example.com" }), { status });
+    }) as typeof fetch;
+    const mailer = new ResendMailer({
+      apiKey: "re_test",
+      from: "Rocco <avisos@example.com>",
+      to: "admin@example.com",
+      fetchImpl,
+    });
+    await mailer.send({ subject: "Rocco: pago por verificar", text: "hola" });
+    expect(calls[0]).toEqual({
+      url: "https://api.resend.com/emails",
+      auth: "Bearer re_test",
+      body: {
+        from: "Rocco <avisos@example.com>",
+        to: ["admin@example.com"],
+        subject: "Rocco: pago por verificar",
+        text: "hola",
+      },
+    });
+    status = 422;
+    const err = await mailer.send({ subject: "s", text: "t" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AdminEmailError);
+    expect(String((err as Error).message)).toBe("el correo al administrador no salió (HTTP 422)");
   });
 
   it("la línea de un plan de varios meses", () => {

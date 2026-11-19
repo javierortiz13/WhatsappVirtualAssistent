@@ -36,6 +36,15 @@ const Env = z.object({
     .optional(),
   /** Plantilla de utilidad aprobada para ese aviso cuando la ventana de 24 h está cerrada. */
   META_ADMIN_ALERT_TEMPLATE: z.string().optional(),
+  /**
+   * Correo del administrador para el aviso de pagos por verificar (19/11). Solo en Railway: nunca
+   * en el repo ni en los logs. Sin él o sin RESEND_API_KEY, no sale ningún correo.
+   */
+  ADMIN_ALERT_EMAIL: z.string().email().optional(),
+  /** La misma cuenta de Resend de los correos de acceso al panel. */
+  RESEND_API_KEY: z.string().optional(),
+  /** Remitente del correo: tiene que ser del dominio verificado en Resend. */
+  ADMIN_ALERT_EMAIL_FROM: z.string().default("Rocco <avisos@holarocco.com>"),
   /** Tarifa de marketing para el costo estimado del lote (Resto de Latinoamérica, oct 2026). */
   META_MARKETING_RATE_USD: z.coerce.number().positive().default(0.074),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(4),

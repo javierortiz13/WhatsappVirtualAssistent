@@ -1,4 +1,5 @@
 export * from "./admin-alert";
+export * from "./admin-email";
 export * from "./enforce";
 export * from "./launch";
 export * from "./limits";

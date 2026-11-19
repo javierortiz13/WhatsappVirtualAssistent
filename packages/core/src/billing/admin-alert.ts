@@ -1,7 +1,9 @@
 import { and, type Db, eq, everyTenantId, gte, rows, schema, sql, withTenant } from "@caja/db";
+import { businessDateOf } from "../domain/dates";
 import { formatMoney } from "../domain/money";
 import { serviceWindow } from "../inbox/window";
 import type { MetaClient } from "../whatsapp/client";
+import type { AdminMailer } from "./admin-email";
 import { planById } from "./plans";
 
 /**
@@ -18,6 +20,12 @@ import { planById } from "./plans";
  * método y monto, y el enlace a /admin, donde se ve todo. El número del administrador vive solo
  * en la variable del worker y nunca se imprime. El aviso no se guarda en la conversación del
  * administrador (no es una respuesta de Rocco y no debe verla el asistente).
+ *
+ * Además, un correo (19/11): con Resend al correo del administrador, el mismo texto con el enlace a
+ * /admin/pagos. Usa el mismo estado de «ya avisado» (un pago no se avisa dos veces por ninguno de
+ * los dos caminos) y los pagos de la misma vuelta van en un solo correo. Tope: 20 correos por día
+ * de Caracas, porque el plan gratis de Resend da 100 al día y los comparte con los enlaces de
+ * acceso al panel. Cada camino funciona sin el otro.
  */
 
 export const ADMIN_ALERT_KEY = "admin_payment_alert";
@@ -25,6 +33,9 @@ export const ADMIN_ALERT_KEY = "admin_payment_alert";
 const SEEN_MS = 30 * 60_000;
 /** Como mucho estas líneas en un aviso; el resto va como «y N más». */
 const MAX_LINES = 5;
+/** Correos al administrador por día de Caracas (Resend gratis: 100 al día, compartidos). */
+export const ADMIN_EMAIL_DAILY_CAP = 20;
+export const ADMIN_EMAIL_SUBJECT = "Rocco: pago por verificar";
 
 const METHOD_LABEL: Record<string, string> = {
   pago_movil: "Pago móvil",
@@ -32,7 +43,12 @@ const METHOD_LABEL: Record<string, string> = {
   binance: "Binance",
 };
 
-type AlertState = { seen: { id: string; at: string }[]; startedAt: string };
+type AlertState = {
+  seen: { id: string; at: string }[];
+  startedAt: string;
+  /** Correos enviados (o intentados) el día de Caracas `day`. */
+  email?: { day: string; count: number };
+};
 
 export type AlertPayment = {
   id: string;
@@ -50,8 +66,11 @@ export type PaymentAlertResult =
   | { status: "off" }
   | { status: "none" }
   | {
-      status: "sent" | "no_window" | "failed";
+      /** WhatsApp: «off» si no está configurado (avisó solo el correo). */
+      status: "sent" | "no_window" | "failed" | "off";
       via: "text" | "template" | null;
+      /** Correo: «capped» si ya salieron los 20 del día. */
+      email: "sent" | "failed" | "capped" | "off";
       newPayments: number;
       pending: number;
     };
@@ -161,23 +180,26 @@ async function adminWindowOpen(db: Db, e164: string, now: Date): Promise<boolean
 }
 
 /**
- * Una vuelta (cada minuto). La primera vez que corre con el número configurado avisa cuántos
+ * Una vuelta (cada minuto). La primera vez que corre con un camino configurado avisa cuántos
  * pagos hay por verificar (si hay alguno); después, solo los nuevos.
  */
 export async function runPaymentAlerts(
   db: Db,
   meta: MetaClient | null,
   opts: {
-    /** Número del administrador (E.164, solo dígitos). Sin él, no hace nada. */
+    /** Número del administrador (E.164, solo dígitos). Sin él, no hay aviso por WhatsApp. */
     adminE164: string | null;
     /** Plantilla de utilidad aprobada, para cuando la ventana está cerrada. */
     template: { name: string; language: string } | null;
+    /** Correo al administrador (Resend). Sin él, no hay correo. */
+    mailer?: AdminMailer | null;
     dashboardUrl: string;
     now: Date;
   },
 ): Promise<PaymentAlertResult> {
-  const to = opts.adminE164?.replace(/\D/g, "") || null;
-  if (!to || !meta) return { status: "off" };
+  const to = (meta && opts.adminE164?.replace(/\D/g, "")) || null;
+  const mailer = opts.mailer ?? null;
+  if (!to && !mailer) return { status: "off" };
   const now = opts.now;
   const state = await readState(db);
   const firstRun = state === null;
@@ -196,28 +218,55 @@ export async function runPaymentAlerts(
       ...keep(fresh),
     ],
     startedAt: state?.startedAt ?? now.toISOString(),
+    ...(state?.email ? { email: state.email } : {}),
   };
   if (!fresh.length) {
     if (firstRun) await saveState(db, nextState, now);
     return { status: "none" };
   }
   const pending = firstRun ? fresh.length : await pendingCount(db);
-  const adminUrl = `${opts.dashboardUrl.replace(/\/$/, "")}/admin`;
-  // Se guarda antes de enviar: un error de Meta no repite el aviso cada minuto (va a Sentry).
+  const base = opts.dashboardUrl.replace(/\/$/, "");
+  // El tope cuenta los intentos: un correo que falla también gasta cupo de Resend.
+  const day = businessDateOf(now);
+  const sentToday = nextState.email?.day === day ? nextState.email.count : 0;
+  const email: "send" | "capped" | "off" = !mailer
+    ? "off"
+    : sentToday >= ADMIN_EMAIL_DAILY_CAP
+      ? "capped"
+      : "send";
+  if (email === "send") nextState.email = { day, count: sentToday + 1 };
+  // Se guarda antes de enviar: un error de Meta o de Resend no repite el aviso cada minuto (va a
+  // Sentry).
   await saveState(db, nextState, now);
+  const counts = { newPayments: fresh.length, pending };
+  const emailOutcome =
+    email !== "send" || !mailer
+      ? email === "send"
+        ? "off"
+        : email
+      : await mailer
+          .send({
+            subject: ADMIN_EMAIL_SUBJECT,
+            text: paymentAlertText(fresh, pending, `${base}/admin/pagos`, firstRun),
+          })
+          .then(
+            () => "sent" as const,
+            () => "failed" as const,
+          );
+  if (!to || !meta) return { status: "off", via: null, email: emailOutcome, ...counts };
   try {
     if (await adminWindowOpen(db, to, now)) {
-      await meta.sendText(to, paymentAlertText(fresh, pending, adminUrl, firstRun));
-      return { status: "sent", via: "text", newPayments: fresh.length, pending };
+      await meta.sendText(to, paymentAlertText(fresh, pending, `${base}/admin`, firstRun));
+      return { status: "sent", via: "text", email: emailOutcome, ...counts };
     }
     if (opts.template) {
       await meta.sendTemplate(to, opts.template.name, opts.template.language, [
         paymentAlertParam(fresh),
       ]);
-      return { status: "sent", via: "template", newPayments: fresh.length, pending };
+      return { status: "sent", via: "template", email: emailOutcome, ...counts };
     }
-    return { status: "no_window", via: null, newPayments: fresh.length, pending };
+    return { status: "no_window", via: null, email: emailOutcome, ...counts };
   } catch {
-    return { status: "failed", via: null, newPayments: fresh.length, pending };
+    return { status: "failed", via: null, email: emailOutcome, ...counts };
   }
 }

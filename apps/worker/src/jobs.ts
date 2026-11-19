@@ -1,4 +1,5 @@
 import {
+  type AdminMailer,
   type AuthAdmin,
   bcvSource,
   bumpSignupCounts,
@@ -93,12 +94,16 @@ export async function registerJobs(opts: {
    * nunca en el log) y la plantilla de utilidad para cuando su ventana de 24 h está cerrada.
    */
   adminAlert?: {
-    e164: string;
+    e164: string | null;
     template: { name: string; language: string } | null;
+    /** Correo al administrador con Resend (19/11). Sin él, solo WhatsApp. */
+    mailer: AdminMailer | null;
     dashboardUrl: string;
   } | null;
   /** Aviso a Sentry (sin datos) cuando un pago reportado no se pudo avisar por WhatsApp. */
   onPaymentAlertMissed?: (r: { status: string; newPayments: number }) => void;
+  /** Aviso a Sentry (solo la cuenta) cuando el correo del pago falló o llegó al tope del día. */
+  onPaymentEmailMissed?: (r: { email: "failed" | "capped"; newPayments: number }) => void;
 }) {
   const { boss, db, deps, log } = opts;
   const guarded =
@@ -417,14 +422,20 @@ export async function registerJobs(opts: {
       const r = await runPaymentAlerts(db, meta, {
         adminE164: opts.adminAlert.e164,
         template: opts.adminAlert.template,
+        mailer: opts.adminAlert.mailer,
         dashboardUrl: opts.adminAlert.dashboardUrl,
         now: new Date(),
       });
-      // Solo cuentas: ni el número del administrador ni datos del pago.
-      if (r.status === "sent") log.info(r, "aviso de pago al administrador");
+      // Solo cuentas: ni el número ni el correo del administrador, ni datos del pago.
+      if (!("email" in r)) return; // sin caminos configurados, o nada nuevo
+      if (r.status === "sent" || r.email === "sent") log.info(r, "aviso de pago al administrador");
       if (r.status === "no_window" || r.status === "failed") {
         log.warn(r, "aviso de pago al administrador: no salió");
         opts.onPaymentAlertMissed?.(r);
+      }
+      if (r.email === "failed" || r.email === "capped") {
+        log.warn(r, "correo de pago al administrador: no salió");
+        opts.onPaymentEmailMissed?.({ email: r.email, newPayments: r.newPayments });
       }
     }),
   );
