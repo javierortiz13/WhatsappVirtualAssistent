@@ -25,6 +25,7 @@ import {
 } from "../agent/tools";
 import type { AgentInput, AgentRunner, UnclearReceipt } from "../agent/types";
 import {
+  attachPendingRef,
   type CapStatus,
   currentRenewIntent,
   extractReference,
@@ -858,6 +859,11 @@ async function handlePendingOwner(
       return { reply: es.codeMismatch(), note: "pendiente: código incorrecto" };
     if (result === "expired")
       return { reply: es.codeExpired(registerUrl), note: "pendiente: código vencido" };
+    // Seguridad F1: la invitación escrita en /registro se une recién ahora, con el número del
+    // dueño ya probado desde WhatsApp. Si falla (punto de guardado), el número queda vinculado.
+    await tx
+      .transaction((sp) => attachPendingRef(sp, resolved.tenantId, nowTs))
+      .catch((err) => log.warn({ err: errMsg(err) }, "registro web: invitación"));
     const [tenant] = await tx
       .select({ name: schema.tenant.name, businessType: schema.tenant.businessType })
       .from(schema.tenant)
@@ -3587,6 +3593,7 @@ const pointsCtx = (deps: ProcessDeps, ctx: RouteCtx) => ({
   personal: ctx.personal === true,
   inTrial: ctx.inTrial === true,
   dashboardUrl: deps.config.dashboardUrl,
+  privacyContact: deps.config.privacyContact ?? DEFAULT_PRIVACY_CONTACT,
   now: (deps.now ?? (() => new Date()))(),
 });
 

@@ -135,6 +135,11 @@ export const tenant = app.table(
     pointsLevelAt: timestamp("points_level_at", { withTimezone: true }),
     /** «me invitó CODE» después del registro (0036, P4-B): intentos, máximo 3. */
     referralLateAttempts: smallint("referral_late_attempts").notNull().default(0),
+    /**
+     * El código de invitación escrito en /registro (0037, seguridad F1): espera a que el dueño
+     * verifique su número; ahí se une la invitación y se borra.
+     */
+    pendingRefCode: text("pending_ref_code"),
     ...timestamps,
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -869,6 +874,13 @@ export const pointsNotice = app.table("points_notice", {
 
 /** Lo reservado del tope de regalos del mes, entre todos (0035). caja_app solo lo lee. */
 export const rewardMonth = app.table("reward_month", {
+  month: text("month").primaryKey(),
+  bookedUsd: numeric("booked_usd", { precision: 10, scale: 2 }).notNull().default("0"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Lo reservado por los +50 de los invitados, aparte del tope (0037, seguridad F2). Solo lectura. */
+export const referralMonth = app.table("referral_month", {
   month: text("month").primaryKey(),
   bookedUsd: numeric("booked_usd", { precision: 10, scale: 2 }).notNull().default("0"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

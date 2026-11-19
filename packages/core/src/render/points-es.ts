@@ -157,6 +157,10 @@ export function giftHeldLine(g: GiftLine): string {
 
 /** RW8b-arrive: llegó un regalo detenido o guardado. Leyenda no tiene texto (no se detiene). */
 export function giftArrivedLine(g: GiftLine): string | null {
+  // ER-P4-5: Pana Fiel guardado por la pausa o con `rewards` apagado, en una prueba sin su tope,
+  // llega como 7 días de prueba (`trial_days`). Su línea de llegada todavía no está escrita
+  // (copywriter, v1.4); mientras tanto queda lo de antes: sin línea. Condición 19 de cumplimiento:
+  // con `xp` encendido, ni tope en $0 ni `rewards` apagado hasta que llegue.
   if (g.benefit === "week")
     return `✅ Llegaron tus 7 días de regalo del nivel *${name(4)}*: tu plan ahora vence el ${d(g.fin)}.`;
   if (g.benefit !== "messages") return null;
@@ -594,17 +598,34 @@ export const logrosEmpty = (total: number) =>
   `Ya tienes ${pts(total)} puntos por lo que configuraste. Anota algo en el chat y hoy sumas +${POINT_RULES.record_day}.`;
 
 /**
- * Reversas como líneas (N-2). Los textos no tienen una línea propia para esto (ER, pregunta al
- * copywriter): se usan la fila de RW1c («Borrar lo anotado ese mismo día») y la primera frase de
- * RW8h, palabra por palabra.
+ * RW5-9 «Puntos quitados» (v1.3 c, N-2): su propia tarjeta en «Mis logros», con una fila por
+ * reversa, del más nuevo al más viejo, y el texto de cada razón (las mismas palabras de RW8f y
+ * RW8h en el chat). Reemplaza la fila provisional de RW1c, que mostraba una invitación que dejó de
+ * contar como «Borrar lo anotado ese mismo día».
  */
-export function reversalLine(r: { points: number; reason: string; date: string }): string {
-  const motivo = r.reason.startsWith("manual:")
-    ? (r.reason.slice(7) as keyof typeof REMOVE_REASON_TEXT)
+export const REVERSALS_CARD = {
+  title: "Puntos quitados",
+  note: "Tu nivel no baja y los regalos que ya recibiste no se quitan.",
+  contest: (contacto: string) => `Si crees que alguno es un error, escríbenos a ${contacto}.`,
+} as const;
+
+/** El `{texto}` de una fila de RW5-9, por la razón guardada en `points_event.reason` (0035). */
+export function reversalText(reason: string): string {
+  if (reason === "record_deleted")
+    return "Un día dejó de contar: lo anotado se borró ese mismo día";
+  if (reason === "ref_reversed") return "Una de tus invitaciones dejó de contar";
+  const motivo = reason.startsWith("manual:")
+    ? (reason.slice(7) as keyof typeof REMOVE_REASON_TEXT)
     : null;
   if (motivo && REMOVE_REASON_TEXT[motivo])
-    return `−${pts(r.points)} · Quitamos ${r.points} puntos de tu cuenta porque ${REMOVE_REASON_TEXT[motivo]}. · ${d(r.date)}`;
-  return `−${pts(r.points)} · Borrar lo anotado ese mismo día · ${d(r.date)}`;
+    return `Los quitamos porque ${REMOVE_REASON_TEXT[motivo]}`;
+  // `manual` sin motivo (0035 lo permite), o un motivo fuera de la lista.
+  return "Los quitamos después de revisar tu cuenta";
+}
+
+/** Una fila de RW5-9: `−{k} puntos · {texto} · {fecha}` (la fecha en que se quitaron). */
+export function reversalLine(r: { points: number; reason: string; date: string }): string {
+  return `−${pts(r.points)} puntos · ${reversalText(r.reason)} · ${d(r.date)}`;
 }
 
 /**
@@ -698,8 +719,41 @@ export function inviteReply(v: { code: string } | "not_eligible"): Outbound[] {
   ];
 }
 
-/** RW6i (tres frases): lo que sabe quien invitó. En el chat va en cursiva; en la web, sin `_`. */
+/** RW8g: el código quedó pausado por dos invitaciones que dejaron de contar. */
+export const codePausedLine = (contacto: string) =>
+  `Pausamos tu código para invitar porque dos de tus invitaciones dejaron de contar. Si crees que es un error, escríbenos a ${contacto}.`;
+
+/**
+ * RW4-i con el código pausado (cumplimiento W-2 b): nunca la línea P-3 a quien ya invitó. Pausado
+ * por dos devoluciones (`reversals`): RW8g tal cual.
+ * Pausado a mano desde /admin (`admin`): su línea (W-2 a) todavía no está escrita (copywriter,
+ * v1.4). Mientras tanto queda lo de antes (la línea P-3) y nadie usa «Pausar código» (condición
+ * 17 de cumplimiento). Cuando llegue la línea, va aquí y en el aviso de la pausa manual.
+ */
+export function invitePausedReply(reason: string | null, contacto: string): Outbound[] {
+  if (reason === "reversals") return [{ type: "text", body: codePausedLine(contacto) }];
+  return [{ type: "text", body: NOT_ELIGIBLE_LINE }];
+}
+
+/** RW6i (tres frases): lo que sabe quien invitó. Solo en el chat, en cursiva (W-1: no en la web). */
 export const INVITEE_NOTICE = `Llegaste con la invitación de alguien que usa Rocco: por eso tu prueba trae ${INVITEE_MSGS} mensajes más. Si pagas tu primer mes en los próximos 90 días, esa persona recibe un mes de regalo. Esa persona solo verá en qué paso vas (si te registraste, si ya anotaste algo y si pagaste tu primer mes), nunca tu nombre, tu número, tus montos ni tus movimientos.`;
+
+/**
+ * RW6i-field (v1.3 a): el campo del código en /registro, paso «Tu WhatsApp». Con el cambio W-1 de
+ * cumplimiento: el texto de ayuda 1 sale siempre, haya cookie o no, y RW6i no sale en la web (se
+ * muestra antes de revisar el número, y el +50 depende de la regla 5).
+ */
+export const INVITE_FIELD = {
+  label: "Código de invitación (opcional)",
+  placeholder: "6 letras y números",
+  help1: `Si es tu primera vez en Rocco, con el código tu prueba trae ${INVITEE_MSGS} mensajes más, y si pagas tu primer mes en los próximos 90 días, quien te invitó recibe un mes de regalo. Esa persona solo verá en qué paso vas, nunca tu nombre, tu número, tus montos ni tus movimientos.`,
+  /** Texto de ayuda 2, siempre; «me invitó» va en `<strong>`. */
+  help2: {
+    before: "¿No lo tienes ahora? En tus primeros 7 días se lo puedes mandar a Rocco por el chat: ",
+    strong: "me invitó",
+    after: " y el código.",
+  },
+} as const;
 
 /** RW-late: la respuesta a «me invitó CODE» después del registro. */
 export function lateCodeReply(
@@ -745,7 +799,7 @@ export function referralLine(
     case "ref_reversed":
       return `Una de tus invitaciones dejó de contar: quitamos los +${POINT_RULES.ref_paid} puntos de esa invitación y no hay mes de regalo por ella. Si crees que es un error, escríbenos a ${contacto}.`;
     case "code_paused":
-      return `Pausamos tu código para invitar porque dos de tus invitaciones dejaron de contar. Si crees que es un error, escríbenos a ${contacto}.`;
+      return codePausedLine(contacto);
     case "ref_month_paid":
       return `Tu mes de regalo por invitar ya está aplicado: sumé 30 días a tu plan, que ahora vence el ${d(a.fin)}.`;
     default:

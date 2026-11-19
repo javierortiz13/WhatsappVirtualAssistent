@@ -1,7 +1,6 @@
 import {
   BUSINESS_TYPE_LABELS,
   CODE_TTL_MS,
-  codeCheck,
   es,
   LAUNCH_DEFAULTS,
   launchSettings,
@@ -43,18 +42,15 @@ const ERRORS: Record<string, string> = {
  * que el dueño envía por WhatsApp; la pantalla se actualiza sola cuando llega.
  */
 /**
- * P4-B (US-420, PV-2, SEC-P4-2): con `referrals`, el campo del código, prellenado con la cookie
- * `rocco_ref`; RW6i arriba del campo solo si ese código es válido, calculado aquí en el servidor
- * (sin consulta «¿existe?» desde el navegador). Una cookie que no valida se ignora.
+ * P4-B (US-420, PV-2, SEC-P4-2): con `referrals`, el campo del código (RW6i-field), prellenado con
+ * la cookie `rocco_ref` si tiene la forma. W-1 de cumplimiento: los dos textos de ayuda siempre y
+ * nunca RW6i en la web, así que no hace falta preguntarle a la base si el código existe (ni la
+ * página lo deja ver). Una cookie que no valida se ignora.
  */
-async function inviteField(): Promise<{ code: string; notice: string | null } | null> {
+async function inviteField(): Promise<{ code: string; text: typeof es.INVITE_FIELD } | null> {
   if (!(await referralsOn())) return null;
   const code = cleanCode((await cookies()).get(REF_COOKIE)?.value);
-  if (!code) return { code: "", notice: null };
-  const ok = await db()
-    .transaction((tx) => codeCheck(tx, code))
-    .catch(() => "none" as const);
-  return { code, notice: ok === "ok" ? es.INVITEE_NOTICE : null };
+  return { code: code ?? "", text: es.INVITE_FIELD };
 }
 
 export default async function Registro({

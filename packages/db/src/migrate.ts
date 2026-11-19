@@ -6,13 +6,25 @@ import { loadNearestEnvFile } from "./env-file";
 import { sslFromEnv } from "./ssl";
 
 /**
+ * Los archivos que faltan por aplicar, en orden alfabético. Se mira cada nombre, no el último
+ * número: una migración con número menor que llega después (otra rama, como 0032–0034 después de
+ * 0037) se aplica igual en la próxima corrida.
+ */
+export function pendingMigrations(
+  files: readonly string[],
+  applied: ReadonlySet<string>,
+): string[] {
+  return files.filter((f) => f.endsWith(".sql") && !applied.has(f)).sort();
+}
+
+/**
  * Migrador mínimo: aplica `migrations/*.sql` en orden alfabético, una transacción por archivo,
  * y registra cada uno en `caja_meta.schema_migrations`. Nunca se edita una migración aplicada.
  */
 export async function runMigrations(adminUrl: string, opts: { log?: (m: string) => void } = {}) {
   const log = opts.log ?? (() => {});
   const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "migrations");
-  const files = (await readdir(dir)).filter((f) => f.endsWith(".sql")).sort();
+  const files = await readdir(dir);
   const ssl = sslFromEnv();
   const sql = postgres(adminUrl, { max: 1, onnotice: () => {}, ...(ssl ? { ssl } : {}) });
   try {
@@ -26,8 +38,7 @@ export async function runMigrations(adminUrl: string, opts: { log?: (m: string) 
         (r) => r.name,
       ),
     );
-    for (const file of files) {
-      if (applied.has(file)) continue;
+    for (const file of pendingMigrations(files, applied)) {
       const body = await readFile(join(dir, file), "utf8");
       await sql.begin(async (tx) => {
         await tx.unsafe(body);

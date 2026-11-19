@@ -100,8 +100,10 @@ export async function pointsStats(tx: Tx, tenantId: string, now: Date): Promise<
   const bookedByType = { messages: 0, trial_days: 0, week: 0 };
   const waiting = { ceiling: 0, not_paying: 0, flag_off: 0, paused: 0 };
   for (const g of grants) {
+    // Los +50 de los invitados van en su propio contador (0037, seguridad F2), fuera del tope.
     if (
       g.status === "applied" &&
+      g.kind !== "ref_invitee_msgs" &&
       g.booked_month === month &&
       g.applied_as &&
       g.applied_as in bookedByType

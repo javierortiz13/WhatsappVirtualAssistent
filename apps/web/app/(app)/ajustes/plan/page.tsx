@@ -10,6 +10,7 @@ import {
   quote,
   subscriptionState,
   TRIAL_MESSAGES,
+  trialDays,
   trialSpend,
   unpaidTrashDate,
 } from "@caja/core";
@@ -77,6 +78,8 @@ export default async function MiPlan({
   if (!t) return null;
   const plan = planById(t.plan);
   const state = subscriptionState(t, now);
+  // PM-P4-1 (b): los días reales de su prueba (31, o 38 con el regalo del nivel Pana Fiel).
+  const days = trialDays(t);
   // En la prueba la barra son sus mensajes (07/10); el tope en dólares es solo red de seguridad.
   const pct = trial
     ? Math.min(
@@ -128,9 +131,12 @@ export default async function MiPlan({
         </div>
         {trial ? (
           <p className="sub">
-            {trial.reached
-              ? `Usaste los ${trial.messageCap} mensajes de tu prueba gratis y Rocco dejó de registrar. Tus datos siguen guardados: activa tu plan para seguir.`
-              : `Prueba gratis: llevas ${Math.min(trial.messages, trial.messageCap)} de ${trial.messageCap} mensajes. Al terminarlos o al pasar los 31 días, Rocco deja de registrar hasta que actives el plan.`}
+            {es.PLAN_TRIAL.bar({
+              used: trial.messages,
+              cap: trial.messageCap,
+              days,
+              reached: trial.reached,
+            })}
           </p>
         ) : null}
         {t.status === "suspended" && t.suspendedAt ? (
@@ -172,7 +178,7 @@ export default async function MiPlan({
               <p className="plan-price">
                 Gratis{" "}
                 <span className="sub">
-                  durante tu prueba de 31 días o {TRIAL_MESSAGES} mensajes, lo que llegue primero
+                  {es.PLAN_TRIAL.free(days, trial ? trial.messageCap : TRIAL_MESSAGES)}
                 </span>
               </p>
             ) : (

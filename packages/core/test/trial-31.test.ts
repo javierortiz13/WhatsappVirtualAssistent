@@ -2,7 +2,8 @@ import { eq, schema, withTenant } from "@caja/db";
 import { seedTenant } from "@caja/db/seed";
 import { createTestDb } from "@caja/db/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runTrial31, TRIAL_DAYS } from "../src/billing/index";
+import { runTrial31, TRIAL_DAYS, trialDays, trialMessageCap } from "../src/billing/index";
+import { es } from "../src/render/index";
 
 /** Ajuste a la prueba de 31 días (handoff trial-31 T8): una cuenta por regla. */
 const DAY = 86_400_000;
@@ -144,5 +145,36 @@ describe("trial:31", () => {
     ).toBe(0);
     expect(c.sin_cambio_ya_tiene_31.total).toBe(4);
     expect(await extends_()).toBe(3);
+  });
+});
+
+/** PM-P4-1 (b): Ajustes → Plan dice los días y los mensajes reales de la prueba de la cuenta. */
+describe("Ajustes → Plan: la prueba de esta cuenta", () => {
+  it("+20 mensajes y +7 días → 120 y 38", () => {
+    const createdAt = new Date("2026-11-20T15:00:00Z");
+    const t = {
+      createdAt,
+      trialEndsAt: new Date(createdAt.getTime() + (TRIAL_DAYS + 7) * DAY),
+      extraMessages: 20,
+    };
+    const days = trialDays(t);
+    const cap = trialMessageCap(t);
+    expect([days, cap]).toEqual([38, 120]);
+    expect(es.PLAN_TRIAL.free(days, cap)).toBe(
+      "durante tu prueba de 38 días o 120 mensajes, lo que llegue primero",
+    );
+    expect(es.PLAN_TRIAL.bar({ used: 12, cap, days, reached: false })).toBe(
+      "Prueba gratis: llevas 12 de 120 mensajes. Al terminarlos o al pasar los 38 días, Rocco deja de registrar hasta que actives el plan.",
+    );
+    expect(es.PLAN_TRIAL.bar({ used: 121, cap, days, reached: true })).toBe(
+      "Usaste los 120 mensajes de tu prueba gratis y Rocco dejó de registrar. Tus datos siguen guardados: activa tu plan para seguir.",
+    );
+  });
+  it("sin regalos: 31 y 100; sin fecha de fin, 31", () => {
+    const createdAt = new Date("2026-11-20T15:00:00Z");
+    const end = new Date(createdAt.getTime() + TRIAL_DAYS * DAY);
+    expect(trialDays({ createdAt, trialEndsAt: end })).toBe(31);
+    expect(trialDays({ createdAt, trialEndsAt: null })).toBe(31);
+    expect(trialMessageCap({ extraMessages: 0 })).toBe(100);
   });
 });

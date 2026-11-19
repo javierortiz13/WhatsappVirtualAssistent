@@ -1,12 +1,12 @@
 import { randomInt } from "node:crypto";
-import { and, eq, gte, inArray, rows, schema, sql, type Tx } from "@caja/db";
+import { and, eq, gte, inArray, type Queryable, rows, schema, sql, type Tx } from "@caja/db";
 import { businessDateOf, type IsoDate } from "../domain/dates";
 import { Decimal } from "../domain/money";
-import { keptDays } from "../ledger/habits";
+import { habitSettings, keptDays } from "../ledger/habits";
 import { addExtraMessages, setTenantBilling } from "./payments";
 import { FOUNDER, PERIOD_DAYS, planById } from "./plans";
 import { withDiscount } from "./pricing";
-import { addNotice, bookRewardCost, isInternalTenant, isPaying, POINT_RULES } from "./rewards";
+import { addNotice, isInternalTenant, isPaying, POINT_RULES } from "./rewards";
 import { trialSpend } from "./trial";
 import { caracasMonth } from "./usage";
 
@@ -407,8 +407,26 @@ function monthCost(t: TenantRow, now: Date): Decimal {
 // ---------------------------------------------------------------- el invitado
 
 /**
+ * Reserva el costo de un +50 del invitado en su propio contador (0037, `referral_month`), fuera
+ * del tope de los regalos de nivel (seguridad F2, §P4.6 regla 2): no lo detiene ni le quita
+ * espacio a los regalos.
+ */
+export async function bookReferralCost(tx: Tx, month: string, usd: Decimal): Promise<void> {
+  await tx.execute(sql`select app.book_referral_cost(${month}, ${usd.toFixed(2)}::numeric)`);
+}
+
+/** Lo reservado este mes por los +50 de los invitados (/admin fila 5, `pnpm metrics`). */
+export async function referralBookedThisMonth(db: Queryable, month: string): Promise<Decimal> {
+  const [r] = await db
+    .select({ booked: schema.referralMonth.bookedUsd })
+    .from(schema.referralMonth)
+    .where(eq(schema.referralMonth.month, month));
+  return new Decimal(r?.booked ?? 0);
+}
+
+/**
  * +50 mensajes de prueba del invitado (US-423, A39): una vez, en la prueba y sin el tope de la
- * prueba alcanzado; su costo se reserva sin mirar el tope (no lo detiene). Devuelve el tope nuevo.
+ * prueba alcanzado; su costo va al contador de invitados (no lo detiene). Devuelve el tope nuevo.
  */
 export async function grantInviteeMessages(
   tx: Tx,
@@ -437,7 +455,7 @@ export async function grantInviteeMessages(
   if (!done[0]) return null;
   const after = await addExtraMessages(tx, t, REFERRAL.inviteeMsgs, null, now, "referral");
   if (!internal)
-    await bookRewardCost(tx, caracasMonth(now).key, new Decimal(REFERRAL.inviteeCostUsd), true);
+    await bookReferralCost(tx, caracasMonth(now).key, new Decimal(REFERRAL.inviteeCostUsd));
   return after;
 }
 
@@ -490,6 +508,43 @@ export async function lateCode(
   if (r !== "attached") return { kind: "not_valid" };
   const tope = await grantInviteeMessages(tx, tenantId, now);
   return { kind: "attached", code, tope };
+}
+
+/**
+ * Registro web (seguridad F1): el código escrito en /registro se guarda con la cuenta y espera;
+ * no se une ni da nada hasta que el dueño verifique su número (`attachPendingRef`). Uno sin la
+ * forma no se guarda.
+ */
+export async function storePendingRef(tx: Tx, tenantId: string, code: string): Promise<void> {
+  if (!isCodeShape(code)) return;
+  await tx
+    .update(schema.tenant)
+    .set({ pendingRefCode: code })
+    .where(eq(schema.tenant.id, tenantId));
+}
+
+/**
+ * Al verificar el número del dueño de una cuenta web (seguridad F1): con `xp` y `referrals`, une
+ * el código que esperaba y da el +50; así la regla 5 («nuevo en Rocco») mira un número que el
+ * dueño acaba de probar desde WhatsApp. El código se borra siempre. Devuelve el tope nuevo o null.
+ */
+export async function attachPendingRef(
+  tx: Tx,
+  tenantId: string,
+  now: Date,
+): Promise<number | null> {
+  const [t] = await tx
+    .select({ code: schema.tenant.pendingRefCode })
+    .from(schema.tenant)
+    .where(eq(schema.tenant.id, tenantId));
+  if (!t?.code) return null;
+  await tx
+    .update(schema.tenant)
+    .set({ pendingRefCode: null })
+    .where(eq(schema.tenant.id, tenantId));
+  const flags = await habitSettings(tx);
+  if (!flags.xp || !flags.referrals) return null;
+  return attachAtSignup(tx, tenantId, t.code, "web", now);
 }
 
 /** Une en el registro (chat o web) y da el +50 (US-421, US-423). Devuelve el tope nuevo o null. */

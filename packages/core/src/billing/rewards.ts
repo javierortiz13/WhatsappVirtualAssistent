@@ -281,17 +281,19 @@ async function benefitFor(
   t: TenantRow,
   level: Level,
   now: Date,
-  heldBefore: boolean,
+  heldByCeiling: boolean,
 ): Promise<Benefit> {
   if (level === 2) return { kind: "messages", k: GIFTS.msg2 };
   if (level === 5) return { kind: "discount" };
   if (level === 4) return isPaying(t, now) ? { kind: "week" } : { kind: "not_paying" };
   // Pana Fiel: días de prueba si la prueba no llegó a su tope (§P4.4 regla 11); con el tope,
-  // espera al primer pago (A48). Detenido por el tope de regalos, llega como mensajes (RW2).
+  // espera al primer pago (A48). Detenido por el tope de regalos, llega como mensajes, porque eso
+  // le prometieron RW2 y RW8b. Guardado por la pausa o con `rewards` apagado (ER-P4-5), solo le
+  // dijeron «tu regalo de este nivel» (RW2-hold): llegan los 7 días de prueba de RW1b.
   if (t.status !== "trial") return { kind: "messages", k: GIFTS.msg3 };
   const spend = await trialSpend(tx, t);
   if (spend.reached) return { kind: "not_paying" };
-  return heldBefore
+  return heldByCeiling
     ? { kind: "messages", k: GIFTS.msg3 }
     : { kind: "trial_days", days: GIFTS.dias3 };
 }
@@ -327,11 +329,11 @@ export async function settleGrant(
   const [t] = await tx.select().from(schema.tenant).where(eq(schema.tenant.id, claimed.tenantId));
   if (!t) return null;
   const today = businessDateOf(ctx.now);
-  const heldBefore =
+  // ER-P4-5: solo una espera por el tope (ahora, o antes: `ceilingHitMonth` queda en `flags`).
+  const heldByCeiling =
     claimed.waitReason === "ceiling" ||
-    claimed.waitReason === "paused" ||
-    claimed.waitReason === "flag_off";
-  const benefit = await benefitFor(tx, t, level, ctx.now, heldBefore);
+    Boolean((claimed.flags as { ceilingHitMonth?: string }).ceilingHitMonth);
+  const benefit = await benefitFor(tx, t, level, ctx.now, heldByCeiling);
   const base: GiftLine = {
     level,
     outcome: "applied",

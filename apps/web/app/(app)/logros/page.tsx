@@ -10,11 +10,13 @@ import {
   myPeople,
   pointsView,
   referralCodeFor,
+  rewardSettings,
   syncPoints,
 } from "@caja/core";
 import { eq, schema, withTenant } from "@caja/db";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { PRIVACY_CONTACT } from "@/lib/contact";
 import { db } from "@/lib/db";
 import { requireTenant } from "@/lib/session";
 import { CopyLink } from "./copy-link";
@@ -33,7 +35,7 @@ const LEVELS: Level[] = [1, 2, 3, 4, 5];
  */
 export default async function Logros() {
   const { tenant } = await requireTenant();
-  const flags = await habitSettings(db());
+  const [flags, rewards] = await Promise.all([habitSettings(db()), rewardSettings(db())]);
   if (!flags.xp) notFound();
   if (tenant.role !== "owner")
     return (
@@ -90,8 +92,13 @@ export default async function Logros() {
       referrals: flags.referrals,
     },
   });
-  const rules = es.pointsRules({ dailyClose: flags.dailyClose, referrals: flags.referrals });
-  const updated = es.rulesUpdatedOn([]);
+  // T-2: las reglas y la fecha, igual que /puntos (P-16): las líneas de invitaciones quedan desde
+  // que `referrals` se encendió una vez, y la fecha mira los cambios de `dailyClose` y `referrals`.
+  const rules = es.pointsRules({
+    dailyClose: flags.dailyClose,
+    referrals: flags.referrals || Boolean(rewards.referralsOnSince),
+  });
+  const updated = es.rulesUpdatedOn([rewards.dailyCloseChangedOn, rewards.referralsChangedOn]);
   const todayChip = es.logrosToday(v.today);
   return (
     <div className="stack">
@@ -258,7 +265,11 @@ export default async function Logros() {
       ) : null}
 
       {v.reversals.length ? (
-        <section className="card stack-sm">
+        <section className="card stack-sm" aria-labelledby="quitados">
+          <h2 id="quitados">{es.REVERSALS_CARD.title}</h2>
+          <p className="sub" style={{ margin: 0 }}>
+            {es.REVERSALS_CARD.note}
+          </p>
           <ul className="lvl-rows">
             {v.reversals.map((r, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: líneas sin id propio, en orden fijo.
@@ -267,6 +278,9 @@ export default async function Logros() {
               </li>
             ))}
           </ul>
+          <p className="sub" style={{ margin: 0 }}>
+            {es.REVERSALS_CARD.contest(PRIVACY_CONTACT)}
+          </p>
         </section>
       ) : null}
 

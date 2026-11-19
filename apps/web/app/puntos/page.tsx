@@ -9,7 +9,8 @@ const P = es.PUNTOS_PAGE;
 export async function generateMetadata(): Promise<Metadata> {
   const { flags, rewards } = await settings();
   return {
-    title: P.title,
+    // T-1: el layout ya agrega « · Rocco» («Reglas de los puntos · Rocco»).
+    title: P.h1,
     description: invitesShown(flags, rewards) ? P.descriptionReferrals : P.description,
   };
 }

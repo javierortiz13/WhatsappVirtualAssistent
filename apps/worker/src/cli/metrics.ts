@@ -11,6 +11,7 @@ import {
   type PointsStats,
   pointsStats,
   type ReminderStats,
+  referralBookedThisMonth,
   referralStats,
   reminderStats,
   rewardSettings,
@@ -379,11 +380,13 @@ async function points() {
         }),
       );
     const r = summarizeReferrals(refs, await invitedByChat(db));
+    // Los +50 de los invitados del mes, en su propio contador (0037, seguridad F2).
+    const invitees = await referralBookedThisMonth(db, caracasMonth(now).key).catch(() => null);
     console.log(
       `4 invitaciones (90 d / total): por chat sin cuenta ${r.invitedChat} · registradas ${r.signedUp90}/${r.signedUpAll} · activas ${r.active90}/${r.activeAll} · pagaron ${r.paid90}/${r.paidAll} · vencidas ${r.ended.expired}, ya usaban Rocco ${r.ended.returning}, devueltas ${r.ended.reversed}, rechazadas ${r.ended.refused}`,
     );
     console.log(
-      `5 meses de regalo: por revisar ${r.months.pending_review} · esperando ${r.months.waiting} · aplicados ${r.months.applied} · cancelados ${r.months.cancelled} · +50 del invitado ${r.inviteeBonus} ($${r.inviteeBonusUsd.toFixed(2)})`,
+      `5 meses de regalo: por revisar ${r.months.pending_review} · esperando ${r.months.waiting} · aplicados ${r.months.applied} · cancelados ${r.months.cancelled} · +50 del invitado ${r.inviteeBonus} ($${r.inviteeBonusUsd.toFixed(2)}; este mes $${invitees ? invitees.toFixed(2) : "—"}, fuera del tope)`,
     );
     console.log(`6 señales de invitación ${r.flagged} · códigos pausados ${r.codesDisabled}`);
   } catch {

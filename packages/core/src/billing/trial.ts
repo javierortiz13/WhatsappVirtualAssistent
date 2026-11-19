@@ -1,6 +1,6 @@
 import { and, eq, gte, rows, schema, sql, type Tx } from "@caja/db";
 import { Decimal } from "../domain/money";
-import { TRIAL_BUDGET_USD, TRIAL_MESSAGES } from "./plans";
+import { TRIAL_BUDGET_USD, TRIAL_DAYS, TRIAL_MESSAGES } from "./plans";
 
 /**
  * Límites de la prueba gratis. Desde el 07/10/2026 la prueba se mide en MENSAJES del usuario (100
@@ -45,6 +45,15 @@ export type TrialSpend = {
 /** Mensajes de la prueba: los 100 de todos más los que regaló el administrador. */
 export function trialMessageCap(t: Pick<TrialTenant, "extraMessages">): number {
   return TRIAL_MESSAGES + Math.max(0, t.extraMessages ?? 0);
+}
+
+/**
+ * Días enteros de la prueba de esta cuenta, del registro al fin (31, o 38 con los 7 del nivel Pana
+ * Fiel): lo que dice Ajustes → Plan (PM-P4-1 b). Sin fecha de fin, los 31 de todos.
+ */
+export function trialDays(t: { createdAt: Date; trialEndsAt: Date | null }): number {
+  if (!t.trialEndsAt) return TRIAL_DAYS;
+  return Math.max(0, Math.round((t.trialEndsAt.getTime() - t.createdAt.getTime()) / 86_400_000));
 }
 
 /** Red de seguridad en USD: la propia del negocio o $4 por cada 100 mensajes de su prueba. */

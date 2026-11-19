@@ -580,6 +580,44 @@ describe("puntos (P4-A)", () => {
       // Guardián (+20, en la prueba, siguen en el mes) y Pana Fiel (+50) al pagar.
       expect((await tenantRow(tn.id)).extraMessages).toBe(70);
     });
+    it("ER-P4-5: Pana Fiel en la prueba detenido por el tope → llega como +50 mensajes", async () => {
+      await saveRewardSettings(t.db, { monthlyCeilingUsd: 1 }, "test", NOW);
+      const tn = await tenant({ trialEndsAt: new Date("2026-12-25T12:00:00Z") });
+      await give(tn.id, 100);
+      await sync(tn.id); // Guardián: $0.42 cabe
+      await give(tn.id, 300);
+      await sync(tn.id); // Pana Fiel (7 días de prueba, $0.60): no cabe
+      const n3 = (await grants(tn.id)).find((g) => g.kind === "level_n3");
+      expect([n3?.status, n3?.waitReason]).toEqual(["waiting", "ceiling"]);
+      await runPointsHousekeeping(t.db, new Date("2026-12-01T12:00:00Z"));
+      const after = (await grants(tn.id)).find((g) => g.kind === "level_n3");
+      expect([after?.status, after?.appliedAs]).toEqual(["applied", "messages"]);
+      const row = await tenantRow(tn.id);
+      expect(row.extraMessages).toBe(70);
+      expect(row.trialEndsAt?.toISOString()).toBe("2026-12-25T12:00:00.000Z");
+    });
+    for (const held of ["paused", "flag_off"] as const)
+      it(`ER-P4-5: Pana Fiel en la prueba guardado (${held}) → llega como +7 días de prueba`, async () => {
+        if (held === "paused")
+          await saveRewardSettings(t.db, { monthlyCeilingUsd: 0 }, "test", NOW);
+        else await saveHabitSettings(t.db, { rewards: false }, "test", NOW);
+        const end = new Date("2026-12-25T12:00:00Z");
+        const tn = await tenant({ trialEndsAt: end });
+        await give(tn.id, 400);
+        await sync(tn.id);
+        const n3 = (await grants(tn.id)).find((g) => g.kind === "level_n3");
+        expect([n3?.status, n3?.waitReason]).toEqual(["waiting", held]);
+        if (held === "paused")
+          await saveRewardSettings(t.db, { monthlyCeilingUsd: 20 }, "test", NOW);
+        else await saveHabitSettings(t.db, { rewards: true }, "test", NOW);
+        await sync(tn.id);
+        const after = (await grants(tn.id)).find((g) => g.kind === "level_n3");
+        expect([after?.status, after?.appliedAs]).toEqual(["applied", "trial_days"]);
+        const row = await tenantRow(tn.id);
+        expect(row.trialEndsAt?.getTime()).toBe(end.getTime() + 7 * DAY);
+        // Solo los +20 del Guardián: Pana Fiel no llegó como mensajes.
+        expect(row.extraMessages).toBe(20);
+      });
     it("dos meses por encima del tope → alerta de /admin", async () => {
       await t.db.insert(schema.rewardMonth).values([
         { month: "2026-10", bookedUsd: "25.00" },

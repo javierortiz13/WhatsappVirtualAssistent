@@ -4116,4 +4116,17 @@ export const PRIVACY_BANNER = {
   dismissLabel: "Cerrar aviso de privacidad",
 } as const;
 
+/**
+ * Ajustes → Plan en la prueba (PM-P4-1 b): con los días y los mensajes reales de la cuenta (un
+ * regalo de nivel o el +50 del invitado los cambian), no los 31 y 100 de todos.
+ */
+export const PLAN_TRIAL = {
+  bar: (v: { used: number; cap: number; days: number; reached: boolean }) =>
+    v.reached
+      ? `Usaste los ${v.cap} mensajes de tu prueba gratis y Rocco dejó de registrar. Tus datos siguen guardados: activa tu plan para seguir.`
+      : `Prueba gratis: llevas ${Math.min(v.used, v.cap)} de ${v.cap} mensajes. Al terminarlos o al pasar los ${v.days} días, Rocco deja de registrar hasta que actives el plan.`,
+  free: (days: number, cap: number) =>
+    `durante tu prueba de ${days} días o ${cap} mensajes, lo que llegue primero`,
+} as const;
+
 export * from "./points-es";

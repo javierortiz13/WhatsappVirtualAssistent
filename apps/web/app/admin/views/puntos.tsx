@@ -10,6 +10,8 @@ export type PuntosData = {
   settings: RewardSettings;
   summary: PointsSummary | null;
   booked: number;
+  /** Fila 5: los +50 de los invitados de este mes, fuera del tope (0037, seguridad F2). */
+  bookedInvitees: number;
   alert: boolean;
   referrals: ReferralSummary | null;
   review: RefReviewRow[];
@@ -172,6 +174,7 @@ export function PuntosView(d: PuntosData) {
                     "+50 del invitado (fuera del tope)",
                     `${r.inviteeBonus} (${$(r.inviteeBonusUsd)})`,
                   ],
+                  ["+50 del invitado, este mes", $(d.bookedInvitees)],
                   ["Para revisar", null],
                   ["Invitaciones con señales", r.flagged],
                   ["Códigos pausados", r.codesDisabled],

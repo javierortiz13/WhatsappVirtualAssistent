@@ -23,6 +23,7 @@ import {
   pointsView,
   type ReferralStats,
   type ReminderStats,
+  referralBookedThisMonth,
   referralStats,
   reminderStats,
   rewardSettings,
@@ -592,17 +593,20 @@ export async function loadPoints(tenants: TenantRow[], now: Date) {
       list.push(await withTenant(conn, t.id, (tx) => pointsStats(tx, t.id, now)));
     }
     const booked = await bookedThisMonth(conn, month);
+    // Fila 5: los +50 de los invitados del mes, en su propio contador (0037, seguridad F2).
+    const invitees = await referralBookedThisMonth(conn, month).catch(() => null);
     return {
       summary: summarizePoints(list),
       settings,
       booked: Number(booked.toFixed(2)),
+      bookedInvitees: invitees ? Number(invitees.toFixed(2)) : 0,
       // El 10 % de Leyenda se reserva sin grant: lo que queda del contador.
       alert: settings.alertMonth === month && !settings.alertDismissed,
     };
   } catch (err) {
     // Sin la migración 0035 la tarjeta no se puede calcular; el resto sigue.
     console.error(JSON.stringify({ level: "error", msg: "admin puntos", detail: errorText(err) }));
-    return { summary: null, settings, booked: 0, alert: false };
+    return { summary: null, settings, booked: 0, bookedInvitees: 0, alert: false };
   }
 }
 

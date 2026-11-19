@@ -27,6 +27,7 @@ export default async function AdminPuntos({
       settings={points.settings}
       summary={points.summary}
       booked={points.booked}
+      bookedInvitees={points.bookedInvitees}
       alert={points.alert}
       referrals={refs.summary}
       review={refs.review}

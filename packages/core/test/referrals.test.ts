@@ -22,12 +22,21 @@ import {
 } from "../src/billing/referrals";
 import { saveRewardSettings } from "../src/billing/rewards";
 import { trialMessageCap } from "../src/billing/trial";
+import { caracasMonth } from "../src/billing/usage";
 import { businessDateOf } from "../src/domain/dates";
 import { Decimal } from "../src/domain/money";
+import { pointsReply } from "../src/inbox/points-chat";
 import { saveHabitSettings } from "../src/ledger/habits";
+import { syncPoints } from "../src/ledger/points";
 import { handleSignup } from "../src/onboarding/chat-signup";
 import { eraseTenant } from "../src/onboarding/erase";
-import { inviteReply, lateCodeReply } from "../src/render/points-es";
+import {
+  INVITE_FIELD,
+  inviteReply,
+  lateCodeReply,
+  REVERSALS_CARD,
+  reversalLine,
+} from "../src/render/points-es";
 
 /**
  * Invitaciones (PRD hábitos v4.2.1, P4-B: US-412, US-418, US-419, US-421, US-422, US-423). Las
@@ -497,5 +506,120 @@ describe("invitaciones (P4-B)", () => {
       type: "text",
       body: "Tu enlace para invitar aparece cuando hayas anotado algo en 3 días distintos.",
     });
+  });
+  it("seguridad F2: los +50 van a su contador y no le quitan espacio a los regalos de nivel", async () => {
+    await saveRewardSettings(t.db, { monthlyCeilingUsd: 1 }, "test", new Date());
+    try {
+      const month = caracasMonth(new Date()).key;
+      const booked = async (table: typeof schema.rewardMonth | typeof schema.referralMonth) =>
+        Number((await t.db.select().from(table).where(eq(table.month, month)))[0]?.bookedUsd ?? 0);
+      const ceilingBefore = await booked(schema.rewardMonth);
+      const refBefore = await booked(schema.referralMonth);
+      for (let i = 0; i < 3; i++) {
+        const b = await tenant();
+        expect(
+          await withTenant(t.db, b.id, (tx) => grantInviteeMessages(tx, b.id, new Date())),
+        ).toBe(50);
+      }
+      expect(await booked(schema.rewardMonth)).toBe(ceilingBefore);
+      expect((await booked(schema.referralMonth)) - refBefore).toBeCloseTo(3.15, 2);
+      // Un Guardián ($0,42) todavía cabe bajo el tope de $1 y se aplica.
+      const c = await tenant();
+      await withTenant(t.db, c.id, (tx) =>
+        tx.insert(schema.pointsEvent).values({
+          tenantId: c.id,
+          rule: "ref_paid",
+          refKey: randomUUID(),
+          points: 100,
+          businessDate: businessDateOf(new Date()),
+        }),
+      );
+      await withTenant(t.db, c.id, (tx) => syncPoints(tx, c.id, new Date()));
+      const [n2] = (await grantsOf(c.id)).filter((g) => g.kind === "level_n2");
+      expect([n2?.status, n2?.costUsdEstimate]).toEqual(["applied", "0.42"]);
+      expect(await booked(schema.rewardMonth)).toBeCloseTo(ceilingBefore + 0.42, 2);
+    } finally {
+      await saveRewardSettings(t.db, { monthlyCeilingUsd: 20 }, "test", new Date());
+    }
+  });
+
+  it("W-2 b: «Invitar a alguien» con el código pausado nunca responde la línea P-3 por devoluciones", async () => {
+    const a = await inviter();
+    const ask = () =>
+      withTenant(t.db, a.id, (tx) =>
+        pointsReply(
+          tx,
+          {
+            tenantId: a.id,
+            role: "owner",
+            personal: false,
+            inTrial: true,
+            dashboardUrl: "https://x.test",
+            privacyContact: "privacidad@ejemplo.com",
+            now: new Date(),
+          },
+          "invite",
+          "text",
+        ),
+      );
+    const pause = (reason: "reversals" | "admin") =>
+      withTenant(t.db, a.id, (tx) =>
+        tx
+          .update(schema.referralCode)
+          .set({ disabledAt: new Date(), disabledReason: reason })
+          .where(eq(schema.referralCode.tenantId, a.id)),
+      );
+    await pause("reversals");
+    expect((await ask())?.outbound).toEqual([
+      {
+        type: "text",
+        body: "Pausamos tu código para invitar porque dos de tus invitaciones dejaron de contar. Si crees que es un error, escríbenos a privacidad@ejemplo.com.",
+      },
+    ]);
+    // Pausa manual: su línea (W-2 a) no está escrita; queda la de antes hasta que llegue.
+    await pause("admin");
+    expect((await ask())?.outbound).toEqual([
+      {
+        type: "text",
+        body: "Tu enlace para invitar aparece cuando hayas anotado algo en 3 días distintos.",
+      },
+    ]);
+  });
+
+  it("W-1: el campo de /registro (RW6i-field v1.3), con los dos textos de ayuda y sin RW6i", () => {
+    expect(INVITE_FIELD.label).toBe("Código de invitación (opcional)");
+    expect(INVITE_FIELD.placeholder).toBe("6 letras y números");
+    expect(INVITE_FIELD.help1).toBe(
+      "Si es tu primera vez en Rocco, con el código tu prueba trae 50 mensajes más, y si pagas tu primer mes en los próximos 90 días, quien te invitó recibe un mes de regalo. Esa persona solo verá en qué paso vas, nunca tu nombre, tu número, tus montos ni tus movimientos.",
+    );
+    const h2 = INVITE_FIELD.help2;
+    expect(`${h2.before}${h2.strong}${h2.after}`).toBe(
+      "¿No lo tienes ahora? En tus primeros 7 días se lo puedes mandar a Rocco por el chat: me invitó y el código.",
+    );
+    expect(h2.strong).toBe("me invitó");
+    expect(JSON.stringify(INVITE_FIELD)).not.toContain("por eso tu prueba trae");
+  });
+
+  it("W-3: «Puntos quitados» (RW5-9 v1.3) con una fila por razón", () => {
+    const date = "2026-12-03";
+    expect(reversalLine({ points: 100, reason: "ref_reversed", date })).toBe(
+      "−100 puntos · Una de tus invitaciones dejó de contar · jue 03/12",
+    );
+    expect(reversalLine({ points: 5, reason: "record_deleted", date })).toBe(
+      "−5 puntos · Un día dejó de contar: lo anotado se borró ese mismo día · jue 03/12",
+    );
+    expect(reversalLine({ points: 25, reason: "manual:our_error", date })).toBe(
+      "−25 puntos · Los quitamos porque te los sumamos por un error nuestro · jue 03/12",
+    );
+    expect(reversalLine({ points: 1200, reason: "manual", date })).toBe(
+      "−1.200 puntos · Los quitamos después de revisar tu cuenta · jue 03/12",
+    );
+    expect(REVERSALS_CARD.title).toBe("Puntos quitados");
+    expect(REVERSALS_CARD.note).toBe(
+      "Tu nivel no baja y los regalos que ya recibiste no se quitan.",
+    );
+    expect(REVERSALS_CARD.contest("privacidad@ejemplo.com")).toBe(
+      "Si crees que alguno es un error, escríbenos a privacidad@ejemplo.com.",
+    );
   });
 });

@@ -30,8 +30,16 @@ type Props = {
   pilotNote: string;
   /** Beta (07/10): sin precios, "31 días o 100 mensajes gratis". */
   beta?: boolean;
-  /** P4-B (US-420): el campo del código (prellenado) y RW6i si el código es válido; null sin invitaciones. */
-  invite?: { code: string; notice: string | null } | null;
+  /** P4-B (US-420): el campo del código (prellenado) y sus textos (RW6i-field); null sin invitaciones. */
+  invite?: { code: string; text: InviteFieldText } | null;
+};
+
+/** RW6i-field (v1.3 a): los textos llegan del servidor (`es.INVITE_FIELD`). */
+type InviteFieldText = {
+  label: string;
+  placeholder: string;
+  help1: string;
+  help2: { before: string; strong: string; after: string };
 };
 
 type AccountDraft = { template: string; name: string; opening: string };
@@ -164,8 +172,8 @@ export function RegistroWizard(props: Props) {
           <>
             <h1>¿Cómo lo vas a usar?</h1>
             <p className="lead">
-              La prueba es igual para todos: 31 días o 100 mensajes gratis, lo que llegue primero.
-              El plan lo eliges cuando termine.
+              La prueba es de 31 días o 100 mensajes gratis, lo que llegue primero. El plan lo
+              eliges cuando termine.
             </p>
             <div className="choice-list">
               {props.plans.map((p) => (
@@ -468,9 +476,8 @@ export function RegistroWizard(props: Props) {
               </div>
               {props.invite ? (
                 <div className="stack-sm">
-                  {props.invite.notice ? <p className="sub">{props.invite.notice}</p> : null}
                   <label className="stack-sm">
-                    <span className="label">¿Te invitó alguien? Código</span>
+                    <span className="label">{props.invite.text.label}</span>
                     <input
                       className="input"
                       value={refCode}
@@ -478,9 +485,19 @@ export function RegistroWizard(props: Props) {
                       autoCapitalize="characters"
                       autoComplete="off"
                       maxLength={6}
-                      placeholder="RK4M7Q"
+                      placeholder={props.invite.text.placeholder}
+                      aria-describedby="ref-help-1 ref-help-2"
                     />
                   </label>
+                  {/* W-1: los dos textos siempre, con o sin código de la cookie; RW6i no sale aquí. */}
+                  <p className="sub" id="ref-help-1" style={{ margin: 0 }}>
+                    {props.invite.text.help1}
+                  </p>
+                  <p className="sub" id="ref-help-2" style={{ margin: 0 }}>
+                    {props.invite.text.help2.before}
+                    <strong>{props.invite.text.help2.strong}</strong>
+                    {props.invite.text.help2.after}
+                  </p>
                 </div>
               ) : null}
               <div className="recap">

@@ -2,7 +2,6 @@
 
 import {
   AccountError,
-  attachAtSignup,
   BUSINESS_TYPE_LABELS,
   Decimal,
   issueCode,
@@ -10,6 +9,7 @@ import {
   PhoneTakenError,
   parseVenezuelanAmount,
   registerBusiness,
+  storePendingRef,
 } from "@caja/core";
 import { errorText } from "@caja/core/log";
 import { withTenant } from "@caja/db";
@@ -99,16 +99,17 @@ export async function registerWizardAction(
       })),
     });
     await setLinkCookie(r.code, r.expiresAt);
-    // P4-B (US-420, US-423, SEC-P4-12): la invitación se crea con la cuenta, y nunca antes; la
-    // cookie `rocco_ref` se borra al crearla. Un código inválido no deja rastro ni mensaje.
+    // P4-B (US-420, US-423, SEC-P4-12) y seguridad F1: el código se guarda con la cuenta, pero la
+    // invitación y el +50 llegan recién cuando el dueño verifica su número por WhatsApp
+    // (`attachPendingRef`), nunca antes. La cookie `rocco_ref` se borra al crear la cuenta. Un
+    // código inválido no deja rastro ni mensaje.
     const ref = cleanCode(f.ref_code);
     if (ref && (await referralsOn()))
-      await withTenant(db(), r.tenantId, (tx) =>
-        attachAtSignup(tx, r.tenantId, ref, "web", new Date()),
-      ).catch((err) =>
-        console.error(
-          JSON.stringify({ level: "error", msg: "registro: invitación", detail: errorText(err) }),
-        ),
+      await withTenant(db(), r.tenantId, (tx) => storePendingRef(tx, r.tenantId, ref)).catch(
+        (err) =>
+          console.error(
+            JSON.stringify({ level: "error", msg: "registro: invitación", detail: errorText(err) }),
+          ),
       );
     (await cookies()).delete(REF_COOKIE);
   } catch (err) {

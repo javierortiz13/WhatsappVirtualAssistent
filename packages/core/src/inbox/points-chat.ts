@@ -13,6 +13,7 @@ import {
 import type { Outbound } from "../render/outbound";
 import {
   closePointsLine,
+  invitePausedReply,
   inviteReply,
   lateCodeReply,
   myPoints,
@@ -69,6 +70,8 @@ export type PointsChatCtx = {
   personal: boolean;
   inTrial: boolean;
   dashboardUrl: string;
+  /** El contacto de RW8g (RW4-i con el código pausado). */
+  privacyContact: string;
   now: Date;
 };
 
@@ -89,7 +92,13 @@ export async function pointsReply(
   if (ctx.role !== "owner") return { outbound: [myPointsEmployee()], toolCalls: [mark] };
   if (ask === "invite") {
     const invite = await inviteState(tx, ctx.tenantId);
-    return { outbound: inviteReply(invite ?? "not_eligible"), toolCalls: [mark] };
+    return {
+      outbound:
+        invite !== "not_eligible" && "paused" in invite
+          ? invitePausedReply(invite.paused, ctx.privacyContact)
+          : inviteReply(invite),
+      toolCalls: [mark],
+    };
   }
   if (ask === "how")
     return {
@@ -131,27 +140,33 @@ export async function pointsReply(
     leyendaEnded: v.level === 5 && (await leyendaEnded(tx, ctx.tenantId)),
     waiting,
     dashboardUrl: ctx.dashboardUrl,
-    invite: flags.referrals ? await inviteState(tx, ctx.tenantId) : null,
+    invite: flags.referrals ? inviteLine(await inviteState(tx, ctx.tenantId)) : null,
   });
   return { outbound: [out], toolCalls: [mark] };
 }
 
+type InviteState = { code: string } | "not_eligible" | { paused: string | null };
+
 /**
  * El código para RW4 / RW4-i (P-3): el código si puede invitar, «not_eligible» si todavía no
- * (menos de 3 días con registro), null si su código está pausado (sin línea de invitar).
+ * (menos de 3 días con registro), o la razón de la pausa si su código está pausado.
  */
-async function inviteState(
-  tx: Tx,
-  tenantId: string,
-): Promise<{ code: string } | "not_eligible" | null> {
+async function inviteState(tx: Tx, tenantId: string): Promise<InviteState> {
   const [own] = await tx
-    .select({ disabledAt: schema.referralCode.disabledAt })
+    .select({
+      disabledAt: schema.referralCode.disabledAt,
+      disabledReason: schema.referralCode.disabledReason,
+    })
     .from(schema.referralCode)
     .where(eq(schema.referralCode.tenantId, tenantId));
-  if (own?.disabledAt) return null;
+  if (own?.disabledAt) return { paused: own.disabledReason };
   const code = await referralCodeFor(tx, tenantId);
   return code ? { code } : "not_eligible";
 }
+
+/** RW4: con el código pausado, sin línea de invitar. */
+const inviteLine = (s: InviteState): { code: string } | "not_eligible" | null =>
+  s !== "not_eligible" && "paused" in s ? null : s;
 
 /**
  * «me invitó CODE» después del registro (US-421, RW-late): solo el dueño, con `xp` y `referrals`,

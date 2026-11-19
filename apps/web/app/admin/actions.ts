@@ -50,6 +50,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/admin";
 import { db } from "@/lib/db";
 import { confirmsName, eraseBusiness, restoreBusiness, trashBusiness } from "@/lib/erase";
+import { forgetReferralsOn } from "@/lib/referral";
 
 const DAY = 24 * 60 * 60 * 1000;
 const PlanId = z.enum(PLANS.map((p) => p.id) as ["personal", "negocio", "negocio_plus"]);
@@ -523,6 +524,8 @@ export async function saveRewardsAction(formData: FormData): Promise<void> {
     await saveHabitSettings(db(), { xp, rewards, referrals }, admin.email, now, {
       approval: check.approval,
     });
+    // Seguridad F6: `referralsOn()` se guarda 30 s; en esta instancia, el cambio vale ya.
+    forgetReferralsOn();
     await saveRewardSettings(
       db(),
       { monthlyCeilingUsd: ceiling, ...rewardChangesForFlags(before, after, rs, now) },
