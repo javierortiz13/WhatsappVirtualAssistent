@@ -1,4 +1,4 @@
-import { type TenantPhone, tenantPhones } from "@caja/core";
+import { LEFT_PREFIX, type TenantPhone, tenantPhones } from "@caja/core";
 import { withTenant } from "@caja/db";
 import type { Metadata } from "next";
 import { db } from "@/lib/db";
@@ -14,6 +14,7 @@ const ERRORS: Record<string, string> = {
   datos: "Revisa los datos del formulario.",
   telefono: "Ese número no se ve bien. Escríbelo sin el código de país, por ejemplo 412 1234567.",
   ocupado: "Ese número ya pertenece a otro negocio.",
+  limite: "Tu plan no admite más empleados. Desactiva uno o cambia de plan.",
   permiso: "Solo el dueño puede cambiar los números.",
   servidor: "No pudimos guardar el cambio. Inténtalo en unos minutos.",
 };
@@ -50,8 +51,8 @@ export default async function Numeros({
       ) : null}
       {sp.ok === "alta" ? (
         <div className="notice ok">
-          Listo. Cuando ese número le escriba a Rocco por primera vez, recibe la bienvenida y ya
-          puede registrar gastos y ventas.
+          Listo. Avísale que le escriba a Rocco: la primera vez, Rocco le preguntará si trabaja
+          contigo. Si acepta, ya puede registrar gastos y ventas.
         </div>
       ) : null}
       {owner?.status === "pending" ? (
@@ -61,40 +62,50 @@ export default async function Numeros({
         </div>
       ) : null}
       <div className="card tight">
-        {phones.map((p) => (
-          <div className="row" key={p.id}>
-            <span
-              className="ico lg"
-              style={{ color: p.status === "active" ? "var(--mint)" : "var(--muted)" }}
-            >
-              <IconPhone />
-            </span>
-            <span className="what">
-              <strong>{p.displayName ?? (p.role === "owner" ? "Dueño" : "Empleado")}</strong>
-              <span className="sub num">
-                {formatE164(p.e164)} · {p.role === "owner" ? "dueño" : "empleado"}
+        {phones.map((p) => {
+          const left = p.e164.startsWith(LEFT_PREFIX);
+          const status = left
+            ? { label: "salió", cls: "" }
+            : p.role === "employee" && p.status === "pending"
+              ? { label: "sin aceptar", cls: "warn" }
+              : STATUS[p.status];
+          return (
+            <div className="row" key={p.id}>
+              <span
+                className="ico lg"
+                style={{ color: p.status === "active" ? "var(--mint)" : "var(--muted)" }}
+              >
+                <IconPhone />
               </span>
-            </span>
-            <span className="amts" style={{ gap: 6 }}>
-              <span className={`badge ${STATUS[p.status].cls}`}>{STATUS[p.status].label}</span>
-              {isOwner && p.role === "employee" ? (
-                <form action={setPhoneStatusAction}>
-                  <input type="hidden" name="phone_id" value={p.id} />
-                  <input
-                    type="hidden"
-                    name="status"
-                    value={p.status === "disabled" ? "active" : "disabled"}
-                  />
-                  <button className="linkbtn" type="submit">
-                    {p.status === "disabled" ? "Reactivar" : "Desactivar"}
-                  </button>
-                </form>
-              ) : null}
-            </span>
-          </div>
-        ))}
+              <span className="what">
+                <strong>{p.displayName ?? (p.role === "owner" ? "Dueño" : "Empleado")}</strong>
+                <span className="sub num">
+                  {left ? "Salió del negocio" : formatE164(p.e164)} ·{" "}
+                  {p.role === "owner" ? "dueño" : "empleado"}
+                </span>
+              </span>
+              <span className="amts" style={{ gap: 6 }}>
+                <span className={`badge ${status.cls}`}>{status.label}</span>
+                {isOwner && p.role === "employee" && !left ? (
+                  <form action={setPhoneStatusAction}>
+                    <input type="hidden" name="phone_id" value={p.id} />
+                    <input
+                      type="hidden"
+                      name="status"
+                      value={p.status === "disabled" ? "active" : "disabled"}
+                    />
+                    <button className="linkbtn" type="submit">
+                      {p.status === "disabled" ? "Reactivar" : "Desactivar"}
+                    </button>
+                  </form>
+                ) : null}
+              </span>
+            </div>
+          );
+        })}
       </div>
-      {isOwner ? (
+      {/* N3: sin el número del dueño verificado no se agregan empleados. */}
+      {isOwner && owner?.status !== "pending" ? (
         <form action={addEmployeeAction} className="card stack">
           <h2>Agregar un empleado</h2>
           <div className="phone-row">
@@ -126,7 +137,8 @@ export default async function Numeros({
           />
           <p className="sub">
             El empleado registra gastos y ventas; los cierres los ves solo tú. No necesita código:
-            con escribirle a Rocco queda activo.
+            la primera vez que escriba, Rocco le preguntará si trabaja contigo y queda activo cuando
+            acepte.
           </p>
           <div className="center">
             <button className="btn" type="submit">

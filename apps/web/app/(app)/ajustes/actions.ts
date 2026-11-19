@@ -4,6 +4,8 @@ import {
   addEmployee,
   BUSINESS_TYPE_LABELS,
   CategoryError,
+  EmployeeLimitError,
+  OwnerUnverifiedError,
   PhoneTakenError,
   setPhoneStatus,
   updateTenantSettings,
@@ -41,6 +43,9 @@ export async function addEmployeeAction(formData: FormData): Promise<void> {
     );
   } catch (err) {
     if (err instanceof PhoneTakenError) redirect("/ajustes/numeros?error=ocupado");
+    if (err instanceof EmployeeLimitError) redirect("/ajustes/numeros?error=limite");
+    // N3: la página ya muestra el aviso de que el número del dueño falta vincular.
+    if (err instanceof OwnerUnverifiedError) redirect("/ajustes/numeros");
     console.error(JSON.stringify({ level: "error", msg: "alta empleado", detail: errorText(err) }));
     redirect("/ajustes/numeros?error=servidor");
   }
@@ -58,12 +63,17 @@ export async function setPhoneStatusAction(formData: FormData): Promise<void> {
   if (tenant.role !== "owner") redirect("/ajustes/numeros?error=permiso");
   const parsed = StatusForm.safeParse(Object.fromEntries(formData));
   if (!parsed.success) redirect("/ajustes/numeros?error=datos");
-  await setPhoneStatus(
-    db(),
-    { tenantId: tenant.id, userId: user.id },
-    parsed.data.phone_id,
-    parsed.data.status,
-  );
+  try {
+    await setPhoneStatus(
+      db(),
+      { tenantId: tenant.id, userId: user.id },
+      parsed.data.phone_id,
+      parsed.data.status,
+    );
+  } catch (err) {
+    if (err instanceof EmployeeLimitError) redirect("/ajustes/numeros?error=limite");
+    throw err;
+  }
   revalidatePath("/ajustes/numeros");
   redirect("/ajustes/numeros");
 }
